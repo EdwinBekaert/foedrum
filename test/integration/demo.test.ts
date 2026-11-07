@@ -239,13 +239,14 @@ describe('npm run demo', () => {
       'green#2 succeeded',
       // Round 1: correctness blocks with its finding, and the batch goes back to implement once.
       'correctness#1 failed',
+      'design-conformance#1 succeeded',
       'security#1 succeeded',
       'test-design#1 succeeded',
       'implement#3 succeeded',
       'fine#3 succeeded',
       'green#3 succeeded',
       // Round 2 approves.
-      ...['correctness', 'security', 'test-design', 'design-conformance'].map(
+      ...['correctness', 'design-conformance', 'security', 'test-design'].map(
         (lens) => `${lens}#2 succeeded`,
       ),
       // Brett's mutants run after the group, advisory (ADR 0319).
