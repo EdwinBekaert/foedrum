@@ -100,6 +100,7 @@ const nip = (rounds: number): Record<string, readonly Behaviour[]> => {
     green: each(done),
     acceptance: each(approves),
     security: each(approves),
+    'design-conformance': each(approves),
     'open-pull-request': [done],
   };
 };

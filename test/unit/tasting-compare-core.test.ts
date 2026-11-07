@@ -727,13 +727,19 @@ describe('tableMarkdown', () => {
       text,
       /Other findings of together-nip, scored run 1:\n\n- taste: major in src\/q\.ts:1: too slow\n/,
     );
-    assert.match(text, /\n- Nip: apart \(apart-nip against together-nip\)\n/);
+    assert.match(
+      text,
+      /\n- Nip's three lenses as measured, which nip has a fourth beside since ADR 0343: apart \(apart-nip against together-nip\)\n/,
+    );
   });
 
   it('says a setup with no runs has none, instead of an average of nothing', () => {
     const text = tableMarkdown(summarize([], KEY), KEY);
     assert.match(text, /\| together-7 \| no runs \|/);
-    assert.match(text, /\n- Nip: not measured /);
+    assert.match(
+      text,
+      /\n- Nip's three lenses as measured, which nip has a fourth beside since ADR 0343: not measured /,
+    );
     assert.match(text, /\n- Seven lenses: not measured /);
   });
 });

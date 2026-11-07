@@ -36,20 +36,22 @@ const LENS_STEPS = [
   },
   { id: 'security', brewer: 'taster', lens: 'diff/security' },
   { id: 'test-design', brewer: 'taster', lens: 'diff/test-design' },
+  { id: 'design-conformance', brewer: 'taster', lens: 'diff/design-conformance' },
 ] as const;
 
 /**
- * The recipe: Nip's steps from `defaults/recipes/nip.jsonc`, with its taste group of three lens
- * steps, correctness, acceptance and security (ADR 0197, ADR 0306), swapped for the demo's own
- * three, correctness, security and test design, one of which blocks (ADR 0193). Nip's own correctness blocks too, with two rounds where the demo's
- * has one (ADR 0264). After the group, an advisory Brett step mutates the change: a parallel group
+ * The recipe: Nip's steps from `defaults/recipes/nip.jsonc`, with its taste group of four lens
+ * steps, correctness, acceptance, security and design conformance (ADR 0197, ADR 0306, ADR 0343),
+ * swapped for the demo's own four, correctness, security, test design and design conformance, one of
+ * which blocks (ADR 0193). Nip's own correctness blocks too, with two rounds where the demo's has one
+ * (ADR 0264). After the group, an advisory Brett step mutates the change: a parallel group
  * runs only Tasters (ADR 0168), and no default recipe runs Brett yet (ADR 0319).
  */
 export const recipeText = (): string =>
-  `// Nip's steps, tasted through three lenses side by side (ADR 0168), one of them blocking (ADR 0193), then mutated by Brett (ADR 0319).\n${JSON.stringify(
+  `// Nip's steps, tasted through four lenses side by side (ADR 0168), one of them blocking (ADR 0193), then mutated by Brett (ADR 0319).\n${JSON.stringify(
     {
       name: RECIPE,
-      description: 'Quick fix in one repository, test-first, tasted through three lenses at once',
+      description: 'Quick fix in one repository, test-first, tasted through four lenses at once',
       steps: [
         { id: 'survey', brewer: 'maltster', when: 'recipe.testFirst' },
         {

@@ -99,10 +99,10 @@ describe('the walkthrough steps', () => {
     for (const line of wrapped) assert.match(line, /^ {10}\S/);
   });
 
-  it("say where the parallel group and the tasting loop show: three lenses at once, the batch sent back twice, the comment's path a line per round", () => {
+  it("say where the parallel group and the tasting loop show: four lenses at once, the batch sent back twice, the comment's path a line per round", () => {
     const lookFor = (id: string) => STEPS.find((step) => step.id === id)?.lookFor ?? '';
     assert.match(lookFor('order'), /recipe:nip-parallel/);
-    assert.match(lookFor('order'), /three lenses at once/);
+    assert.match(lookFor('order'), /four lenses at once/);
     assert.match(lookFor('checks'), /implement #2 is told why/);
     assert.match(lookFor('checks'), /correctness #1 blocks/);
     assert.match(lookFor('pull-request'), /a line per round/);

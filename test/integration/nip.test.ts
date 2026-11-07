@@ -202,9 +202,9 @@ const assertBrewed = async ({ output, events, api, run }: Brewed, scratch: strin
 
   // The red proof read the Gauger's test red, the first green check failed and sent the batch
   // back to the Cellarman, and the second one passed.
-  // Nip's three Tasters run side by side, so any may finish first: compared in the recipe's order
-  // (ADR 0197, ADR 0306).
-  const tasters = ['correctness', 'acceptance', 'security'];
+  // Nip's four Tasters run side by side, so any may finish first: compared in the recipe's order
+  // (ADR 0197, ADR 0306, ADR 0343).
+  const tasters = ['correctness', 'acceptance', 'security', 'design-conformance'];
   const outcomes = events.flatMap((event) =>
     event.type === 'step.finished'
       ? [`${event.stepId}#${event.attempt} ${event.outcome.kind}`]
@@ -229,6 +229,7 @@ const assertBrewed = async ({ output, events, api, run }: Brewed, scratch: strin
       'correctness#1 succeeded',
       'acceptance#1 succeeded',
       'security#1 succeeded',
+      'design-conformance#1 succeeded',
       'open-pull-request#1 succeeded',
     ],
     dump,
@@ -438,10 +439,11 @@ describe('the Nip recipe end to end with the real claude', {
       if (body.includes('# Maltster')) return brew('survey', 1, 'survey.md');
       if (body.includes('# Gauger')) return [probe, ...brew('gauge', 1, 'gauge.md')];
       if (body.includes('# Taster')) {
-        // Nip's three Tasters, told apart by the lens in their prompt (ADR 0197, ADR 0306).
-        const lens =
-          ['acceptance', 'security'].find((each) => body.includes(`# Lens: ${each}`)) ??
-          'correctness';
+        // Nip's four Tasters, told apart by the lens in their prompt (ADR 0197, ADR 0306, ADR 0343).
+        const lens = body.includes('# Lens: design conformance')
+          ? 'design-conformance'
+          : (['acceptance', 'security'].find((each) => body.includes(`# Lens: ${each}`)) ??
+            'correctness');
         const [scripted] = NIP_SCRIPT[lens] ?? [];
         assert.ok(scripted !== undefined);
         const content = scriptedOutDoc(scripted);

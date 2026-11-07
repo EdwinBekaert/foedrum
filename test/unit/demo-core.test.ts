@@ -152,7 +152,7 @@ describe('the demo Brewery', () => {
     assert.ok((gauger?.maxAttempts ?? 1) >= 2, JSON.stringify(gauger));
   });
 
-  it("holds a recipe of Nip's steps with its taste step a parallel group of three lens steps (ADR 0168)", () => {
+  it("holds a recipe of Nip's steps with its taste step a parallel group of four lens steps (ADR 0168, ADR 0343)", () => {
     const { files } = demo();
     const recipe = parseJsonc(files['recipes/nip-parallel.jsonc'] ?? '{}') as {
       name?: string;
@@ -177,6 +177,7 @@ describe('the demo Brewery', () => {
         },
         { id: 'security', brewer: 'taster', lens: 'diff/security' },
         { id: 'test-design', brewer: 'taster', lens: 'diff/test-design' },
+        { id: 'design-conformance', brewer: 'taster', lens: 'diff/design-conformance' },
       ],
     };
     // Brett mutates the change after the group, advisory (ADR 0319).
@@ -187,19 +188,21 @@ describe('the demo Brewery', () => {
     );
   });
 
-  it("loads the group with its three children in Nip's place of the taste step", () => {
+  it("loads the group with its four children in Nip's place of the taste step", () => {
     const { ready } = demo(foedrumDefaults);
     if (ready.kind !== 'ready') assert.fail(JSON.stringify(ready));
     const recipe = ready.setup.recipes.find('nip-parallel');
-    assert.deepStrictEqual(recipe?.children('taste'), ['correctness', 'security', 'test-design']);
-    for (const child of ['correctness', 'security', 'test-design']) {
+    const children = ['correctness', 'security', 'test-design', 'design-conformance'];
+    assert.deepStrictEqual(recipe?.children('taste'), children);
+    for (const child of children) {
       assert.equal(ready.setup.brewers.find('nip-parallel', child)?.brewer.name, 'taster', child);
     }
-    // Nip in Foedrum's defaults keeps its own group of three lenses (ADR 0197, ADR 0306).
+    // Nip in Foedrum's defaults keeps its own group of four lenses (ADR 0197, ADR 0306, ADR 0343).
     assert.deepStrictEqual(ready.setup.recipes.find('nip')?.children('taste'), [
       'correctness',
       'acceptance',
       'security',
+      'design-conformance',
     ]);
   });
 

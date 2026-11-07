@@ -100,9 +100,10 @@ export interface Scripted {
  * What each attempt of a step commits, by step id and then in the order the runner starts that
  * step's attempts in a batch (ADR 0139): the Maltster's test map, the Gauger's failing test,
  * the Cellarman's fix that forgets the `!` (the check reads it red), then the one that does not,
- * the Finer after each with nothing to simplify, and Nip's three Tasters side by side (ADR 0197,
- * ADR 0306): an advisory finding through the correctness lens, an approval through the acceptance
- * lens, which finds both items of the order's checklist built, and one through the security lens.
+ * the Finer after each with nothing to simplify, and Nip's four Tasters side by side (ADR 0197,
+ * ADR 0306, ADR 0343): an advisory finding through the correctness lens, an approval through the
+ * acceptance lens, which finds both items of the order's checklist built, and one each through the
+ * security and design conformance lenses.
  */
 export const NIP_SCRIPT: Readonly<Record<string, readonly Scripted[]>> = {
   survey: [
@@ -178,6 +179,14 @@ export const NIP_SCRIPT: Readonly<Record<string, readonly Scripted[]>> = {
       files: {},
       message: '',
       summary: 'No untrusted input reaches a command, a path or a prompt in greet.mjs.',
+      tasting: { verdict: 'approve', findings: [] },
+    },
+  ],
+  'design-conformance': [
+    {
+      files: {},
+      message: '',
+      summary: 'The repository records no decision or document that the change makes wrong.',
       tasting: { verdict: 'approve', findings: [] },
     },
   ],

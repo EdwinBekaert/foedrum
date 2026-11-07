@@ -72,7 +72,7 @@ From a terminal outside a Claude Code session, `foedrum brew <issue>` drives und
 
 [![The brewing line: how one issue is brewed into pull requests, step by step](docs/images/foedrum-brewing-line.png)](docs/images/foedrum-brewing-line.png)
 
-The full line as designed. Each recipe picks its own steps: Nip, the quick fix that works today, starts at the Maltster's survey and is tasted through three lenses, correctness, acceptance and security.
+The full line as designed. Each recipe picks its own steps: Nip, the quick fix that works today, starts at the Maltster's survey and is tasted through four lenses, correctness, acceptance, security and design conformance.
 
 ## Documentation
 

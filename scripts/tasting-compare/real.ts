@@ -75,13 +75,13 @@ export const REAL_RECIPE = 'real-nip';
 /** The recipe of the `lens` setup (ADR 0337). */
 const REAL_LENS_RECIPE = 'real-nip-lens';
 
-/** `nip`'s Tasters, side by side (ADR 0306); a test holds them to `defaults/recipes/nip.jsonc`. */
+/** The three Tasters `nip` had when #879 measured it, kept so `real-nip` means what it meant (ADR 0343). */
 const TASTERS = [
   { id: 'correctness', brewer: 'taster', lens: 'diff/correctness' },
   { id: 'acceptance', brewer: 'taster', lens: 'diff/acceptance' },
   { id: 'security', brewer: 'taster', lens: 'diff/security' },
 ] as const;
-/** The `lens` setup's Tasters: `nip`'s and one more, which `nip` does not have (ADR 0337). */
+/** The `lens` setup's Tasters (ADR 0337), `nip`'s since ADR 0343; a test holds them to `defaults/recipes/nip.jsonc`. */
 const LENS_TASTERS = [
   ...TASTERS,
   { id: 'design-conformance', brewer: 'taster', lens: 'diff/design-conformance' },
@@ -103,8 +103,8 @@ export const realRecipeText = (setup: RealSetup): string => {
   const recipe = {
     name: realRecipeOf(setup),
     description: setup.endsWith('-lens')
-      ? "A head as it was brewed, tasted by nip's Tasters and design conformance, nothing blocking"
-      : 'A head as it was brewed, tasted as nip tastes it, nothing blocking',
+      ? 'A head as it was brewed, tasted by correctness, acceptance, security and design conformance, nothing blocking'
+      : 'A head as it was brewed, tasted by correctness, acceptance and security, nothing blocking',
     testFirst: false,
     steps: [
       { id: 'gauge', brewer: 'gauger', when: 'recipe.testFirst' },

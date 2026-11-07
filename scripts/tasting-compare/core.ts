@@ -20,7 +20,7 @@ const SEVEN = [
   'diff/test-design',
 ] as const;
 
-/** Nip's three lenses (ADR 0197, ADR 0306). */
+/** Nip's three lenses as ADR 0224's comparison measures them (ADR 0197, ADR 0306); nip has a fourth (ADR 0343). */
 const NIP = ['diff/correctness', 'diff/acceptance', 'diff/security'] as const;
 
 /** A setup that runs, and its lenses. */
@@ -675,7 +675,7 @@ export const tableMarkdown = (summaries: readonly SetupSummary[], key: Key): str
     planted: 'Defect',
     rows: key.defects,
     choices: [
-      `- Nip: ${saidChoice(choice.nip)} (apart-nip against together-nip)`,
+      `- Nip's three lenses as measured, which nip has a fourth beside since ADR 0343: ${saidChoice(choice.nip)} (apart-nip against together-nip)`,
       `- Seven lenses: ${saidChoice(choice.seven)} (apart-7 against together-7)`,
     ],
     readFromAnother: 'apart-nip',

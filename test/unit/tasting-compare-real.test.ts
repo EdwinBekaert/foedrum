@@ -701,11 +701,20 @@ describe('tasting-compare --real', () => {
       return taste.parallel;
     };
 
-    it("the real mode's Tasters are the lenses of the default nip recipe", () => {
-      const nip = readFileSync(join(root, 'defaults', 'recipes', 'nip.jsonc'), 'utf8');
-      const named = (steps: ReturnType<typeof tasteOf>) =>
-        steps.map((step) => ({ id: step.id, brewer: step.brewer, lens: step.lens }));
-      assert.deepEqual(named(tasteOf(realRecipeText('855-reads'))), named(tasteOf(nip)));
+    it('real-nip keeps the three Tasters the comparison measured (ADR 0343)', () => {
+      const named = tasteOf(realRecipeText('855-reads')).map((step) => [step.id, step.lens]);
+      assert.deepEqual(named, [
+        ['correctness', 'diff/correctness'],
+        ['acceptance', 'diff/acceptance'],
+        ['security', 'diff/security'],
+      ]);
+    });
+
+    it('real-nip says it tastes with less than nip does now (ADR 0343)', () => {
+      const { description } = Recipe.parse(parseJsonc(realRecipeText('855-reads')));
+      assert.doesNotMatch(description ?? '', /as nip tastes it/);
+      assert.match(description ?? '', /correctness, acceptance and security/);
+      assert.doesNotMatch(description ?? '', /design conformance/);
     });
 
     it('blocks nowhere, so every run ends', () => {
@@ -756,12 +765,18 @@ describe('tasting-compare --real', () => {
         return text;
       };
 
-      it("the lens setup's Tasters are exactly nip's lenses and design conformance", () => {
+      it("the lens setup's Tasters are the lenses of the default nip recipe (ADR 0343)", () => {
         const nip = readFileSync(join(root, 'defaults', 'recipes', 'nip.jsonc'), 'utf8');
         const named = (steps: ReturnType<typeof tasteOf>) =>
           steps.map((step) => ({ id: step.id, brewer: step.brewer, lens: step.lens }));
+        assert.deepEqual(named(tasteOf(lensRecipe())), named(tasteOf(nip)));
+      });
+
+      it("the lens setup's Tasters are real-nip's and design conformance", () => {
+        const named = (steps: ReturnType<typeof tasteOf>) =>
+          steps.map((step) => ({ id: step.id, brewer: step.brewer, lens: step.lens }));
         assert.deepEqual(named(tasteOf(lensRecipe())), [
-          ...named(tasteOf(nip)),
+          ...named(tasteOf(realRecipeText('855-reads'))),
           { id: 'design-conformance', brewer: 'taster', lens: 'diff/design-conformance' },
         ]);
       });
@@ -773,9 +788,9 @@ describe('tasting-compare --real', () => {
         }
       });
 
-      it('its recipe says it tastes with more than nip does', () => {
+      it('its recipe names design conformance', () => {
         const { description } = Recipe.parse(parseJsonc(lensRecipe()));
-        assert.match(description ?? '', /design conformance/);
+        assert.match(description ?? '', /correctness, acceptance, security and design conformance/);
         assert.doesNotMatch(description ?? '', /as nip tastes it/);
       });
 
