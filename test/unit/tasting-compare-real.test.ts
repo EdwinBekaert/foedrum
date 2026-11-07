@@ -2,12 +2,15 @@ import assert from 'node:assert/strict';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, parse, resolve } from 'node:path';
 import { describe, it } from 'node:test';
+import { BREWERY, localConfig, TARGET, USER } from '../../scripts/demo/core.ts';
 import type { RunRecord, TasterAttempt } from '../../scripts/tasting-compare/core.ts';
 import {
   blinded,
   changedFiles,
   codeOf,
   comparisonStop,
+  highTaster,
+  modelStop,
   nextRealRun,
   orderOf,
   REAL_RECIPE,
@@ -23,13 +26,18 @@ import {
   refuseSameTaster,
   scriptedRealTastings,
   scriptedTranscript,
+  selectRealSetups,
   transcriptReads,
 } from '../../scripts/tasting-compare/real.ts';
+import { modelOf } from '../../src/brewers/attempt-plan.ts';
+import { claudeArgs } from '../../src/brewers/claude-command.ts';
+import { serveSetup } from '../../src/cli/serve-config.ts';
 import { readBreweryFiles } from '../../src/engine/brewery-files.ts';
 import { loadRecipes } from '../../src/engine/recipe-files.ts';
 import { parseJsonc } from '../../src/formats/jsonc.ts';
 import type { Event } from '../../src/schemas/events.ts';
 import { Recipe } from '../../src/schemas/recipe.ts';
+import { nipBreweryFiles } from '../helpers/nip-fixture.ts';
 import { makeTempDir } from '../helpers/temp-dir.ts';
 
 const root = resolve(import.meta.dirname, '..', '..');
@@ -148,16 +156,24 @@ const attempt = (
   ...more,
 });
 
+const TASTERS = { today: 'the old text', current: 'the default text' };
+
 const SETUPS: readonly RealSetup[] = [
   '855-today',
   '855-reads',
   '855-lens',
+  '855-opus',
+  '855-high',
   '864-today',
   '864-reads',
   '864-lens',
+  '864-opus',
+  '864-high',
   '867-today',
   '867-reads',
   '867-lens',
+  '867-opus',
+  '867-high',
   '867-comments',
 ];
 
@@ -397,10 +413,13 @@ describe('tasting-compare --real', () => {
     it('a transcript that cannot be read stops the comparison, and a read outside fails only its run', () => {
       const brewed = tasted('correctness', { findings: [] });
       const lost = realRecordOf(brewed, () => undefined);
-      assert.match(comparisonStop(lost) ?? '', /correctness: .*transcript could not be found/);
+      assert.match(
+        comparisonStop({ setup: '855-reads', ...lost }) ?? '',
+        /correctness: .*transcript could not be found/,
+      );
 
       const outside = realRecordOf(brewed, () => transcript(read(OUTSIDE), outDoc));
-      assert.equal(comparisonStop(outside), undefined);
+      assert.equal(comparisonStop({ setup: '855-reads', ...outside }), undefined);
       const run: RealRecord = { ...record('855-today', 1, 'x'), attempts: outside.attempts };
       assert.deepEqual(nextRealRun([run], 1), { setup: '855-today', run: 1, retry: true });
     });
@@ -414,7 +433,7 @@ describe('tasting-compare --real', () => {
         transcript({ name: 'Bash', input: { command: 'cat x' } }, outDoc),
       ]) {
         const reading = realRecordOf(tasted('security', { findings: [] }), () => text);
-        assert.match(comparisonStop(reading) ?? '', /^security: /, text);
+        assert.match(comparisonStop({ setup: '855-reads', ...reading }) ?? '', /^security: /, text);
       }
     });
 
@@ -426,7 +445,10 @@ describe('tasting-compare --real', () => {
         attempt: 1,
         outcome: { kind: 'failed', retryable: false, reason: 'it stalled' },
       });
-      assert.equal(comparisonStop(realRecordOf([failed], () => undefined)), undefined);
+      assert.equal(
+        comparisonStop({ setup: '855-reads', ...realRecordOf([failed], () => undefined) }),
+        undefined,
+      );
     });
 
     it('a stop keeps a tool name from forging a line of the output', () => {
@@ -434,8 +456,8 @@ describe('tasting-compare --real', () => {
       const reading = realRecordOf(tasted('security', { findings: [] }), () =>
         transcript(forged, outDoc),
       );
-      assert.doesNotMatch(comparisonStop(reading) ?? 'none', /\n/);
-      assert.match(comparisonStop(reading) ?? '', /forged line/);
+      assert.doesNotMatch(comparisonStop({ setup: '855-reads', ...reading }) ?? 'none', /\n/);
+      assert.match(comparisonStop({ setup: '855-reads', ...reading }) ?? '', /forged line/);
     });
 
     it('takes the out doc body from the transcript, past its frontmatter', () => {
@@ -700,7 +722,7 @@ describe('tasting-compare --real', () => {
       assert.ok(recipe.steps.some((step) => 'action' in step && step.action === 'openPullRequest'));
       const brewery = makeTempDir('tasting-compare-real');
       try {
-        const files = realBreweryFiles('855-reads', 'unused');
+        const files = realBreweryFiles('855-reads', TASTERS);
         for (const [path, text] of Object.entries(files)) {
           mkdirSync(dirname(join(brewery.path, path)), { recursive: true });
           writeFileSync(join(brewery.path, path), text);
@@ -723,16 +745,13 @@ describe('tasting-compare --real', () => {
     });
 
     it('the today setup replaces the Taster, and the reads setup keeps the default', () => {
-      assert.equal(
-        realBreweryFiles('864-today', 'the old text')['brewers/taster.md'],
-        'the old text',
-      );
-      assert.equal(realBreweryFiles('864-reads', 'the old text')['brewers/taster.md'], undefined);
+      assert.equal(realBreweryFiles('864-today', TASTERS)['brewers/taster.md'], 'the old text');
+      assert.equal(realBreweryFiles('864-reads', TASTERS)['brewers/taster.md'], undefined);
     });
 
     describe('the lens setup (#889, ADR 0337)', () => {
       const lensRecipe = () => {
-        const text = realBreweryFiles('855-lens', 'unused')['recipes/real-nip-lens.jsonc'];
+        const text = realBreweryFiles('855-lens', TASTERS)['recipes/real-nip-lens.jsonc'];
         assert.ok(text !== undefined, 'the lens setup has no recipe of its own');
         return text;
       };
@@ -768,7 +787,7 @@ describe('tasting-compare --real', () => {
       });
 
       it("its recipe is named as an order's label and loads as a Brewery file, on the default Taster", () => {
-        const files = realBreweryFiles('855-lens', 'the old text');
+        const files = realBreweryFiles('855-lens', TASTERS);
         assert.equal(files['brewers/taster.md'], undefined);
         assert.equal(Recipe.parse(parseJsonc(lensRecipe())).name, 'real-nip-lens');
         const brewery = makeTempDir('tasting-compare-real');
@@ -939,12 +958,18 @@ describe('tasting-compare --real', () => {
         '| 855-today | 0 | 0 | 0 |',
         '| 855-reads | 0 | 0 | 0 |',
         '| 855-lens | 0 | 0 | 0 |',
+        '| 855-opus | 0 | 0 | 0 |',
+        '| 855-high | 0 | 0 | 0 |',
         '| 864-today | 0 | 0 | 0 |',
         '| 864-reads | 0 | 0 | 0 |',
         '| 864-lens | 0 | 0 | 0 |',
+        '| 864-opus | 0 | 0 | 0 |',
+        '| 864-high | 0 | 0 | 0 |',
         '| 867-today | 0 | 0 | 0 |',
         '| 867-reads | 1 | 0 | 0 |',
         '| 867-lens | 0 | 0 | 0 |',
+        '| 867-opus | 0 | 0 | 0 |',
+        '| 867-high | 0 | 0 | 0 |',
         '| 867-comments | 0 | 0 | 0 |',
         '',
         'Score lists/<order>.md by hand, then read bodies/<order>.md, then open codes.md, which says which setup each code is.',
@@ -1081,10 +1106,331 @@ describe('tasting-compare --real', () => {
     });
 
     it('its transcript reads as a Taster that stayed inside', () => {
-      const reads = transcriptReads(scriptedTranscript(WORKTREE), WORKTREE);
+      const reads = transcriptReads(scriptedTranscript(WORKTREE, 'opus'), WORKTREE);
       assert.deepEqual(reads.outside, []);
       assert.equal(reads.problem, undefined);
       assert.deepEqual(reads.opened, ['CLAUDE.md']);
+    });
+
+    it('its transcript names the model the attempt was planned with', () => {
+      const reads = transcriptReads(scriptedTranscript(WORKTREE, 'opus'), WORKTREE);
+      assert.deepEqual(reads.models, ['opus']);
+    });
+  });
+});
+
+describe('tasting-compare --real: the opus and high setups (ADR 0344)', () => {
+  const DEFAULT_TASTER = readFileSync(join(root, 'defaults', 'brewers', 'taster.md'), 'utf8');
+  const REAL_TASTERS = { today: 'the old text', current: DEFAULT_TASTER };
+  const SESSION = '00000000-0000-4000-8000-000000000001';
+
+  /** A step's brewer and its `claude` line, through serve's own setup of the scratch Brewery. */
+  const commandLine = (setup: RealSetup, stepId = 'correctness'): string[] => {
+    const brewery = makeTempDir('tasting-compare-real');
+    try {
+      const { 'models.jsonc': _, ...nip } = nipBreweryFiles({
+        brewery: BREWERY,
+        target: TARGET,
+        user: USER,
+      });
+      const files: Record<string, string> = {
+        ...nip,
+        ...realBreweryFiles(setup, REAL_TASTERS),
+        '.foedrum/local.jsonc': localConfig(join(brewery.path, 'work'), join(brewery.path, 'web')),
+      };
+      for (const [path, text] of Object.entries(files)) {
+        mkdirSync(dirname(join(brewery.path, path)), { recursive: true });
+        writeFileSync(join(brewery.path, path), text);
+      }
+      const ready = serveSetup({
+        root: brewery.path,
+        home: join(brewery.path, 'home'),
+        platform: process.platform,
+        env: {},
+        files: {
+          config: files['foedrum.jsonc'],
+          local: files['.foedrum/local.jsonc'],
+          models: files['models.jsonc'],
+          brewery: readBreweryFiles(brewery.path),
+        },
+        diagnosis: {
+          tools: [{ name: 'claude', version: undefined, path: 'claude' }],
+          isolation: { level: 'permissions only', why: 'a test' },
+          problems: [],
+        },
+      });
+      assert.ok(ready.kind !== 'refused', JSON.stringify(ready));
+      const step = ready.setup.brewers.find(realRecipeOf(setup), stepId);
+      assert.ok(step !== undefined, stepId);
+      return claudeArgs({
+        model: modelOf(ready.setup.models, step.brewer),
+        effort: step.brewer.effort,
+        settingsFile: 'settings.json',
+        tools: ['Read'],
+        session: { kind: 'new', id: SESSION },
+      });
+    } finally {
+      brewery.remove();
+    }
+  };
+
+  const withValue = (args: readonly string[], option: string, value: string): string[] =>
+    args.map((arg, at) => (args[at - 1] === option ? value : arg));
+
+  it("the opus setup differs from reads by the Taster's model alone", () => {
+    const reads = realBreweryFiles('855-reads', REAL_TASTERS);
+    const { 'models.jsonc': models, ...others } = realBreweryFiles('855-opus', REAL_TASTERS);
+    assert.deepEqual(others, reads);
+    assert.ok(models !== undefined);
+    assert.deepEqual(JSON.parse(models), { models: { opus: 'opus' }, brewers: { taster: 'opus' } });
+
+    const line = commandLine('855-opus');
+    assert.equal(line[line.indexOf('--model') + 1], 'opus');
+    assert.equal(line[line.indexOf('--effort') + 1], 'medium');
+    assert.deepEqual(withValue(line, '--model', 'sonnet'), commandLine('855-reads'));
+    // Only the Taster moves: another brewer of the same alias stays where it was.
+    assert.deepEqual(commandLine('855-opus', 'implement'), commandLine('855-reads', 'implement'));
+  });
+
+  it("the high setup differs from reads by the Taster's effort alone", () => {
+    const reads = realBreweryFiles('855-reads', REAL_TASTERS);
+    const { 'brewers/taster.md': taster, ...others } = realBreweryFiles('855-high', REAL_TASTERS);
+    assert.deepEqual(others, reads);
+    assert.equal(taster, DEFAULT_TASTER.replace('"effort": "medium"', '"effort": "high"'));
+    assert.notEqual(taster, DEFAULT_TASTER);
+
+    const line = commandLine('855-high');
+    assert.equal(line[line.indexOf('--effort') + 1], 'high');
+    assert.equal(line[line.indexOf('--model') + 1], 'sonnet');
+    assert.deepEqual(withValue(line, '--effort', 'medium'), commandLine('855-reads'));
+  });
+
+  it('both taste each order on its own, with no comment, as its reads setup does: regression test', () => {
+    for (const setup of selectRealSetups('opus,high')) {
+      const reads = `${setup.slice(0, 3)}-reads` as RealSetup;
+      assert.equal(orderOf(setup), orderOf(reads), setup);
+      assert.equal(realRecipeOf(setup), REAL_RECIPE, setup);
+      assert.equal(
+        realBreweryFiles(setup, REAL_TASTERS)[`recipes/${REAL_RECIPE}.jsonc`],
+        realBreweryFiles(reads, REAL_TASTERS)[`recipes/${REAL_RECIPE}.jsonc`],
+        setup,
+      );
+      assert.deepEqual(
+        realCommentsOf(setup, 'the-maintainer', () => 'a comment'),
+        [],
+        setup,
+      );
+    }
+  });
+
+  it('the other setups write no models.jsonc, and only today replaces the Taster: regression test', () => {
+    for (const setup of ['855-today', '855-reads', '855-lens', '867-comments'] as const) {
+      assert.equal(realBreweryFiles(setup, REAL_TASTERS)['models.jsonc'], undefined, setup);
+    }
+    assert.equal(realBreweryFiles('855-today', REAL_TASTERS)['brewers/taster.md'], 'the old text');
+    for (const setup of ['855-reads', '855-lens', '867-comments'] as const) {
+      assert.equal(realBreweryFiles(setup, REAL_TASTERS)['brewers/taster.md'], undefined, setup);
+    }
+  });
+
+  describe('the high Taster', () => {
+    it('refuses a default Taster that does not hold medium effort', () => {
+      assert.throws(() => highTaster('{ "effort": "low" }'), /effort/);
+    });
+
+    it('refuses a default Taster that says it twice, as it could not tell which', () => {
+      assert.throws(() => highTaster('"effort": "medium"\n"effort": "medium"\n'), /effort/);
+    });
+
+    it('changes that one value and no other text', () => {
+      assert.equal(
+        highTaster('before\n  "effort": "medium",\nafter $& medium\n'),
+        'before\n  "effort": "high",\nafter $& medium\n',
+      );
+    });
+  });
+
+  describe('the model a run ran on', () => {
+    const on = (text: string, model: string): string => text.replaceAll('claude-sonnet-5-5', model);
+
+    it('a transcript names the models its session ran on, once each', () => {
+      const text = on(transcript(read('a.ts'), outDoc), 'claude-opus-5-5');
+      assert.deepEqual(transcriptReads(text, WORKTREE).models, ['claude-opus-5-5']);
+      const both = `${transcript(outDoc)}${on(transcript(outDoc), 'claude-opus-5-5')}`;
+      assert.deepEqual(transcriptReads(both, WORKTREE).models, [
+        'claude-sonnet-5-5',
+        'claude-opus-5-5',
+      ]);
+    });
+
+    it('leaves out the line claude made up for a failed call: it ran on no model', () => {
+      const madeUp = JSON.stringify({
+        type: 'assistant',
+        message: { model: '<synthetic>', content: [{ type: 'text', text: 'API Error' }] },
+      });
+      const text = `${madeUp}\n${transcript(outDoc)}`;
+      assert.deepEqual(transcriptReads(text, WORKTREE).models, ['claude-sonnet-5-5']);
+    });
+
+    it("reads a model only from the model's own lines", () => {
+      const logged = JSON.stringify({
+        type: 'api-request-blob',
+        message: { model: 'claude-haiku-5-5', content: [] },
+      });
+      const asked = JSON.stringify({
+        type: 'user',
+        message: { model: 'claude-haiku-5-5', content: 'The order' },
+      });
+      const text = `${logged}\n${asked}\n${transcript(outDoc)}`;
+      assert.deepEqual(transcriptReads(text, WORKTREE).models, ['claude-sonnet-5-5']);
+    });
+
+    it("a record keeps the transcript's model, which is the one codes.md shows", () => {
+      const [taster] = realRecordOf(tasted('correctness', { findings: [] }), () =>
+        on(transcript(outDoc), 'claude-opus-5-5'),
+      ).attempts;
+      assert.deepEqual(taster?.models, ['claude-opus-5-5']);
+      const run: RealRecord = {
+        ...record('855-opus', 1, 'x'),
+        attempts: [taster as TasterAttempt],
+      };
+      assert.match(
+        blinded([run], 'a seed').codes,
+        /\| 855-opus \| 1 \| correctness \| claude-opus-5-5 \|/,
+      );
+    });
+
+    const ranOn = (setup: RealSetup, ...models: (readonly string[])[]) => ({
+      setup,
+      attempts: models.map((each, at) => attempt(`taster-${at}`, [], { models: each })),
+    });
+
+    it('the stop of a run reads the model its transcript names', () => {
+      const brewed = tasted('correctness', { findings: [] });
+      const opus = realRecordOf(brewed, () => on(transcript(outDoc), 'claude-opus-5-5'));
+      assert.match(comparisonStop({ setup: '855-reads', ...opus }) ?? '', /claude-opus-5-5/);
+      assert.equal(comparisonStop({ setup: '855-opus', ...opus }), undefined);
+    });
+
+    it('a run on the model its setup asked for stops nothing', () => {
+      assert.equal(modelStop(ranOn('855-opus', ['claude-opus-5-5'])), undefined);
+      for (const setup of [
+        '855-today',
+        '855-reads',
+        '855-lens',
+        '855-high',
+        '867-comments',
+      ] as const) {
+        assert.equal(modelStop(ranOn(setup, ['claude-sonnet-5-5'])), undefined, setup);
+      }
+    });
+
+    it('an opus run on sonnet stops the comparison and names both', () => {
+      const stop = modelStop(ranOn('855-opus', ['claude-sonnet-5-5']));
+      assert.match(stop ?? '', /taster-0/);
+      assert.match(stop ?? '', /claude-sonnet-5-5/);
+      assert.match(stop ?? '', /opus/);
+    });
+
+    it('a high run on opus stops the comparison', () => {
+      assert.match(modelStop(ranOn('855-high', ['claude-opus-5-5'])) ?? '', /sonnet/);
+    });
+
+    it('one Taster of a run on another model stops it, the last too', () => {
+      const stop = modelStop(ranOn('855-opus', ['claude-opus-5-5'], ['claude-sonnet-5-5']));
+      assert.match(stop ?? '', /taster-1/);
+    });
+
+    it('a session on two models stops it, as one was not asked for', () => {
+      const stop = modelStop(ranOn('855-opus', ['claude-opus-5-5', 'claude-sonnet-5-5']));
+      assert.match(stop ?? '', /claude-sonnet-5-5/);
+    });
+
+    it('a Taster that finished and whose transcript names no model stops it', () => {
+      assert.match(modelStop(ranOn('855-opus', [])) ?? '', /no model/);
+    });
+
+    it('an attempt that failed by itself, with no model, stops nothing', () => {
+      const failed = attempt('security', [], { failure: 'it stalled', models: [] });
+      assert.equal(modelStop({ setup: '855-opus', attempts: [failed] }), undefined);
+    });
+
+    it('a failed attempt on another model still stops it', () => {
+      const failed = attempt('security', [], {
+        failure: 'it stalled',
+        models: ['claude-haiku-5-5'],
+      });
+      assert.match(modelStop({ setup: '855-opus', attempts: [failed] }) ?? '', /claude-haiku-5-5/);
+    });
+
+    it("keeps a model's text from forging a line of the output", () => {
+      const [separator] = [0x2028].map((code) => String.fromCodePoint(code));
+      const stop = modelStop(ranOn('855-opus', [`forged\nline${separator}more`]));
+      assert.match(stop ?? '', /forged/);
+      assert.doesNotMatch(stop ?? '', /\n/);
+      assert.equal((stop ?? '').includes(separator ?? 'none'), false);
+    });
+
+    it("a dry run's transcript on opus passes an opus setup's check and stops a reads setup's: regression test", () => {
+      const dry = (model: string) => transcriptReads(scriptedTranscript(WORKTREE, model), WORKTREE);
+      const attempts = [attempt('security', [], { models: dry('opus').models ?? [] })];
+      assert.equal(modelStop({ setup: '855-opus', attempts }), undefined);
+      assert.match(modelStop({ setup: '855-reads', attempts }) ?? '', /sonnet/);
+    });
+  });
+
+  describe('--setups', () => {
+    it('names the setups of every order, in the order a whole run walks them', () => {
+      assert.deepEqual(selectRealSetups('high,opus'), [
+        '855-opus',
+        '855-high',
+        '864-opus',
+        '864-high',
+        '867-opus',
+        '867-high',
+      ]);
+    });
+
+    it('takes the one setup of a single order', () => {
+      assert.deepEqual(selectRealSetups('comments'), ['867-comments']);
+    });
+
+    it('refuses a name no setup has, and says which it knows', () => {
+      assert.throws(
+        () => selectRealSetups('opus,hihg'),
+        /hihg.*today, reads, lens, opus, high, comments/,
+      );
+    });
+
+    it('refuses an empty name and an order of the name', () => {
+      for (const names of ['', 'opus,', '855-opus']) {
+        assert.throws(() => selectRealSetups(names), /no setup/, names);
+      }
+    });
+
+    it('walks only the chosen setups, whatever else the records hold', () => {
+      const chosen = selectRealSetups('opus,high');
+      const records: RealRecord[] = [record('855-reads', 1, 'x'), record('855-today', 2, 'x')];
+      const walked: string[] = [];
+      for (
+        let next = nextRealRun(records, 1, chosen);
+        next !== undefined;
+        next = nextRealRun(records, 1, chosen)
+      ) {
+        walked.push(next.setup);
+        records.push(record(next.setup, next.run, 'x'));
+      }
+      assert.deepEqual(walked, chosen);
+    });
+
+    it('goes on where a stopped run of them stopped, from the records', () => {
+      const chosen = selectRealSetups('opus,high');
+      const stopped = [record('855-high', 1, 'x'), record('855-opus', 1, 'x')];
+      assert.deepEqual(nextRealRun(stopped, 1, chosen), {
+        setup: '864-opus',
+        run: 1,
+        retry: false,
+      });
     });
   });
 });
@@ -1120,15 +1466,15 @@ describe('tasting-compare --real: 867-comments (ADR 0333)', () => {
 
   it('brews nip without the lens setup Taster: regression test', () => {
     assert.equal(realRecipeOf('867-comments'), REAL_RECIPE);
-    assert.deepEqual(Object.keys(realBreweryFiles('867-comments', 'unused')), [
+    assert.deepEqual(Object.keys(realBreweryFiles('867-comments', TASTERS)), [
       `recipes/${REAL_RECIPE}.jsonc`,
     ]);
   });
 
   it('differs from 867-reads only by the comment: the default Taster, the same order and the same files', () => {
     assert.deepEqual(
-      realBreweryFiles('867-comments', 'the old text'),
-      realBreweryFiles('867-reads', 'the old text'),
+      realBreweryFiles('867-comments', TASTERS),
+      realBreweryFiles('867-reads', TASTERS),
     );
     assert.equal(orderOf('867-comments'), orderOf('867-reads'));
   });

@@ -20,13 +20,15 @@
 // with --dry-run, until the batch waits for the plan's review. Its records, runs and table are kept
 // apart under .foedrum/tmp/tasting-compare/plan. Its decisions are scripts/tasting-compare/plan.ts.
 //
-// With --real (#879, ADR 0332) it tastes three brewed heads of this repository instead, each in three
-// setups, and #867 in a fourth with its maintainer's comment (ADR 0333): the target is the order's
+// With --real (#879, ADR 0332) it tastes three brewed heads of this repository instead, each in five
+// setups, and #867 in a sixth with its maintainer's comment (ADR 0333): the target is the order's
 // base fetched from this checkout, a scripted Cellarman commits the head's changed files, and nip's
-// three Tasters, with design conformance as a fourth in the lens setup (ADR 0337), run on the real
-// claude, or scripted with --dry-run. It reads each Taster's transcript for what it read, and stops
-// at once on a transcript that cannot say. It writes one blinded list per order and one file of its
-// bodies under
+// three Tasters, with design conformance as a fourth in the lens setup (ADR 0337), on Opus in the
+// opus setup and at high effort in the high setup (ADR 0344), run on the real claude, or scripted with
+// --dry-run. --setups <names> runs only those, such as opus,high. It prints each Taster's model and
+// effort as it is planned, reads each Taster's transcript for what it read and the model it ran on,
+// and stops at once on a transcript that cannot say or another model. It writes one blinded list per
+// order and one file of its bodies under
 // .foedrum/tmp/tasting-compare/real, the setups named only in codes.md. It scores nothing. Its
 // decisions are scripts/tasting-compare/real.ts.
 
@@ -42,12 +44,13 @@ import {
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
+import type { ClaudeAttemptPlan } from '../src/brewers/claude-runner.ts';
 import { runBrew } from '../src/cli/brew.ts';
 import { claudeConfigDir } from '../src/cli/resume.ts';
 import type { ServeShell } from '../src/cli/serve.ts';
 import { serveSetup } from '../src/cli/serve-config.ts';
 import { listenWhileServing, serveShell } from '../src/cli/serve-shell.ts';
-import type { BrewerRunner } from '../src/engine/brewer-runner.ts';
+import type { AttemptStart, BrewerRunner } from '../src/engine/brewer-runner.ts';
 import { readBreweryFiles } from '../src/engine/brewery-files.ts';
 import type { EventStore } from '../src/engine/event-store.ts';
 import { resolveExecutable } from '../src/platform/executables.ts';
@@ -102,6 +105,7 @@ import {
   refuseSameTaster,
   scriptedRealTastings,
   scriptedTranscript,
+  selectRealSetups,
   TODAY_COMMIT,
 } from './tasting-compare/real.ts';
 
@@ -121,12 +125,28 @@ const { values } = parseArgs({
     'dry-run': { type: 'boolean' },
     plan: { type: 'boolean' },
     real: { type: 'boolean' },
+    setups: { type: 'string' },
   },
 });
 if (values.plan === true && values.real === true) {
   process.stderr.write('--plan and --real are two comparisons: give one of them\n');
   process.exit(2);
 }
+if (values.setups !== undefined && values.real !== true) {
+  process.stderr.write('--setups chooses among the setups of --real: give --real too\n');
+  process.exit(2);
+}
+/** The real mode's setups to run: those --setups names, or all. */
+const chosenSetups = (): readonly RealSetup[] => {
+  if (values.setups === undefined) return REAL_SETUPS;
+  try {
+    return selectRealSetups(values.setups);
+  } catch (error) {
+    process.stderr.write(`${(error as Error).message}\n`);
+    process.exit(2);
+  }
+};
+const realSetups = chosenSetups();
 const runs = Number(values.runs ?? '3');
 if (!Number.isSafeInteger(runs) || runs < 1) {
   process.stderr.write(`--runs must be a whole number of at least 1, not ${values.runs}\n`);
@@ -165,7 +185,7 @@ interface Mode<Setup extends string> {
   order: (setup: Setup) => string;
   /** The recipe a run's order is labelled for. */
   recipeOf: (setup: Setup) => string;
-  /** The Brewery's files of a run beyond Nip's, by path: its recipes, and any brewer it replaces. */
+  /** The Brewery's files of a run beyond Nip's, by path: its recipes, any brewer it replaces, and any models.jsonc. */
   breweryFiles: (setup: Setup) => Record<string, string>;
   /** Makes the bare remote `web.git` with the target's base on main, and its clone `web`. */
   target: (setup: Setup, scratch: string, git: RunGit) => Promise<void>;
@@ -184,10 +204,12 @@ interface Mode<Setup extends string> {
   recordOf: (
     events: readonly { event: Event }[],
     setup: Setup,
+    /** The model each attempt was planned with, by its session's id. */
+    planned: ReadonlyMap<string, string>,
   ) => Pick<RunRecord, 'ended' | 'attempts'>;
   table: (records: readonly RunRecord<Setup>[]) => string;
   /** Why a run shows the comparison itself cannot go on: the harness's fault, never a Taster's. */
-  stop?: (record: Pick<RunRecord<Setup>, 'attempts'>) => string | undefined;
+  stop?: (record: Pick<RunRecord<Setup>, 'setup' | 'attempts'>) => string | undefined;
   /** More files of its report, by path in its folder. */
   files?: (records: readonly RunRecord<Setup>[], folder: string) => Record<string, string>;
   /** The comments on a run's order, by the login that writes as a maintainer (ADR 0333). */
@@ -282,17 +304,15 @@ const realMode = async (): Promise<Mode<RealSetup>> => {
   if (today.code !== 0) {
     throw new Error(`the Taster of ${TODAY_COMMIT} cannot be read: ${today.stderr.trim()}`);
   }
-  refuseSameTaster(
-    today.stdout,
-    readFileSync(join(root, 'defaults', 'brewers', 'taster.md'), 'utf8'),
-  );
+  const current = readFileSync(join(root, 'defaults', 'brewers', 'taster.md'), 'utf8');
+  refuseSameTaster(today.stdout, current);
   const folder = join(fixture, 'real');
   return {
     folders: ['real'],
-    setups: REAL_SETUPS,
+    setups: realSetups,
     order: (setup) => join(folder, `${orderOf(setup).order}.md`),
     recipeOf: realRecipeOf,
-    breweryFiles: (setup) => realBreweryFiles(setup, today.stdout),
+    breweryFiles: (setup) => realBreweryFiles(setup, { today: today.stdout, current }),
     target: async (setup, scratch, git) => {
       // Only the base: later history stays out of the scratch remote, whatever a Taster may run.
       await git(scratch, ['init', '-q', '--bare', '--initial-branch=main', 'web.git']);
@@ -327,10 +347,10 @@ const realMode = async (): Promise<Mode<RealSetup>> => {
       };
     },
     scriptedStep: IMPLEMENT,
-    next: nextRealRun,
-    recordOf: (events) =>
+    next: (records, runCount) => nextRealRun(records, runCount, realSetups),
+    recordOf: (events, _setup, planned) =>
       realRecordOf(events, (id, worktree) =>
-        dryRun ? scriptedTranscript(worktree) : transcriptOf(id),
+        dryRun ? scriptedTranscript(worktree, planned.get(id) ?? 'no plan') : transcriptOf(id),
       ),
     table: realTable,
     stop: comparisonStop,
@@ -393,8 +413,8 @@ const compare = async <Setup extends string>(mode: Mode<Setup>): Promise<void> =
     const [title = '', ...bodyLines] = readFileSync(mode.order(setup), 'utf8').split(/\r?\n/);
     const script = await mode.script(setup, scratch, git);
 
-    // The Brewery: Nip's fixture files with the default models (no models.jsonc), and the mode's own
-    // files: its recipes, and any brewer it replaces.
+    // The Brewery: Nip's fixture files with the default models (no models.jsonc of theirs), and the
+    // mode's own files: its recipes, any brewer it replaces, and any models.jsonc.
     const { 'models.jsonc': _, ...nipFiles } = nipBreweryFiles({
       brewery: BREWERY,
       target: TARGET,
@@ -451,6 +471,7 @@ const compare = async <Setup extends string>(mode: Mode<Setup>): Promise<void> =
       },
     });
     api.comments.set(`${BREWERY.toLowerCase()}#1`, mode.comments?.(setup, USER) ?? []);
+    const planned = new Map<string, string>();
     const listening = listenWhileServing(process);
     const machine = serveShell(serve, {
       root: brewery,
@@ -463,9 +484,19 @@ const compare = async <Setup extends string>(mode: Mode<Setup>): Promise<void> =
       ...machine,
       gh: ghOver(api.fetch).exec,
       runner: (claudePath, plan): BrewerRunner => {
-        const real = machine.runner(claudePath, plan);
+        // What the runner's command line is made of, so a run shows the effort no transcript records.
+        const shownPlan = async (start: AttemptStart): Promise<ClaudeAttemptPlan> => {
+          const made = await plan(start);
+          const { model, effort, session } = made.call;
+          if (start.ref.stepId !== mode.scriptedStep) {
+            say(`  ${start.ref.stepId}: --model ${model} --effort ${effort}`);
+          }
+          planned.set(session.id, model);
+          return made;
+        };
+        const real = machine.runner(claudePath, shownPlan);
         const scripted = scriptedNip({
-          plan,
+          plan: shownPlan,
           git: runGit,
           config: DEMO_GIT_CONFIG,
           write,
@@ -500,7 +531,7 @@ const compare = async <Setup extends string>(mode: Mode<Setup>): Promise<void> =
     } finally {
       store.close();
     }
-    return { setup, wallMs, ...mode.recordOf(events, setup) };
+    return { setup, wallMs, ...mode.recordOf(events, setup, planned) };
   };
 
   mkdirSync(folder, { recursive: true });

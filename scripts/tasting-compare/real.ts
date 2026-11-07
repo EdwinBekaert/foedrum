@@ -36,8 +36,8 @@ export const REAL_ORDERS = [
 export const TODAY_COMMIT = '765cc856';
 
 type OrderNumber = (typeof REAL_ORDERS)[number]['order'];
-type Profile = 'today' | 'reads' | 'lens';
-const PROFILES: readonly Profile[] = ['today', 'reads', 'lens'];
+type Profile = 'today' | 'reads' | 'lens' | 'opus' | 'high';
+const PROFILES: readonly Profile[] = ['today', 'reads', 'lens', 'opus', 'high'];
 /**
  * One order tasted one way: the order first, so the record reads on its own. `867-comments` is
  * `867-reads` with the one maintainer's comment an order had before it brewed (ADR 0333).
@@ -51,6 +51,17 @@ export const REAL_SETUPS: readonly RealSetup[] = [
   '867-comments',
 ];
 
+/** The setups `--setups` names, by the part of a setup's name after its order. */
+export const selectRealSetups = (names: string): readonly RealSetup[] => {
+  const known = [...PROFILES, 'comments'];
+  const chosen = names.split(',');
+  const unknown = chosen.find((name) => !known.includes(name));
+  if (unknown !== undefined) {
+    throw new Error(`--setups names no setup "${unknown}": it knows ${known.join(', ')}`);
+  }
+  return REAL_SETUPS.filter((setup) => chosen.includes(setup.slice(setup.indexOf('-') + 1)));
+};
+
 /** The order `setup` tastes. */
 export const orderOf = (setup: RealSetup): (typeof REAL_ORDERS)[number] => {
   const number = Number(setup.slice(0, setup.indexOf('-')));
@@ -59,7 +70,7 @@ export const orderOf = (setup: RealSetup): (typeof REAL_ORDERS)[number] => {
   return found;
 };
 
-/** The recipe of the `today` and `reads` setups. */
+/** The recipe of every setup but `lens`. */
 export const REAL_RECIPE = 'real-nip';
 /** The recipe of the `lens` setup (ADR 0337). */
 const REAL_LENS_RECIPE = 'real-nip-lens';
@@ -105,13 +116,38 @@ export const realRecipeText = (setup: RealSetup): string => {
   return `// node scripts/tasting-compare.ts --real's recipe (ADR 0332).\n${JSON.stringify(recipe, null, 2)}\n`;
 };
 
-/** The Brewery's files of a run of `setup` beyond Nip's: the recipe, and `today`'s Taster. */
-export const realBreweryFiles = (
-  setup: RealSetup,
-  todayTaster: string,
-): Record<string, string> => ({
+/** The two Taster texts the setups start from. */
+export interface Tasters {
+  /** `today`'s pinned text, the one at `TODAY_COMMIT`. */
+  today: string;
+  /** The default's text, `defaults/brewers/taster.md`. */
+  current: string;
+}
+
+const MEDIUM_EFFORT = '"effort": "medium"';
+
+/** The `high` setup's Taster: the default's text at another effort, and no other change. */
+export const highTaster = (current: string): string => {
+  if (current.split(MEDIUM_EFFORT).length !== 2) {
+    throw new Error(
+      `the default Taster does not say ${MEDIUM_EFFORT} once: high would compare nothing`,
+    );
+  }
+  return current.replace(MEDIUM_EFFORT, () => '"effort": "high"');
+};
+
+/** The `opus` setup's models.jsonc: over the default's aliases, it moves the Taster and no other brewer. */
+const OPUS_MODELS = `${JSON.stringify({ models: { opus: 'opus' }, brewers: { taster: 'opus' } })}\n`;
+
+/**
+ * The Brewery's files of a run of `setup` beyond Nip's: the recipe, and what its setup changes:
+ * `today`'s Taster, `high`'s effort or `opus`'s model.
+ */
+export const realBreweryFiles = (setup: RealSetup, tasters: Tasters): Record<string, string> => ({
   [`recipes/${realRecipeOf(setup)}.jsonc`]: realRecipeText(setup),
-  ...(setup.endsWith('-today') ? { 'brewers/taster.md': todayTaster } : {}),
+  ...(setup.endsWith('-today') ? { 'brewers/taster.md': tasters.today } : {}),
+  ...(setup.endsWith('-high') ? { 'brewers/taster.md': highTaster(tasters.current) } : {}),
+  ...(setup.endsWith('-opus') ? { 'models.jsonc': OPUS_MODELS } : {}),
 });
 
 /**
@@ -177,6 +213,8 @@ interface TranscriptReads {
   problem?: string;
   /** Its out doc's text past the frontmatter. */
   body?: string;
+  /** The models the session ran on, by what the model's own lines name. */
+  models: readonly string[];
 }
 
 /** The Taster's out doc (`defaults/brewers/taster.md`'s `output.doc`). */
@@ -200,13 +238,16 @@ const bodyOf = (doc: string): string => {
 
 const TranscriptLine = z.looseObject({
   type: z.string().optional(),
-  message: z.looseObject({ content: z.unknown() }).optional(),
+  message: z.looseObject({ content: z.unknown(), model: z.string().optional() }).optional(),
 });
 
 const blocksOf = (content: unknown): readonly unknown[] => (Array.isArray(content) ? content : []);
 
 const text = (value: unknown): string | undefined =>
   typeof value === 'string' ? value : undefined;
+
+/** What claude's own line for a failed call names as its model: it ran on none (ADR 0344). */
+const NO_MODEL = '<synthetic>';
 
 /** Where a call reached, and whether that is the worktree or lies inside it. */
 interface Reach {
@@ -301,6 +342,7 @@ export const transcriptReads = (transcript: string, worktree: string): Transcrip
   const opened = new Set<string>();
   const outside: string[] = [];
   const refused: string[] = [];
+  const models = new Set<string>();
   let problem: string | undefined;
   for (const [at, line] of transcript.split(/\r?\n/).entries()) {
     if (line === '') continue;
@@ -311,6 +353,9 @@ export const transcriptReads = (transcript: string, worktree: string): Transcrip
     }
     const { type, message } = read;
     if (type !== 'assistant' && type !== 'user') continue;
+    if (type === 'assistant' && message?.model !== undefined && message.model !== NO_MODEL) {
+      models.add(message.model);
+    }
     for (const block of blocksOf(message?.content)) {
       const use = ClaudeToolUse.safeParse(block);
       if (type === 'assistant' && use.success) {
@@ -348,6 +393,7 @@ export const transcriptReads = (transcript: string, worktree: string): Transcrip
     opened: [...opened],
     outside,
     refused,
+    models: [...models],
     ...(problem === undefined ? {} : { problem }),
     ...(body === '' ? {} : { body }),
   };
@@ -357,7 +403,8 @@ export const transcriptReads = (transcript: string, worktree: string): Transcrip
  * A run's record from its store's events: how its batch ended, and its Tasters' attempts, each with
  * what its session's transcript says it read. A read outside its worktree fails the attempt, and so
  * does a transcript that cannot say, since the run would then be no measurement (ADR 0332). The
- * attempt's own failure stays its reason.
+ * attempt's own failure stays its reason. Its models are the transcript's, which `modelStop` reads
+ * and codes.md shows (ADR 0344).
  */
 export const realRecordOf = (
   events: readonly { event: Event }[],
@@ -385,10 +432,11 @@ export const realRecordOf = (
               opened: [],
               outside: [],
               refused: [],
+              models: [],
               problem: 'its transcript could not be found, so what it read cannot be told',
             }
           : transcriptReads(transcript, session.worktree);
-      const { opened, outside, refused, problem, body } = reads;
+      const { opened, outside, refused, models, problem, body } = reads;
       const reached =
         outside.length === 0 ? undefined : `it read outside its worktree: ${outside.join(', ')}`;
       return {
@@ -397,6 +445,7 @@ export const realRecordOf = (
         opened,
         outside,
         refused,
+        models,
         ...(attempt.failure === undefined && problem !== undefined ? { unreadable: problem } : {}),
         ...(body === undefined ? {} : { body }),
       };
@@ -405,17 +454,46 @@ export const realRecordOf = (
 };
 
 /**
- * Why the comparison must stop, or undefined: a transcript that cannot say is the harness's, not the
- * Taster's, so running on would spend sessions on nothing (ADR 0332). A read outside fails only its run.
+ * Why a run on a model its setup did not ask for must stop the comparison, or undefined: it is the
+ * harness's fault, and every later run would be on it too (ADR 0344). An alias asks for a family, so
+ * an id of that family is what was asked. A Taster that finished with no model named cannot say. An
+ * attempt that failed by itself may have called no model, and is a failed run.
  */
-export const comparisonStop = ({ attempts }: Pick<RealRecord, 'attempts'>): string | undefined => {
-  const lost = attempts.find(({ unreadable }) => unreadable !== undefined);
-  return lost === undefined ? undefined : escapeCell(`${lost.stepId}: ${lost.unreadable}`);
+export const modelStop = ({
+  setup,
+  attempts,
+}: Pick<RealRecord, 'setup' | 'attempts'>): string | undefined => {
+  const asked = setup.endsWith('-opus') ? 'opus' : 'sonnet';
+  for (const { stepId, failure, models = [] } of attempts) {
+    const other = models.find((model) => !model.includes(asked));
+    if (other !== undefined) {
+      return escapeCell(`${stepId}: it ran on ${other}, and ${setup} asks for ${asked}`);
+    }
+    if (models.length === 0 && failure === undefined) {
+      return escapeCell(`${stepId}: its transcript names no model, and ${setup} asks for ${asked}`);
+    }
+  }
+  return undefined;
+};
+
+/**
+ * Why the comparison must stop, or undefined: a transcript that cannot say, or another model, is the
+ * harness's, not the Taster's, so running on would spend sessions on nothing (ADR 0332, ADR 0344). A
+ * read outside fails only its run.
+ */
+export const comparisonStop = (
+  record: Pick<RealRecord, 'setup' | 'attempts'>,
+): string | undefined => {
+  const lost = record.attempts.find(({ unreadable }) => unreadable !== undefined);
+  return lost === undefined ? modelStop(record) : escapeCell(`${lost.stepId}: ${lost.unreadable}`);
 };
 
 /** The next run to brew (`nextRunOf`). */
-export const nextRealRun = (records: readonly RealRecord[], runs: number) =>
-  nextRunOf(REAL_SETUPS, records, runs, runFailure);
+export const nextRealRun = (
+  records: readonly RealRecord[],
+  runs: number,
+  setups: readonly RealSetup[] = REAL_SETUPS,
+) => nextRunOf(setups, records, runs, runFailure);
 
 /** A run's code under `seed`: it says nothing of the run without the seed. */
 export const codeOf = (seed: string, setup: RealSetup, run: number): string =>
@@ -580,8 +658,11 @@ export const scriptedRealTastings = (file: string): Record<string, readonly Scri
     ]),
   );
 
-/** The transcript of a dry run's Taster: it reads a file of its worktree and writes its out doc. */
-export const scriptedTranscript = (worktree: string): string =>
+/**
+ * The transcript of a dry run's Taster on `model`, the one its attempt was planned with: it reads a
+ * file of its worktree and writes its out doc.
+ */
+export const scriptedTranscript = (worktree: string, model: string): string =>
   [
     ['Read', { file_path: join(worktree, 'CLAUDE.md') }],
     ['Edit', { file_path: join(worktree, 'taste.md'), old_string: '', new_string: 'scripted' }],
@@ -589,7 +670,7 @@ export const scriptedTranscript = (worktree: string): string =>
     .flatMap(([name, input], at) => [
       JSON.stringify({
         type: 'assistant',
-        message: { content: [{ type: 'tool_use', id: `scripted-${at}`, name, input }] },
+        message: { model, content: [{ type: 'tool_use', id: `scripted-${at}`, name, input }] },
       }),
       JSON.stringify({
         type: 'user',
