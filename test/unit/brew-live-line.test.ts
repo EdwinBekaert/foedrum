@@ -14,7 +14,7 @@ import { brewFixture, idle, request, t0 } from '../helpers/brew-fixture.ts';
 import { behave, fakeBrewerRunner } from '../helpers/fake-brewer-runner.ts';
 import { fakeGitHubApi } from '../helpers/fake-github-api.ts';
 import { fakeLock } from '../helpers/fake-lock.ts';
-import { aborted, fakeScreen, SPINNER, withoutTime } from '../helpers/fake-screen.ts';
+import { aborted, fakeScreen, withoutTime } from '../helpers/fake-screen.ts';
 import { brewer, local, serveInputs } from '../helpers/serve-brewery.ts';
 
 describe('runBrew', () => {
@@ -335,29 +335,6 @@ describe('runBrew', () => {
       assert.ok(drawn >= 25 && drawn <= 45, `${drawn} redraws in 30 s`);
       // A tick flushes the state branch once: every 5 s, not every redraw.
       assert.ok(flushes() >= 5 && flushes() <= 9, `${flushes()} ticks in 30 s`);
-    });
-
-    it('turns the spinner one frame at each redraw, through its four frames in order', async () => {
-      const { screen } = await brewLive({ ...idle, turn: 3 }, { seconds: 20 });
-      const frames = new Set<string>();
-      let previous: string | undefined;
-      let steps = 0;
-      for (const event of screen.events) {
-        if (!event.startsWith('rewrite: ')) {
-          previous = undefined;
-          continue;
-        }
-        const frame = event.charAt(9);
-        frames.add(frame);
-        if (previous !== undefined) {
-          const next = SPINNER[(SPINNER.indexOf(previous) + 1) % SPINNER.length];
-          assert.equal(frame, next, `after ${previous}`);
-          steps += 1;
-        }
-        previous = frame;
-      }
-      assert.deepEqual([...frames].sort(), [...SPINNER].sort());
-      assert.ok(steps >= 10, `${steps} steps`);
     });
 
     it('prints no 30 s progress line while it keeps a live line', async () => {

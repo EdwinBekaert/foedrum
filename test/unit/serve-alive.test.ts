@@ -60,6 +60,15 @@ describe('runServe', () => {
     });
   });
 
+  it('says it still runs, and not that it brews, while nothing brews', async () => {
+    const { stamped } = await servedFor(40);
+    const alive = stamped.filter(({ at, line }) => at >= 10 * MINUTE && line.includes('still'));
+    assert.ok(alive.length > 0, stamped.map(({ line }) => line).join('\n'));
+    for (const { line } of alive) {
+      assert.equal(line, 'foedrum serve: still running for Acme/Brewery');
+    }
+  });
+
   it('still opens with its brewing line and ends with its stopped line: regression test', async () => {
     const { code, stamped } = await servedFor(40);
     assert.equal(code, 0);
