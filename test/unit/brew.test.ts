@@ -1469,14 +1469,18 @@ describe('runBrew', () => {
     let drawnAtTakeover = 0;
     const endless = behave.hang({ lastProgressAt: t0, turnsWithoutProgress: 0, turn: 3 });
     const runner = fakeBrewerRunner(() => endless);
+    const controller = new AbortController();
     const taken = shell(behave.succeed(), {
       terminal: screen.terminal,
+      signal: controller.signal,
       runner: () => ({
         ...runner,
         start: (attempt) => ({ ...runner.start(attempt), stop: () => {} }),
       }),
       clock: () => now,
-      wait: async (ms) => {
+      wait: async (ms, waiting) => {
+        // The live line's wait beside a call lasts until the call ends (#873).
+        if (waiting !== controller.signal) return aborted(waiting);
         waits.push(ms);
         if (waits.length === 1) {
           const handover = { batchId: '12-1', owner: 'bob', by: 'bob', via: 'terminal' } as const;
