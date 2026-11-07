@@ -27,14 +27,14 @@
 // three Tasters nip had then, with design conformance, as nip now has it (ADR 0343), as a fourth in
 // the lens setup (ADR 0337), on Opus in the opus setup and at high effort in the high setup
 // (ADR 0344), on Opus and at high effort with a Taster told nothing of the rules in the opus-bare
-// and high-bare setups, and with nip's three lenses in one such Taster on Opus in the opus-together
-// setup (ADR 0347), run on the real claude, or scripted with --dry-run. --setups <names> runs only
-// those, such as opus,high. It prints each Taster's model and effort as it is planned, reads each
-// Taster's transcript for what it read and the model it ran on, and stops at once on a transcript
-// that cannot say or another model. It writes one blinded list per order and one file of its bodies
-// under .foedrum/tmp/tasting-compare/real, the setups named only in codes.md, or under
-// real/<name> with --comparison <name>, whose records, runs and lists are its own. It scores
-// nothing. Its decisions are scripts/tasting-compare/real.ts.
+// and high-bare setups, and with real-nip's three lenses in one such Taster on Opus in the
+// opus-together setup (ADR 0347), run on the real claude, or scripted with --dry-run. --setups
+// <names> runs only those, such as opus,high. It prints each Taster's model and effort as it is
+// planned, reads each Taster's transcript for what it read and the model it ran on, and stops at
+// once on a transcript that cannot say or another model. It writes one blinded list per order and
+// one file of its bodies under .foedrum/tmp/tasting-compare/real, the setups named only in
+// codes.md, or under real/comparisons/<name> with --comparison <name>, whose records, runs and
+// lists are its own. It scores nothing. Its decisions are scripts/tasting-compare/real.ts.
 
 import { randomBytes } from 'node:crypto';
 import {

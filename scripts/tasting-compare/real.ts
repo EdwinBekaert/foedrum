@@ -218,21 +218,27 @@ export const bareTaster = (current: string): string =>
     return text.replace(cut, () => '');
   }, current);
 
-/** A comparison's name: letters, digits and `-`, starting with a letter or a digit, so it is one folder and no path. */
-const COMPARISON = /^[A-Za-z0-9][A-Za-z0-9-]*$/;
+/**
+ * A comparison's name: lower-case letters, digits and `-`, starting with a letter or a digit, so it
+ * is one folder and no path, and two names are never one folder on a file system that ignores case.
+ */
+const COMPARISON = /^[a-z0-9][a-z0-9-]*$/;
+/** The names Windows keeps for its devices, which no folder can have. */
+const DEVICE = /^(?:con|prn|aux|nul|com[0-9]|lpt[0-9])$/;
 
 /**
  * The folders of the real mode's records, below the comparisons' own: `real`, or `comparison`'s
- * folder in it, whose records, seed and lists are its own (ADR 0347).
+ * folder in `real/comparisons`, apart from every folder the plain run keeps, whose records, seed
+ * and lists are its own (ADR 0347).
  */
 export const realFolders = (comparison: string | undefined): string[] => {
   if (comparison === undefined) return ['real'];
-  if (!COMPARISON.test(comparison)) {
+  if (!COMPARISON.test(comparison) || DEVICE.test(comparison)) {
     throw new Error(
-      `--comparison takes letters, digits and -, starting with a letter or a digit, as one folder's name, not "${comparison}"`,
+      `--comparison takes lower-case letters, digits and -, starting with a letter or a digit, as one folder's name and no Windows device's, not "${comparison}"`,
     );
   }
-  return ['real', comparison];
+  return ['real', 'comparisons', comparison];
 };
 
 /** The `opus` setup's models.jsonc: over the default's aliases, it moves the Taster and no other brewer. */
@@ -769,8 +775,11 @@ export const blinded = (
   return { lists, bodies, codes };
 };
 
-/** The instruction files a Taster may open at its worktree's root (`defaults/brewers/taster.md`). */
-const INSTRUCTION_FILES: readonly string[] = ['CLAUDE.md', 'AGENTS.md'];
+/**
+ * The instruction files a Taster may open at its worktree's root (`defaults/brewers/taster.md`), in
+ * lower case: Windows and macOS open them by a path in any case.
+ */
+const INSTRUCTION_FILES: readonly string[] = ['claude.md', 'agents.md'];
 
 /**
  * What the comparison prints: each setup's runs to score, failed and retried, since a setup that
@@ -784,7 +793,7 @@ export const realTable = (records: readonly RealRecord[]): string => {
     const retried = records.filter((each) => each.setup === setup && each.retry === true).length;
     const tasters = scored.flatMap(({ attempts }) => attempts);
     const read = tasters.filter(({ opened = [] }) =>
-      opened.some((file) => INSTRUCTION_FILES.includes(file)),
+      opened.some((file) => INSTRUCTION_FILES.includes(file.toLowerCase())),
     ).length;
     return `| ${setup} | ${scored.length} | ${failed.length} | ${retried} | ${read} of ${tasters.length} |`;
   });
