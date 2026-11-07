@@ -46,7 +46,7 @@ export const STEPS: readonly Step[] = [
     id: 'order',
     title: 'The order comes in',
     lookFor:
-      "an issue labelled recipe:nip-parallel is all serve needs: Nip's steps, tasted by three lenses at once.",
+      "an issue labelled recipe:nip-parallel is all serve needs: Nip's steps, tasted by four lenses at once.",
   },
   {
     id: 'brewing',

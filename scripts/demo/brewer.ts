@@ -87,6 +87,12 @@ const testDesign = tasting(
   10,
   'the new test covers the empty name only; a name of only spaces has no test',
 );
+const designConformance = tasting(
+  'diff/design-conformance',
+  'greet.mjs',
+  2,
+  'the change decides what a visitor with no name is called, and no document of the repository records it',
+);
 
 /**
  * The Innkeeper's out doc for the third order (ADR 0232): one question, which recipe brews it, with
@@ -230,6 +236,7 @@ export const DEMO_SCRIPT: Readonly<Record<string, readonly Scripted[]>> = {
   ],
   security: [security, security],
   'test-design': [testDesign, testDesign],
+  'design-conformance': [designConformance, designConformance],
   mutants: [MUTANTS],
   // The third order's mash: the Innkeeper's question, the Brewmaster's plan (ADR 0232), and three
   // Tasters of it side by side (ADR 0321), the advisory one with a note for the Review.

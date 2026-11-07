@@ -1,6 +1,7 @@
 // node scripts/tasting-compare.ts [--runs <n>] [--dry-run] (#567, ADR 0224): tastes the seeded
 // change of test/fixtures/tasting-compare 3 times in each of three setups, the seven default diff
-// lenses apart, the seven together and Nip's three together, and prints one table of the planted
+// lenses apart, the seven together and the three lenses Nip had when this was measured together
+// (Nip has a fourth since ADR 0343), and prints one table of the planted
 // defects found, the other findings, the tokens and the time. Each run brews one order with
 // foedrum brew's own runBrew in a scratch Brewery and target repository under
 // .foedrum/tmp/tasting-compare/<setup>-<run>, on npm run demo's seams (ADR 0097): the fake code
@@ -22,9 +23,9 @@
 //
 // With --real (#879, ADR 0332) it tastes three brewed heads of this repository instead, each in three
 // setups, and #867 in a fourth with its maintainer's comment (ADR 0333): the target is the order's
-// base fetched from this checkout, a scripted Cellarman commits the head's changed files, and nip's
-// three Tasters, with design conformance as a fourth in the lens setup (ADR 0337), run on the real
-// claude, or scripted with --dry-run. It reads each Taster's transcript for what it read, and stops
+// base fetched from this checkout, a scripted Cellarman commits the head's changed files, and the
+// three Tasters nip had then, with design conformance, as nip now has it (ADR 0343), as a fourth in
+// the lens setup (ADR 0337), run on the real claude, or scripted with --dry-run. It reads each Taster's transcript for what it read, and stops
 // at once on a transcript that cannot say. It writes one blinded list per order and one file of its
 // bodies under
 // .foedrum/tmp/tasting-compare/real, the setups named only in codes.md. It scores nothing. Its
