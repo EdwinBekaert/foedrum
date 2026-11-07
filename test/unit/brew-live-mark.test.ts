@@ -1,0 +1,84 @@
+// The moving mark of `foedrum brew`'s live line (ADR 0346), through runBrew: a virtual clock and
+// timers, a fake screen and a brewer that runs until the brew is stopped. No process starts
+// (ADR 0021).
+
+import assert from 'node:assert/strict';
+import { describe, it } from 'node:test';
+import { runBrew } from '../../src/cli/brew.ts';
+import { BRAILLE_MARKS } from '../../src/cli/live-terminal.ts';
+import type { ServeShell } from '../../src/cli/serve.ts';
+import type { AttemptProgress } from '../../src/engine/supervisor.ts';
+import { brewFixture, idle, request, t0 } from '../helpers/brew-fixture.ts';
+import { behave, fakeBrewerRunner } from '../helpers/fake-brewer-runner.ts';
+import { fakeScreen } from '../helpers/fake-screen.ts';
+import { virtualTimeline } from '../helpers/virtual-timeline.ts';
+
+describe('runBrew', () => {
+  const f = brewFixture();
+
+  interface Marked {
+    seconds: number;
+    columns?: number;
+    progress?: AttemptProgress;
+  }
+
+  /** Brews for `seconds` of a virtual clock with gh's marks on a fake screen. */
+  const brewMarked = async ({ seconds, columns = 120, progress = idle }: Marked) => {
+    const screen = fakeScreen(columns, BRAILLE_MARKS);
+    const timeline = virtualTimeline(t0, seconds * 1000);
+    let flushes = 0;
+    let reads = 0;
+    const own: number[] = [];
+    const inner = fakeBrewerRunner(() => behave.hang(progress));
+    const live: ServeShell = {
+      ...f.shell(behave.succeed()),
+      terminal: screen.terminal,
+      out: (line) => {
+        f.lines.push(line);
+        screen.print(line);
+      },
+      signal: timeline.controller.signal,
+      clock: timeline.clock,
+      wait: (ms, signal) => {
+        if (signal === timeline.controller.signal) own.push(ms);
+        return timeline.wait(ms, signal);
+      },
+      stateBranch: () => ({
+        start: async () => ({ decision: 'ready' }),
+        flush: async () => {
+          flushes += 1;
+          return { kind: 'unchanged' };
+        },
+      }),
+      runner: () => ({
+        ...inner,
+        progress: (ref) => {
+          reads += 1;
+          return inner.progress(ref);
+        },
+      }),
+    };
+    const code = await runBrew(f.setup, live, request);
+    return { code, screen, flushes: () => flushes, reads: () => reads, own };
+  };
+
+  describe('with the moving mark on its live line (ADR 0346)', () => {
+    it('counts the mark as one column in the cut to the width less one: regression test', async () => {
+      const lastTool = { name: 'Edit', word: 'x'.repeat(300) };
+      const { screen } = await brewMarked({
+        seconds: 5,
+        columns: 40,
+        progress: { ...idle, turn: 3, lastTool },
+      });
+      const full = screen.rewrites().filter((drawn) => drawn.includes('brew #1'));
+      assert.ok(full.length > 0, screen.rewrites().join('\n'));
+      for (const drawn of full) assert.equal(drawn.length, 39, drawn);
+    });
+
+    it('leaves how often the driver ticks as it was, a flush each 5 s on waits of a second: regression test', async () => {
+      const { flushes, own } = await brewMarked({ seconds: 30 });
+      assert.ok(flushes() >= 5 && flushes() <= 9, `${flushes()} ticks in 30 s`);
+      assert.ok(own.length > 0 && own.every((ms) => ms === 1000), own.join(' '));
+    });
+  });
+});
