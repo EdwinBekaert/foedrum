@@ -5,6 +5,7 @@
 // process starts (ADR 0021).
 
 import assert from 'node:assert/strict';
+import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import { type BrewRequest, runBrew } from '../../src/cli/brew.ts';
 import type { ServeShell } from '../../src/cli/serve.ts';
@@ -83,11 +84,12 @@ const names = (seen: Seen, words: RegExp): void => {
 /** A call of `ms` milliseconds moved the line: one redraw about each second, not the same text. */
 const moved = (seen: Seen, ms: number): void => {
   const seconds = ms / 1000;
+  // Without the mark, which turns on its own timer: the words themselves are drawn again.
+  const words = new Set(seen.during.map((drawn) => drawn.slice(1)));
   assert.ok(
-    seen.during.length >= seconds - 3,
-    `${seen.during.length} redraws in ${seconds} s:\n${seen.during.join('\n')}`,
+    words.size >= seconds - 3,
+    `${words.size} redraws in ${seconds} s:\n${seen.during.join('\n')}`,
   );
-  assert.notEqual(seen.during[0], seen.during.at(-1));
 };
 
 describe('runBrew', () => {
@@ -144,7 +146,7 @@ describe('runBrew', () => {
           flush: async () => ({ kind: 'unchanged' }),
         }),
         worktrees: async () => {
-          const made = fakeWorktrees({ root: `${f.dir.path}/acme.web/attempts` });
+          const made = fakeWorktrees({ root: join(f.dir.path, 'acme.web', 'attempts') });
           return {
             ...made,
             create: async (ref, base) => {
@@ -197,6 +199,22 @@ describe('runBrew', () => {
       moved(login, 20_000);
     });
 
+    it('says starting while the driver is wired: regression test', async () => {
+      const { seen } = await brewTimed({ stateBranch: 5 });
+      const branch = seen.get('state branch') ?? assert.fail('the state branch was not read');
+      assert.match(branch.entry ?? '', / \/ starting$/);
+    });
+
+    it('says only the words the design names while no attempt runs: regression test', async () => {
+      const { screen } = await brewTimed({ seconds: 20 });
+      // Every word the command says of itself is one the design names.
+      const known =
+        /\/ (?:starting|routing|opening the Brewery issue|writing the status comment|opening the pull request|cleaning up the worktrees of the batch|between steps|applying \S+|claiming \S+)$/;
+      const words = screen.rewrites().filter((drawn) => !/ #\d+ \/ /.test(drawn));
+      assert.ok(words.length > 0, screen.rewrites().join('\n'));
+      for (const drawn of words) assert.match(drawn.slice(1), known);
+    });
+
     it('names the routing, and keeps moving, while GitHub is slow to read the labels of the order', async () => {
       const { seen } = await brewTimed({ gh: call('GET', /\/issues\/12$/, 25) });
       const routing = seen.get('GET /repos/Acme/Brewery/issues/12') ?? assert.fail('not read');
@@ -243,6 +261,15 @@ describe('runBrew', () => {
           },
         });
       };
+
+      it('names an effect of no other kind by its own name: regression test', async () => {
+        claimed();
+        const { screen } = await brewTimed({ request: target });
+        assert.ok(
+          screen.rewrites().some((drawn) => / \/ applying \S+$/.test(drawn)),
+          screen.rewrites().join('\n'),
+        );
+      });
 
       it('names the claim, and keeps moving, while it is made', async () => {
         claimed();
@@ -455,6 +482,20 @@ describe('runBrew', () => {
             );
           }
         });
+      });
+
+      it('names each attempt of a group once, on the pass after it started: regression test', async () => {
+        tasting();
+        const { code } = await brewTimed({
+          terminal: false,
+          script: tasted,
+          runner: endingAfter({ security: 3_000 }),
+        });
+        assert.equal(code, 0, f.lines.join('\n'));
+        for (const id of TASTERS) {
+          const naming = f.lines.join('\n').split(`${id} #1 started`).length - 1;
+          assert.equal(naming, 1, `${id}:\n${f.lines.join('\n')}`);
+        }
       });
 
       it('names all three attempts on the line at 80 columns', async () => {

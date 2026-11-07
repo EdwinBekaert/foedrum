@@ -124,8 +124,33 @@ describe('runBrew', () => {
       assert.ok(screen.rewrites().length > 40, `${screen.rewrites().length} lines drawn`);
       assert.equal(screen.drawn(), undefined);
       const events = screen.events.length;
-      await new Promise((resolve) => setImmediate(resolve));
+      for (let turn = 0; turn < 5; turn++) {
+        await new Promise((resolve) => setImmediate(resolve));
+      }
       assert.equal(screen.events.length, events);
+    });
+
+    it('asks for no more waits once the batch is on tap and the brew has ended: regression test', async () => {
+      const screen = fakeScreen(120, BRAILLE_MARKS);
+      const timeline = virtualTimeline(t0, 600_000);
+      let waits = 0;
+      const live: ServeShell = {
+        ...f.shell(behave.succeed()),
+        terminal: screen.terminal,
+        signal: timeline.controller.signal,
+        clock: timeline.clock,
+        wait: (ms, signal) => {
+          waits += 1;
+          return timeline.wait(ms, signal);
+        },
+      };
+      assert.equal(await runBrew(f.setup, live, request), 0, f.lines.join('\n'));
+      assert.equal(timeline.controller.signal.aborted, false);
+      const asked = waits;
+      for (let turn = 0; turn < 5; turn++) {
+        await new Promise((resolve) => setImmediate(resolve));
+      }
+      assert.equal(waits, asked);
     });
 
     it('leaves no timer running when it is refused before it takes its lock: regression test', async () => {

@@ -52,9 +52,30 @@ describe('runServe', () => {
       }
     });
 
+    it('says it still runs each 60 s of quiet, to within a tick, and no sooner: regression test', async () => {
+      const { stamped } = await servedFor(12);
+      const times = idle(stamped, 5, 12)
+        .filter(({ line }) => line.includes('still running'))
+        .map(({ at }) => at);
+      assert.ok(times.length >= 2, stamped.map(({ line }) => line).join('\n'));
+      times.slice(1).forEach((at, n) => {
+        const gap = at - (times[n] ?? 0);
+        assert.ok(gap >= MINUTE && gap <= MINUTE + 5_000, `${gap} ms apart`);
+      });
+    });
+
+    it('counts its quiet from its last line of any kind: regression test', async () => {
+      const { stamped } = await servedFor(12);
+      const firstAlive = stamped.findIndex(({ line }) => line.includes('still running'));
+      assert.ok(firstAlive > 0, stamped.map(({ line }) => line).join('\n'));
+      const before = stamped[firstAlive - 1]?.at ?? 0;
+      const gap = (stamped[firstAlive]?.at ?? 0) - before;
+      assert.ok(gap >= MINUTE && gap <= MINUTE + 5_000, `${gap} ms after its last line`);
+    });
+
     it('prints those lines as the rest of its lines: foedrum serve, a colon and the words', async () => {
-      const { stamped } = await servedFor(40);
-      const lines = idle(stamped, 10, 40);
+      const { stamped } = await servedFor(12);
+      const lines = idle(stamped, 10, 12);
       assert.ok(lines.length > 0, 'it printed lines when idle');
       for (const { line } of lines) assert.match(line, /^foedrum serve: \S/);
     });
@@ -70,7 +91,7 @@ describe('runServe', () => {
   });
 
   it('still opens with its brewing line and ends with its stopped line: regression test', async () => {
-    const { code, stamped } = await servedFor(40);
+    const { code, stamped } = await servedFor(12);
     assert.equal(code, 0);
     const lines = stamped.map(({ line }) => line);
     assert.match(

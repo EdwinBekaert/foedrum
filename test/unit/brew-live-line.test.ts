@@ -501,7 +501,10 @@ describe('runBrew', () => {
         texts.some((text) => /^brew #1 \/ /.test(text)),
         texts.join('\n'),
       );
-      for (const text of texts) assert.match(text, /^(?:brew #1 \/ |[a-z])/);
+      assert.ok(texts.includes('between steps'), texts.join('\n'));
+      const known =
+        /^(?:brew #1 \/ |starting$|routing$|claiming #12$|applying \S+$|writing the status comment$|opening the pull request$|cleaning up the worktrees of the batch$|between steps$)/;
+      for (const text of texts) assert.match(text, known);
     });
 
     it('clears the live line before it exits, whatever the exit code', async () => {
