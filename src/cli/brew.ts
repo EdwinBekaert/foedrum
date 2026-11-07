@@ -305,7 +305,7 @@ export const runBrew = async (
     terminal?.clear();
     onScreen = false;
   };
-  /** When this driver first saw each of `attempts` run. */
+  /** When this driver first saw the attempt `label` run: `at` when it sees it now for the first time. */
   const firstSeen = (label: string, at: number): number => {
     const first = seenAt.get(label);
     if (first !== undefined) return first;
@@ -883,7 +883,7 @@ export const runBrew = async (
         // A step can run for many minutes in silence: say it still runs (#406).
         saidAt = at;
         const runs = running.map(
-          ({ label }) => `${label} running for ${elapsed(at - (seenAt.get(label) ?? at))}`,
+          ({ label }) => `${label} running for ${elapsed(at - firstSeen(label, at))}`,
         );
         say(`${said} ${lane}: ${runs.join(', ')}`);
       }
