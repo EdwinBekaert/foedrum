@@ -1716,6 +1716,24 @@ describe('tasting-compare --real: the opus and high setups (ADR 0344)', () => {
       assert.doesNotMatch(under('correctness'), /a hole|a missed item|token/);
     });
 
+    it('shows a finding that names no lens, or a lens outside its step, under the first lens: regression test', () => {
+      const unnamed = { ...finding('a finding with no lens') };
+      const outside = { ...finding('a stale page'), lens: 'diff/design-conformance' };
+      const base = together();
+      const run: RealRecord = {
+        ...record('855-opus-together', 1, 'x'),
+        attempts: [{ ...base, findings: [...base.findings, unnamed, outside] }],
+      };
+      const list = blinded([run], 'a seed').lists['855'] ?? '';
+      const correctness = list.slice(
+        list.indexOf('### correctness ('),
+        list.indexOf('### acceptance ('),
+      );
+      assert.match(correctness, /a finding with no lens/);
+      assert.match(correctness, /a stale page/);
+      assert.doesNotMatch(list, /design-conformance/);
+    });
+
     it('codes.md keeps one row for the together Taster, with its model', () => {
       const run: RealRecord = { ...record('855-opus-together', 1, 'x'), attempts: [together()] };
       const { codes } = blinded([run], 'a seed');
