@@ -7,7 +7,7 @@
 // `foedrum mash` routes the batch to mash-in first (ADR 0232), and `foedrum lauter` records a
 // person's lauter of the plan its batch waits with first, so its session opens (ADR 0286).
 // On a terminal (the shell gives one) it keeps a live line, from the command's first second to its
-// last, of what the command does and of what the running attempts do (ADR 0174, #873).
+// last, of what the command does and of what the running attempts do (ADR 0174, ADR 0346).
 
 import { type AttemptRef, attemptKey } from '../engine/attempt-key.ts';
 import { defaultLeaseMs as leaseMs, releaseBatch, takeOver } from '../engine/batch-leases.ts';
@@ -196,10 +196,12 @@ export const elapsed = (ms: number): string => {
   return seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
 };
 
-/** The frames of the live line's spinner, one at each redraw (ADR 0174). */
-const SPINNER = '|/-\\';
-/** How often the live line is redrawn, apart from the tick. */
+/** How often the moving mark turns, as `gh`'s does (ADR 0346). */
+const MARK_MS = 120;
+/** How often the live line's words are read again and redrawn, apart from the tick. */
 const REDRAW_MS = 1000;
+/** What holds the mark's column while a line is fitted to the terminal. */
+const MARK_ROOM = '|';
 /** The longest a tool's name is shown, before it is escaped. */
 const TOOL_NAME_MAX = 64;
 /** The width of a terminal that does not say. */
@@ -238,18 +240,17 @@ export const fit = (line: string, columns: number | undefined): string =>
   ascii(line).slice(0, Math.max(0, (columns ?? UNKNOWN_COLUMNS) - 1));
 
 /**
- * The live line: `frame`, the batch's time with its words (ADR 0326), then the attempts, each in its
- * parts, fitted to the terminal. Side by side, attempts give up their last parts together before
- * any of them is cut off (#873).
+ * The live line: a column for the mark, the batch's time with its words (ADR 0326), then the
+ * attempts, each in its parts, fitted to the terminal. Side by side, attempts give up their last
+ * parts together before any of them is cut off (ADR 0346).
  */
 const liveLine = (
-  frame: string,
   batchTime: string,
   attempts: readonly (readonly string[])[],
   columns: number | undefined,
 ) => {
   const joined = (keep: number): string =>
-    `${frame} ${batchTime} / ${attempts.map((parts) => parts.slice(0, keep).join(' / ')).join(' ; ')}`;
+    `${MARK_ROOM} ${batchTime} / ${attempts.map((parts) => parts.slice(0, keep).join(' / ')).join(' ; ')}`;
   let keep = Math.max(...attempts.map((parts) => parts.length));
   while (
     attempts.length > 1 &&
@@ -282,7 +283,7 @@ export const runBrew = async (
 ): Promise<number> => {
   const { out, signal, clock, wait, intervalMs = INTERVAL_MS, terminal } = shell;
   const { target, owner, by, via } = request;
-  // The live line (ADR 0174), drawn only with a terminal, from this command's first second (#873):
+  // The live line (ADR 0174), drawn only with a terminal, from this command's first second (ADR 0346):
   // what the batch's time counts from and says (this run's start until the batch says when it was
   // ordered, ADR 0179, ADR 0326), the attempts that run, when this driver first saw each run, what
   // the driver reports of one, what the command does while a call takes time, and whether the
@@ -299,6 +300,8 @@ export const runBrew = async (
   let progressOf: (ref: AttemptRef) => AttemptProgress | undefined = () => undefined;
   let doing: string | undefined;
   let frame = 0;
+  // The line last fitted to the terminal, with the column its mark goes in, and whether it shows.
+  let fitted: string | undefined;
   let onScreen = false;
   const clearLive = (): void => {
     if (!onScreen) return;
@@ -315,6 +318,13 @@ export const runBrew = async (
   const noticed = (attempts: readonly Running[], at: number): void => {
     for (const { label } of attempts) firstSeen(label, at);
   };
+  /** The line last fitted, with the mark's frame now in its first column, if it has one. */
+  const show = (): void => {
+    if (terminal === undefined || fitted === undefined) return;
+    const mark = terminal.marks[frame % terminal.marks.length] ?? MARK_ROOM;
+    terminal.rewrite(fitted.replace(/^./, () => mark));
+    onScreen = true;
+  };
   const draw = (): void => {
     if (terminal === undefined) return;
     const at = clock().getTime();
@@ -329,10 +339,23 @@ export const runBrew = async (
           : brewing.map(({ label, ref }) =>
               attemptParts(label, at - firstSeen(label, at), progressOf(ref)),
             );
-    const spinner = SPINNER.charAt(frame++ % SPINNER.length);
     const batchTime = `${batchClock.words} ${elapsed(Math.max(0, at - batchClock.from))} ago`;
-    terminal.rewrite(liveLine(spinner, batchTime, attempts, terminal.columns()));
-    onScreen = true;
+    fitted = liveLine(batchTime, attempts, terminal.columns());
+    show();
+  };
+  // The mark turns on a timer of its own, writing the fitted line again: no state is read and no
+  // tick is moved for it (ADR 0346). A throw here is the line's alone, as beside a call below.
+  const marksEnd = new AbortController();
+  const turning = AbortSignal.any([signal, marksEnd.signal]);
+  const turnMarks = async (): Promise<void> => {
+    while (terminal !== undefined && !turning.aborted) {
+      await turn();
+      if (turning.aborted) break;
+      await wait(MARK_MS, turning);
+      if (turning.aborted) break;
+      frame++;
+      show();
+    }
   };
   /**
    * Awaits `call` with the live line moving beside it: `words` say what it does (the driver's own
@@ -345,6 +368,8 @@ export const runBrew = async (
     const stop = new AbortController();
     const redraws = AbortSignal.any([signal, stop.signal]);
     if (words !== undefined || !onScreen) draw();
+    // A redraw that throws ends this loop, never the call beside it or the process: the next
+    // redraw of the brew's own says what failed, if it still does.
     const moving = (async () => {
       while (!redraws.aborted) {
         await turn();
@@ -352,7 +377,7 @@ export const runBrew = async (
         await wait(REDRAW_MS, redraws);
         if (!redraws.aborted) draw();
       }
-    })();
+    })().catch(() => {});
     try {
       return await call();
     } finally {
@@ -403,12 +428,14 @@ export const runBrew = async (
   // Another driver's lease of the batch, once this driver lost it or never got it.
   let holder: BatchLease | undefined;
   let stopResize: (() => void) | undefined;
+  let marks: Promise<void> | undefined;
   const report = (notice: DriverNotice): void => {
     if (notice.kind === 'batch_lost' && notice.batchId === batchId) holder = notice.holder;
     say(formatNotice(notice));
   };
   try {
     stopResize = terminal?.onResize(draw);
+    marks = turnMarks().catch(() => {});
     const { store, driver, reads, claims } = await lively('starting', () =>
       wireDriver(setup, shell, opened, {
         // This batch alone, once it is known (ADR 0044).
@@ -749,9 +776,10 @@ export const runBrew = async (
     };
 
     let shown = '';
-    // When the last line was said, and the attempts a line named as started.
+    // When the last line was said, and the attempts a line need not name as started: those that
+    // started before this run began, which it saw none of (ADR 0346).
     let saidAt = clock().getTime();
-    const lined = new Set<string>();
+    const lined = new Set(startedLabels(foldedBatch(log.state(), batchId)));
     let linked = false;
     // The Stuck lane brew last ticked once more after: a person may move the batch on in that tick,
     // and it may stick again before brew reads another lane (ADR 0275, ADR 0330).
@@ -768,7 +796,7 @@ export const runBrew = async (
       const { lane, detail } = describeLane(now, calledAs(driver.state(), now));
       const said = saidAs(driver.state(), now);
       // An attempt that started and ended since the last pass is named, though the lane no longer
-      // says it ran: a group's Tasters all started, on a terminal or not (#873).
+      // says it ran: a group's Tasters all started, on a terminal or not (ADR 0346).
       const running = runningAttempts(now);
       const started = startedLabels(now);
       const lapsed = started.filter(
@@ -904,6 +932,8 @@ export const runBrew = async (
   } finally {
     // The live line goes before any exit, so the last lines on screen are the lasting ones.
     stopResize?.();
+    marksEnd.abort();
+    await marks;
     clearLive();
     // Closing the driver stops its runs and lets the lock go; a Stuck batch keeps its lease.
     try {

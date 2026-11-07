@@ -122,7 +122,7 @@ export interface ServeShell {
 /** The supervisor's interval (ADR 0027). */
 export const INTERVAL_MS = 5000;
 
-/** How long `foedrum serve` is quiet before it says it is still brewing. */
+/** How long `foedrum serve` is quiet before it says it still runs (ADR 0346). */
 const ALIVE_MS = 60_000;
 
 /** A command as a notice names it: its kind, and its batch when it has one. */
@@ -397,8 +397,8 @@ export const runServe = async (setup: ServeSetup, shell: ServeShell): Promise<nu
         settle(waited);
       }
       if (signal.aborted) break;
-      // A quiet Cellar says it is alive now and then, never at each tick (#873).
-      if (clock().getTime() - saidAt >= ALIVE_MS) say(`still brewing for ${setup.brewery}`);
+      // A quiet Cellar says it is alive now and then, never at each tick (ADR 0346).
+      if (clock().getTime() - saidAt >= ALIVE_MS) say(`still running for ${setup.brewery}`);
       await wait(intervalMs, signal);
     }
     // Its deadline bounds the wait; a pass that waits for a tick gets none.

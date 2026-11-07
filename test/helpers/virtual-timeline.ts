@@ -38,16 +38,19 @@ export const virtualTimeline = (start: Date, runForMs: number): VirtualTimeline 
       }
     }
   };
-  // With no call under way, the counter jumps to the next timer on the next turn of the loop.
+  // With no call under way, the counter jumps to the next timer two turns of the loop on: a loop
+  // that takes a turn before its next wait has set that wait by then.
   const jump = (): void => {
     if (queued || lagging > 0) return;
     queued = true;
     setImmediate(() => {
-      queued = false;
-      if (lagging > 0 || timers.size === 0) return;
-      now = Math.max(now, Math.min(...[...timers].map((timer) => timer.at)));
-      fire();
-      jump();
+      setImmediate(() => {
+        queued = false;
+        if (lagging > 0 || timers.size === 0) return;
+        now = Math.max(now, Math.min(...[...timers].map((timer) => timer.at)));
+        fire();
+        jump();
+      });
     });
   };
   return {

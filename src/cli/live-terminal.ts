@@ -84,10 +84,19 @@ export const ASCII_MARKS: readonly string[] = ['|', '/', '-', '\\'];
 
 /** The frames this terminal shows properly (ADR 0346). */
 export const marksOf = (
-  _env: Readonly<Record<string, string | undefined>>,
-  _platform: NodeJS.Platform,
+  env: Readonly<Record<string, string | undefined>>,
+  platform: NodeJS.Platform,
 ): readonly string[] => {
-  throw new Error('not implemented');
+  // A Windows console's font decides, and only these two terminals say they can fall back to one.
+  if (platform === 'win32') {
+    return env.WT_SESSION !== undefined || env.TERM_PROGRAM === 'vscode'
+      ? BRAILLE_MARKS
+      : ASCII_MARKS;
+  }
+  // The first of them that is set names the locale; in any other than UTF-8 a frame would show as
+  // three characters and wrap a full line. The Linux console's font has no braille.
+  const locale = env.LC_ALL ?? env.LC_CTYPE ?? env.LANG ?? '';
+  return env.TERM !== 'linux' && /utf-?8/i.test(locale) ? BRAILLE_MARKS : ASCII_MARKS;
 };
 
 /** The live terminal, and the way every lasting line reaches it. */
@@ -100,7 +109,7 @@ export interface StdoutTerminal extends LiveTerminal {
 export const liveTerminal = (
   stream: TerminalStream,
   env: Readonly<Record<string, string | undefined>>,
-  _platform: NodeJS.Platform = process.platform,
+  platform: NodeJS.Platform = process.platform,
 ): StdoutTerminal | undefined => {
   if (stream.isTTY !== true || env.TERM === 'dumb' || env.CI !== undefined) return undefined;
   // The live line on screen now, so a lasting line from anywhere can go over it.
@@ -119,7 +128,7 @@ export const liveTerminal = (
     shown = text;
   };
   return {
-    marks: ASCII_MARKS,
+    marks: marksOf(env, platform),
     columns: () => stream.columns,
     onResize: (handler) => {
       stream.on('resize', handler);

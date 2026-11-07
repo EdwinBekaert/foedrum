@@ -141,7 +141,7 @@ export interface WiringOptions {
   say: (line: string) => void;
   /** Reports a driver's notice. */
   report: (notice: DriverNotice) => void;
-  /** Told what the driver is about to spend time on, for a live line to name (#873). */
+  /** Told what the driver is about to spend time on, for a live line to name (ADR 0346). */
   doing?: (what: Doing) => void;
 }
 

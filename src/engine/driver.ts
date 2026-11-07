@@ -217,7 +217,7 @@ export interface DriverOptions {
   /** Default 1 hour. */
   routingMs?: number;
   report?: (notice: DriverNotice) => void;
-  /** Told what the driver is about to spend time on, before it starts, for a live line to name (#873). */
+  /** Told what the driver is about to spend time on, before it starts, for a live line to name (ADR 0346). */
   doing?: (what: Doing) => void;
 }
 
