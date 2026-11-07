@@ -20,6 +20,7 @@ import {
   recordIn,
   runFailure,
   runsOfSetup,
+  stepIdOf,
   TASTE,
   type TasterAttempt,
   tokensOf,
@@ -45,7 +46,16 @@ type Profile =
   | 'opus-bare'
   | 'high-bare'
   | 'opus-together';
-const PROFILES: readonly Profile[] = ['today', 'reads', 'lens', 'opus', 'high'];
+const PROFILES: readonly Profile[] = [
+  'today',
+  'reads',
+  'lens',
+  'opus',
+  'high',
+  'opus-bare',
+  'high-bare',
+  'opus-together',
+];
 /**
  * One order tasted one way: the order first, so the record reads on its own. `867-comments` is
  * `867-reads` with the one maintainer's comment an order had before it brewed (ADR 0333).
@@ -67,8 +77,12 @@ export const selectRealSetups = (names: string): readonly RealSetup[] => {
   if (unknown !== undefined) {
     throw new Error(`--setups names no setup "${unknown}": it knows ${known.join(', ')}`);
   }
-  return REAL_SETUPS.filter((setup) => chosen.includes(setup.slice(setup.indexOf('-') + 1)));
+  return REAL_SETUPS.filter((setup) => chosen.includes(profileOf(setup)));
 };
+
+/** A setup's name after its order: its profile, or `comments`. */
+const profileOf = (setup: RealSetup): Profile | 'comments' =>
+  setup.slice(setup.indexOf('-') + 1) as Profile | 'comments';
 
 /** The order `setup` tastes. */
 export const orderOf = (setup: RealSetup): (typeof REAL_ORDERS)[number] => {
@@ -78,10 +92,12 @@ export const orderOf = (setup: RealSetup): (typeof REAL_ORDERS)[number] => {
   return found;
 };
 
-/** The recipe of every setup but `lens`. */
+/** The recipe of every setup but `lens` and `opus-together`. */
 export const REAL_RECIPE = 'real-nip';
 /** The recipe of the `lens` setup (ADR 0337). */
 const REAL_LENS_RECIPE = 'real-nip-lens';
+/** The recipe of the `opus-together` setup (ADR 0347). */
+const REAL_TOGETHER_RECIPE = 'real-nip-together';
 
 /** The three Tasters `nip` had when #879 measured it, kept so `real-nip` means what it meant (ADR 0343). */
 const TASTERS = [
@@ -94,13 +110,42 @@ const LENS_TASTERS = [
   ...TASTERS,
   { id: 'design-conformance', brewer: 'taster', lens: 'diff/design-conformance' },
 ] as const;
-const STEPS: ReadonlyMap<string, readonly string[]> = new Map(
-  LENS_TASTERS.map(({ id, lens }) => [id, [lens]]),
-);
+/** The `opus-together` setup's one Taster: `real-nip`'s three lenses in one step (ADR 0220, ADR 0347). */
+const TOGETHER = {
+  id: 'together',
+  brewer: 'taster',
+  lenses: TASTERS.map(({ lens }) => lens),
+} as const;
+const STEPS: ReadonlyMap<string, readonly string[]> = new Map([
+  ...LENS_TASTERS.map(({ id, lens }): [string, readonly string[]] => [id, [lens]]),
+  [TOGETHER.id, TOGETHER.lenses],
+]);
 
 /** The recipe a run of `setup` brews. */
-export const realRecipeOf = (setup: RealSetup): string =>
-  setup.endsWith('-lens') ? REAL_LENS_RECIPE : REAL_RECIPE;
+export const realRecipeOf = (setup: RealSetup): string => {
+  const profile = profileOf(setup);
+  if (profile === 'lens') return REAL_LENS_RECIPE;
+  return profile === 'opus-together' ? REAL_TOGETHER_RECIPE : REAL_RECIPE;
+};
+
+/** Each recipe's description and its Taster step. */
+const RECIPES: Record<string, { description: string; taste: Record<string, unknown> }> = {
+  [REAL_RECIPE]: {
+    description:
+      'A head as it was brewed, tasted by correctness, acceptance and security, nothing blocking',
+    taste: { id: TASTE, parallel: TASTERS },
+  },
+  [REAL_LENS_RECIPE]: {
+    description:
+      'A head as it was brewed, tasted by correctness, acceptance, security and design conformance, nothing blocking',
+    taste: { id: TASTE, parallel: LENS_TASTERS },
+  },
+  [REAL_TOGETHER_RECIPE]: {
+    description:
+      'A head as it was brewed, tasted by correctness, acceptance and security together in one Taster, nothing blocking',
+    taste: TOGETHER,
+  },
+};
 
 /**
  * The scripted implementer, `setup`'s Tasters with nothing blocking, so every run ends, and the pull
@@ -108,16 +153,16 @@ export const realRecipeOf = (setup: RealSetup): string =>
  * testFirst off skips it (ADR 0224).
  */
 export const realRecipeText = (setup: RealSetup): string => {
+  const name = realRecipeOf(setup);
+  const { description, taste } = RECIPES[name] ?? { description: '', taste: {} };
   const recipe = {
-    name: realRecipeOf(setup),
-    description: setup.endsWith('-lens')
-      ? 'A head as it was brewed, tasted by correctness, acceptance, security and design conformance, nothing blocking'
-      : 'A head as it was brewed, tasted by correctness, acceptance and security, nothing blocking',
+    name,
+    description,
     testFirst: false,
     steps: [
       { id: 'gauge', brewer: 'gauger', when: 'recipe.testFirst' },
       { id: IMPLEMENT, brewer: 'cellarman' },
-      { id: TASTE, parallel: setup.endsWith('-lens') ? LENS_TASTERS : TASTERS },
+      taste,
       { action: 'openPullRequest' },
     ],
   };
@@ -144,29 +189,95 @@ export const highTaster = (current: string): string => {
   return current.replace(MEDIUM_EFFORT, () => '"effort": "high"');
 };
 
-/** The `-bare` setups' Taster: the default's text without what tells it to read the rules (ADR 0347). */
-export const bareTaster = (_current: string): string => {
-  throw new Error('not implemented');
-};
+/**
+ * What the `-bare` Taster leaves out of the default's text, each once (ADR 0347): the first bullet,
+ * the sentence of "Read the change first" that points at the rules, the section's opening and its
+ * "What to read" bullet, and the body's `Rules read:` line. The section's other bullets stay: they
+ * say what the rules are to a Taster that reads them by itself.
+ */
+const BARE_CUTS = [
+  "- **On a diff, your first tool call reads the repository's instruction file**: `CLAUDE.md` at the root of your working directory, or `AGENTS.md` where that is what it has. Do this before anything else, whatever your lens and however small the change; the section below says what else to read and what these files are.\n",
+  " On a diff, read the repository's rules as the section below says; on a plan, read the repository's instructions and design documents when the lens asks you to check against them.",
+  "A step that reviews a plan skips this section. On a diff, nothing has loaded the repository's rules for you, so read them yourself before you judge, whatever your lens names.\n\n",
+  "- **What to read.** Once {change} shows what the change touches, read the instruction file at the root of your working directory: `CLAUDE.md`, or `AGENTS.md` where that is what it has. Then read what that file or the changed code names for the files the change touches: the decision records and design pages about them and, where the repository keeps scoped rules in a folder of their own (such as `.claude/rules/`, `.cursor/rules/` or `.github/instructions/`), the rule files for them. This is not a tour of its documents. A lens that asks for more reads what it asks for. A file too large to read whole: read what you need of it, and say so under `riskLeft`, not as a finding. A repository with none of these goes on without them: the failed read of its instruction file is no finding and no failure, and your body's line says `Rules read: none in this repository`.\n",
+  "On a diff, your out doc's body starts with a line `Rules read:` that names each rule file, decision record and design page you read, or says `Rules read: none in this repository`. After it, and on a plan from its start, say what you read and what you checked through the lens.\n\n",
+] as const;
 
-/** The folders of the real mode's records under the comparisons' own, `comparison`'s apart (ADR 0347). */
-export const realFolders = (_comparison: string | undefined): string[] => {
-  throw new Error('not implemented');
+/**
+ * The `-bare` setups' Taster: the default's text without what tells it to read the rules, and no
+ * other change (ADR 0347). A default that does not hold each cut once stops the comparison, as
+ * `highTaster` does, since a later edit could otherwise compare nothing.
+ */
+export const bareTaster = (current: string): string =>
+  BARE_CUTS.reduce((text, cut) => {
+    if (text.split(cut).length !== 2) {
+      throw new Error(
+        `the default Taster does not hold this text once: bare would compare nothing: ${cut.slice(0, 80)}`,
+      );
+    }
+    return text.replace(cut, () => '');
+  }, current);
+
+/** A comparison's name: letters, digits and `-`, not first, so it is one folder and no path. */
+const COMPARISON = /^[A-Za-z0-9][A-Za-z0-9-]*$/;
+
+/**
+ * The folders of the real mode's records, below the comparisons' own: `real`, or `comparison`'s
+ * folder in it, whose records, seed and lists are its own (ADR 0347).
+ */
+export const realFolders = (comparison: string | undefined): string[] => {
+  if (comparison === undefined) return ['real'];
+  if (!COMPARISON.test(comparison)) {
+    throw new Error(
+      `--comparison takes letters, digits and -, not first, as one folder's name, not "${comparison}"`,
+    );
+  }
+  return ['real', comparison];
 };
 
 /** The `opus` setup's models.jsonc: over the default's aliases, it moves the Taster and no other brewer. */
 const OPUS_MODELS = `${JSON.stringify({ models: { opus: 'opus' }, brewers: { taster: 'opus' } })}\n`;
 
+/** The setups that put the Taster on Opus. */
+const ON_OPUS: ReadonlySet<Profile | 'comments'> = new Set(['opus', 'opus-bare', 'opus-together']);
+
+/** A setup's Taster text, when it replaces the default's. */
+const tasterOf = (profile: Profile | 'comments', tasters: Tasters): string | undefined => {
+  switch (profile) {
+    case 'today':
+      return tasters.today;
+    case 'high':
+      return highTaster(tasters.current);
+    case 'opus-bare':
+    case 'opus-together':
+      return bareTaster(tasters.current);
+    case 'high-bare':
+      return highTaster(bareTaster(tasters.current));
+    case 'reads':
+    case 'lens':
+    case 'opus':
+    case 'comments':
+      return undefined;
+    default: {
+      const never: never = profile;
+      return never;
+    }
+  }
+};
+
 /**
  * The Brewery's files of a run of `setup` beyond Nip's: the recipe, and what its setup changes:
- * `today`'s Taster, `high`'s effort or `opus`'s model.
+ * `today`'s Taster, the bare Taster, `high`'s effort or `opus`'s model.
  */
-export const realBreweryFiles = (setup: RealSetup, tasters: Tasters): Record<string, string> => ({
-  [`recipes/${realRecipeOf(setup)}.jsonc`]: realRecipeText(setup),
-  ...(setup.endsWith('-today') ? { 'brewers/taster.md': tasters.today } : {}),
-  ...(setup.endsWith('-high') ? { 'brewers/taster.md': highTaster(tasters.current) } : {}),
-  ...(setup.endsWith('-opus') ? { 'models.jsonc': OPUS_MODELS } : {}),
-});
+export const realBreweryFiles = (setup: RealSetup, tasters: Tasters): Record<string, string> => {
+  const profile = profileOf(setup);
+  const taster = tasterOf(profile, tasters);
+  return {
+    [`recipes/${realRecipeOf(setup)}.jsonc`]: realRecipeText(setup),
+    ...(taster === undefined ? {} : { 'brewers/taster.md': taster }),
+    ...(ON_OPUS.has(profile) ? { 'models.jsonc': OPUS_MODELS } : {}),
+  };
+};
 
 /**
  * The comments on the fake host's issue in a run of `setup`, `author` a maintainer's login, the
@@ -481,7 +592,7 @@ export const modelStop = ({
   setup,
   attempts,
 }: Pick<RealRecord, 'setup' | 'attempts'>): string | undefined => {
-  const asked = setup.endsWith('-opus') ? 'opus' : 'sonnet';
+  const asked = ON_OPUS.has(profileOf(setup)) ? 'opus' : 'sonnet';
   for (const { stepId, failure, models = [] } of attempts) {
     const other = models.find((model) => !model.includes(asked));
     if (other !== undefined) {
@@ -521,6 +632,32 @@ export const codeOf = (seed: string, setup: RealSetup, run: number): string =>
 const inRecipeOrder = (attempts: readonly TasterAttempt[]): TasterAttempt[] => {
   const place = (stepId: string): number => LENS_TASTERS.findIndex(({ id }) => id === stepId);
   return [...attempts].sort((a, b) => place(a.stepId) - place(b.stepId));
+};
+
+/**
+ * A Taster of several lenses as one Taster per lens, for the lists only, so a run tasted together
+ * reads as one tasted apart (ADR 0347): each finding under the lens it names, each risk under the
+ * lens it starts with, without it, and what names none of them under the step's first lens.
+ */
+const perLens = (attempt: TasterAttempt): TasterAttempt[] => {
+  const { lenses, findings, riskLeft = [] } = attempt;
+  const [first] = lenses;
+  if (first === undefined || lenses.length === 1) return [attempt];
+  const lensOf = (named: string | undefined): string =>
+    named !== undefined && lenses.includes(named) ? named : first;
+  const risks = riskLeft.map((risk) => {
+    const lens = lenses.find((each) => risk.startsWith(`${each}:`));
+    return lens === undefined
+      ? { lens: first, risk }
+      : { lens, risk: risk.slice(lens.length + 1).trim() };
+  });
+  return lenses.map((lens) => ({
+    ...attempt,
+    stepId: stepIdOf(lens),
+    lenses: [lens],
+    findings: findings.filter((finding) => lensOf(finding.lens) === lens),
+    riskLeft: risks.filter((each) => each.lens === lens).map(({ risk }) => risk),
+  }));
 };
 
 const tasterLines = ({ stepId, lenses, findings, riskLeft = [] }: TasterAttempt): string[] => [
@@ -594,18 +731,21 @@ export const blinded = (
     }
     if (scored.length === 0) continue;
     scored.sort((a, b) => (a.code < b.code ? -1 : 1));
-    const runsWith = (lines: (attempt: TasterAttempt) => string[]): string[] =>
+    const runsWith = (
+      lines: (attempt: TasterAttempt) => string[],
+      split: (attempt: TasterAttempt) => TasterAttempt[] = (attempt) => [attempt],
+    ): string[] =>
       scored.flatMap(({ code, record }) => [
         `## Run ${code}`,
         '',
-        ...inRecipeOrder(record.attempts).flatMap(lines),
+        ...inRecipeOrder(record.attempts.flatMap(split)).flatMap(lines),
       ]);
     lists[String(order)] = `${[
       `# Order #${order}: ${scored.length} runs to score`,
       '',
       'Each run has a code of its own. Open codes.md only once they are scored.',
       '',
-      ...runsWith(tasterLines),
+      ...runsWith(tasterLines, perLens),
     ]
       .join('\n')
       .trimEnd()}\n`;
@@ -629,51 +769,69 @@ export const blinded = (
   return { lists, bodies, codes };
 };
 
+/** The instruction files a Taster may open at its worktree's root (`defaults/brewers/taster.md`). */
+const INSTRUCTION_FILES: readonly string[] = ['CLAUDE.md', 'AGENTS.md'];
+
 /**
  * What the comparison prints: each setup's runs to score, failed and retried, since a setup that
- * retries more is a finding in itself. It holds no code, so it unblinds no list.
+ * retries more is a finding in itself, and how many Tasters of its scored runs opened the
+ * instruction file, which a bare Taster may do by itself (ADR 0347). It holds no code, so it
+ * unblinds no list.
  */
 export const realTable = (records: readonly RealRecord[]): string => {
   const rows = REAL_SETUPS.map((setup) => {
     const { scored, failed } = runsOfSetup(records, setup, runFailure);
     const retried = records.filter((each) => each.setup === setup && each.retry === true).length;
-    return `| ${setup} | ${scored.length} | ${failed.length} | ${retried} |`;
+    const tasters = scored.flatMap(({ attempts }) => attempts);
+    const read = tasters.filter(({ opened = [] }) =>
+      opened.some((file) => INSTRUCTION_FILES.includes(file)),
+    ).length;
+    return `| ${setup} | ${scored.length} | ${failed.length} | ${retried} | ${read} of ${tasters.length} |`;
   });
   return `${[
-    '| Setup | Runs to score | Failed goes | Retried |',
-    '|---|---|---|---|',
+    '| Setup | Runs to score | Failed goes | Retried | Opened the instruction file |',
+    '|---|---|---|---|---|',
     ...rows,
     '',
     'Score lists/<order>.md by hand, then read bodies/<order>.md, then open codes.md, which says which setup each code is.',
   ].join('\n')}\n`;
 };
 
-/** The dry run's Tasters: a scripted finding on `file` and a risk left, and nothing of any key. */
+/**
+ * The dry run's Tasters: a scripted finding on `file` and a risk left per lens, and nothing of any
+ * key. The together Taster's findings each name their lens, as its out doc's schema asks (ADR 0220).
+ */
 export const scriptedRealTastings = (file: string): Record<string, readonly Scripted[]> =>
   Object.fromEntries(
-    LENS_TASTERS.map(({ id, lens }) => [
-      id,
-      [
-        {
-          files: {},
-          message: '',
-          summary: `The dry run's scripted Taster through ${lens}.`,
-          tasting: {
-            verdict: 'approve' as const,
-            findings: [
-              {
+    [...LENS_TASTERS.map(({ id, lens }) => ({ id, lenses: [lens] })), TOGETHER].map(
+      ({ id, lenses }) => [
+        id,
+        [
+          {
+            files: {},
+            message: '',
+            summary: `The dry run's scripted Taster through ${lenses.join(', ')}.`,
+            tasting: {
+              verdict: 'approve' as const,
+              findings: lenses.map((lens) => ({
+                ...(lenses.length === 1 ? {} : { lens }),
                 file,
                 line: 1,
                 severity: 'minor',
                 why: `scripted by the dry run, through ${lens}`,
                 introduced: true,
-              },
-            ],
+              })),
+            },
+            doc: {
+              riskLeft: lenses.map(
+                (lens) =>
+                  `${lenses.length === 1 ? '' : `${lens}: `}scripted by the dry run: a risk left through ${lens}`,
+              ),
+            },
           },
-          doc: { riskLeft: [`scripted by the dry run: a risk left through ${lens}`] },
-        },
+        ],
       ],
-    ]),
+    ),
   );
 
 /**

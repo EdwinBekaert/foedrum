@@ -26,12 +26,15 @@
 // base fetched from this checkout, a scripted Cellarman commits the head's changed files, and the
 // three Tasters nip had then, with design conformance, as nip now has it (ADR 0343), as a fourth in
 // the lens setup (ADR 0337), on Opus in the opus setup and at high effort in the high setup
-// (ADR 0344), run on the real claude, or scripted with --dry-run. --setups <names> runs only those,
-// such as opus,high. It prints each Taster's model and effort as it is planned, reads each Taster's
-// transcript for what it read and the model it ran on, and stops at once on a transcript that cannot
-// say or another model. It writes one blinded list per order and one file of its bodies under
-// .foedrum/tmp/tasting-compare/real, the setups named only in codes.md. It scores nothing. Its
-// decisions are scripts/tasting-compare/real.ts.
+// (ADR 0344), on Opus and at high effort with a Taster told nothing of the rules in the opus-bare
+// and high-bare setups, and with nip's three lenses in one such Taster on Opus in the opus-together
+// setup (ADR 0347), run on the real claude, or scripted with --dry-run. --setups <names> runs only
+// those, such as opus,high. It prints each Taster's model and effort as it is planned, reads each
+// Taster's transcript for what it read and the model it ran on, and stops at once on a transcript
+// that cannot say or another model. It writes one blinded list per order and one file of its bodies
+// under .foedrum/tmp/tasting-compare/real, the setups named only in codes.md, or under
+// real/<name> with --comparison <name>, whose records, runs and lists are its own. It scores
+// nothing. Its decisions are scripts/tasting-compare/real.ts.
 
 import { randomBytes } from 'node:crypto';
 import {
@@ -68,6 +71,7 @@ import {
   nextRun,
   type RunRecord,
   readKey,
+  readRecordsIn,
   recipeText,
   recordOf,
   SETUPS,
@@ -100,6 +104,7 @@ import {
   type RealSetup,
   realBreweryFiles,
   realCommentsOf,
+  realFolders,
   realRecipeOf,
   realRecordOf,
   realTable,
@@ -127,6 +132,7 @@ const { values } = parseArgs({
     plan: { type: 'boolean' },
     real: { type: 'boolean' },
     setups: { type: 'string' },
+    comparison: { type: 'string' },
   },
 });
 if (values.plan === true && values.real === true) {
@@ -148,6 +154,20 @@ const chosenSetups = (): readonly RealSetup[] => {
   }
 };
 const realSetups = chosenSetups();
+if (values.comparison !== undefined && values.real !== true) {
+  process.stderr.write('--comparison names a comparison of --real: give --real too\n');
+  process.exit(2);
+}
+/** The real mode's folders: a comparison's own when --comparison names one (ADR 0347). */
+const realFolderNames = (): string[] => {
+  try {
+    return realFolders(values.comparison);
+  } catch (error) {
+    process.stderr.write(`${(error as Error).message}\n`);
+    process.exit(2);
+  }
+};
+const realFolderOf = realFolderNames();
 const runs = Number(values.runs ?? '3');
 if (!Number.isSafeInteger(runs) || runs < 1) {
   process.stderr.write(`--runs must be a whole number of at least 1, not ${values.runs}\n`);
@@ -309,7 +329,7 @@ const realMode = async (): Promise<Mode<RealSetup>> => {
   refuseSameTaster(today.stdout, current);
   const folder = join(fixture, 'real');
   return {
-    folders: ['real'],
+    folders: realFolderOf,
     setups: realSetups,
     order: (setup) => join(folder, `${orderOf(setup).order}.md`),
     recipeOf: realRecipeOf,
@@ -386,13 +406,7 @@ const compare = async <Setup extends string>(mode: Mode<Setup>): Promise<void> =
     ...(dryRun ? ['dry-run'] : []),
   );
   const resultsFile = join(folder, 'results.jsonl');
-  const readRecords = (): RunRecord<Setup>[] =>
-    existsSync(resultsFile)
-      ? readFileSync(resultsFile, 'utf8')
-          .split(/\r?\n/)
-          .filter((line) => line !== '')
-          .map((line) => JSON.parse(line) as RunRecord<Setup>)
-      : [];
+  const readRecords = (): RunRecord<Setup>[] => readRecordsIn<Setup>(folder);
 
   /** Brews one run of `setup` in `scratch`, and reads its Tasters' attempts from the store. */
   const brewRun = async (setup: Setup, scratch: string): Promise<Omit<RunRecord<Setup>, 'run'>> => {
