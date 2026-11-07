@@ -36,7 +36,15 @@ export const REAL_ORDERS = [
 export const TODAY_COMMIT = '765cc856';
 
 type OrderNumber = (typeof REAL_ORDERS)[number]['order'];
-type Profile = 'today' | 'reads' | 'lens' | 'opus' | 'high';
+type Profile =
+  | 'today'
+  | 'reads'
+  | 'lens'
+  | 'opus'
+  | 'high'
+  | 'opus-bare'
+  | 'high-bare'
+  | 'opus-together';
 const PROFILES: readonly Profile[] = ['today', 'reads', 'lens', 'opus', 'high'];
 /**
  * One order tasted one way: the order first, so the record reads on its own. `867-comments` is
@@ -134,6 +142,16 @@ export const highTaster = (current: string): string => {
     );
   }
   return current.replace(MEDIUM_EFFORT, () => '"effort": "high"');
+};
+
+/** The `-bare` setups' Taster: the default's text without what tells it to read the rules (ADR 0347). */
+export const bareTaster = (_current: string): string => {
+  throw new Error('not implemented');
+};
+
+/** The folders of the real mode's records under the comparisons' own, `comparison`'s apart (ADR 0347). */
+export const realFolders = (_comparison: string | undefined): string[] => {
+  throw new Error('not implemented');
 };
 
 /** The `opus` setup's models.jsonc: over the default's aliases, it moves the Taster and no other brewer. */

@@ -220,6 +220,11 @@ export interface RunRecord<Setup extends string = SetupName> {
   attempts: readonly TasterAttempt[];
 }
 
+/** The records of a comparison's folder, from its results.jsonl; none when it has no file. */
+export const readRecordsIn = <Setup extends string>(_folder: string): RunRecord<Setup>[] => {
+  throw new Error('not implemented');
+};
+
 /** The findings of a succeeded Taster's output, and how many the schema refused. */
 const findingsOf = (output: unknown): { findings: TastingFinding[]; refused: number } => {
   const listed =

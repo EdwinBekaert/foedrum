@@ -3,8 +3,13 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, parse, resolve } from 'node:path';
 import { describe, it } from 'node:test';
 import { BREWERY, localConfig, TARGET, USER } from '../../scripts/demo/core.ts';
-import type { RunRecord, TasterAttempt } from '../../scripts/tasting-compare/core.ts';
 import {
+  type RunRecord,
+  readRecordsIn,
+  type TasterAttempt,
+} from '../../scripts/tasting-compare/core.ts';
+import {
+  bareTaster,
   blinded,
   changedFiles,
   codeOf,
@@ -19,6 +24,7 @@ import {
   type RealSetup,
   realBreweryFiles,
   realCommentsOf,
+  realFolders,
   realRecipeOf,
   realRecipeText,
   realRecordOf,
@@ -164,16 +170,25 @@ const SETUPS: readonly RealSetup[] = [
   '855-lens',
   '855-opus',
   '855-high',
+  '855-opus-bare',
+  '855-high-bare',
+  '855-opus-together',
   '864-today',
   '864-reads',
   '864-lens',
   '864-opus',
   '864-high',
+  '864-opus-bare',
+  '864-high-bare',
+  '864-opus-together',
   '867-today',
   '867-reads',
   '867-lens',
   '867-opus',
   '867-high',
+  '867-opus-bare',
+  '867-high-bare',
+  '867-opus-together',
   '867-comments',
 ];
 
@@ -797,7 +812,13 @@ describe('tasting-compare --real', () => {
       it('each setup brews the recipe of its own kind', () => {
         assert.deepEqual(
           SETUPS.map((setup) => realRecipeOf(setup)),
-          SETUPS.map((setup) => (setup.endsWith('-lens') ? 'real-nip-lens' : REAL_RECIPE)),
+          SETUPS.map((setup) =>
+            setup.endsWith('-lens')
+              ? 'real-nip-lens'
+              : setup.endsWith('-together')
+                ? 'real-nip-together'
+                : REAL_RECIPE,
+          ),
         );
       });
 
@@ -968,24 +989,33 @@ describe('tasting-compare --real', () => {
 
     it('the table it prints is a row per setup and one line after them', () => {
       assert.deepEqual(realTable([record('867-reads', 1, 'x')]).split('\n'), [
-        '| Setup | Runs to score | Failed goes | Retried |',
-        '|---|---|---|---|',
-        '| 855-today | 0 | 0 | 0 |',
-        '| 855-reads | 0 | 0 | 0 |',
-        '| 855-lens | 0 | 0 | 0 |',
-        '| 855-opus | 0 | 0 | 0 |',
-        '| 855-high | 0 | 0 | 0 |',
-        '| 864-today | 0 | 0 | 0 |',
-        '| 864-reads | 0 | 0 | 0 |',
-        '| 864-lens | 0 | 0 | 0 |',
-        '| 864-opus | 0 | 0 | 0 |',
-        '| 864-high | 0 | 0 | 0 |',
-        '| 867-today | 0 | 0 | 0 |',
-        '| 867-reads | 1 | 0 | 0 |',
-        '| 867-lens | 0 | 0 | 0 |',
-        '| 867-opus | 0 | 0 | 0 |',
-        '| 867-high | 0 | 0 | 0 |',
-        '| 867-comments | 0 | 0 | 0 |',
+        '| Setup | Runs to score | Failed goes | Retried | Opened the instruction file |',
+        '|---|---|---|---|---|',
+        '| 855-today | 0 | 0 | 0 | 0 of 0 |',
+        '| 855-reads | 0 | 0 | 0 | 0 of 0 |',
+        '| 855-lens | 0 | 0 | 0 | 0 of 0 |',
+        '| 855-opus | 0 | 0 | 0 | 0 of 0 |',
+        '| 855-high | 0 | 0 | 0 | 0 of 0 |',
+        '| 855-opus-bare | 0 | 0 | 0 | 0 of 0 |',
+        '| 855-high-bare | 0 | 0 | 0 | 0 of 0 |',
+        '| 855-opus-together | 0 | 0 | 0 | 0 of 0 |',
+        '| 864-today | 0 | 0 | 0 | 0 of 0 |',
+        '| 864-reads | 0 | 0 | 0 | 0 of 0 |',
+        '| 864-lens | 0 | 0 | 0 | 0 of 0 |',
+        '| 864-opus | 0 | 0 | 0 | 0 of 0 |',
+        '| 864-high | 0 | 0 | 0 | 0 of 0 |',
+        '| 864-opus-bare | 0 | 0 | 0 | 0 of 0 |',
+        '| 864-high-bare | 0 | 0 | 0 | 0 of 0 |',
+        '| 864-opus-together | 0 | 0 | 0 | 0 of 0 |',
+        '| 867-today | 0 | 0 | 0 | 0 of 0 |',
+        '| 867-reads | 1 | 0 | 0 | 0 of 1 |',
+        '| 867-lens | 0 | 0 | 0 | 0 of 0 |',
+        '| 867-opus | 0 | 0 | 0 | 0 of 0 |',
+        '| 867-high | 0 | 0 | 0 | 0 of 0 |',
+        '| 867-opus-bare | 0 | 0 | 0 | 0 of 0 |',
+        '| 867-high-bare | 0 | 0 | 0 | 0 of 0 |',
+        '| 867-opus-together | 0 | 0 | 0 | 0 of 0 |',
+        '| 867-comments | 0 | 0 | 0 | 0 of 0 |',
         '',
         'Score lists/<order>.md by hand, then read bodies/<order>.md, then open codes.md, which says which setup each code is.',
         '',
@@ -1092,7 +1122,7 @@ describe('tasting-compare --real', () => {
       const failed: RealRecord = { ...record('855-today', 2, 'x'), ended: 'not ended' };
       const again: RealRecord = { ...record('855-today', 2, 'y'), retry: true };
       const table = realTable([failed, ...records, again]);
-      assert.match(table, /\| 855-today \| 2 \| 1 \| 1 \|/);
+      assert.match(table, /\| 855-today \| 2 \| 1 \| 1 \| 0 of 2 \|/);
       assert.match(table, /\| 855-reads \| 2 \| 0 \| 0 \|/);
       assert.match(table, /\| 864-today \| 0 \| 0 \| 0 \|/);
       assert.match(table, /\| 867-reads \| 1 \| 0 \| 0 \|/);
@@ -1108,6 +1138,7 @@ describe('tasting-compare --real', () => {
         'acceptance',
         'security',
         'design-conformance',
+        'together',
       ]);
       const [turn] = tastings.security ?? [];
       assert.equal(turn?.tasting?.findings[0]?.file, 'src/a.ts');
@@ -1413,7 +1444,7 @@ describe('tasting-compare --real: the opus and high setups (ADR 0344)', () => {
     it('refuses a name no setup has, and says which it knows', () => {
       assert.throws(
         () => selectRealSetups('opus,hihg'),
-        /hihg.*today, reads, lens, opus, high, comments/,
+        /hihg.*today, reads, lens, opus, high, opus-bare, high-bare, opus-together, comments/,
       );
     });
 
@@ -1446,6 +1477,323 @@ describe('tasting-compare --real: the opus and high setups (ADR 0344)', () => {
         run: 1,
         retry: false,
       });
+    });
+  });
+
+  describe('the bare and together setups (ADR 0347)', () => {
+    const BARE = () => bareTaster(DEFAULT_TASTER);
+    const NIP_LENSES = ['diff/correctness', 'diff/acceptance', 'diff/security'];
+
+    it("the opus-bare setup differs from opus by the Taster's read of the rules alone", () => {
+      const opus = realBreweryFiles('855-opus', REAL_TASTERS);
+      const { 'brewers/taster.md': taster, ...others } = realBreweryFiles(
+        '855-opus-bare',
+        REAL_TASTERS,
+      );
+      assert.deepEqual(others, opus);
+      assert.equal(taster, BARE());
+      assert.notEqual(taster, DEFAULT_TASTER);
+      assert.deepEqual(commandLine('855-opus-bare'), commandLine('855-opus'));
+    });
+
+    it("the high-bare setup differs from high by the Taster's read of the rules alone", () => {
+      const { 'brewers/taster.md': high, ...highOthers } = realBreweryFiles(
+        '855-high',
+        REAL_TASTERS,
+      );
+      const { 'brewers/taster.md': taster, ...others } = realBreweryFiles(
+        '855-high-bare',
+        REAL_TASTERS,
+      );
+      assert.deepEqual(others, highOthers);
+      // high's effort and bare's cut, whichever comes first.
+      assert.equal(taster, highTaster(BARE()));
+      assert.equal(taster, bareTaster(high ?? ''));
+      assert.notEqual(taster, high);
+      assert.deepEqual(commandLine('855-high-bare'), commandLine('855-high'));
+    });
+
+    it('the opus-together setup tastes the three lenses in one step on Opus', () => {
+      const files = realBreweryFiles('855-opus-together', REAL_TASTERS);
+      assert.equal(realRecipeOf('855-opus-together'), 'real-nip-together');
+      const recipe = Recipe.parse(parseJsonc(files['recipes/real-nip-together.jsonc'] ?? ''));
+      const tasters = recipe.steps.filter((step) => 'brewer' in step && step.brewer === 'taster');
+      assert.deepEqual(tasters, [{ id: 'together', brewer: 'taster', lenses: NIP_LENSES }]);
+      assert.equal(
+        recipe.steps.some((step) => 'parallel' in step),
+        false,
+      );
+      assert.equal(files['brewers/taster.md'], BARE());
+      assert.equal(
+        files['models.jsonc'],
+        realBreweryFiles('855-opus', REAL_TASTERS)['models.jsonc'],
+      );
+
+      const line = commandLine('855-opus-together', 'together');
+      assert.equal(line[line.indexOf('--model') + 1], 'opus');
+      assert.deepEqual(line, commandLine('855-opus-bare'));
+    });
+
+    it('the together recipe loads as a Brewery file, blocks nowhere, and opens a pull request', () => {
+      const files = realBreweryFiles('855-opus-together', REAL_TASTERS);
+      const brewery = makeTempDir('tasting-compare-real');
+      try {
+        for (const [path, text] of Object.entries(files)) {
+          mkdirSync(dirname(join(brewery.path, path)), { recursive: true });
+          writeFileSync(join(brewery.path, path), text);
+        }
+        const loaded = loadRecipes(readBreweryFiles(brewery.path));
+        assert.deepEqual(loaded.valid ? [] : loaded.problems, []);
+      } finally {
+        brewery.remove();
+      }
+      const recipe = Recipe.parse(parseJsonc(files['recipes/real-nip-together.jsonc'] ?? ''));
+      assert.ok(recipe.steps.some((step) => 'action' in step && step.action === 'openPullRequest'));
+      for (const step of recipe.steps) {
+        assert.equal('blocking' in step ? step.blocking : undefined, undefined);
+      }
+    });
+
+    it('the bare Taster leaves out every line that tells it to read the rules', () => {
+      const bare = BARE();
+      for (const words of [
+        'CLAUDE.md',
+        'AGENTS.md',
+        'Rules read',
+        "read the repository's rules",
+        'read them yourself',
+        '**What to read.**',
+      ]) {
+        assert.equal(bare.includes(words), false, words);
+        assert.equal(DEFAULT_TASTER.includes(words), true, words);
+      }
+    });
+
+    it('the bare Taster keeps every other line of the default byte for byte', () => {
+      const bare = BARE().split('\n');
+      const all = DEFAULT_TASTER.split('\n');
+      assert.equal(bare.length, all.length - 6);
+      const changed = bare.filter((line) => !all.includes(line));
+      assert.equal(changed.length, 1, changed.join('\n'));
+      const [shortened = ''] = changed;
+      assert.ok(shortened.startsWith('- **Read the change first.**'), shortened);
+      assert.ok(all.some((line) => line !== shortened && line.startsWith(shortened)));
+      for (const kept of [
+        "## The repository's rules",
+        '- **What they are.**',
+        '- **When the change edits them.**',
+        '## Out doc',
+        '## Your handover',
+      ]) {
+        assert.ok(
+          bare.some((line) => line.startsWith(kept)),
+          kept,
+        );
+      }
+      // Every line it keeps stays in the default's order.
+      let at = 0;
+      for (const line of bare.filter((each) => each !== shortened)) {
+        at = all.indexOf(line, at);
+        assert.ok(at >= 0, line);
+        at += 1;
+      }
+    });
+
+    it('refuses a default Taster that no longer holds one of the texts it cuts', () => {
+      for (const words of [
+        'your first tool call reads',
+        "On a diff, read the repository's rules as the section below says",
+        "nothing has loaded the repository's rules for you",
+        '**What to read.**',
+        'starts with a line `Rules read:`',
+      ]) {
+        assert.throws(
+          () => bareTaster(DEFAULT_TASTER.replace(words, 'other words')),
+          /bare would compare nothing/,
+          words,
+        );
+      }
+    });
+
+    it('refuses a default Taster that holds a text it cuts twice, as it could not tell which', () => {
+      const first = DEFAULT_TASTER.split('\n').find((line) => line.includes('**What to read.**'));
+      assert.throws(
+        () => bareTaster(`${DEFAULT_TASTER}\n${first}\n`),
+        /bare would compare nothing/,
+      );
+    });
+
+    it('the opus-bare and opus-together setups ask for opus, and high-bare for sonnet', () => {
+      const ranOn = (setup: RealSetup, model: string) => ({
+        setup,
+        attempts: [attempt('together', [], { models: [model] })],
+      });
+      for (const setup of ['855-opus-bare', '867-opus-together'] as const) {
+        assert.equal(modelStop(ranOn(setup, 'claude-opus-5-5')), undefined, setup);
+        assert.match(modelStop(ranOn(setup, 'claude-sonnet-5-5')) ?? '', /asks for opus/, setup);
+      }
+      assert.equal(modelStop(ranOn('864-high-bare', 'claude-sonnet-5-5')), undefined);
+      assert.match(modelStop(ranOn('864-high-bare', 'claude-opus-5-5')) ?? '', /asks for sonnet/);
+    });
+
+    it('--setups names the three of them alone, order by order', () => {
+      assert.deepEqual(selectRealSetups('opus-together,opus-bare,high-bare'), [
+        '855-opus-bare',
+        '855-high-bare',
+        '855-opus-together',
+        '864-opus-bare',
+        '864-high-bare',
+        '864-opus-together',
+        '867-opus-bare',
+        '867-high-bare',
+        '867-opus-together',
+      ]);
+    });
+
+    it('a record reads the together Taster with its three lenses', () => {
+      const lensed = { ...finding('a hole'), lens: 'diff/security' };
+      const { attempts } = realRecordOf(tasted('together', { findings: [lensed] }), () =>
+        transcript(outDoc),
+      );
+      assert.deepEqual(
+        attempts.map(({ stepId, lenses, findings }) => [stepId, lenses, findings.length]),
+        [['together', NIP_LENSES, 1]],
+      );
+    });
+
+    const together = (): TasterAttempt => ({
+      ...attempt(
+        'together',
+        [
+          { ...finding('a hole'), lens: 'diff/security' },
+          { ...finding('a missed item'), lens: 'diff/acceptance' },
+          { ...finding('a wrong sum'), lens: 'diff/correctness' },
+        ],
+        {
+          riskLeft: ['diff/security: the token was not read', 'no lens named here'],
+          models: ['claude-opus-5-5'],
+        },
+      ),
+      lenses: NIP_LENSES,
+    });
+
+    it("an opus-together run's list has the headings of an opus-bare run's, in the same order", () => {
+      const bare: RealRecord = {
+        ...record('855-opus-bare', 1, 'x'),
+        attempts: [
+          attempt('security', [finding('a hole')]),
+          attempt('correctness', [finding('a wrong sum')]),
+          attempt('acceptance', [finding('a missed item')]),
+        ],
+      };
+      const joined: RealRecord = { ...record('855-opus-together', 1, 'x'), attempts: [together()] };
+      const headings = (run: RealRecord) =>
+        [...(blinded([run], 'a seed').lists['855'] ?? '').matchAll(/^###? .*$/gm)]
+          .map(([line]) => line)
+          .filter((line) => !line.startsWith('## Run '));
+      assert.deepEqual(headings(joined), [
+        '### correctness (diff/correctness)',
+        '### acceptance (diff/acceptance)',
+        '### security (diff/security)',
+      ]);
+      assert.deepEqual(headings(joined), headings(bare));
+      assert.doesNotMatch(blinded([joined], 'a seed').lists['855'] ?? '', /together/);
+    });
+
+    it('shows each of its findings and risks under the lens it names, the rest under the first', () => {
+      const run: RealRecord = { ...record('855-opus-together', 1, 'x'), attempts: [together()] };
+      const list = blinded([run], 'a seed').lists['855'] ?? '';
+      const under = (lens: string) => {
+        const from = list.indexOf(`### ${lens} (`);
+        const next = list.indexOf('### ', from + 1);
+        return list.slice(from, next === -1 ? undefined : next);
+      };
+      assert.match(under('correctness'), /a wrong sum/);
+      assert.match(under('correctness'), /- no lens named here/);
+      assert.match(under('acceptance'), /a missed item/);
+      assert.match(under('security'), /a hole/);
+      assert.match(under('security'), /^- the token was not read$/m);
+      assert.doesNotMatch(under('correctness'), /a hole|a missed item|token/);
+    });
+
+    it('codes.md keeps one row for the together Taster, with its model', () => {
+      const run: RealRecord = { ...record('855-opus-together', 1, 'x'), attempts: [together()] };
+      const { codes } = blinded([run], 'a seed');
+      const rows = codes.split('\n').filter((line) => line.includes('855-opus-together'));
+      assert.equal(rows.length, 1);
+      assert.match(rows[0] ?? '', /\| together \| claude-opus-5-5 \|/);
+    });
+
+    it('the table counts, per setup, the Tasters of its scored runs that opened the instruction file', () => {
+      const opened = (setup: RealSetup, run: number, ...files: (readonly string[])[]) => ({
+        ...record(setup, run, 'x'),
+        attempts: files.map((each, at) => attempt(`taster-${at}`, [], { opened: each })),
+      });
+      const table = realTable([
+        opened('855-opus-bare', 1, ['src/a.ts', 'CLAUDE.md'], ['src/a.ts'], []),
+        opened('855-opus-bare', 2, ['AGENTS.md'], ['docs/CLAUDE.md'], ['claude.md.bak']),
+        { ...opened('855-opus-bare', 3, ['CLAUDE.md']), ended: 'not ended' },
+        opened('855-opus-together', 1, ['CLAUDE.md']),
+      ]);
+      assert.match(table, /\| 855-opus-bare \| 2 \| 1 \| 0 \| 2 of 6 \|/);
+      assert.match(table, /\| 855-opus-together \| 1 \| 0 \| 0 \| 1 of 1 \|/);
+      assert.match(table, /\| 855-opus \| 0 \| 0 \| 0 \| 0 of 0 \|/);
+    });
+
+    it('the dry run plays the together Taster with a finding of each lens, each naming it', () => {
+      const [turn] = scriptedRealTastings('src/a.ts').together ?? [];
+      assert.deepEqual(
+        turn?.tasting?.findings.map((each) => (each as { lens?: string }).lens),
+        NIP_LENSES,
+      );
+    });
+  });
+
+  describe('--comparison (ADR 0347)', () => {
+    it('a comparison has a folder of its own under the real folder', () => {
+      assert.deepEqual(realFolders(undefined), ['real']);
+      assert.deepEqual(realFolders('933'), ['real', '933']);
+      assert.deepEqual(realFolders('bare-and-together'), ['real', 'bare-and-together']);
+    });
+
+    it('refuses a name with a path part, or none', () => {
+      for (const name of ['', '..', '../933', '933/x', '933\\x', 'C:', '.', '~', 'a b', '-933']) {
+        assert.throws(() => realFolders(name), /--comparison/, name);
+      }
+    });
+
+    it("a comparison's lists and codes.md hold none of the records outside its folder", () => {
+      const tmp = makeTempDir('tasting-compare-real');
+      try {
+        const results = (folder: string, ...records: RealRecord[]) => {
+          mkdirSync(folder, { recursive: true });
+          writeFileSync(
+            join(folder, 'results.jsonl'),
+            records.map((each) => `${JSON.stringify(each)}\n`).join(''),
+          );
+        };
+        const outer = join(tmp.path, ...realFolders(undefined));
+        const inner = join(tmp.path, ...realFolders('933'));
+        results(
+          outer,
+          record('855-reads', 1, 'an earlier finding'),
+          record('864-opus', 1, 'older'),
+        );
+        results(inner, record('855-reads', 1, 'a control finding'));
+        const read = readRecordsIn<RealSetup>(inner);
+        assert.deepEqual(
+          read.map(({ setup, run }) => [setup, run]),
+          [['855-reads', 1]],
+        );
+        const { lists, codes } = blinded(read, 'a seed');
+        assert.match(lists['855'] ?? '', /a control finding/);
+        assert.doesNotMatch(lists['855'] ?? '', /an earlier finding/);
+        assert.deepEqual(Object.keys(lists), ['855']);
+        assert.doesNotMatch(codes, /864-opus/);
+        assert.deepEqual(readRecordsIn(join(tmp.path, 'none')), []);
+      } finally {
+        tmp.remove();
+      }
     });
   });
 });
