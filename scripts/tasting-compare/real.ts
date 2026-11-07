@@ -218,7 +218,7 @@ export const bareTaster = (current: string): string =>
     return text.replace(cut, () => '');
   }, current);
 
-/** A comparison's name: letters, digits and `-`, not first, so it is one folder and no path. */
+/** A comparison's name: letters, digits and `-`, starting with a letter or a digit, so it is one folder and no path. */
 const COMPARISON = /^[A-Za-z0-9][A-Za-z0-9-]*$/;
 
 /**
@@ -229,7 +229,7 @@ export const realFolders = (comparison: string | undefined): string[] => {
   if (comparison === undefined) return ['real'];
   if (!COMPARISON.test(comparison)) {
     throw new Error(
-      `--comparison takes letters, digits and -, not first, as one folder's name, not "${comparison}"`,
+      `--comparison takes letters, digits and -, starting with a letter or a digit, as one folder's name, not "${comparison}"`,
     );
   }
   return ['real', comparison];
