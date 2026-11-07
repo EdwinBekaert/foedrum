@@ -2,7 +2,7 @@
 // target repository with bare remotes (ADR 0097), real git, the real driver lock and event store,
 // the state branch, the attempt worktrees of the user's clone and serve's pushes, with two seams
 // of the demo's own: its brewers (the Nip fixture's scripted Maltster, Gauger, Cellarman and Finer,
-// and three Tasters) for claude and its in-process code host for gh. The order has no batch yet: brew orders
+// and four Tasters) for claude and its in-process code host for gh. The order has no batch yet: brew orders
 // it, routes it by its label to the demo's recipe (ADR 0185), brews it and opens its pull request.
 
 import assert from 'node:assert/strict';
