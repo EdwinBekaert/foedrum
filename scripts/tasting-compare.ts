@@ -92,7 +92,6 @@ import {
   blinded,
   changedFiles,
   comparisonStop,
-  modelStop,
   nextRealRun,
   orderOf,
   REAL_ORDERS,
@@ -354,7 +353,7 @@ const realMode = async (): Promise<Mode<RealSetup>> => {
         dryRun ? scriptedTranscript(worktree, planned.get(id) ?? 'no plan') : transcriptOf(id),
       ),
     table: realTable,
-    stop: (record) => comparisonStop(record) ?? modelStop(record),
+    stop: comparisonStop,
     comments: (setup, author) =>
       realCommentsOf(setup, author, (file) => readFileSync(join(folder, file), 'utf8')),
     files: (records, reportFolder) => {

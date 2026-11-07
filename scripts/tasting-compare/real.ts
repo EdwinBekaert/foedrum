@@ -454,17 +454,6 @@ export const realRecordOf = (
 };
 
 /**
- * Why the comparison must stop, or undefined: a transcript that cannot say is the harness's, not the
- * Taster's, so running on would spend sessions on nothing (ADR 0332). A read outside fails only its run.
- */
-export const comparisonStop = ({
-  attempts,
-}: Pick<RealRecord, 'setup' | 'attempts'>): string | undefined => {
-  const lost = attempts.find(({ unreadable }) => unreadable !== undefined);
-  return lost === undefined ? undefined : escapeCell(`${lost.stepId}: ${lost.unreadable}`);
-};
-
-/**
  * Why a run on a model its setup did not ask for must stop the comparison, or undefined: it is the
  * harness's fault, and every later run would be on it too (ADR 0344). An alias asks for a family, so
  * an id of that family is what was asked. A Taster that finished with no model named cannot say. An
@@ -485,6 +474,18 @@ export const modelStop = ({
     }
   }
   return undefined;
+};
+
+/**
+ * Why the comparison must stop, or undefined: a transcript that cannot say, or another model, is the
+ * harness's, not the Taster's, so running on would spend sessions on nothing (ADR 0332, ADR 0344). A
+ * read outside fails only its run.
+ */
+export const comparisonStop = (
+  record: Pick<RealRecord, 'setup' | 'attempts'>,
+): string | undefined => {
+  const lost = record.attempts.find(({ unreadable }) => unreadable !== undefined);
+  return lost === undefined ? modelStop(record) : escapeCell(`${lost.stepId}: ${lost.unreadable}`);
 };
 
 /** The next run to brew (`nextRunOf`). */
