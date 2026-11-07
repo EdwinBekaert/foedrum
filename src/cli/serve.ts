@@ -37,6 +37,8 @@ import type { ServeRepository, ServeSetup } from './serve-config.ts';
 
 /** The terminal `foedrum brew` keeps a live line on (ADR 0174). */
 export interface LiveTerminal {
+  /** The frames of the moving mark this terminal shows properly, each one column wide (ADR 0346). */
+  marks: readonly string[];
   /** The terminal's width in characters, when it is known. */
   columns: () => number | undefined;
   /** Calls `handler` when the terminal is resized; the returned function stops it. */

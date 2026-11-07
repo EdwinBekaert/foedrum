@@ -76,6 +76,20 @@ export const boardTerminal = (
   };
 };
 
+/** The frames of `gh`'s moving mark (ADR 0346). */
+export const BRAILLE_MARKS: readonly string[] = [...'⣾⣽⣻⢿⡿⣟⣯⣷'];
+
+/** The frames of the moving mark on a terminal not known to show `gh`'s (ADR 0174). */
+export const ASCII_MARKS: readonly string[] = ['|', '/', '-', '\\'];
+
+/** The frames this terminal shows properly (ADR 0346). */
+export const marksOf = (
+  _env: Readonly<Record<string, string | undefined>>,
+  _platform: NodeJS.Platform,
+): readonly string[] => {
+  throw new Error('not implemented');
+};
+
 /** The live terminal, and the way every lasting line reaches it. */
 export interface StdoutTerminal extends LiveTerminal {
   /** Prints a lasting line: clears the live line, writes `line`, and draws the live line again. */
@@ -86,6 +100,7 @@ export interface StdoutTerminal extends LiveTerminal {
 export const liveTerminal = (
   stream: TerminalStream,
   env: Readonly<Record<string, string | undefined>>,
+  _platform: NodeJS.Platform = process.platform,
 ): StdoutTerminal | undefined => {
   if (stream.isTTY !== true || env.TERM === 'dumb' || env.CI !== undefined) return undefined;
   // The live line on screen now, so a lasting line from anywhere can go over it.
@@ -104,6 +119,7 @@ export const liveTerminal = (
     shown = text;
   };
   return {
+    marks: ASCII_MARKS,
     columns: () => stream.columns,
     onResize: (handler) => {
       stream.on('resize', handler);

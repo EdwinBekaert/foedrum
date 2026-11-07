@@ -17,13 +17,14 @@ export const aborted = (signal: AbortSignal): Promise<void> =>
  * A terminal over a fake screen (ADR 0174): it keeps what the live line shows now, every call and
  * every lasting line in order, and the lasting lines printed while the live line was on screen.
  */
-export const fakeScreen = (width: number | 'unknown') => {
+export const fakeScreen = (width: number | 'unknown', marks: readonly string[] = SPINNER) => {
   let columns = width === 'unknown' ? undefined : width;
   let drawn: string | undefined;
   const events: string[] = [];
   const resizers = new Set<() => void>();
   const printedOver: string[] = [];
   const terminal: LiveTerminal = {
+    marks,
     columns: () => columns,
     onResize: (handler) => {
       resizers.add(handler);

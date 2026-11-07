@@ -734,6 +734,7 @@ describe('runServe', () => {
   it('keeps its plain lines and never touches a terminal its shell holds (ADR 0174)', async () => {
     const touched: string[] = [];
     const terminal: LiveTerminal = {
+      marks: [],
       columns: () => {
         touched.push('columns');
         return 80;
