@@ -111,7 +111,7 @@ export interface ServeShell {
   git: Git;
   /** How long an intake pass may take; default half the batch lease (ADR 0050). */
   intakeDeadlineMs?: number;
-  /** How long between ticks; default 5 s, the supervisor's interval (ADR 0027). */
+  /** How long between ticks; default 5 s, `INTERVAL_MS` (ADR 0250). */
   intervalMs?: number;
   /** Holds the machine awake while an attempt runs (ADR 0195); absent, nothing does. */
   awake?: AwakeHold;
@@ -119,7 +119,7 @@ export interface ServeShell {
   terminal?: LiveTerminal;
 }
 
-/** The supervisor's interval (ADR 0027). */
+/** The interval between the ticks of the commands that run the driver, serve's own (ADR 0250). */
 export const INTERVAL_MS = 5000;
 
 /** How long `foedrum serve` is quiet before it says it still runs (ADR 0346). */
