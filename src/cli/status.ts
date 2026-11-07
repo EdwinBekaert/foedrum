@@ -92,6 +92,8 @@ export const describeLane = (
   batch: Batch,
   /** How its lines name its work (`calledAs`, ADR 0329). */
   called: string,
+  /** Whether an on-tap batch's pull requests say how each ended (the board's; brew and replay do not). */
+  withEnds = false,
 ): { lane: string; detail: string } => {
   const { lane } = batch;
   switch (lane.kind) {
@@ -114,7 +116,13 @@ export const describeLane = (
       const { approval } = batch;
       const approved =
         approval === undefined ? [] : [`plan approved by ${approval.by} via ${approval.via}`];
-      return { lane: 'on tap', detail: [...lane.pullRequests, ...approved].join(' ') };
+      if (!withEnds)
+        return { lane: 'on tap', detail: [...lane.pullRequests, ...approved].join(' ') };
+      // The lane stays on tap, since no event changes it: the ends say how far the work got.
+      const ends = lane.pullRequests.map(
+        (url) => `${url} ${batch.pullRequestEnds?.[url] ?? 'open'}`,
+      );
+      return { lane: 'on tap', detail: [...ends, ...approved].join(' ') };
     }
     case 'cancelled':
       return { lane: 'cancelled', detail: `by ${lane.by} via ${lane.via}` };
@@ -168,7 +176,7 @@ export const statusRow = (
   const failing = failingParts(batch);
   // A batch whose rendering throws is still shown, with its mark, and the board goes on (ADR 0335).
   try {
-    const { lane, detail } = describeLane(batch, calledAs(state, batch));
+    const { lane, detail } = describeLane(batch, calledAs(state, batch), true);
     const pause = pauseOf(state, batch);
     const paused = pause === undefined ? [] : [`paused ${pauseLine(pause)}`];
     const owner = interactive.get(batch.id);

@@ -249,6 +249,12 @@ describe('the ladder steps', () => {
     });
   });
 
+  it('say that the last status shows how each pull request ended', () => {
+    const status = LADDER_STEPS.find(({ id }) => id === 'status')?.lookFor ?? '';
+    assert.match(status, /\bmerged\b/);
+    assert.match(status, /pull request/);
+  });
+
   it('say that the label chose the recipe and the plan comment names a recipe per sub-order', () => {
     const plan = LADDER_STEPS[0]?.lookFor ?? '';
     assert.match(plan, /recipe:mash/);
