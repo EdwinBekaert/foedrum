@@ -1199,6 +1199,31 @@ describe('tasting-compare --real: the opus and high setups (ADR 0344)', () => {
     assert.deepEqual(withValue(line, '--effort', 'medium'), commandLine('855-reads'));
   });
 
+  it('both taste each order on its own, with no comment, as its reads setup does: regression test', () => {
+    for (const setup of selectRealSetups('opus,high')) {
+      const reads = `${setup.slice(0, 3)}-reads` as RealSetup;
+      assert.equal(orderOf(setup), orderOf(reads), setup);
+      assert.equal(realRecipeOf(setup), REAL_RECIPE, setup);
+      assert.equal(
+        realBreweryFiles(setup, REAL_TASTERS)[`recipes/${REAL_RECIPE}.jsonc`],
+        realBreweryFiles(reads, REAL_TASTERS)[`recipes/${REAL_RECIPE}.jsonc`],
+        setup,
+      );
+      assert.deepEqual(
+        realCommentsOf(setup, 'the-maintainer', () => 'a comment'),
+        [],
+        setup,
+      );
+    }
+  });
+
+  it('the other setups name no model and no other effort: regression test', () => {
+    for (const setup of ['855-today', '855-reads', '855-lens', '867-comments'] as const) {
+      assert.equal(realBreweryFiles(setup, REAL_TASTERS)['models.jsonc'], undefined, setup);
+    }
+    assert.equal(realBreweryFiles('855-today', REAL_TASTERS)['brewers/taster.md'], 'the old text');
+  });
+
   describe('the high Taster', () => {
     it('refuses a default Taster that does not hold medium effort', () => {
       assert.throws(() => highTaster('{ "effort": "low" }'), /effort/);
