@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import { FOEDRUM_DEFAULTS, readBreweryFiles } from '../../src/engine/brewery-files.ts';
+import { effectMarker } from '../../src/engine/claim-effects.ts';
 import { createCommandLog } from '../../src/engine/command-log.ts';
 import { openDriver } from '../../src/engine/driver.ts';
 import { effectKey } from '../../src/engine/effect-key.ts';
@@ -483,6 +484,36 @@ describe('which batches have ended, for their status comment', () => {
     const log = logged(onTap());
     await log.written();
     assert.equal(log.due().length, 1);
+  });
+
+  it('counts a revision a run before made as showing the end only when it is the text due: regression test', async () => {
+    let body = '';
+    const effects = statusEffects({
+      brewery: 'acme/brewery',
+      recipes,
+      clock,
+      comments: {
+        find: async () => ({ id: 100, body }),
+        read: async () => undefined,
+        create: async (_repo, _issue, text) => {
+          body = String(text);
+          return 100;
+        },
+        edit: async () => 'edited',
+      },
+    });
+    const state = fold([first, onTap(a), ended(a)]);
+    const [key] = effects.due(state, 'b1');
+    assert.ok(key !== undefined);
+    const encoded = effectKey.encode(key);
+    const signal = AbortSignal.timeout(5_000);
+    const applied = await effects.target.apply(encoded, signal);
+    assert.equal((applied as { open?: true }).open, undefined);
+    const same = await effects.target.find(encoded, signal);
+    assert.equal((same?.result as { open?: true }).open, undefined);
+    body = `Before the merge\n\n${effectMarker(encoded)}`;
+    const older = await effects.target.find(encoded, signal);
+    assert.equal((older?.result as { open?: true }).open, true);
   });
 
   it('keeps the name a handover line gave a batch once an order of it came after it ended', async () => {
