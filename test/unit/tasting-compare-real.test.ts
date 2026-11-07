@@ -1777,6 +1777,15 @@ describe('tasting-compare --real: the opus and high setups (ADR 0344)', () => {
         NIP_LENSES,
       );
     });
+
+    it("the dry run's together Taster starts each risk line with its lens: regression test", () => {
+      const [turn] = scriptedRealTastings('src/a.ts').together ?? [];
+      const risks = (turn?.doc?.riskLeft ?? []) as string[];
+      assert.deepEqual(
+        risks.map((risk) => risk.slice(0, risk.indexOf(': '))),
+        NIP_LENSES,
+      );
+    });
   });
 
   describe('--comparison (ADR 0347)', () => {
