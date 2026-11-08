@@ -41,11 +41,13 @@ const killPoints = [
 type KillPoint = (typeof killPoints)[number];
 // Where a fix the merged tree sent back dies besides (ADR 0226): around its start merge and the
 // post of the failure.
+// In the order a tick reaches them: the post of the failure in its effects before the drive, then
+// the fix's start merge in the drive (ADR 0355).
 const mergedPoints = [
-  'before the start merge',
-  'after the start merge',
   'before the failure was posted',
   'after the failure was posted',
+  'before the start merge',
+  'after the start merge',
 ] as const;
 type AnyPoint = KillPoint | (typeof mergedPoints)[number];
 
