@@ -452,6 +452,111 @@ describe('createAttemptPlans: plan', () => {
     );
   });
 
+  it('names a second blocking child and a child of several lenses as the recipe loads them, the blocking one first: regression test', async () => {
+    const grouped = loadRecipes({
+      ...readBreweryFiles(join(FOEDRUM_DEFAULTS, 'no-such-brewery')),
+      recipes: [
+        {
+          path: 'recipes/pale.jsonc',
+          text: recipeText(
+            'pale',
+            [
+              { id: 'brew', brewer: 'kettle' },
+              {
+                id: 'taste',
+                parallel: [
+                  {
+                    id: 'correctness',
+                    brewer: 'taster',
+                    lens: 'diff/correctness',
+                    blocking: true,
+                    onBlocked: { findings: { goto: 'brew', maxRounds: 1 } },
+                  },
+                  {
+                    id: 'review',
+                    brewer: 'taster',
+                    lenses: ['diff/acceptance', 'diff/design-conformance'],
+                  },
+                  {
+                    id: 'security',
+                    brewer: 'taster',
+                    lens: 'diff/security',
+                    blocking: true,
+                    onBlocked: { findings: { goto: 'brew', maxRounds: 1 } },
+                  },
+                ],
+              },
+              { action: 'openPullRequest' },
+            ],
+            { testFirst: false },
+          ),
+        },
+      ],
+      brewers: [
+        {
+          path: 'brewers/kettle.md',
+          text: brewerText('kettle', {
+            output: { doc: 'brew.md', schema: 'outDoc' },
+            tools: { allow: ['Read', 'Write'] },
+            produces: 'commits',
+            access: 'write',
+            git: { commit: true },
+            inputs: [{ name: 'order', from: 'order' }],
+          }),
+        },
+      ],
+    });
+    assert.ok(grouped.valid, grouped.valid ? '' : grouped.problems.join('\n'));
+    const deadlineAt = '2026-10-17T13:00:00.000Z';
+    const second = { ...ref, attempt: 2 };
+    const taster = (stepId: string, outcome: StepOutcome): Event[] => {
+      const at = { batchId: '12-1', stepId, attempt: 1 };
+      const path = join('/work', `${stepId}-1`);
+      const worktree = { repo: 'acme/api', path, branch: `b/${stepId}`, commit: 'c'.repeat(40) };
+      return [
+        { type: 'step.scheduled', ...at, deadlineAt },
+        { type: 'step.started', ...at, worktree },
+        { type: 'step.finished', ...at, outcome },
+      ];
+    };
+    const blocked = {
+      kind: 'failed',
+      retryable: false,
+      reason: 'blocked (findings): the Taster asks for changes',
+    } as const;
+    const approved: StepOutcome = {
+      kind: 'succeeded',
+      output: {
+        status: 'done',
+        summary: 'Tasted',
+        assumptions: [],
+        verdict: 'approve',
+        findings: [],
+      },
+    };
+    const events: Event[] = [
+      ...ordered,
+      started,
+      { type: 'step.finished', ...ref, outcome: { kind: 'succeeded', output: null } },
+      ...taster('correctness', blocked),
+      ...taster('review', approved),
+      ...taster('security', blocked),
+      {
+        type: 'step.scheduled',
+        ...second,
+        deadlineAt,
+        route: { from: 'correctness', why: 'findings' },
+      },
+      { ...started, attempt: 2 },
+    ];
+    const { plans } = setup(events, {}, undefined, grouped.brewers);
+    const { prompt } = await plans.plan({ ...start, ref: second });
+    assert.match(
+      prompt,
+      /\nStep security, through diff\/security, blocking: no findings\.\n\nStep review, through diff\/acceptance and diff\/design-conformance, advisory: no findings\.\n<\/untrusted-input-/,
+    );
+  });
+
   it('gives an attempt an onFail route scheduled the failed reading, last, reading no file for it (#341, ADR 0128)', async () => {
     const deadlineAt = '2026-10-17T13:00:00.000Z';
     const green = { batchId: '12-1', stepId: 'green', attempt: 1 };
