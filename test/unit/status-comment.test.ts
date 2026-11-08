@@ -3756,4 +3756,31 @@ describe('renderStatus: a parallel group that ran in part after a round back (AD
     const text = renderStatus(unplaced, ['implement', 'correctness']);
     assert.equal(lineOf(text, 'correctness'), '- ✅ `correctness`');
   });
+
+  it("says nothing of a round for a Taster's approval from before the batch's latest run (ADR 0357)", () => {
+    // Round 1 sent the batch back for security's findings, then a person's rewind ran it again
+    // from implement, before the group tasted again.
+    const rewound = batch({
+      steps: new Map([
+        step(
+          'implement',
+          done(1),
+          { ...done(2), route: { from: 'security', why: 'findings' } },
+          running(3),
+        ),
+        step('correctness', approved(1)),
+        step('security', blockedByFindings),
+      ]),
+      path: [
+        { stepId: 'implement', attempt: 1 },
+        { stepId: 'correctness', attempt: 1 },
+        { stepId: 'security', attempt: 1 },
+        { stepId: 'implement', attempt: 2 },
+        { stepId: 'implement', attempt: 3 },
+      ],
+      runFrom: 4,
+    });
+    const text = renderStatus(rewound, ['implement', 'correctness', 'security']);
+    assert.equal(lineOf(text, 'correctness'), '- ✅ `correctness`');
+  });
 });
