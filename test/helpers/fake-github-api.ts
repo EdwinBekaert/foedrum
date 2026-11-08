@@ -45,6 +45,10 @@ export interface FakeApiComment {
   created?: string;
 }
 
+/** The node id GraphQL names a pull request the fake opened by (ADR 0350). */
+export const pullNode = (pull: { repo: string; number: number }): string =>
+  `PR_${pull.repo}#${pull.number}`;
+
 /** A pull request the fake opened, as `POST /repos/{owner}/{repo}/pulls` asked for it. */
 export interface FakeApiPull {
   repo: string;
@@ -355,8 +359,6 @@ export const fakeGitHubApi = (options: FakeGitHubApiOptions): FakeGitHubApi => {
   };
 
   const pulls: FakeApiPull[] = [];
-  /** The node id GraphQL names a pull request by. */
-  const pullNode = (pull: FakeApiPull): string => `PR_${pull.repo}#${pull.number}`;
   const asPull = (pull: FakeApiPull) => ({
     number: pull.number,
     html_url: `https://github.com/${pull.repo}/pull/${pull.number}`,
