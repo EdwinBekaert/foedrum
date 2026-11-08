@@ -226,6 +226,15 @@ describe('dispositions (ADR 0191)', () => {
     });
   }
 
+  it("takes the step of a finding another step of the group found, as a step's id (#938, ADR 0349)", () => {
+    const parses = (step: unknown) =>
+      OutDocFrontmatter.safeParse({ ...done, dispositions: [{ ...fixed, step }] }).success;
+    assert.equal(parses('acceptance'), true);
+    assert.equal(parses('design-conformance'), true);
+    assert.equal(parses('../acceptance'), false);
+    assert.equal(parses(''), false);
+  });
+
   it(`takes ${MOST_DISPOSITIONS} dispositions, and no more`, () => {
     const many = (count: number) => ({ ...done, dispositions: Array(count).fill(fixed) });
     assert.equal(OutDocFrontmatter.safeParse(many(MOST_DISPOSITIONS)).success, true);

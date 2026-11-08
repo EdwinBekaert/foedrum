@@ -773,6 +773,36 @@ const earlierFindingsText = (of: Reviewed): string =>
 /** The most of a route input a prompt holds, in UTF-8 bytes (ADR 0128). */
 export const MAX_ROUTE_INPUT_BYTES = 64 * 1024;
 
+/**
+ * A Taster's step in a parallel group, as a findings route reads it (ADR 0349): its group, its
+ * lenses, and whether it blocks.
+ */
+export interface GroupedTaster {
+  group: string;
+  lenses: readonly string[];
+  blocking: boolean;
+}
+
+/** The group, lenses and blocking of the step of an attempt, or none outside a group. */
+export type GroupOf = (stepId: string, attempt: number) => GroupedTaster | undefined;
+
+/** `found`'s group, lenses and blocking, when it is a Taster's step in a parallel group. */
+export const groupOfStep = (_found: StepBrewer | undefined): GroupedTaster | undefined => {
+  throw new Error('not implemented');
+};
+
+/**
+ * Another child of the routing step's group, in the round that sent the batch back (ADR 0349):
+ * its findings, and how many more its blocked attempt did not record.
+ */
+export interface GroupStepFindings {
+  step: string;
+  lenses: readonly string[];
+  blocking: boolean;
+  findings: readonly TastingFinding[];
+  more: number;
+}
+
 /** What sent an attempt back along the route that scheduled it, and where to read the rest. */
 export interface PlannedRoute {
   source: Extract<InputSource, { kind: 'route' }>;
@@ -780,6 +810,8 @@ export interface PlannedRoute {
   text: string;
   /** The out doc of the attempt that blocked with findings, in its worktree. */
   outDoc?: { path: string; root: string };
+  /** The other children of the routing step's parallel group, in the same round (ADR 0349). */
+  group?: { id: string; others: readonly GroupStepFindings[] };
 }
 
 /**
@@ -793,6 +825,7 @@ export function routeOf(
   ref: AttemptRef,
   outDocOf: (stepId: string, attempt: number) => string | undefined,
   mergeOf: (ref: AttemptRef) => MergeResult | undefined = () => undefined,
+  _groupOf: GroupOf = () => undefined,
 ): PlannedRoute | undefined {
   const step = batch.steps.get(ref.stepId);
   const route = step === undefined ? undefined : roundRouteOf(step, ref.attempt);

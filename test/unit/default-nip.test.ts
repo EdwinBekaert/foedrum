@@ -6,7 +6,15 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
-import { attemptLimits, routeInput, routeOf } from '../../src/brewers/attempt-plan.ts';
+import {
+  attemptLimits,
+  type EarlierRound,
+  earlierFindingsInput,
+  earlierRoundsOf,
+  groupOfStep,
+  routeInput,
+  routeOf,
+} from '../../src/brewers/attempt-plan.ts';
 import { createAttemptPlans } from '../../src/brewers/attempt-plans.ts';
 import type { PromptInput } from '../../src/brewers/prompt.ts';
 import type { AttemptRef } from '../../src/engine/attempt-key.ts';
@@ -1459,6 +1467,52 @@ describe("the default Nip's round back to the Cellarman carries every Taster's f
       store.close();
     }
   };
+
+  it("gives the Cellarman's second attempt correctness's findings and acceptance's advisory one, and the next round of each its disposition", async () => {
+    const { brewers } = valid(loadRecipes(noFiles));
+    const outDocOf = (id: string) => brewers.find('nip', id)?.brewer.output.doc;
+    const groupOf = (id: string) => groupOfStep(brewers.find('nip', id));
+    let told: PromptInput | undefined;
+    const earlier = new Map<string, string>();
+    const correctnessDoc = tasted([blockingFinding]).doc;
+    const { events } = await brewed(
+      { correctness: tasted([]).behaviour, acceptance: tasted([]).behaviour },
+      (batch, ref) => {
+        if (ref.stepId === 'implement' && ref.attempt === 2) {
+          const route = routeOf(batch, ref, outDocOf, undefined, groupOf);
+          told =
+            route === undefined
+              ? undefined
+              : routeInput(route, { kind: 'text', text: correctnessDoc });
+        }
+        if (ref.attempt === 2 && (ref.stepId === 'correctness' || ref.stepId === 'acceptance')) {
+          const rounds = earlierRoundsOf(batch, ref, 'taste.md').filter(
+            (round): round is EarlierRound => !('outDoc' in round),
+          );
+          earlier.set(ref.stepId, earlierFindingsInput(ref.stepId, rounds).text);
+        }
+      },
+    );
+    const text = told?.text ?? '';
+    assert.match(text, /^Step correctness ended: blocked \(findings\)/);
+    assert.ok(text.includes(correctnessDoc), text);
+    assert.match(
+      text,
+      /\nStep acceptance, through diff\/acceptance, advisory:\n- major in src\/status\.ts:40: The order asks for --json; the flag added is --JSON(\n|$)/,
+    );
+    assert.match(
+      earlier.get('correctness') ?? '',
+      /src\/wait\.ts:12: waitForMerge polls with no deadline\n {2}fixed/,
+    );
+    assert.match(
+      earlier.get('acceptance') ?? '',
+      /src\/status\.ts:40: [^\n]*--JSON\n {2}dismissed: The order's second sentence asks for --JSON/,
+    );
+    const started = events.flatMap((event) =>
+      event.type === 'step.started' ? [event.stepId] : [],
+    );
+    assert.equal(started.at(-1), 'open-pull-request');
+  });
 
   it("goes on past acceptance's advisory changes alone, and counts correctness's rounds against its own route: regression test", async () => {
     const asks = tasted([advisoryFinding]).behaviour;
