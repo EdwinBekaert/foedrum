@@ -77,6 +77,8 @@ export interface StepBrewer {
    * whether a survivor does (ADR 0319).
    */
   blocking?: boolean;
+  /** On a Taster's step in a parallel group: the group (ADR 0168, ADR 0349). */
+  group?: string;
   /** On an interactive step: the recipe's first message to the session (ADR 0222). */
   interactive?: { prompt: string };
   /** On a step a person's choice schedules: that choice (ADR 0286). */
@@ -848,6 +850,7 @@ function brewerLine(step: BrewerStep, group: string | undefined, shelf: Shelf): 
     ]),
     ...(step.lenses === undefined ? { lens: first.name } : { together: names }),
     blocking: step.blocking ?? false,
+    ...(group === undefined ? {} : { group }),
   };
   return { line, brewer: tasting };
 }

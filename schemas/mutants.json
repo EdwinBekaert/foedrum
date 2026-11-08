@@ -35,6 +35,10 @@
               {
                 "type": "object",
                 "properties": {
+                  "step": {
+                    "type": "string",
+                    "pattern": "^(?!(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\\.|$))[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$"
+                  },
                   "file": {
                     "type": "string",
                     "maxLength": 1000,
@@ -70,6 +74,10 @@
               {
                 "type": "object",
                 "properties": {
+                  "step": {
+                    "type": "string",
+                    "pattern": "^(?!(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\\.|$))[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$"
+                  },
                   "file": {
                     "type": "string",
                     "maxLength": 1000,
@@ -106,6 +114,10 @@
               {
                 "type": "object",
                 "properties": {
+                  "step": {
+                    "type": "string",
+                    "pattern": "^(?!(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\\.|$))[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$"
+                  },
                   "file": {
                     "type": "string",
                     "maxLength": 1000,
@@ -262,6 +274,10 @@
               {
                 "type": "object",
                 "properties": {
+                  "step": {
+                    "type": "string",
+                    "pattern": "^(?!(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\\.|$))[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$"
+                  },
                   "file": {
                     "type": "string",
                     "maxLength": 1000,
@@ -297,6 +313,10 @@
               {
                 "type": "object",
                 "properties": {
+                  "step": {
+                    "type": "string",
+                    "pattern": "^(?!(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\\.|$))[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$"
+                  },
                   "file": {
                     "type": "string",
                     "maxLength": 1000,
@@ -333,6 +353,10 @@
               {
                 "type": "object",
                 "properties": {
+                  "step": {
+                    "type": "string",
+                    "pattern": "^(?!(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\\.|$))[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$"
+                  },
                   "file": {
                     "type": "string",
                     "maxLength": 1000,
@@ -526,6 +550,10 @@
               {
                 "type": "object",
                 "properties": {
+                  "step": {
+                    "type": "string",
+                    "pattern": "^(?!(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\\.|$))[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$"
+                  },
                   "file": {
                     "type": "string",
                     "maxLength": 1000,
@@ -561,6 +589,10 @@
               {
                 "type": "object",
                 "properties": {
+                  "step": {
+                    "type": "string",
+                    "pattern": "^(?!(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\\.|$))[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$"
+                  },
                   "file": {
                     "type": "string",
                     "maxLength": 1000,
@@ -597,6 +629,10 @@
               {
                 "type": "object",
                 "properties": {
+                  "step": {
+                    "type": "string",
+                    "pattern": "^(?!(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\\.|$))[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$"
+                  },
                   "file": {
                     "type": "string",
                     "maxLength": 1000,
@@ -762,6 +798,10 @@
               {
                 "type": "object",
                 "properties": {
+                  "step": {
+                    "type": "string",
+                    "pattern": "^(?!(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\\.|$))[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$"
+                  },
                   "file": {
                     "type": "string",
                     "maxLength": 1000,
@@ -797,6 +837,10 @@
               {
                 "type": "object",
                 "properties": {
+                  "step": {
+                    "type": "string",
+                    "pattern": "^(?!(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\\.|$))[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$"
+                  },
                   "file": {
                     "type": "string",
                     "maxLength": 1000,
@@ -833,6 +877,10 @@
               {
                 "type": "object",
                 "properties": {
+                  "step": {
+                    "type": "string",
+                    "pattern": "^(?!(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\\.|$))[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$"
+                  },
                   "file": {
                     "type": "string",
                     "maxLength": 1000,
