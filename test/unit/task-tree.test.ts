@@ -108,6 +108,15 @@ describe('attemptStart (ADR 0358)', () => {
     assert.equal(attemptStart(brewed({ runFrom: 1 }), 'gauge', repository, true), atImplement);
   });
 
+  it('starts the proven step at a success that is the first attempt of the current run', () => {
+    const batch = brewed();
+    const path = [{ stepId: 'implement', attempt: 1 }, ...(batch.path ?? [])];
+    assert.equal(
+      attemptStart({ ...batch, path, runFrom: 1 }, 'gauge', repository, true),
+      'refs/heads/foedrum/b1/gauge/1',
+    );
+  });
+
   it('starts the proven step at the task tree once an open pull request sent the batch back', () => {
     const route = {
       from: 'open',
