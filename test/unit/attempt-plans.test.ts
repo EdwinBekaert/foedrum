@@ -972,6 +972,88 @@ describe('createAttemptPlans: plan', () => {
     });
   });
 
+  describe('the sections an earlier attempt of the step wrote (#947)', () => {
+    const writing = loadRecipes({
+      recipes: [
+        {
+          path: 'recipes/pale.jsonc',
+          text: recipeText('pale', [{ id: 'brew', brewer: 'cellarman' }]),
+        },
+      ],
+      brewers: [
+        {
+          path: 'brewers/cellarman.md',
+          text: brewerText('cellarman', {
+            output: { doc: 'brew.md', schema: 'pullRequest' },
+            tools: { allow: ['Read', 'Write'] },
+            inputs: [
+              { name: 'order', from: 'order' },
+              { name: 'earlierSections', from: 'earlier-sections' },
+            ],
+          }),
+        },
+      ],
+    });
+    const second = { ...ref, attempt: 2 };
+    const finishedFirst: Event = {
+      type: 'step.finished',
+      ...ref,
+      outcome: {
+        kind: 'succeeded',
+        output: {
+          status: 'done',
+          summary: 'Added --json',
+          assumptions: [],
+          howItWorks: 'The first round added the flag.',
+          seeIt: 'Run it with --json.',
+          beforeAfter: [],
+        },
+      },
+    };
+    const fixing: Event[] = [
+      ...ordered,
+      started,
+      finishedFirst,
+      { type: 'step.scheduled', ...second, deadlineAt: '2026-10-17T13:00:00.000Z' },
+      {
+        type: 'step.started',
+        ...second,
+        session: { id: sessionId, worktree: join('/work', 'brew-2') },
+        worktree: {
+          repo: 'acme/api',
+          path: join('/work', 'brew-2'),
+          branch: 'foedrum/12-1/brew/2',
+          commit: 'd'.repeat(40),
+        },
+      },
+    ];
+
+    it("gives the fix round of a brewer that asks for them the first round's sections, tagged as data", async () => {
+      assert.ok(writing.valid, writing.valid ? '' : writing.problems.join('\n'));
+      const { plans } = setup(fixing, {}, undefined, writing.brewers);
+      const { prompt } = await plans.plan({ ...start, ref: second });
+      assert.match(
+        prompt,
+        /<untrusted-input-([0-9a-f]+) source="[^"\n]*" name="earlierSections">\n(?:(?!<\/untrusted-input)[\s\S])*The first round added the flag\.(?:(?!<\/untrusted-input)[\s\S])*<\/untrusted-input-\1>/,
+      );
+    });
+
+    it('leaves the input out of the first round, which has no earlier sections', async () => {
+      assert.ok(writing.valid, writing.valid ? '' : writing.problems.join('\n'));
+      const { plans } = setup([...ordered, started], {}, undefined, writing.brewers);
+      const { prompt } = await plans.plan(start);
+      assert.match(prompt, /name="order">\nAdd a --json flag\.\n/);
+      assert.doesNotMatch(prompt, /name="earlierSections"/);
+    });
+
+    it('gives a brewer that does not ask for them the same inputs as before, with a first round that wrote sections (regression)', async () => {
+      const { plans } = setup(fixing);
+      const { prompt } = await plans.plan({ ...start, ref: second });
+      assert.match(prompt, /name="guide">\n# Guide\n/);
+      assert.doesNotMatch(prompt, /name="earlierSections"|The first round added the flag/);
+    });
+  });
+
   it("gives an input from repositories the Brewery's repositories with their bases, its own marked (ADR 0234)", async () => {
     const planning = loadRecipes({
       recipes: [

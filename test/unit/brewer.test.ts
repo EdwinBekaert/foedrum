@@ -101,6 +101,11 @@ describe('BrewerFrontmatter', () => {
     assert.equal(accepted({ ...taster, inputs }), true);
   });
 
+  it('accepts an input from the sections an earlier attempt of the step wrote (#947)', () => {
+    const inputs = [{ name: 'earlierSections', from: 'earlier-sections' }];
+    assert.equal(accepted({ ...taster, inputs }), true);
+  });
+
   it('names the plan entry and the release among the sources when it refuses an unknown one (ADR 0290, ADR 0291)', () => {
     const read = BrewerFrontmatter.safeParse({
       ...taster,

@@ -377,6 +377,38 @@ describe("stepReports: a pullRequest brewer's sections (ADR 0167)", () => {
   });
 });
 
+describe("stepReports: a pullRequest brewer's sections over several attempts (#947)", () => {
+  const wrote = (round: string) => ({
+    ...outDoc(`Round ${round}`),
+    howItWorks: `How it works after the ${round} round.`,
+    seeIt: `See it after the ${round} round.`,
+    beforeAfter: [],
+  });
+
+  it("gives the sections of the step's latest attempt that succeeded, which the engine does not merge with the first's (regression test)", () => {
+    const state = fold([
+      ordered,
+      chosen,
+      ...ran('implement', 1, wrote('first')),
+      ...ran('implement', 2, wrote('second')),
+    ]);
+    const batch = state.batches.get('12-1');
+    assert.ok(batch !== undefined);
+    assert.deepEqual(stepReports(batch), [
+      {
+        stepId: 'implement',
+        summary: 'Round second',
+        assumptions: [],
+        sections: {
+          howItWorks: 'How it works after the second round.',
+          seeIt: 'See it after the second round.',
+          beforeAfter: [],
+        },
+      },
+    ]);
+  });
+});
+
 describe('brewLog (ADR 0167)', () => {
   const question = { q: 'Which?', options: ['a', 'b'], recommended: 'a', whyBlocking: 'x' };
   const asked: Event = {
