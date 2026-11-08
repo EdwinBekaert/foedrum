@@ -473,7 +473,8 @@ describe('foedrum brew on recipe:mash and recipe:decoction, through the default 
     const script = {
       plan: [planned, replanned()],
       coverage: [asksChanges(guide), approves],
-      sizing: [approves, behave.fail(true), approves],
+      // Findings in round 1, so sizing runs again in round 2 (ADR 0357).
+      sizing: [asksChanges(big), behave.fail(true), approves],
       'naive-reader': [approves, approves],
     };
     assert.equal(await runBrew(setup, shell(script), request), 3, lines.join('\n'));
@@ -497,7 +498,8 @@ describe('foedrum brew on recipe:mash and recipe:decoction, through the default 
     const script = {
       plan: [planned, replanned()],
       coverage: [asksChanges(guide), approves],
-      sizing: [approves, behave.fail(true), behave.fail(true)],
+      // Findings in round 1, so sizing runs again in round 2 (ADR 0357).
+      sizing: [asksChanges(big), behave.fail(true), behave.fail(true)],
       'naive-reader': [approves, approves],
     };
     assert.equal(await runBrew(setup, shell(script), request), 3, lines.join('\n'));

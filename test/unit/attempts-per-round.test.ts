@@ -190,7 +190,8 @@ describe('a brewer step counts its attempts since its latest that delivered (ADR
   it("a stuck line says the attempts of this round, within the brewer's limit", async () => {
     const events = await brew('nip', {
       ...nipSentBack(),
-      acceptance: [approves, fails, fails, approves],
+      // Findings in round 1, so acceptance runs again in round 2 (ADR 0357).
+      acceptance: [asksChanges, fails, fails, approves],
     });
     assertExhausted(events, 'acceptance', 2);
   });

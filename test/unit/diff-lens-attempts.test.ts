@@ -110,7 +110,8 @@ describe('a lens step counts its attempts since its latest review (ADR 0324)', (
     const events = await brew('nip', {
       ...nipUpToTasting(2),
       correctness: [asksChanges, approves],
-      acceptance: [approves, fails, approves],
+      // Findings in round 1, so acceptance runs again in round 2 (ADR 0357).
+      acceptance: [asksChanges, fails, approves],
       security: [approves, approves],
       'design-conformance': [approves, approves],
     });
@@ -124,7 +125,8 @@ describe('a lens step counts its attempts since its latest review (ADR 0324)', (
     const events = await brew('nip', {
       ...nipUpToTasting(2),
       correctness: [asksChanges, approves],
-      acceptance: [approves, fails, fails, approves],
+      // Findings in round 1, so acceptance runs again in round 2 (ADR 0357).
+      acceptance: [asksChanges, fails, fails, approves],
       security: [approves, approves],
       'design-conformance': [approves, approves],
     });
@@ -150,7 +152,8 @@ describe('a lens step counts its attempts since its latest review (ADR 0324)', (
     const events = await brew('mash', {
       plan: [done, done],
       coverage: [asksChanges, approves],
-      sizing: [approves, fails, fails, approves],
+      // Findings in round 1, so sizing runs again in round 2 (ADR 0357).
+      sizing: [asksChanges, fails, fails, approves],
       'naive-reader': [approves, approves],
     });
     assert.equal(times(started(events), 'sizing'), 3, started(events).join(', '));
