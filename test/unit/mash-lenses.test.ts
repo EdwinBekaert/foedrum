@@ -523,6 +523,21 @@ describe('foedrum brew on recipe:mash and recipe:decoction, through the default 
     );
   });
 
+  it("a plan whose findings outlast the rounds is Stuck, and a person's skip brings it to its review (ADR 0354): regression test", async () => {
+    const script = {
+      plan: [planned, replanned(), replanned()],
+      coverage: [asksChanges(guide), asksChanges(guide), asksChanges(guide)],
+      sizing: [approves, approves, approves],
+      'naive-reader': [approves, approves, approves],
+    };
+    assert.equal(await runBrew(setup, shell(script), request), 3, lines.join('\n'));
+    assert.equal(stuckReason().kind, 'blocked');
+    const at = new Date('2026-11-08T12:00:00.000Z');
+    const skipped = log().issue({ kind: 'skip', batchId: '12-1', by: 'ann', via: 'terminal' }, at);
+    assert.equal(skipped.kind, 'accepted', JSON.stringify(skipped));
+    assert.deepStrictEqual(stuckReason(), { kind: 'plan_review', stepId: 'plan', attempt: 3 });
+  });
+
   it("a person's lauter on the default mash opens its session and tastes nothing again: regression test", async () => {
     const script = {
       plan: [planned],
