@@ -20,7 +20,7 @@ const Identifier = z.string().regex(/^[a-z][A-Za-z0-9]*$/, 'Must be a camelCase 
 // `plan-entry`: a sub-order's entry of the approved plan it was ordered from (ADR 0290).
 // `release`: the releases a sub-order waited for, each tag as written (ADR 0291).
 // `checks`: the checks that ran on the commit the attempt starts at, how each ended (ADR 0308).
-// `earlier-sections`: the pull request's sections an earlier attempt of the step wrote (#947).
+// `earlier-sections`: the pull request's sections an earlier attempt of the step wrote (ADR 0353).
 const source =
   /^(?:order|repositories|recipes|earlier-sections|plan|plan-entry|release|checks|step:(.+)|file:(.+)|lens:(.+))$/;
 

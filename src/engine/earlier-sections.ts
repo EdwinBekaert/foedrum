@@ -1,5 +1,5 @@
 // What a Cellarman's fix round reads of the pull request's sections its earlier attempts wrote
-// (ADR 0167, ADR 0227), so that it returns them updated for the batch's whole change.
+// (ADR 0167, ADR 0227, ADR 0353), so that it returns them updated for the batch's whole change.
 
 import { type PullRequestSections, pullRequestSectionsOf } from '../schemas/out-doc.ts';
 import type { Batch } from './fold.ts';

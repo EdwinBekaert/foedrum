@@ -40,7 +40,7 @@ export type InputSource =
   | { kind: 'release'; issue: number; releases: readonly { repo: string; version: string }[] }
   /** The checks that ran on the commit an attempt starts at, how each ended (ADR 0308). */
   | { kind: 'checks'; commit: string }
-  /** The pull request's sections an earlier attempt, `attempt`, of the step wrote (#947). */
+  /** The pull request's sections an earlier attempt, `attempt`, of the step wrote (ADR 0353). */
   | { kind: 'earlier-sections'; attempt: number }
   /** The Brewery's recipes a step that chooses the recipe may offer (ADR 0232). */
   | { kind: 'recipes' }

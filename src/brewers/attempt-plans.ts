@@ -683,7 +683,7 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
     // The checks that ran on the commit the attempt starts at, when its brewer asks (ADR 0308).
     const asksChecks = found.brewer.inputs.some(({ from }) => from === 'checks');
     const checks = asksChecks ? checksInput(state(), batch, own?.commit) : undefined;
-    // The sections an earlier attempt of this step wrote, read only by a brewer that asks (#947).
+    // The sections an earlier attempt of this step wrote, read only by a brewer that asks (ADR 0353).
     const earlierSections = earlierSectionsInput(batch, ref.stepId, ref.attempt);
     // A step a findings route sent back corrects the plan they name, as a chosen step does (ADR 0318),
     // and a fresh retry of it too (ADR 0325).

@@ -370,7 +370,7 @@ export const planLensInputs = (
  * left out when no check ran on the commit the attempt starts at (ADR 0308). `breweryIssue` is the
  * Brewery issue that is a claimed batch's order, which its order input's source names (ADR 0334).
  * The earlier-sections input's text is in `earlierSections`, left out when no earlier attempt of
- * the step wrote any (#947).
+ * the step wrote any (ADR 0353).
  */
 export function inputsOf(
   inputs: BrewerFrontmatter['inputs'],
