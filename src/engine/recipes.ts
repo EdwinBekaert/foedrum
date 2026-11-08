@@ -80,6 +80,11 @@ export interface Recipe {
    * last check step that expects to pass, when an openPullRequest step follows it (ADR 0164).
    */
   mergesBase(stepId: string): boolean;
+  /**
+   * Whether `stepId` is the step the recipe's first red proof proves: an attempt at it after its
+   * success starts where that success ended, before the later steps' commits (ADR 0358).
+   */
+  proven(stepId: string): boolean;
   /** How long an attempt at `stepId` may take, in milliseconds. */
   deadlineMs(stepId: string): number;
   /** When an attempt at `stepId` stalls, or `undefined` when it has no stall limit. */

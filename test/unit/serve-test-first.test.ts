@@ -341,6 +341,8 @@ describe('runServe', () => {
           );
         }
         if (args[0] === 'ls-files') return ok('package.json\0');
+        // The attempt made no merge: its own change is one stretch (ADR 0358).
+        if (args[0] === 'rev-list') return ok('');
         if (args.includes('--diff-filter=D') || args.includes('--name-only')) return ok('');
         const end = args.indexOf('--');
         read.push({ cwd, range: args.slice(end - 2, end).join(' ') });
@@ -484,9 +486,12 @@ describe('runServe', () => {
       const gaugeRange = /^[0-9a-f]{40} refs\/heads\/foedrum\/14-1\/gauge\/1$/;
       assert.deepStrictEqual(
         read.map(({ cwd }) => cwd),
-        [clone, clone],
+        [clone, clone, clone],
       );
-      for (const { range } of read) assert.match(range, gaugeRange);
+      const [proof, guard, own] = read.map(({ range }) => range);
+      for (const range of [proof, guard]) assert.match(range ?? '', gaugeRange);
+      // Then the Cellarman's own change, against the test files the base holds (ADR 0358).
+      assert.match(own ?? '', /^[0-9a-f]{40} refs\/heads\/foedrum\/14-1\/implement\/1$/);
     });
 
     it('keeps every line the Gauger added to a test file of the test map, through serve (ADR 0274)', async () => {
@@ -587,9 +592,10 @@ describe('runServe', () => {
       );
       assert.equal(batch?.lane.kind, 'on_tap');
       assert.deepStrictEqual(brewed, ['gauge', 'gauge', 'implement']);
-      // Two red proofs, then the guard of the cellarman: nothing for the Gauger's second attempt.
+      // Two red proofs, then the guard of the cellarman, which reads the Gauger's commits and its
+      // own change (ADR 0358): nothing for the Gauger's second attempt.
       const ranges = read.map(({ range }) => range);
-      assert.equal(ranges.length, 3, ranges.join('\n'));
+      assert.equal(ranges.length, 4, ranges.join('\n'));
       assert.match(ranges[1] ?? '', /refs\/heads\/foedrum\/14-1\/gauge\/2$/);
     });
 

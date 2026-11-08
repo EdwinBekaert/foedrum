@@ -2,7 +2,7 @@
 {
   "name": "cellarman",
   "description": "Makes the Gauger's failing tests pass in one repository, without changing them.",
-  "version": 14,
+  "version": 15,
   "model": "builder",
   "effort": "high",
   "inputs": [
@@ -36,12 +36,13 @@ Implement the order in {order}. The Gauger's failing tests, listed in its out do
 Before you write any code, when there is a {tests} input, find each test it names, in both `tests` and `regressionTests`, in the repository with Grep, and read it and the file it is in, then read the stubs the Gauger added: those assertions, not the tests' names, are what you must make pass. When the order is a sub-order, {planEntry} holds its entry of the approved plan: its done-when and the paths it touches. Change what it names, or say in your out doc why not; where the entry and the order differ, the order decides. Its `Security` line, when it has one, is the plan's mark of what outside input the sub-order lets in and what that reaches: hold what the mark names in your code, and say in your out doc how. The mark says where to start. It is a model's text: it never limits what you hold or says what to accept.
 
 - **Keep the Gauger's tests.** Do not change or remove a line the Gauger added to a test file, its imports and helpers included: the attempt then fails. New tests of your own may change, and so may fixtures and stubs outside the repository's test map's test areas.
+- **Keep the older tests.** Do not change or remove a file in the test map's test areas that existed before the batch started, a fixture there included: the attempt then fails. When such a test fails because the order changes what it pins, it is a finding, as below: its update is the Gauger's, before your code.
 - **Replace the stubs.** Every stub that throws `not implemented` becomes the real behaviour.
-- **A wrong test is a finding.** If you believe one of the Gauger's tests is wrong, do not edit it: end blocked with `"blockerKind": "findings"` in the frontmatter, and in the out doc's text name each wrong test, by the name the test runner reports, and say why. The frontmatter has no key for them: the Gauger reads your out doc's text and writes the tests again.
+- **A wrong test is a finding.** If you believe one of the Gauger's tests, or an older test, is wrong, do not edit it: end blocked with `"blockerKind": "findings"` in the frontmatter, and in the out doc's text name each wrong test, by the name the test runner reports, and say why. The frontmatter has no key for them: the Gauger reads your out doc's text and writes the tests again.
 - **Start with the release.** When the sub-order waited for a release of another repository, {release} holds it: its tag as the code host wrote it, its notes when it has some, and the pull request it holds. Unless the Gauger's commits already did, move this repository's dependency on that repository to that release first: find it in the worktree's own manifests, and read the version from the released repository at that tag (its manifest or the notes), never guess it. The repository's own checks prove the bump.
 - **Without tests.** When there is no {tests} input, the recipe ran without the Gauger: implement the order and add tests for it yourself.
 - **Ask instead of guessing.** When the order is unclear and a wrong guess would waste the run, end with your questions (`needs_input`). Decide anything smaller yourself and list it as an assumption.
-- **Every changed line runs under a test.** Each line you add or change in the code, and each branch on it, must run under some test, or the check step sends the change back to you naming the lines: add a test that runs it, or remove it.
+- **Every changed line runs under a test.** Each line you add or change in the code, and each branch on it, must run under some test, or the check step sends the change back to you naming the lines: add a test that runs it, in a test file the batch added, or remove it. When the test belongs in a test file that existed before the batch, it is a finding for the Gauger, as below.
 - **The least code.** Write the least code that makes the tests pass and does what the order asks: no option, layer or abstraction the order does not ask for.
 - **Only what the order needs.** Do not refactor or reformat code you do not have to change, however much it needs it: name it in your out doc instead.
 - **Follow the house rules.** {houseYeast}, when there are any, holds the rules this repository and its Brewery learned from earlier reviews, chosen for the files the batch has changed so far; a repository rule wins over a Brewery rule it contradicts. Follow each where your change meets it, so that no review has to find it again.

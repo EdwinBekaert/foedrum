@@ -324,6 +324,8 @@ interface LineStep {
   action?: RecipeAction;
   /** A check step that expects its checks to pass: not a red proof (ADR 0164). */
   passes?: true;
+  /** A red proof's: the step whose tests it proves red (ADR 0078). */
+  proves?: string;
   /** The parallel group it is a child of (ADR 0168). */
   group?: string;
   /** A child of a group that runs again after every round back for findings (ADR 0357). */
@@ -618,6 +620,8 @@ function lineRecipe(
   const indexOf = (id: string): number =>
     groups.has(id) ? steps.findLastIndex((entry) => entry.group === id) : at(id).index;
   const opens = steps.find((entry) => entry.action === 'openPullRequest')?.id;
+  // The step the first red proof proves, as the testsUnchanged guard reads it (ADR 0358).
+  const proves = steps.find((entry) => entry.proves !== undefined)?.proves;
   // The last checks before the pull request read the code it will hold (ADR 0164): of those the
   // recipe runs, since a `when` reads only the recipe's settings (ADR 0064).
   const runs = ({ when }: LineStep) => when === undefined || holds(when, settings);
@@ -660,6 +664,7 @@ function lineRecipe(
     chosen: (option) => steps.find((entry) => entry.chosenBy === option)?.id,
     action: (id) => at(id).action,
     mergesBase: (id) => id === merges,
+    proven: (id) => id === proves,
     deadlineMs: (id) => durationMs(at(id).deadline),
     stall: (id) => at(id).stall,
     skip: (_batch, id) => {
@@ -785,7 +790,7 @@ function checkLine(step: CheckStep): StepLoad {
     round: readingRound,
     mayRetry: (attempts) => readingRound(attempts).filter(readNothing).length < CHECK_RETRIES,
     route: onFail === undefined ? undefined : { why: 'failed', ...onFail },
-    ...(step.expect === 'fail' ? {} : { passes: true as const }),
+    ...(step.expect === 'fail' ? { proves: step.of } : { passes: true as const }),
   };
   const checks = Array.isArray(step.check) ? step.check : [step.check];
   if (step.of === undefined) return { line, check: { checks } };

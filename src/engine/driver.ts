@@ -41,7 +41,7 @@ import { applyEffect, type EffectTarget, type Ledger, UnreadSources } from './ef
 import type { BatchLease, EffectKey, EventStore, EventStoreTransaction } from './event-store.ts';
 import { createFailingBatches } from './failing-batches.ts';
 import { createFailureLines } from './failure-lines.ts';
-import { type Batch, runningAttempt, type State, stuckOnFailing } from './fold.ts';
+import { attemptRecipeOf, type Batch, runningAttempt, type State, stuckOnFailing } from './fold.ts';
 import { withoutSecrets } from './out-doc-text.ts';
 import { pauseOf, stopsNow } from './pauses.ts';
 import type { RecipeAction, Recipes } from './recipes.ts';
@@ -49,7 +49,7 @@ import { afterOverrun, type Resumption, resumeOf } from './session-resume.ts';
 import type { StateBranch } from './state-branch-git.ts';
 import type { AttemptProgress } from './supervisor.ts';
 import { createSupervisor, type FailurePass, type Notice } from './supervisor-loop.ts';
-import { sameRepo, taskTreeStart } from './task-tree.ts';
+import { attemptStart, sameRepo } from './task-tree.ts';
 import { type ModelFamily, type Reopen, reopenOf, windowHolds } from './usage-window.ts';
 import type { OutDocOf } from './worktree-claims.ts';
 import { batchIsOver, createWorktreeCleanup, endedBatches } from './worktree-cleanup.ts';
@@ -730,8 +730,15 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
         releaseAttempt(key);
         return false;
       }
-      // At the commits of the steps before it (ADR 0066).
-      made = await repository.manager.create(ref, taskTreeStart(batch, repository));
+      // At the commits of the steps before it (ADR 0066), or for the step a red proof proves, at
+      // its own latest success, so its new tests come before the code (ADR 0358).
+      // The recipe the attempt was scheduled under (ADR 0310).
+      const name = attemptRecipeOf(state, ref);
+      const proven = name !== undefined && recipes.find(name)?.proven(ref.stepId) === true;
+      made = await repository.manager.create(
+        ref,
+        attemptStart(batch, ref.stepId, repository, proven),
+      );
     } catch (error) {
       const reason = `the attempt could not get its worktree: ${messageOf(error)}`;
       const ending = { kind: 'failed', retryable: true, reason } as const;

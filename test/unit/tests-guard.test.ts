@@ -111,6 +111,9 @@ const setup = ({
   mapAt,
   tip = tips.weakened,
   before = {},
+  listings = {},
+  changed = '',
+  revList = '',
   platform = 'linux',
 }: {
   events?: Event[];
@@ -126,6 +129,12 @@ const setup = ({
   tip?: Readonly<Record<string, readonly string[]>>;
   /** The files where the proven step started, by path: what `ls-tree` lists at `gaugeStart`. */
   before?: Readonly<Record<string, readonly string[]>>;
+  /** The files `ls-tree` lists at another commit, by commit, in place of `before` and `tip`. */
+  listings?: Readonly<Record<string, Readonly<Record<string, readonly string[]>>>>;
+  /** The diff of the attempt's own change: every range but the proven step's (ADR 0358). */
+  changed?: string;
+  /** What rev-list lists of the attempt's commits: none, so its change is one stretch (ADR 0358). */
+  revList?: string;
   /** Whose case rule the guard matches the map's globs by. */
   platform?: NodeJS.Platform;
 } = {}) => {
@@ -137,14 +146,16 @@ const setup = ({
       calls.push({ cwd, args, ...(options === undefined ? {} : { options }) });
       if (args.includes('ls-tree')) {
         const end = args.indexOf('--');
-        const started = args[end - 1] === gaugeStart;
-        const files = started ? before : tip;
+        const commit = args[end - 1] ?? '';
+        const started = commit === gaugeStart;
+        const files = listings[commit] ?? (started ? before : tip);
         const listed = args.slice(end + 1).filter((path) => files[path] !== undefined);
         const at = started ? 'c' : 'b';
         return Promise.resolve(
           ok(listed.map((path) => `100644 blob ${blobOf(path, at)}\t${path}\0`).join('')),
         );
       }
+      if (args.includes('rev-list')) return Promise.resolve(ok(revList));
       if (args.includes('cat-file')) {
         const found = [
           ...Object.entries(tip).map(([path, lines]) => [blobOf(path), lines] as const),
@@ -157,7 +168,8 @@ const setup = ({
             : ok(`${lines.join('\n')}\n`),
         );
       }
-      return Promise.resolve(ok(gaugeDiff));
+      const from = args[args.indexOf('--') - 2];
+      return Promise.resolve(ok(from === gaugeStart ? gaugeDiff : changed));
     });
   const asked: AttemptRef[] = [];
   const runner = guardTests({
@@ -610,5 +622,294 @@ describe('guardTests: regression tests', () => {
         ({ args }) => args.includes('ls-tree') && args.includes('refs/heads/foedrum/12-1/fine/1'),
       ),
     );
+  });
+});
+
+describe('guardTests on the test files the base holds (ADR 0358)', () => {
+  const older = 'test/older.test.mjs';
+  /** A diff of the attempt that changes an assertion in each of `paths`. */
+  const changing = (...paths: string[]) =>
+    paths
+      .flatMap((path) => [
+        `diff --git a/${path} b/${path}`,
+        `--- a/${path}`,
+        `+++ b/${path}`,
+        '@@ -2 +2 @@',
+        '-  assert.equal(add(1, 2), 3);',
+        "+  assert.equal(add(1, 2), 'three');",
+      ])
+      .concat('')
+      .join('\n');
+  const flags =
+    '-c core.quotePath=false diff --no-color --no-ext-diff --no-textconv --text --no-renames --unified=0 --src-prefix=a/ --dst-prefix=b/';
+
+  it("fails an attempt that changed a test file the batch's base holds, naming it", async () => {
+    const before = { [older]: ['  assert.equal(add(1, 2), 3);'] };
+    const { calls, runner } = setup({ tip: tips.kept, before, changed: changing(older) });
+    const end = await runner.start({ ref, limits: defaultLimits }).ended;
+    assert.deepEqual(end.ending, {
+      kind: 'failed',
+      retryable: true,
+      reason:
+        "the guard testsUnchanged: the attempt changed a test file the batch's base holds, test/older.test.mjs: a test that must change goes back to the Gauger as a finding (ADR 0358)",
+    });
+    const asked = calls.map(({ args }) => args.join(' '));
+    // Its own change, from where it started to its branch, in the clone.
+    assert.ok(asked.includes(`${flags} ${implementStart} refs/heads/foedrum/12-1/implement/1 --`));
+    assert.ok(
+      asked.includes(`--literal-pathspecs ls-tree -z --full-tree ${gaugeStart} -- ${older}`),
+    );
+    assert.ok(calls.every(({ cwd }) => cwd === clone));
+  });
+
+  it('names how many more test files the base holds it changed', async () => {
+    const before = { [older]: ['a'], 'test/other.test.mjs': ['b'] };
+    const changed = changing(older, 'test/other.test.mjs');
+    const { runner } = setup({ tip: tips.kept, before, changed });
+    const end = await runner.start({ ref, limits: defaultLimits }).ended;
+    assert.equal(
+      end.ending.kind === 'failed' && end.ending.reason,
+      "the guard testsUnchanged: the attempt changed 2 test files the batch's base holds, test/older.test.mjs (and 1 more): a test that must change goes back to the Gauger as a finding (ADR 0358)",
+    );
+  });
+
+  it('lets an attempt change a test file the base does not hold, beside the red tests', async () => {
+    const changed = changing('test/new.test.mjs', 'test/add.test.mjs');
+    const { calls, runner } = setup({ tip: tips.kept, changed });
+    const end = await runner.start({ ref, limits: defaultLimits }).ended;
+    assert.equal(end.ending.kind, 'succeeded');
+    // It asked the base for them, and the base holds neither.
+    const listed = `${gaugeStart} -- test/new.test.mjs test/add.test.mjs`;
+    assert.ok(calls.some(({ args }) => args.join(' ').endsWith(listed)));
+  });
+
+  it('lets an attempt change code the base holds', async () => {
+    const before = { 'src/add.mjs': ['export const add = () => 0;'] };
+    const { runner } = setup({ tip: tips.kept, before, changed: changing('src/add.mjs') });
+    const end = await runner.start({ ref, limits: defaultLimits }).ended;
+    assert.equal(end.ending.kind, 'succeeded');
+  });
+
+  it("reads the attempt's change from its start merge, against the moved base (ADR 0244)", async () => {
+    const moved = 'd'.repeat(40);
+    const mergedAt = 'e'.repeat(40);
+    const merged: Event = {
+      type: 'effect.applied',
+      key: effectKey.encode(baseMergeKey(ref)),
+      result: { base: moved, merged: mergedAt },
+    };
+    const { calls, runner } = setup({
+      events: [...ordered, ...gauged, ...implementing, merged],
+      maps: { [moved]: mapOf('test/**') },
+      tip: tips.kept,
+      listings: { [moved]: { [older]: ['a'] } },
+      changed: changing(older),
+      revList: `${mergedAt} ${implementStart} ${moved}\n`,
+    });
+    const end = await runner.start({ ref, limits: defaultLimits }).ended;
+    assert.equal(end.ending.kind, 'failed');
+    const asked = calls.map(({ args }) => args.join(' '));
+    assert.ok(asked.includes(`${flags} ${mergedAt} refs/heads/foedrum/12-1/implement/1 --`));
+  });
+
+  it('is blocked on the environment when git cannot read the base', async () => {
+    const tipFile = `100644 blob ${blobOf('test/add.test.mjs')}\ttest/add.test.mjs\0`;
+    const base: Git = (_cwd, args) => {
+      if (args.includes('ls-tree') && args.includes(older)) {
+        return Promise.resolve({ code: 128, stdout: '', stderr: 'fatal: not a tree object\n' });
+      }
+      // Where the proven step started, the red test file was not yet.
+      if (args.includes('ls-tree') && args.includes(gaugeStart)) return Promise.resolve(ok(''));
+      if (args.includes('ls-tree')) return Promise.resolve(ok(tipFile));
+      if (args.includes('cat-file')) return Promise.resolve(ok(`${gaugeLines.join('\n')}\n`));
+      const from = args[args.indexOf('--') - 2];
+      return Promise.resolve(ok(from === gaugeStart ? gaugeDiff : changing(older)));
+    };
+    const { runner } = setup({ git: base });
+    const end = await runner.start({ ref, limits: defaultLimits }).ended;
+    assert.deepEqual(end.ending, {
+      kind: 'blocked',
+      blockerKind: 'environment',
+      summary:
+        'the guard testsUnchanged cannot read the commits of step implement: fatal: not a tree object',
+    });
+  });
+
+  it("reads the attempt's change after the merge it concluded, when its start merge kept a conflict (ADR 0244)", async () => {
+    const moved = 'd'.repeat(40);
+    const concluded = 'f'.repeat(40);
+    const kept: Event = {
+      type: 'effect.applied',
+      key: effectKey.encode(baseMergeKey(ref)),
+      result: {
+        base: moved,
+        kept: { files: [{ path: 'src/add.mjs', status: 'both modified' }], more: 0 },
+      },
+    };
+    const calls: string[] = [];
+    const git: Git = (_cwd, args) => {
+      calls.push(args.join(' '));
+      if (args.includes('rev-list')) {
+        // The brewer's commit after the merge it concluded, then the merge, newest first.
+        return Promise.resolve(
+          ok(`${'9'.repeat(40)} ${concluded}\n${concluded} ${implementStart} ${moved}\n`),
+        );
+      }
+      if (args.includes('ls-tree') && args.includes(older)) {
+        return Promise.resolve(ok(`100644 blob ${blobOf(older, 'c')}\t${older}\0`));
+      }
+      if (args.includes('ls-tree') && args.includes(gaugeStart)) return Promise.resolve(ok(''));
+      if (args.includes('ls-tree')) {
+        return Promise.resolve(
+          ok(`100644 blob ${blobOf('test/add.test.mjs')}\ttest/add.test.mjs\0`),
+        );
+      }
+      if (args.includes('cat-file')) return Promise.resolve(ok(`${gaugeLines.join('\n')}\n`));
+      const from = args[args.indexOf('--') - 2];
+      // The moved base changed the older test; the brewer changed only code after the merge.
+      if (from === gaugeStart) return Promise.resolve(ok(gaugeDiff));
+      return Promise.resolve(ok(from === concluded ? changing('src/add.mjs') : changing(older)));
+    };
+    const { runner } = setup({ events: [...ordered, ...gauged, ...implementing, kept], git });
+    const end = await runner.start({ ref, limits: defaultLimits }).ended;
+    assert.equal(end.ending.kind, 'succeeded');
+    assert.ok(calls.includes(`${flags} ${concluded} refs/heads/foedrum/12-1/implement/1 --`));
+  });
+
+  it('asks the base only for the files the attempt changed in a test area', async () => {
+    const before = { [older]: ['a'] };
+    const changed = changing('src/add.mjs', older);
+    const { calls, runner } = setup({ tip: tips.kept, before, changed });
+    await runner.start({ ref, limits: defaultLimits }).ended;
+    const listed = calls
+      .map(({ args }) => args.join(' '))
+      .filter(
+        (args) => args.includes(`ls-tree -z --full-tree ${gaugeStart} --`) && args.includes(older),
+      );
+    assert.deepEqual(listed, [
+      `--literal-pathspecs ls-tree -z --full-tree ${gaugeStart} -- ${older}`,
+    ]);
+  });
+});
+
+describe('guardTests after a start merge that kept a conflict (ADR 0358, ADR 0244)', () => {
+  const older = 'test/older.test.mjs';
+  const moved = 'd'.repeat(40);
+  const flags =
+    '-c core.quotePath=false diff --no-color --no-ext-diff --no-textconv --text --no-renames --unified=0 --src-prefix=a/ --dst-prefix=b/';
+  const kept: Event = {
+    type: 'effect.applied',
+    key: effectKey.encode(baseMergeKey(ref)),
+    result: {
+      base: moved,
+      kept: { files: [{ path: 'src/add.mjs', status: 'both modified' }], more: 0 },
+    },
+  };
+  /** A clone whose rev-list answers `revList`, and whose diffs from `from` list `older`. */
+  const cloneWith = (revList: GitResult, olderFrom: string) => {
+    const calls: string[] = [];
+    const git: Git = (_cwd, args) => {
+      calls.push(args.join(' '));
+      if (args.includes('rev-list')) return Promise.resolve(revList);
+      if (args.includes('ls-tree') && args.includes(older)) {
+        return Promise.resolve(ok(`100644 blob ${blobOf(older, 'c')}\t${older}\0`));
+      }
+      if (args.includes('ls-tree') && args.includes(gaugeStart)) return Promise.resolve(ok(''));
+      if (args.includes('ls-tree')) {
+        const listed = `100644 blob ${blobOf('test/add.test.mjs')}\ttest/add.test.mjs\0`;
+        return Promise.resolve(ok(listed));
+      }
+      if (args.includes('cat-file')) return Promise.resolve(ok(`${gaugeLines.join('\n')}\n`));
+      const from = args[args.indexOf('--') - 2];
+      if (from === gaugeStart) return Promise.resolve(ok(gaugeDiff));
+      const path = from === olderFrom ? older : 'src/add.mjs';
+      return Promise.resolve(
+        ok(
+          [
+            `diff --git a/${path} b/${path}`,
+            `--- a/${path}`,
+            `+++ b/${path}`,
+            '@@ -2 +2 @@',
+            '-a',
+            '+b',
+            '',
+          ].join('\n'),
+        ),
+      );
+    };
+    return { calls, git };
+  };
+  const events = [...ordered, ...gauged, ...implementing, kept];
+
+  it('reads each stretch between the merges the brewer made, never a merge of its own', async () => {
+    const [newer, between, oldest] = ['f'.repeat(40), '9'.repeat(40), 'e'.repeat(40)];
+    const listed = `${newer} ${between} ${moved}\n${between} ${oldest}\n${oldest} ${implementStart} ${moved}\n`;
+    const { calls, git } = cloneWith(ok(listed), implementStart);
+    const { runner } = setup({ events, git });
+    const end = await runner.start({ ref, limits: defaultLimits }).ended;
+    assert.equal(end.ending.kind, 'succeeded');
+    const diffs = calls.filter((call) => call.startsWith(flags) && !call.includes(gaugeStart));
+    assert.deepEqual(diffs, [
+      `${flags} ${oldest} ${between} --`,
+      `${flags} ${newer} refs/heads/foedrum/12-1/implement/1 --`,
+    ]);
+  });
+
+  it('reads the commits the brewer made before a merge, as its own', async () => {
+    const [merge, before] = ['f'.repeat(40), 'e'.repeat(40)];
+    const listed = `${merge} ${before} ${moved}\n${before} ${implementStart}\n`;
+    const { calls, git } = cloneWith(ok(listed), implementStart);
+    const { runner } = setup({ events, git });
+    const end = await runner.start({ ref, limits: defaultLimits }).ended;
+    assert.equal(end.ending.kind, 'failed');
+    assert.ok(calls.includes(`${flags} ${implementStart} ${before} --`));
+  });
+
+  it("reads a resumed attempt's change after the merge it made, which the ledger keeps under it", async () => {
+    const merge = 'f'.repeat(40);
+    const session = { id: 'implement-session', worktree: join(root, 'implement', '1') };
+    const resumed: Event[] = [
+      { type: 'step.scheduled', ...ref, deadlineAt },
+      { type: 'step.started', ...ref, session, worktree: worktree('implement', implementStart) },
+      {
+        type: 'step.finished',
+        ...ref,
+        outcome: { kind: 'failed', retryable: true, reason: 'claude crashed' },
+        claude: { version: '2.1.301', model: 'claude-sonnet-5-5' },
+      },
+      { type: 'step.scheduled', ...ref, attempt: 2, deadlineAt, retry: true },
+      { type: 'step.started', ...ref, attempt: 2, session: { ...session, resumes: session.id } },
+      {
+        type: 'effect.applied',
+        key: effectKey.encode(baseMergeKey({ ...ref, attempt: 2 })),
+        result: { base: moved, merged: merge },
+      },
+    ];
+    const { git } = cloneWith(ok(`${merge} ${implementStart} ${moved}\n`), implementStart);
+    const maps = { [moved]: mapOf('test/**') };
+    const { runner } = setup({ events: [...ordered, ...gauged, ...resumed], git, maps });
+    const end = await runner.start({ ref: { ...ref, attempt: 2 }, limits: defaultLimits }).ended;
+    assert.equal(end.ending.kind, 'succeeded');
+  });
+
+  it('reads the change from where the attempt started when no commit merged the moved base', async () => {
+    const { calls, git } = cloneWith(ok(`${'9'.repeat(40)} ${implementStart}\n`), implementStart);
+    const { runner } = setup({ events, git });
+    const end = await runner.start({ ref, limits: defaultLimits }).ended;
+    assert.equal(end.ending.kind, 'failed');
+    assert.ok(calls.includes(`${flags} ${implementStart} refs/heads/foedrum/12-1/implement/1 --`));
+  });
+
+  it('is blocked on the environment when git cannot list the commits', async () => {
+    const failed = { code: 128, stdout: '', stderr: 'fatal: bad revision\n' };
+    const { git } = cloneWith(failed, implementStart);
+    const { runner } = setup({ events, git });
+    const end = await runner.start({ ref, limits: defaultLimits }).ended;
+    assert.deepEqual(end.ending, {
+      kind: 'blocked',
+      blockerKind: 'environment',
+      summary:
+        'the guard testsUnchanged cannot read the commits of step implement: fatal: bad revision',
+    });
   });
 });

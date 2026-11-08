@@ -2,7 +2,7 @@
 {
   "name": "finer",
   "description": "Simplifies the batch's change without changing what it does, and commits it; or says why there was nothing to simplify.",
-  "version": 3,
+  "version": 4,
   "model": "builder",
   "effort": "high",
   "inputs": [{ "name": "order", "from": "order" }],
@@ -47,7 +47,7 @@ The smaller form must do exactly what the code does now. Tie every claim about w
 ## What you may change
 
 - Only files the change already touches. Code it repeats elsewhere is kept and reused, not edited.
-- Never a line the red step added to a test file, its imports and helpers included. Duplicated fixtures outside the repository's test map's test areas may be simplified.
+- Never a line the red step added to a test file, its imports and helpers included, and never a file in the test map's test areas that existed before the batch started. Duplicated fixtures outside the repository's test map's test areas may be simplified.
 - Never `package.json`, a lockfile, `.npmrc`, CI configuration, hooks, settings or other tool configuration.
 - No change to an error message, an output format, a public interface or anything else other code or tests depend on.
 

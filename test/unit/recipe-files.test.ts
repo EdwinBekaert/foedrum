@@ -627,6 +627,22 @@ describe('loadRecipes: a test-first recipe needs a red proof (ADR 0028, ADR 0064
     assert.equal(result.checks.proves('pale', 'again'), 'implement');
   });
 
+  it('starts again at its own success only the step its first red proof proves (ADR 0358)', () => {
+    const steps = [
+      { id: 'gauge', brewer: 'gauger' },
+      { id: 'red', check: 'test', expect: 'fail', of: 'gauge' },
+      { id: 'implement', brewer: 'cellarman' },
+      { id: 'again', check: 'test', expect: 'fail', of: 'implement' },
+    ];
+    const result = loadRecipes(withWriters(opened('pale', steps)));
+    assert.ok(result.valid, result.valid ? '' : result.problems.join('\n'));
+    const pale = result.recipes.find('pale');
+    assert.deepEqual(
+      ['gauge', 'red', 'implement', 'again'].map((id) => pale?.proven(id)),
+      [true, false, false, false],
+    );
+  });
+
   it('has no red proof in a recipe without one', () => {
     const steps = [
       { id: 'brew', brewer: 'cellarman' },

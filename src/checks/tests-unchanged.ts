@@ -1,6 +1,7 @@
 // The testsUnchanged guard, the core (ADR 0017, ADR 0274, ADR 0297): which lines the proven step
-// added to a separate test file of the test map an attempt changed or removed. Pure;
-// tests-guard.ts reads the diffs and the maps.
+// added to a separate test file of the test map an attempt changed or removed, and which separate
+// test files the batch's base holds it changed (ADR 0358). Pure; tests-guard.ts reads the diffs
+// and the maps.
 
 import type { DiffFile } from '../formats/unified-diff.ts';
 import { areaOf, type EffectiveModule } from './test-map.ts';
@@ -80,3 +81,23 @@ export function changedTestLines(
   }
   return found;
 }
+
+/**
+ * The files `attempt` changed or removed that lie in a separate test area of `modules` and that
+ * `atBase`, the batch's base, holds: an older test is the Gauger's to change, in a red commit
+ * (ADR 0358). New test files, and those only the batch added, change freely.
+ */
+export const olderTestFiles = (
+  attempt: readonly DiffFile[],
+  atBase: ReadonlySet<string>,
+  modules: readonly EffectiveModule[],
+  { foldCase }: { foldCase: boolean },
+): string[] => [
+  ...new Set(
+    attempt
+      .flatMap(({ oldPath, newPath }) => [oldPath, newPath])
+      .filter((path): path is string => path !== undefined && atBase.has(path))
+      // An inline module's tests have no area of their own, so its files read as code.
+      .filter((path) => areaOf(modules, path, foldCase)?.area === 'tests'),
+  ),
+];

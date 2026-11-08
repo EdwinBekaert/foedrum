@@ -4,7 +4,11 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import type { EffectiveModule } from '../../src/checks/test-map.ts';
-import { changedTestLines, guardedFiles } from '../../src/checks/tests-unchanged.ts';
+import {
+  changedTestLines,
+  guardedFiles,
+  olderTestFiles,
+} from '../../src/checks/tests-unchanged.ts';
 import type { DiffFile } from '../../src/formats/unified-diff.ts';
 import type { TestMapModule } from '../../src/schemas/test-map.ts';
 
@@ -169,5 +173,43 @@ describe('changedTestLines (ADR 0274)', () => {
     assert.deepEqual(changedTestLines(red, tipOf({}), modules, mapped), []);
     assert.deepEqual(guardedFiles(red, modules, true), [upper]);
     assert.deepEqual(guardedFiles(red, modules, false), []);
+  });
+});
+
+describe('olderTestFiles (ADR 0358)', () => {
+  const older = 'test/older.test.mjs';
+  const changed = (path: string): DiffFile => ({
+    oldPath: path,
+    newPath: path,
+    added: ["  assert.equal(add(1, 2), 'three');"],
+    removed: ['  assert.equal(add(1, 2), 3);'],
+  });
+  const removed = (path: string): DiffFile => ({ oldPath: path, added: [], removed: ['x'] });
+
+  it("refuses a change to a test file the batch's base holds", () => {
+    assert.deepEqual(olderTestFiles([changed(older)], new Set([older]), modules, mapped), [older]);
+  });
+
+  it('refuses the removal of a test file the base holds', () => {
+    assert.deepEqual(olderTestFiles([removed(older)], new Set([older]), modules, mapped), [older]);
+  });
+
+  it('lets an attempt add a test file, and change one the base does not hold', () => {
+    const attempt = [added('test/new.test.mjs', ['test()']), changed(test)];
+    assert.deepEqual(olderTestFiles(attempt, new Set([older]), modules, mapped), []);
+  });
+
+  it('lets an attempt change code, files in no test area, and inline tests the base holds', () => {
+    const paths = ['src/add.mjs', 'fixtures/a.json', 'engine/src/run.rs'];
+    assert.deepEqual(olderTestFiles(paths.map(changed), new Set(paths), modules, mapped), []);
+  });
+
+  it('reads a test file by the map in either case where the file system folds case', () => {
+    const upper = 'Test/older.test.mjs';
+    const atBase = new Set([upper]);
+    assert.deepEqual(olderTestFiles([changed(upper)], atBase, modules, { foldCase: true }), [
+      upper,
+    ]);
+    assert.deepEqual(olderTestFiles([changed(upper)], atBase, modules, mapped), []);
   });
 });

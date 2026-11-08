@@ -1,8 +1,11 @@
 // Where a new attempt's worktree starts (ADR 0066): at the batch's task tree, the commits of the
-// steps before it. Pure; the worktree manager resolves the revision after its fetch.
+// steps before it, or for the step a red proof proves, at its own latest success (ADR 0358). Pure;
+// the worktree manager resolves the revision after its fetch.
 
 import { attemptBranch } from '../workspace/attempt-worktrees.ts';
 import type { Batch } from './fold.ts';
+import { sentBackFrom } from './pull-request-fix.ts';
+import { ranIn } from './session-resume.ts';
 
 // GitHub names are case-insensitive.
 export const sameRepo = (a: string, b: string): boolean => a.toLowerCase() === b.toLowerCase();
@@ -41,4 +44,37 @@ export const taskTreeStart = (
       throw new Error(`Unknown task tree ${JSON.stringify(unknown)}`);
     }
   }
+};
+
+/**
+ * The revision a new attempt at `stepId` of `batch` starts at (ADR 0358): for the step a red proof
+ * proves (`proven`), once it succeeded in the batch's current run and while no open pull request
+ * sent the batch back, where its latest success ended, so its new commits come before the code;
+ * else the task tree (ADR 0066).
+ */
+export const attemptStart = (
+  batch: Batch,
+  stepId: string,
+  repository: { readonly repo: string; readonly base: string },
+  proven: boolean,
+): string => {
+  const step = batch.steps.get(stepId);
+  // An open pull request's branch holds the code already, and is never pushed again without it.
+  if (!proven || step === undefined || sentBackFrom(batch).size > 0) {
+    return taskTreeStart(batch, repository);
+  }
+  const done = [...step.attempts.values()].findLast(
+    (attempt) => attempt.phase === 'finished' && attempt.outcome.kind === 'succeeded',
+  );
+  const ran = done === undefined ? undefined : ranIn(step, done);
+  // A success before the latest rewind or recipe choice belongs to the run before it (ADR 0357).
+  const at = batch.path?.findIndex(
+    (each) => each.stepId === stepId && each.attempt === done?.attempt,
+  );
+  const current = at === undefined || at >= (batch.runFrom ?? 0);
+  if (ran === undefined || !current || !sameRepo(ran.worktree.repo, repository.repo)) {
+    return taskTreeStart(batch, repository);
+  }
+  // Built from the attempt, never the recorded branch (ADR 0037).
+  return `refs/heads/${attemptBranch({ batchId: batch.id, stepId, attempt: ran.attempt })}`;
 };
