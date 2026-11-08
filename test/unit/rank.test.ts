@@ -418,6 +418,7 @@ describe('foedrum rank (ADR 0208)', () => {
     brew: async () => assert.fail('no brew here'),
     watch: async () => assert.fail('no watch here'),
     resume: async () => assert.fail('no session to resume'),
+    applyEffects: async () => [],
     init: async () => assert.fail('no init here'),
     env: {},
     ...overrides,

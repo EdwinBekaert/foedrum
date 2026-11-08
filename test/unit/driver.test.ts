@@ -526,6 +526,58 @@ describe('openDriver', () => {
       );
     });
 
+    it('applies the effects due at a tick before it starts an attempt (ADR 0355)', async () => {
+      const host = fakeHost();
+      // The batch's lane, due once it brews, as its label is (ADR 0154).
+      const brewing = (state: State, batchId: string): EffectKey[] =>
+        state.batches.get(batchId)?.lane.kind === 'brewing' ? [{ batchId, effect: 'lane' }] : [];
+      const { runner } = handRunner();
+      // What the code host shows as each attempt starts.
+      const shown: string[][] = [];
+      order('b1');
+      const driver = await open({
+        runner: {
+          ...runner,
+          start: (attempt) => {
+            shown.push([...host.applied]);
+            return runner.start(attempt);
+          },
+        },
+        effects: { due: brewing, target: host.target },
+      });
+      await driver.tick();
+      assert.deepStrictEqual(shown, [['["b1","lane"]']]);
+    });
+
+    it('leaves a batch whose effects threw before the drive to the next tick, and says it recovered only then (ADR 0355)', async () => {
+      const host = fakeHost();
+      const reported: DriverNotice[] = [];
+      let throws = 1;
+      const due = (state: State, batchId: string): EffectKey[] => {
+        if (throws-- > 0) throw new Error('the code host is down');
+        return state.batches.get(batchId)?.lane.kind === 'brewing'
+          ? [{ batchId, effect: 'lane' }]
+          : [];
+      };
+      order('b1');
+      const driver = await open({
+        effects: { due, target: host.target },
+        report: (notice) => reported.push(notice),
+      });
+      await driver.tick();
+      assert.deepStrictEqual(host.applied, []);
+      assert.deepStrictEqual(
+        reported.map(({ kind }) => kind).filter((kind) => kind.startsWith('batch_')),
+        ['batch_effects_failed'],
+      );
+      await driver.tick();
+      assert.deepStrictEqual(host.applied, ['["b1","lane"]']);
+      assert.deepStrictEqual(
+        reported.map(({ kind }) => kind).filter((kind) => kind.startsWith('batch_')),
+        ['batch_effects_failed', 'batch_recovered'],
+      );
+    });
+
     it('decides which attempt leases to renew on the events its heartbeat transaction sees', async () => {
       const { runner, end } = handRunner();
       const host = fakeHost();

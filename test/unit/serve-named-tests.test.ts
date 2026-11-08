@@ -123,6 +123,7 @@ describe('runServe: the tests a Gauger named (ADR 0342)', () => {
     });
     const controller = new AbortController();
     let ticks = 0;
+    let ended = false;
     const runner: BrewerRunner = {
       start: ({ ref }) => ({
         ended: Promise.resolve({
@@ -168,7 +169,10 @@ describe('runServe: the tests a Gauger named (ADR 0342)', () => {
         ticks += 1;
         const lane = createCommandLog({ store, recipes: setup.recipes }).state().batches.get('12-1')
           ?.lane.kind;
-        if (lane === 'on_tap' || lane === 'stuck' || ticks > 30) controller.abort();
+        // One tick past the end, whose status revision is due at once: the clock stands still, so a
+        // revision of a batch still brewing waits a minute (ADR 0072).
+        if (ended || ticks > 30) controller.abort();
+        ended = lane === 'on_tap' || lane === 'stuck';
       },
       lock: () => fakeLock('cellar'),
       openStore: () => store,

@@ -753,7 +753,8 @@ const recipeText = (recipe: Batch['recipe']): string => {
     case 'router':
       return `${name}, chosen by the router: ${plain(recipe.reason)}`;
     case 'human':
-      return `${name}, chosen by ${plain(recipe.by)} (${recipe.via})`;
+      // The reason a person gave, which foedrum recipe asks for (ADR 0355).
+      return `${name}, chosen by ${plain(recipe.by)} (${recipe.via}): ${plain(recipe.reason)}`;
     default:
       return recipe satisfies never;
   }
