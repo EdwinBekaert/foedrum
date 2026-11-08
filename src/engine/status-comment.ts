@@ -64,9 +64,9 @@ import { usageWindowsText } from './usage-window.ts';
 
 /**
  * What the status comment says of a pull request's merge brief: the current one, or the open pull
- * request that has none (ADR 0229).
+ * request that has none (ADR 0229), with the brief of its head that no longer holds (ADR 0350).
  */
-export type BriefLine = MergeBrief | { pullRequest: string };
+export type BriefLine = MergeBrief | { pullRequest: string; held?: MergeBrief };
 
 /** The status comments on the code host, as the Brewery's own identity sees and makes them. */
 export interface StatusComments {
@@ -635,6 +635,8 @@ const nextLines = (
   subIssues: readonly number[] | undefined,
   rows: readonly SubOrderRow[],
   called: string,
+  brief?: BriefLine,
+  open?: OpenPullRequest,
 ): string[] => {
   const { lane } = batch;
   if (lane.kind === 'stuck') {
@@ -658,8 +660,8 @@ const nextLines = (
     }
   }
   if (lane.kind !== 'on_tap') return [];
-  const open = lane.pullRequests.filter((url) => batch.pullRequestEnds?.[url] === undefined);
-  if (open.length > 0) return [`Next: review and merge ${open.map(link).join(', ')}.`];
+  const unended = lane.pullRequests.filter((url) => batch.pullRequestEnds?.[url] === undefined);
+  if (unended.length > 0) return [`Next: ${pullRequestsNext(unended, brief, open)}.`];
   // A split order hands its work to its sub-orders (ADR 0293).
   if (lane.pullRequests.length > 0 || (batch.approval === undefined && rows.length === 0)) {
     return [];
@@ -676,6 +678,33 @@ const nextLines = (
   return [
     `Next: nothing to do; the sub-orders brew${named}, and each pull request comes to you on tap.`,
   ];
+};
+
+/**
+ * What the person does with each open pull request (ADR 0350): review and merge those whose merge
+ * brief is current, which are ready for review; wait for the brief of the one Foedrum follows
+ * (`openOf`); and, of one it follows no more (someone else pushed to it, or its own latest push
+ * pushed nothing), merge it without a brief or mark it ready.
+ */
+const pullRequestsNext = (
+  urls: readonly string[],
+  brief: BriefLine | undefined,
+  open: OpenPullRequest | undefined,
+): string => {
+  const briefed = urls.filter((url) => brief?.pullRequest === url && 'comment' in brief);
+  const others = urls.flatMap((url) => {
+    if (briefed.includes(url)) return [];
+    if (open?.url === url) {
+      return [
+        `wait for ${link(url)}'s merge brief: it comes once ${code('foedrum serve')} reads its checks passed on ${code(shortSha(open.head))}`,
+      ];
+    }
+    return [
+      `Foedrum follows ${link(url)} no more: review and merge it without a merge brief, or mark it ready yourself`,
+    ];
+  });
+  const merge = briefed.length === 0 ? [] : [`review and merge ${briefed.map(link).join(', ')}`];
+  return [...merge, ...others].join('; ');
 };
 
 /**
@@ -1277,7 +1306,7 @@ export const renderStatus = (
       ...subOrderPulls.map(subOrderPullLine),
       ...(paused === undefined ? [] : [pauseText(paused)]),
       ...usageWindowLines(batch, usageWindows),
-      ...nextLines(batch, subIssues, subOrderPulls, called),
+      ...nextLines(batch, subIssues, subOrderPulls, called, brief, open),
     ],
     [
       recipeText(batch.recipe),
@@ -1338,10 +1367,14 @@ export const renderStatus = (
                 : [
                     `- ${link(brief.pullRequest)} is ready to merge on ${code(shortSha(brief.head))}: ${link(`${brief.pullRequest}#issuecomment-${brief.comment}`)}`,
                   ]),
-              // An open pull request with no current brief (ADR 0229).
+              // An open pull request with no current brief (ADR 0229), or one that no longer holds.
               ...(brief === undefined || 'comment' in brief
                 ? []
-                : [`- ${link(brief.pullRequest)} is not ready to merge yet: no merge brief`]),
+                : [
+                    brief.held === undefined
+                      ? `- ${link(brief.pullRequest)} is not ready to merge yet: no merge brief`
+                      : `- ${link(brief.pullRequest)} is not ready to merge yet: its merge brief ${link(`${brief.pullRequest}#issuecomment-${brief.held.comment}`)} no longer holds on ${code(shortSha(brief.held.head))}`,
+                  ]),
               // A body someone edited, or one with no marker, is not rendered again (ADR 0227).
               ...(left === undefined
                 ? []

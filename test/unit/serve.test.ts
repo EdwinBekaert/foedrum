@@ -24,7 +24,7 @@ import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import { StateBranchStopError } from '../../src/engine/state-branch.ts';
 import type { Event } from '../../src/schemas/events.ts';
 import type { Git } from '../../src/workspace/git.ts';
-import { fakeGitHubApi, type Instead } from '../helpers/fake-github-api.ts';
+import { fakeGitHubApi, type Instead, pullNode } from '../helpers/fake-github-api.ts';
 import { FAKE_COMMIT, type FakeWorktrees, fakeWorktrees } from '../helpers/fake-worktrees.ts';
 import { brewer, clone, config, local, recipe, serveInputs } from '../helpers/serve-brewery.ts';
 import { serveFixture, t0 } from '../helpers/serve-fixture.ts';
@@ -357,7 +357,7 @@ describe('runServe', () => {
     const checks = (_method: string, url: URL): Instead | undefined => {
       if (!passed) return undefined;
       if (/^\/repos\/acme\/web\/pulls\/\d+$/.test(url.pathname)) {
-        return { status: 200, body: { head: { sha: FAKE_COMMIT } } };
+        return { status: 200, body: { state: 'open', head: { sha: FAKE_COMMIT } } };
       }
       if (url.pathname.endsWith(`/commits/${FAKE_COMMIT}/check-runs`)) {
         const run = { name: 'ci', status: 'completed', conclusion: 'success', html_url: null };
@@ -439,7 +439,7 @@ describe('runServe', () => {
    * With `mash` false the order is routed to porter directly. Every check on its pull request's
    * head passed; serve ticks until the merge brief is posted.
    */
-  const brewMashed = async (mash = true) => {
+  const brewMashed = async (mash = true, readyToo = false) => {
     const porter = JSON.stringify({
       name: 'porter',
       description: 'Brews an order in one step and opens its pull request.',
@@ -510,7 +510,11 @@ describe('runServe', () => {
     // The head of the pull request and the one check on it, which passed (ADR 0213).
     const checks = (_method: string, url: URL): Instead | undefined => {
       if (/^\/repos\/acme\/web\/pulls\/\d+$/.test(url.pathname)) {
-        return { status: 200, body: { head: { sha: FAKE_COMMIT } } };
+        // Its draft state as the fake keeps it, which GraphQL changes (ADR 0350).
+        const pull = github.pulls.find(({ number }) => url.pathname.endsWith(`/${number}`));
+        const drafted =
+          pull === undefined ? {} : { draft: pull.draft === true, node_id: pullNode(pull) };
+        return { status: 200, body: { state: 'open', ...drafted, head: { sha: FAKE_COMMIT } } };
       }
       if (url.pathname.endsWith(`/commits/${FAKE_COMMIT}/check-runs`)) {
         const run = { name: 'ci', status: 'completed', conclusion: 'success', html_url: null };
@@ -541,7 +545,8 @@ describe('runServe', () => {
         fetch: github.fetch,
         wait: async () => {
           waits++;
-          if (briefComments().length > 0 || waits > 40) f.controller.abort();
+          const done = readyToo ? github.pulls[0]?.draft === false : briefComments().length > 0;
+          if (done || waits > 40) f.controller.abort();
         },
         git: async () => {
           throw new Error('no red proof or guarded step runs here');
@@ -560,7 +565,7 @@ describe('runServe', () => {
         mergeTree: () => async () => ({ kind: 'clean' }),
       }),
     );
-    return { code, briefComments };
+    return { code, briefComments, pulls: github.pulls };
   };
 
   /** A line that says a batch's effects threw: the tick's, a pass's that went on, or one effect's. */
@@ -584,6 +589,15 @@ describe('runServe', () => {
     assert.match(brief, /^### Merge\? Add a --json flag @ `/);
     assert.match(brief, /- ✅ ci \(success\)/);
     assert.doesNotMatch(brief, /`innkeep`: (not run|did not pass)/);
+  });
+
+  it('opens the pull request as a draft and marks it ready once its merge brief is posted, through serve (ADR 0350, regression test)', async () => {
+    const { code, briefComments, pulls } = await brewMashed(true, true);
+    assert.equal(code, 0);
+    assert.equal(briefComments().length, 1, f.lines.slice(0, 8).join('\n'));
+    assert.equal(pulls.length, 1);
+    assert.equal(pulls[0]?.draft, false);
+    assert.deepStrictEqual(f.lines.filter(failedRead), []);
   });
 
   it('posts the merge brief of a batch routed straight to porter through the same wiring (#867, regression test)', async () => {

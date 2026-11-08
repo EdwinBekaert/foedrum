@@ -97,20 +97,28 @@ export const currentBrief = (
 };
 
 /** The latest merge brief of `batch` while it is of the record that makes it ready now. */
-const briefNow = (state: State, batch: Batch): MergeBrief | undefined => {
+export const briefNow = (state: State, batch: Batch): MergeBrief | undefined => {
   const ready = readyOf(state, batch);
   return ready === undefined ? undefined : currentBrief(state, batch.id, ready);
 };
 
 /**
- * What the status comment says of the open pull request of `batch` (ADR 0229): its current brief,
- * else that it has none; nothing once no pull request of it is open.
+ * What the status comment says of the open pull request of `batch` (ADR 0229): its current brief;
+ * else its latest brief shown on its head that no longer holds, while a re-run or a base check of
+ * that head says otherwise (ADR 0350); else that it has none; nothing once no pull request of it
+ * is open.
  */
 export const briefLine = (state: State, batch: Batch): BriefLine | undefined => {
   const now = briefNow(state, batch);
   if (now !== undefined) return now;
   const open = openOf(state, batch);
-  return open === undefined ? undefined : { pullRequest: open.url };
+  if (open === undefined) return undefined;
+  const { next, latest } = latestBrief(state, batch.id);
+  const held =
+    latest?.pullRequest === open.url &&
+    latest.head === open.head &&
+    !isHidden(state, batch.id, next - 1);
+  return held ? { pullRequest: open.url, held: latest } : { pullRequest: open.url };
 };
 
 /**

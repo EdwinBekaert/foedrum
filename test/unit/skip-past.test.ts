@@ -330,7 +330,8 @@ describe('what a pull request says of a step a skip went past', () => {
       ],
       ...others(4),
     });
-    assert.equal(batch.opened[0]?.draft, false);
+    // Every brewed pull request opens as a draft; its merge brief marks it ready (ADR 0350).
+    assert.equal(batch.opened[0]?.draft, true);
     const head = batch.head();
     batch.log.issue(
       {
@@ -422,7 +423,8 @@ describe('what a pull request says of a step a skip went past', () => {
       correctness: [approve, approve],
       ...others(2),
     });
-    assert.equal(batch.opened[0]?.draft, false);
+    // Every brewed pull request opens as a draft; its merge brief marks it ready (ADR 0350).
+    assert.equal(batch.opened[0]?.draft, true);
     const head = batch.head();
     batch.log.issue(
       {
@@ -465,7 +467,8 @@ describe('a status comment once its batch ended', () => {
   it("keeps saying what a skip went past in the merge's own last revision", async () => {
     const batch = await pastItsRounds('Round three');
     const before = batch.writes.length;
-    assert.match(batch.comment(), /Next: review and merge/);
+    // No checks are recorded on its head, so its brief is still to come (#940).
+    assert.match(batch.comment(), /Next: wait for <[^>]+>'s merge brief/);
     batch.merge();
     await batch.settle();
     assert.equal(batch.writes.length, before + 1);

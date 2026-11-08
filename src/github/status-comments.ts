@@ -7,7 +7,7 @@ import { claimRef, same } from '../engine/issue-claims.ts';
 import type { MergeBriefHost } from '../engine/merge-brief-post.ts';
 import type { StatusComments } from '../engine/status-comment.ts';
 import { CommentMinimized, GitHubComment, MinimizedComment } from '../schemas/github.ts';
-import { checked, refused, repoPath } from './answers.ts';
+import { checked, graphqlData, refused, repoPath } from './answers.ts';
 import type { GitHubClient } from './client.ts';
 import { type GitHubReads, pageSize } from './reads.ts';
 
@@ -70,15 +70,7 @@ export const githubStatusComments = (
     variables: Record<string, unknown>,
     what: string,
     signal?: AbortSignal,
-  ): Promise<unknown> => {
-    const answer = await client.graphql(query, variables, signal);
-    if (answer.errors.length > 0) {
-      throw new Error(
-        `GitHub refused ${what}: ${answer.errors.map(({ message }) => message).join('; ')}`,
-      );
-    }
-    return answer.data;
-  };
+  ): Promise<unknown> => graphqlData(await client.graphql(query, variables, signal), what);
   return {
     find: async (repo, issue, marker, signal) => {
       const what = `the comments of ${repo}#${issue}`;

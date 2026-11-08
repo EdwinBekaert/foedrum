@@ -37,6 +37,7 @@ import { mergeBriefEffects } from '../engine/merge-brief-post.ts';
 import { planCommentOf, planEffects } from '../engine/plan-comment.ts';
 import { planIssueEffects } from '../engine/plan-issues.ts';
 import { type PullRequestRepository, pullRequestActions } from '../engine/pull-request-actions.ts';
+import { readyForReviewEffects } from '../engine/ready-for-review.ts';
 import { recipeLabelEffects } from '../engine/recipe-label.ts';
 import { siblingEffects } from '../engine/sibling-pull-requests.ts';
 import { StateBranchStopError } from '../engine/state-branch.ts';
@@ -49,7 +50,7 @@ import { createGitHubClient, type GitHubClient } from '../github/client.ts';
 import { githubLogin } from '../github/login.ts';
 import { githubIssueMarks } from '../github/marks.ts';
 import { githubOrderComments, githubOrderText, githubOrderTitle } from '../github/order-text.ts';
-import { githubPullRequests } from '../github/pull-requests.ts';
+import { githubPullRequestDrafts, githubPullRequests } from '../github/pull-requests.ts';
 import { createGitHubReads, type GitHubReads } from '../github/reads.ts';
 import { repositoryVisibilities } from '../github/repository-visibility.ts';
 import { githubStatusComments } from '../github/status-comments.ts';
@@ -257,6 +258,8 @@ export const wireDriver = async (
     subIssues: githubSubIssues({ client, brewery: setup.brewery, login }),
   });
   const pullRequests = githubPullRequests({ client, reads, login: async () => login });
+  // A pull request is ready for review while its merge brief is current, else a draft (ADR 0350).
+  const drafts = readyForReviewEffects({ host: githubPullRequestDrafts({ client, reads }) });
   // Who can read each repository, read now and, while it could not be, after each tick: a pull
   // request names no sibling in a repository fewer people can read (ADR 0300).
   const visibilities = repositoryVisibilities(
@@ -268,31 +271,22 @@ export const wireDriver = async (
   const siblings = siblingEffects({ host: pullRequests, visibility: visibilities.of });
   // A Brewery issue whose batch's pull requests merged, closed with a comment (ADR 0296).
   const closes = breweryCloseEffects({ marks, brewery: setup.brewery });
-  const effects =
-    setup.intake.repositories.length > 0 || claimed
-      ? combineEffects(
-          planIssues,
-          status,
-          planComments,
-          labels,
-          recipeLabels,
-          conflicts,
-          briefs,
-          siblings,
-          closes,
-          claimEffects({ claimant, marks, claims }),
-        )
-      : combineEffects(
-          planIssues,
-          status,
-          planComments,
-          labels,
-          recipeLabels,
-          conflicts,
-          briefs,
-          siblings,
-          closes,
-        );
+  // A claim's effects only where a batch can be claimed: one list, so no source is left out of one.
+  const effects = combineEffects(
+    planIssues,
+    status,
+    planComments,
+    labels,
+    recipeLabels,
+    conflicts,
+    briefs,
+    drafts,
+    siblings,
+    closes,
+    ...(setup.intake.repositories.length > 0 || claimed
+      ? [claimEffects({ claimant, marks, claims })]
+      : []),
+  );
   // The login was read at the start, for the status comments (ADR 0072).
   const actions = pullRequestActions({
     brewery: setup.brewery,

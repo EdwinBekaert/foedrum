@@ -12,7 +12,6 @@ import {
   brewLog,
   latestBody,
   openedPullRequest,
-  opensAsDraft,
   pullRequestText,
   quotedDiagrams,
   stepReports,
@@ -263,13 +262,6 @@ describe("stepReports and the body: Brett's survivors (ADR 0319)", () => {
       body,
     );
     assert.doesNotMatch(body, /ghp|A1b2/);
-  });
-
-  it('an advisory Brett step with survivors opens no draft when every Taster approved (regression test)', () => {
-    assert.ok(mutated !== undefined);
-    const approved = { verdict: 'approve' as const, findings: [] };
-    const tasted = { stepId: 'taste', summary: 'Tasted', assumptions: [], tasting: approved };
-    assert.equal(opensAsDraft([...stepReports(mutated), tasted]), false);
   });
 });
 
@@ -865,37 +857,10 @@ describe('quotedDiagrams (ADR 0180)', () => {
   });
 });
 
-describe('opensAsDraft (ADR 0167)', () => {
-  const report = (stepId: string, verdict?: 'approve' | 'changes') => ({
-    stepId,
-    summary: 'S',
-    assumptions: [],
-    ...(verdict === undefined ? {} : { tasting: { verdict, findings: [] } }),
-  });
-
-  it('is a draft when no step tasted the change', () => {
-    assert.equal(opensAsDraft([]), true);
-    assert.equal(opensAsDraft([report('implement')]), true);
-  });
-
-  it('is a draft when a Taster asks for changes', () => {
-    assert.equal(
-      opensAsDraft([report('implement'), report('a', 'approve'), report('b', 'changes')]),
-      true,
-    );
-  });
-
-  it('is ready when every Taster approved', () => {
-    assert.equal(
-      opensAsDraft([report('implement'), report('a', 'approve'), report('b', 'approve')]),
-      false,
-    );
-  });
-});
-
 describe('pullRequestText', () => {
   const closes = { repo: 'acme/brewery', issue: 12 };
-  const untasted = 'A person reviews this before it is marked ready: no step tasted the change.';
+  const untasted =
+    'Opens as a draft: Foedrum marks it ready for review once its merge brief is posted.';
   /** The body's lines from the line that is `first`, `count` of them. */
   const linesFrom = (body: string, first: string, count: number) => {
     const lines = body.split('\n');
@@ -1118,7 +1083,7 @@ describe('pullRequestText', () => {
         '',
         'Brewed by Foedrum from acme/brewery#12 with the recipe nip.',
         '',
-        'Ready for review: every Taster approved.',
+        'Opens as a draft: Foedrum marks it ready for review once its merge brief is posted.',
         '',
         '| Attempt | Result |',
         '|---|---|',
@@ -1450,7 +1415,7 @@ describe('pullRequestText', () => {
     assert.equal(text.draft, true);
     assert.ok(
       text.body.includes(
-        '\nNo How it works: the Cellarman wrote none.\n\nA person reviews this before it is marked ready: every Taster approved, but it has no How it works.\n',
+        '\nNo How it works: the Cellarman wrote none.\n\nOpens as a draft: Foedrum marks it ready for review once its merge brief is posted.\n',
       ),
       text.body,
     );
@@ -1460,7 +1425,8 @@ describe('pullRequestText', () => {
       { ...implement, sections: { howItWorks: 'How.', beforeAfter: [] } },
       ...tasted,
     ];
-    assert.equal(pullRequestText({ title: 'T', closes, reports: written }).draft, false);
+    // Every brewed pull request opens as a draft, whatever the Tasters say (ADR 0350).
+    assert.equal(pullRequestText({ title: 'T', closes, reports: written }).draft, true);
   });
 
   it('says why it is a draft when a Taster asks for changes', () => {
@@ -1481,7 +1447,7 @@ describe('pullRequestText', () => {
     const { body } = pullRequestText({ title: 'T', closes, reports });
     assert.ok(
       body.includes(
-        '\nA person reviews this before it is marked ready: a Taster asks for changes (correctness); its findings are in the reports below.\n',
+        '\nA Taster asks for changes (correctness); its findings are in the reports below.\n\nOpens as a draft: Foedrum marks it ready for review once its merge brief is posted.\n',
       ),
       body,
     );

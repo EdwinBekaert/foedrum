@@ -66,6 +66,9 @@ export const GitHubPullRequest = z.object({
   merge_commit_sha: CommitSha.nullable().optional(),
   /** Its description, null when it has none (ADR 0227). */
   body: z.string().nullable().optional(),
+  /** Whether it is a draft, and the node id GraphQL changes that by (ADR 0350). */
+  draft: z.boolean().optional(),
+  node_id: z.string().min(1).optional(),
 });
 
 /** `GET /repos/{owner}/{repo}/releases/latest`: its tag and when it was published (ADR 0223). */
@@ -170,6 +173,16 @@ export const CommentMinimized = z.object({ node: z.object({ isMinimized: z.boole
 /** GraphQL's answer to `minimizeComment` (ADR 0229). */
 export const MinimizedComment = z.object({
   minimizeComment: z.object({ minimizedComment: z.object({ isMinimized: z.boolean() }) }),
+});
+
+/** GraphQL's answer to `markPullRequestReadyForReview` (ADR 0350). */
+export const MarkedReady = z.object({
+  markPullRequestReadyForReview: z.object({ pullRequest: z.object({ isDraft: z.literal(false) }) }),
+});
+
+/** GraphQL's answer to `convertPullRequestToDraft` (ADR 0350). */
+export const ConvertedToDraft = z.object({
+  convertPullRequestToDraft: z.object({ pullRequest: z.object({ isDraft: z.literal(true) }) }),
 });
 
 /** `GET /user`: the account gh is logged in as (ADR 0073). */
