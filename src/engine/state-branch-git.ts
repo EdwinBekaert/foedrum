@@ -42,6 +42,12 @@ export interface StateBranchOptions {
   out?: (line: string) => void;
   /** Waits between tries for the writer lock at a start; default a timer. */
   sleep?: (ms: number) => Promise<void>;
+  /**
+   * Whether a local target repository's attempt worktrees use the clone too: their fetches and
+   * branch deletes take its packed-refs.lock outside the writer lock, so it is never removed
+   * (ADR 0351). Default false.
+   */
+  sharedWithTarget?: boolean;
 }
 
 export type FlushResult =

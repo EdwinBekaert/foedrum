@@ -4,7 +4,7 @@
 
 import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { beforeEach, describe, it } from 'node:test';
 import { assembleBrewerPrompt } from '../../src/brewers/prompt.ts';
 import { type ServeRepository, type ServeSetup, serveSetup } from '../../src/cli/serve-config.ts';
@@ -373,6 +373,78 @@ describe('serveShell', () => {
     assert.deepStrictEqual(said, [
       `foedrum serve: removed a stale index.lock from the state worktree: ${join(gitDir, 'index.lock')}`,
     ]);
+  });
+
+  // #941: a Brewery's clone with a packed-refs.lock that a killed git left, as a start meets it.
+  const packedRefsStart = async (root: string) => {
+    const common = join(workRoot, 'brewery-git');
+    const packedLock = join(common, 'packed-refs.lock');
+    mkdirSync(common, { recursive: true });
+    writeFileSync(packedLock, '');
+    const { git } = fakeGit((_cwd, args) => {
+      const [command, first] = args;
+      if (command === 'ls-remote') return { code: 2, stdout: '', stderr: '' };
+      if (command === 'update-ref' && first === '-d' && existsSync(packedLock)) {
+        return {
+          code: 1,
+          stdout: '',
+          stderr: `error: Unable to create '${packedLock}': File exists.\n`,
+        };
+      }
+      if (command === 'rev-parse' && first === '--absolute-git-dir') {
+        return { code: 0, stdout: `${join(common, 'worktrees', 'state')}\n`, stderr: '' };
+      }
+      if (command === 'rev-parse' && first === '--path-format=absolute') {
+        return { code: 0, stdout: `${common}\n`, stderr: '' };
+      }
+      if (command === 'rev-parse' || command === 'config')
+        return { code: 1, stdout: '', stderr: '' };
+      if (command === 'write-tree' || command === 'commit-tree') {
+        return { code: 0, stdout: `${'a'.repeat(40)}\n`, stderr: '' };
+      }
+      return undefined;
+    });
+    const said: string[] = [];
+    const shell = serveShell(setup, {
+      root,
+      git,
+      out: (line) => said.push(line),
+      listen: () => {},
+    });
+    const store = openSqliteEventStore(':memory:');
+    try {
+      const started = await shell
+        .stateBranch(store)
+        .start()
+        .then(
+          (result) => ({ result }),
+          (error: unknown) => ({ error }),
+        );
+      return { started, said, packedLock };
+    } finally {
+      store.close();
+    }
+  };
+
+  it("removes a stale packed-refs.lock from the Brewery's clone at serve's start, says so, and goes on (#941)", async () => {
+    const { started, said, packedLock } = await packedRefsStart('brewery');
+
+    assert.deepStrictEqual(started, { result: { decision: 'ready' } });
+    assert.equal(existsSync(packedLock), false);
+    assert.deepStrictEqual(said, [
+      `foedrum serve: removed a stale packed-refs.lock from the clone's common git folder: ${packedLock}`,
+    ]);
+  });
+
+  it("leaves packed-refs.lock when the Brewery's checkout is also a local repository's clone, written another way (ADR 0351)", async () => {
+    const { started, said, packedLock } = await packedRefsStart(
+      join(clone, '..', basename(clone), '.'),
+    );
+
+    assert.ok('error' in started, 'the start stops');
+    assert.match(String(started.error), /delete .*packed-refs\.lock once no git runs in/);
+    assert.equal(existsSync(packedLock), true);
+    assert.deepStrictEqual(said, []);
   });
 
   it('keeps listening for stop signals while serve shuts down, and stops listening after', () => {
