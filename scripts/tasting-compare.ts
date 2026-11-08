@@ -21,14 +21,15 @@
 // with --dry-run, until the batch waits for the plan's review. Its records, runs and table are kept
 // apart under .foedrum/tmp/tasting-compare/plan. Its decisions are scripts/tasting-compare/plan.ts.
 //
-// With --real (#879, ADR 0332) it tastes three brewed heads of this repository instead, each in five
-// setups, and #867 in a sixth with its maintainer's comment (ADR 0333): the target is the order's
+// With --real (#879, ADR 0332) it tastes three brewed heads of this repository instead, each in nine
+// setups, and #867 in a tenth with its maintainer's comment (ADR 0333): the target is the order's
 // base fetched from this checkout, a scripted Cellarman commits the head's changed files, and the
 // three Tasters nip had then, with design conformance, as nip now has it (ADR 0343), as a fourth in
 // the lens setup (ADR 0337), on Opus in the opus setup and at high effort in the high setup
 // (ADR 0344), on Opus and at high effort with a Taster told nothing of the rules in the opus-bare
 // and high-bare setups, and with real-nip's three lenses in one such Taster on Opus in the
-// opus-together setup (ADR 0347), run on the real claude, or scripted with --dry-run. --setups
+// opus-together setup (ADR 0347) and on Sonnet at high effort in the high-together setup
+// (ADR 0348), run on the real claude, or scripted with --dry-run. --setups
 // <names> runs only those, such as opus,high. It prints each Taster's model and effort as it is
 // planned, reads each Taster's transcript for what it read and the model it ran on, and stops at
 // once on a transcript that cannot say or another model. It writes one blinded list per order and

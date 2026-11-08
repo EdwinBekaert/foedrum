@@ -19,6 +19,7 @@ import { loadRecipes } from '../../src/engine/recipe-files.ts';
 import { worktreeClaims } from '../../src/engine/worktree-claims.ts';
 import type { Event, GravityReading } from '../../src/schemas/events.ts';
 import { OutDocFrontmatter } from '../../src/schemas/out-doc.ts';
+import type { StepOutcome } from '../../src/schemas/step-outcome.ts';
 import { brewerText, recipeText } from '../helpers/brewery-files.ts';
 
 const workRoot = join('/root');
@@ -343,6 +344,216 @@ describe('createAttemptPlans: plan', () => {
     assert.match(
       prompt,
       /name="order">[\s\S]*source="why step brew runs again: the findings of step taste" name="route">\n[^<]*Too bitter[\s\S]*Halve the hops\.\n<\/untrusted-input-[0-9a-f]+>$/,
+    );
+  });
+
+  it("gives the step a parallel group's route goes back to the advisory child's findings of the round (#938, ADR 0349)", async () => {
+    const grouped = loadRecipes({
+      ...readBreweryFiles(join(FOEDRUM_DEFAULTS, 'no-such-brewery')),
+      recipes: [
+        {
+          path: 'recipes/pale.jsonc',
+          text: recipeText(
+            'pale',
+            [
+              { id: 'brew', brewer: 'kettle' },
+              {
+                id: 'taste',
+                parallel: [
+                  {
+                    id: 'correctness',
+                    brewer: 'taster',
+                    lens: 'diff/correctness',
+                    blocking: true,
+                    onBlocked: { findings: { goto: 'brew', maxRounds: 1 } },
+                  },
+                  { id: 'acceptance', brewer: 'taster', lens: 'diff/acceptance' },
+                ],
+              },
+              { action: 'openPullRequest' },
+            ],
+            { testFirst: false },
+          ),
+        },
+      ],
+      brewers: [
+        {
+          path: 'brewers/kettle.md',
+          text: brewerText('kettle', {
+            output: { doc: 'brew.md', schema: 'outDoc' },
+            tools: { allow: ['Read', 'Write'] },
+            produces: 'commits',
+            access: 'write',
+            git: { commit: true },
+            inputs: [{ name: 'order', from: 'order' }],
+          }),
+        },
+      ],
+    });
+    assert.ok(grouped.valid, grouped.valid ? '' : grouped.problems.join('\n'));
+    const deadlineAt = '2026-10-17T13:00:00.000Z';
+    const second = { ...ref, attempt: 2 };
+    const taster = (stepId: string, outcome: StepOutcome, more: Partial<Event> = {}): Event[] => {
+      const at = { batchId: '12-1', stepId, attempt: 1 };
+      return [
+        { type: 'step.scheduled', ...at, deadlineAt },
+        {
+          type: 'step.started',
+          ...at,
+          worktree: {
+            repo: 'acme/api',
+            path: join('/work', `${stepId}-1`),
+            branch: `foedrum/12-1/${stepId}/1`,
+            commit: 'c'.repeat(40),
+          },
+        },
+        { type: 'step.finished', ...at, outcome, ...more } as Event,
+      ];
+    };
+    const advice = {
+      file: 'src/status.ts',
+      line: 40,
+      severity: 'minor',
+      why: 'The help text does not name --json',
+      introduced: true,
+    };
+    const events: Event[] = [
+      ...ordered,
+      started,
+      { type: 'step.finished', ...ref, outcome: { kind: 'succeeded', output: null } },
+      ...taster('correctness', {
+        kind: 'failed',
+        retryable: false,
+        reason: 'blocked (findings): the Taster asks for changes: No deadline',
+      }),
+      ...taster('acceptance', {
+        kind: 'succeeded',
+        output: {
+          status: 'done',
+          summary: 'Tasted',
+          assumptions: [],
+          verdict: 'approve',
+          findings: [advice],
+        },
+      }),
+      {
+        type: 'step.scheduled',
+        ...second,
+        deadlineAt,
+        route: { from: 'correctness', why: 'findings' },
+      },
+      { ...started, attempt: 2 },
+    ];
+    const { plans } = setup(events, {}, undefined, grouped.brewers);
+    const { prompt } = await plans.plan({ ...start, ref: second });
+    assert.match(
+      prompt,
+      /name="route">\nStep correctness ended: [^\n]*No deadline\n[\s\S]*\nStep acceptance, through diff\/acceptance, advisory:\n- minor in src\/status\.ts:40: The help text does not name --json\n<\/untrusted-input-/,
+    );
+  });
+
+  it('names a second blocking child and a child of several lenses as the recipe loads them, the blocking one first: regression test', async () => {
+    const grouped = loadRecipes({
+      ...readBreweryFiles(join(FOEDRUM_DEFAULTS, 'no-such-brewery')),
+      recipes: [
+        {
+          path: 'recipes/pale.jsonc',
+          text: recipeText(
+            'pale',
+            [
+              { id: 'brew', brewer: 'kettle' },
+              {
+                id: 'taste',
+                parallel: [
+                  {
+                    id: 'correctness',
+                    brewer: 'taster',
+                    lens: 'diff/correctness',
+                    blocking: true,
+                    onBlocked: { findings: { goto: 'brew', maxRounds: 1 } },
+                  },
+                  {
+                    id: 'review',
+                    brewer: 'taster',
+                    lenses: ['diff/acceptance', 'diff/design-conformance'],
+                  },
+                  {
+                    id: 'security',
+                    brewer: 'taster',
+                    lens: 'diff/security',
+                    blocking: true,
+                    onBlocked: { findings: { goto: 'brew', maxRounds: 1 } },
+                  },
+                ],
+              },
+              { action: 'openPullRequest' },
+            ],
+            { testFirst: false },
+          ),
+        },
+      ],
+      brewers: [
+        {
+          path: 'brewers/kettle.md',
+          text: brewerText('kettle', {
+            output: { doc: 'brew.md', schema: 'outDoc' },
+            tools: { allow: ['Read', 'Write'] },
+            produces: 'commits',
+            access: 'write',
+            git: { commit: true },
+            inputs: [{ name: 'order', from: 'order' }],
+          }),
+        },
+      ],
+    });
+    assert.ok(grouped.valid, grouped.valid ? '' : grouped.problems.join('\n'));
+    const deadlineAt = '2026-10-17T13:00:00.000Z';
+    const second = { ...ref, attempt: 2 };
+    const taster = (stepId: string, outcome: StepOutcome): Event[] => {
+      const at = { batchId: '12-1', stepId, attempt: 1 };
+      const path = join('/work', `${stepId}-1`);
+      const worktree = { repo: 'acme/api', path, branch: `b/${stepId}`, commit: 'c'.repeat(40) };
+      return [
+        { type: 'step.scheduled', ...at, deadlineAt },
+        { type: 'step.started', ...at, worktree },
+        { type: 'step.finished', ...at, outcome },
+      ];
+    };
+    const blocked = {
+      kind: 'failed',
+      retryable: false,
+      reason: 'blocked (findings): the Taster asks for changes',
+    } as const;
+    const approved: StepOutcome = {
+      kind: 'succeeded',
+      output: {
+        status: 'done',
+        summary: 'Tasted',
+        assumptions: [],
+        verdict: 'approve',
+        findings: [],
+      },
+    };
+    const events: Event[] = [
+      ...ordered,
+      started,
+      { type: 'step.finished', ...ref, outcome: { kind: 'succeeded', output: null } },
+      ...taster('correctness', blocked),
+      ...taster('review', approved),
+      ...taster('security', blocked),
+      {
+        type: 'step.scheduled',
+        ...second,
+        deadlineAt,
+        route: { from: 'correctness', why: 'findings' },
+      },
+      { ...started, attempt: 2 },
+    ];
+    const { plans } = setup(events, {}, undefined, grouped.brewers);
+    const { prompt } = await plans.plan({ ...start, ref: second });
+    assert.match(
+      prompt,
+      /\nStep security, through diff\/security, blocking: no findings\.\n\nStep review, through diff\/acceptance and diff\/design-conformance, advisory: no findings\.\n<\/untrusted-input-/,
     );
   });
 

@@ -6,15 +6,25 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
-import { attemptLimits, routeInput, routeOf } from '../../src/brewers/attempt-plan.ts';
+import {
+  attemptLimits,
+  type EarlierRound,
+  earlierFindingsInput,
+  earlierRoundsOf,
+  groupOfStep,
+  routeInput,
+  routeOf,
+} from '../../src/brewers/attempt-plan.ts';
 import { createAttemptPlans } from '../../src/brewers/attempt-plans.ts';
 import type { PromptInput } from '../../src/brewers/prompt.ts';
+import type { AttemptRef } from '../../src/engine/attempt-key.ts';
 import { FOEDRUM_DEFAULTS, readBreweryFiles } from '../../src/engine/brewery-files.ts';
 import { createCommandLog } from '../../src/engine/command-log.ts';
 import { type Command, decide } from '../../src/engine/decide.ts';
 import { openDriver } from '../../src/engine/driver.ts';
-import { fold } from '../../src/engine/fold.ts';
+import { type Batch, fold } from '../../src/engine/fold.ts';
 import { freeCapacity } from '../../src/engine/intake.ts';
+import { lensRounds } from '../../src/engine/lens-rounds.ts';
 import { brewLog, pullRequestText, stepReports } from '../../src/engine/pull-request.ts';
 import { type LoadedRecipes, loadRecipes } from '../../src/engine/recipe-files.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
@@ -1351,5 +1361,176 @@ describe("the release a sub-order waited for in the default brewers' prompts (AD
     assert.ok(found);
     assert.ok(found.brewer.inputs.some(({ from }) => from === 'release'));
     assert.match(found.instructions, /\{release\}[^\n]*dependency/);
+  });
+});
+
+describe("the default Nip's round back to the Cellarman carries every Taster's finding (#938, ADR 0349)", () => {
+  const blockingFinding = {
+    file: 'src/wait.ts',
+    line: 12,
+    severity: 'major',
+    why: 'waitForMerge polls with no deadline',
+    introduced: true,
+  } as const;
+  const advisoryFinding = {
+    file: 'src/status.ts',
+    line: 40,
+    severity: 'major',
+    why: 'The order asks for --json; the flag added is --JSON',
+    introduced: true,
+  } as const;
+  const tasted = (findings: readonly unknown[]) => {
+    const { facts } = behave.succeed() as Extract<Behaviour, { kind: 'settle' }>;
+    const verdict = findings.length === 0 ? 'approve' : 'changes';
+    const doc = outDoc({ status: 'done', summary: 'Tasted', verdict, findings });
+    return { behaviour: { kind: 'settle', facts: { ...facts, outDoc: doc } } as Behaviour, doc };
+  };
+  const dispositions = [
+    { file: 'src/wait.ts', line: 12, disposition: 'fixed' },
+    {
+      step: 'acceptance',
+      file: 'src/status.ts',
+      line: 40,
+      disposition: 'dismissed',
+      why: "The order's second sentence asks for --JSON",
+    },
+  ];
+
+  /**
+   * Nip brewed with correctness asking for changes and acceptance advising one finding in the
+   * first round, every Taster approving in the second, and what each attempt of `watched` saw.
+   */
+  const brewed = async (
+    second: { correctness: Behaviour; acceptance: Behaviour },
+    watched: (batch: Batch, ref: AttemptRef) => void,
+    disposed: readonly unknown[] = dispositions,
+  ) => {
+    const store = openSqliteEventStore(':memory:');
+    try {
+      const done = behave.succeed();
+      const { facts } = done as Extract<Behaviour, { kind: 'settle' }>;
+      const fixed = outDoc({
+        status: 'done',
+        summary: 'Fixed',
+        assumptions: [],
+        dispositions: disposed,
+      });
+      const scripts: Record<string, Behaviour[]> = {
+        survey: [done],
+        'survey-check': [done],
+        gauge: [done],
+        red: [done],
+        implement: [done, { kind: 'settle', facts: { ...facts, outDoc: fixed } }],
+        fine: [done, done],
+        green: [done, done],
+        correctness: [tasted([blockingFinding]).behaviour, second.correctness],
+        acceptance: [tasted([advisoryFinding]).behaviour, second.acceptance],
+        security: [tasted([]).behaviour, tasted([]).behaviour],
+        'design-conformance': [tasted([]).behaviour, tasted([]).behaviour],
+        'open-pull-request': [done],
+      };
+      const { brewers, recipes } = valid(loadRecipes(noFiles));
+      const brewing = createBrewing({
+        store,
+        runner: fakeBrewerRunner(({ ref }) => {
+          const batch = fold(brewing.events()).batches.get('b1');
+          assert.ok(batch !== undefined);
+          watched(batch, ref);
+          return scripts[ref.stepId]?.shift() ?? done;
+        }),
+        recipes,
+        limits: (stepId) => {
+          const found = brewers.find('nip', stepId);
+          return found?.lens === undefined
+            ? defaultLimits
+            : attemptLimits(found.brewer, undefined, found.blocking, found.together);
+        },
+        clock: () => new Date('2026-11-08T12:00:00.000Z'),
+      });
+      assert.ok(brewing.command({ kind: 'order', batchId: 'b1', order: { issue: 1 } }));
+      assert.ok(
+        brewing.command({
+          kind: 'route',
+          batchId: 'b1',
+          recipe: 'nip',
+          reason: 'label',
+          source: 'label',
+        }),
+      );
+      await brewing.drive();
+      return { events: [...brewing.events()], brewers };
+    } finally {
+      store.close();
+    }
+  };
+
+  it("gives the Cellarman's second attempt correctness's findings and acceptance's advisory one, and the next round of each its disposition", async () => {
+    const { brewers } = valid(loadRecipes(noFiles));
+    const outDocOf = (id: string) => brewers.find('nip', id)?.brewer.output.doc;
+    const groupOf = (id: string) => groupOfStep(brewers.find('nip', id));
+    let told: PromptInput | undefined;
+    const earlier = new Map<string, string>();
+    const disposed = new Map<string, readonly unknown[]>();
+    const correctnessDoc = tasted([blockingFinding]).doc;
+    const { events } = await brewed(
+      { correctness: tasted([]).behaviour, acceptance: tasted([]).behaviour },
+      (batch, ref) => {
+        if (ref.stepId === 'implement' && ref.attempt === 2) {
+          const route = routeOf(batch, ref, outDocOf, undefined, groupOf);
+          told =
+            route === undefined
+              ? undefined
+              : routeInput(route, { kind: 'text', text: correctnessDoc });
+        }
+        if (ref.attempt === 2 && (ref.stepId === 'correctness' || ref.stepId === 'acceptance')) {
+          const rounds = earlierRoundsOf(batch, ref, 'taste.md').filter(
+            (round): round is EarlierRound => !('outDoc' in round),
+          );
+          earlier.set(ref.stepId, earlierFindingsInput(ref.stepId, rounds).text);
+          disposed.set(ref.stepId, lensRounds(batch, ref.stepId)[0]?.dispositions ?? []);
+        }
+      },
+    );
+    const text = told?.text ?? '';
+    assert.match(text, /^Step correctness ended: blocked \(findings\)/);
+    assert.ok(text.includes(correctnessDoc), text);
+    assert.match(
+      text,
+      /\nStep acceptance, through diff\/acceptance, advisory:\n- major in src\/status\.ts:40: The order asks for --json; the flag added is --JSON(\n|$)/,
+    );
+    // The fake runner keeps no worktree, so correctness's blocked round is read from the events.
+    assert.deepEqual(disposed.get('correctness'), [dispositions[0]]);
+    assert.deepEqual(disposed.get('acceptance'), [dispositions[1]]);
+    assert.match(
+      earlier.get('acceptance') ?? '',
+      /src\/status\.ts:40: [^\n]*--JSON\n {2}dismissed: The order's second sentence asks for --JSON/,
+    );
+    const started = events.flatMap((event) =>
+      event.type === 'step.started' ? [event.stepId] : [],
+    );
+    assert.equal(started.at(-1), 'open-pull-request');
+  });
+
+  it("goes on past acceptance's advisory changes alone, and counts correctness's rounds against its own route: regression test", async () => {
+    const asks = tasted([advisoryFinding]).behaviour;
+    const { events } = await brewed(
+      { correctness: tasted([]).behaviour, acceptance: asks },
+      () => {},
+      // Correctness's finding only: an out doc any Foedrum reads.
+      dispositions.slice(0, 1),
+    );
+    const routes = events.flatMap((event) =>
+      event.type === 'step.scheduled' && event.route !== undefined
+        ? [`${event.stepId}#${event.attempt} from ${event.route.from}`]
+        : [],
+    );
+    // Acceptance asked for changes in both rounds; only correctness's first sent the batch back.
+    assert.deepEqual(routes, ['implement#2 from correctness']);
+    assert.equal(
+      events.filter(
+        (event) => event.type === 'step.started' && event.stepId === 'open-pull-request',
+      ).length,
+      1,
+    );
   });
 });

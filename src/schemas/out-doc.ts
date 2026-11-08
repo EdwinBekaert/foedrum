@@ -1,7 +1,7 @@
 // Out-doc frontmatter: how a brewer reports its outcome (brewers-and-recipes §2, ADR 0005).
 
 import { findSecrets } from '../formats/secrets.ts';
-import { LensName } from './ids.ts';
+import { LensName, PathSafeId } from './ids.ts';
 import { type DocResult, readDoc } from './read.ts';
 import { NonEmpty, Question } from './step-outcome.ts';
 import { z } from './zod.ts';
@@ -19,6 +19,9 @@ export const MOST_HANDOVER_LINES = 3;
 export const MAX_HANDOVER_LINE = 300;
 
 const place = {
+  // The step whose finding it is, when another step of the group found it; else the step whose
+  // route brought the brewer back (ADR 0349).
+  step: PathSafeId.exactOptional(),
   file: NonEmpty.max(MAX_DISPOSITION_FILE)
     .regex(/^[^\r\n]*$/, 'Must be one line')
     .exactOptional(),
@@ -28,7 +31,7 @@ const said = NonEmpty.max(MAX_DISPOSITION_WHY);
 
 /**
  * What the brewer a findings route brought back did with one finding of its route input
- * (ADR 0191), at the finding's place as the Taster wrote it, or the change as a whole without a
+ * (ADR 0191), of the step that found it (ADR 0349), at the finding's place as the Taster wrote it, or the change as a whole without a
  * file: fixed, or with a `why`, dismissed as not a defect or left as there before the change
  * (ADR 0094), a `why` that names the evidence a later round checks (ADR 0204).
  */

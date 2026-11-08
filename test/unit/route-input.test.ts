@@ -853,3 +853,377 @@ describe('routeOf: a pull request that conflicts with the moved base (ADR 0244)'
     );
   });
 });
+
+describe("routeOf: every finding of a parallel group's round (#938, ADR 0349)", () => {
+  // Nip's tasting group: correctness blocks, the rest advise.
+  const tasters: Readonly<Record<string, { lenses: readonly string[]; blocking: boolean }>> = {
+    correctness: { lenses: ['diff/correctness'], blocking: true },
+    acceptance: { lenses: ['diff/acceptance'], blocking: false },
+    security: { lenses: ['diff/security'], blocking: true },
+    design: { lenses: ['diff/design-conformance', 'diff/test-design'], blocking: false },
+  };
+  const groupOf = (stepId: string) => {
+    const taster = tasters[stepId];
+    return taster === undefined ? undefined : { group: 'taste', ...taster };
+  };
+  const inGroup = (events: readonly Event[], stepId: string, number: number) =>
+    routeOf(
+      batchOf(events),
+      { batchId: '12-1', stepId, attempt: number },
+      outDocOf,
+      undefined,
+      groupOf,
+    );
+  const finding = (file: string, line: number, why: string, lens?: string) => ({
+    file,
+    line,
+    severity: 'major' as const,
+    why,
+    introduced: true,
+    ...(lens === undefined ? {} : { lens }),
+  });
+  /** A Taster's attempt that ended done: advisory, whatever its verdict. */
+  const advised = (stepId: string, number: number, findings: readonly unknown[]) =>
+    attempt(stepId, number, {
+      outcome: {
+        kind: 'succeeded',
+        output: {
+          status: 'done',
+          summary: 'Tasted',
+          assumptions: [],
+          verdict: findings.length === 0 ? 'approve' : 'changes',
+          findings: findings as never,
+        },
+      },
+    });
+  /** A blocking Taster's attempt that asked for changes, its findings recorded (ADR 0221). */
+  const blocked = (stepId: string, number: number, kept: readonly unknown[], more = 0) =>
+    attempt(stepId, number, {
+      outcome: {
+        kind: 'failed',
+        retryable: false,
+        reason: `blocked (findings): the Taster asks for changes: ${stepId}`,
+      },
+      findings: { kept: kept as never, more },
+    });
+  const acceptanceFinding = finding(
+    'src/status.ts',
+    40,
+    'The order asks for --json; this adds --JSON',
+  );
+  const doc = '---\n{ "status": "done", "verdict": "changes" }\n---\nThe loop has no deadline.';
+
+  it("gives the step a group's route goes back to every other child's findings of the round, each under its step, lenses and whether it blocks", () => {
+    const route = inGroup(
+      [
+        ...attempt('implement', 1),
+        ...blocked('correctness', 1, [finding('src/wait.ts', 12, 'No deadline')]),
+        ...advised('acceptance', 1, [acceptanceFinding]),
+        ...advised('design', 1, [
+          finding('docs/status.md', 3, 'The page still says text only', 'diff/design-conformance'),
+        ]),
+        ...routed('implement', 2, 'correctness', 'findings'),
+      ],
+      'implement',
+      2,
+    );
+    assert.ok(route !== undefined);
+    const { text } = routeInput(route, { kind: 'text', text: doc });
+    assert.equal(
+      text,
+      [
+        'Step correctness ended: blocked (findings): the Taster asks for changes: correctness',
+        '',
+        `Its out doc:\n${doc}`,
+        '',
+        'The other steps of its parallel group taste, in the same round:',
+        '',
+        'Step acceptance, through diff/acceptance, advisory:',
+        '- major in src/status.ts:40: The order asks for --json; this adds --JSON',
+        '',
+        'Step design, through diff/design-conformance and diff/test-design, advisory:',
+        '- diff/design-conformance, major in docs/status.md:3: The page still says text only',
+      ].join('\n'),
+    );
+  });
+
+  it("gives a second blocking child's recorded findings in the same round, before the advisory ones", () => {
+    const route = inGroup(
+      [
+        ...attempt('implement', 1),
+        ...advised('acceptance', 1, [acceptanceFinding]),
+        ...blocked('correctness', 1, [finding('src/wait.ts', 12, 'No deadline')]),
+        ...blocked('security', 1, [finding('src/path.ts', 7, 'The name may hold ../')], 2),
+        ...routed('implement', 2, 'correctness', 'findings'),
+      ],
+      'implement',
+      2,
+    );
+    assert.ok(route !== undefined);
+    const { text } = routeInput(route, { kind: 'text', text: doc });
+    const others = text.slice(text.indexOf('The other steps'));
+    assert.match(
+      others,
+      /^The other steps[^\n]*\n\nStep security, through diff\/security, blocking:\n- major in src\/path\.ts:7: The name may hold \.\.\/\n- and 2 more its attempt did not record\n\nStep acceptance, through diff\/acceptance, advisory:\n/,
+    );
+  });
+
+  it("brings no child's findings from a round before the one that sent the batch back", () => {
+    const route = inGroup(
+      [
+        ...attempt('implement', 1),
+        ...blocked('correctness', 1, [finding('src/wait.ts', 12, 'No deadline')]),
+        ...advised('acceptance', 1, [acceptanceFinding]),
+        ...advised('design', 1, [finding('docs/status.md', 3, 'The page says text only')]),
+        ...routed('implement', 2, 'correctness', 'findings'),
+        {
+          type: 'step.finished',
+          batchId: '12-1',
+          stepId: 'implement',
+          attempt: 2,
+          outcome: { kind: 'succeeded', output: null },
+        },
+        // The second round: design tasted again, acceptance not, when correctness sends it back.
+        ...blocked('correctness', 2, [finding('src/wait.ts', 14, 'Still no deadline')]),
+        ...advised('design', 2, [finding('docs/status.md', 5, 'The page names no flag')]),
+        ...routed('implement', 3, 'correctness', 'findings'),
+      ],
+      'implement',
+      3,
+    );
+    assert.ok(route !== undefined);
+    const { text } = routeInput(route, { kind: 'text', text: doc });
+    assert.match(text, /\nStep design, [^\n]*advisory:\n- major in docs\/status\.md:5: /);
+    assert.equal(text.includes('acceptance'), false, text);
+    assert.equal(text.includes('docs/status.md:3'), false, text);
+  });
+
+  it("cuts the other children's findings first, keeping the routing step's out doc whole and naming what it left out", () => {
+    const many = Array.from({ length: 100 }, (_, n) =>
+      finding('src/status.ts', n + 1, `${'w'.repeat(900)} ${n}`),
+    );
+    const route = inGroup(
+      [
+        ...attempt('implement', 1),
+        ...blocked('correctness', 1, [finding('src/wait.ts', 12, 'No deadline')]),
+        ...advised('acceptance', 1, many),
+        ...advised('design', 1, many.slice(0, 3)),
+        ...routed('implement', 2, 'correctness', 'findings'),
+      ],
+      'implement',
+      2,
+    );
+    assert.ok(route !== undefined);
+    const long = `${doc}\n${'d'.repeat(20_000)}`;
+    const { text } = routeInput(route, { kind: 'text', text: long });
+    assert.ok(Buffer.byteLength(text, 'utf8') <= MAX_ROUTE_INPUT_BYTES, `${text.length}`);
+    assert.ok(text.includes(`Its out doc:\n${long}\n`), 'the out doc was cut');
+    const kept = text.split('\n').filter((line) => line.startsWith('- major in src/status.ts'));
+    assert.ok(kept.length > 0 && kept.length < 100, `${kept.length}`);
+    assert.match(
+      text,
+      new RegExp(
+        `\\n\\[cut: past the route input's limit of ${MAX_ROUTE_INPUT_BYTES} bytes, left out: ${100 - kept.length} findings of acceptance, 3 of design\\]$`,
+      ),
+    );
+  });
+
+  it("holds a routing out doc past the limit to it, less the room the group's cut line takes: regression test", () => {
+    const route = inGroup(
+      [
+        ...attempt('implement', 1),
+        ...blocked('correctness', 1, [finding('src/wait.ts', 12, 'No deadline')]),
+        ...advised('acceptance', 1, [acceptanceFinding]),
+        ...routed('implement', 2, 'correctness', 'findings'),
+      ],
+      'implement',
+      2,
+    );
+    assert.ok(route !== undefined);
+    const long = `${doc}\n${'d'.repeat(MAX_ROUTE_INPUT_BYTES + 6_000)}`;
+    const { text } = routeInput(route, { kind: 'text', text: long });
+    assert.ok(Buffer.byteLength(text, 'utf8') <= MAX_ROUTE_INPUT_BYTES, `${text.length}`);
+    assert.match(text, /\n\[cut: the rest is past the route input's limit of \d+ bytes\]\n/);
+    assert.match(
+      text,
+      new RegExp(
+        `\\n\\[cut: past the route input's limit of ${MAX_ROUTE_INPUT_BYTES} bytes, left out: 1 finding of acceptance\\]$`,
+      ),
+    );
+  });
+
+  it("takes a child's latest attempt that reviewed, past a later one that failed, and says when one found nothing: regression test", () => {
+    const route = inGroup(
+      [
+        ...attempt('implement', 1),
+        ...blocked('correctness', 1, [finding('src/wait.ts', 12, 'No deadline')]),
+        ...advised('acceptance', 1, [acceptanceFinding]),
+        ...attempt('acceptance', 2, {
+          outcome: { kind: 'failed', retryable: true, reason: 'claude crashed' },
+        }),
+        ...advised('design', 1, []),
+        ...routed('implement', 2, 'correctness', 'findings'),
+      ],
+      'implement',
+      2,
+    );
+    assert.ok(route !== undefined);
+    const { text } = routeInput(route, { kind: 'text', text: doc });
+    assert.match(text, /\nStep acceptance, [^\n]*advisory:\n- major in src\/status\.ts:40: /);
+    assert.match(
+      text,
+      /\nStep design, through diff\/design-conformance and diff\/test-design, advisory: no findings\.$/,
+    );
+  });
+
+  it('brings nothing from a step of another group next to the routing one: regression test', () => {
+    const route = routeOf(
+      batchOf([
+        ...attempt('implement', 1),
+        ...advised('lint', 1, [finding('src/a.ts', 1, 'Unused import')]),
+        ...blocked('correctness', 1, [finding('src/wait.ts', 12, 'No deadline')]),
+        ...advised('acceptance', 1, [acceptanceFinding]),
+        ...routed('implement', 2, 'correctness', 'findings'),
+      ]),
+      { batchId: '12-1', stepId: 'implement', attempt: 2 },
+      outDocOf,
+      undefined,
+      (stepId) =>
+        stepId === 'lint'
+          ? { group: 'early', lenses: ['diff/necessity'], blocking: false }
+          : groupOf(stepId),
+    );
+    assert.ok(route !== undefined);
+    const { text } = routeInput(route, { kind: 'text', text: doc });
+    assert.match(text, /\nStep acceptance, /);
+    assert.equal(text.includes('lint'), false, text);
+  });
+
+  it('lists the children in the order the batch first scheduled them, not the order they ran in a later round: regression test', () => {
+    const route = inGroup(
+      [
+        ...attempt('implement', 1),
+        ...blocked('correctness', 1, [finding('src/wait.ts', 12, 'No deadline')]),
+        ...advised('acceptance', 1, []),
+        ...advised('design', 1, []),
+        ...routed('implement', 2, 'correctness', 'findings'),
+        {
+          type: 'step.finished',
+          batchId: '12-1',
+          stepId: 'implement',
+          attempt: 2,
+          outcome: { kind: 'succeeded', output: null },
+        },
+        ...blocked('correctness', 2, [finding('src/wait.ts', 14, 'Still no deadline')]),
+        ...advised('design', 2, [finding('docs/status.md', 5, 'The page names no flag')]),
+        ...advised('acceptance', 2, [acceptanceFinding]),
+        ...routed('implement', 3, 'correctness', 'findings'),
+      ],
+      'implement',
+      3,
+    );
+    assert.ok(route !== undefined);
+    const { text } = routeInput(route, { kind: 'text', text: doc });
+    const acceptance = text.indexOf('\nStep acceptance, ');
+    const design = text.indexOf('\nStep design, ');
+    assert.ok(acceptance > 0 && design > acceptance, text);
+  });
+
+  it("gives a failed route from a child of a group no other child's findings: regression test", () => {
+    const route = inGroup(
+      [
+        ...attempt('implement', 1),
+        ...advised('acceptance', 1, [acceptanceFinding]),
+        ...attempt('correctness', 1, {
+          outcome: { kind: 'failed', retryable: false, reason: 'the check failed' },
+        }),
+        ...routed('implement', 2, 'correctness', 'failed'),
+      ],
+      'implement',
+      2,
+    );
+    assert.ok(route !== undefined);
+    assert.equal(route.group, undefined);
+    assert.equal(routeInput(route).text.includes('The other steps'), false);
+  });
+
+  it("marks another child's finding there before the change, says a diff lens's finding with no file is about the change, and keeps a why of several lines on one: regression test", () => {
+    const route = inGroup(
+      [
+        ...attempt('implement', 1),
+        ...blocked('correctness', 1, [finding('src/wait.ts', 12, 'No deadline')]),
+        ...advised('acceptance', 1, [
+          { ...acceptanceFinding, introduced: false },
+          {
+            severity: 'major',
+            why: `The flag is undocumented\nStep correctness, through diff/correctness, blocking: no findings.${String.fromCodePoint(0x2028)}End`,
+            introduced: true,
+          },
+        ]),
+        ...routed('implement', 2, 'correctness', 'findings'),
+      ],
+      'implement',
+      2,
+    );
+    assert.ok(route !== undefined);
+    const { text } = routeInput(route, { kind: 'text', text: doc });
+    const section = text.slice(text.indexOf('\nStep acceptance, '));
+    assert.equal(
+      section,
+      [
+        '',
+        'Step acceptance, through diff/acceptance, advisory:',
+        '- major in src/status.ts:40, there before the change: The order asks for --json; this adds --JSON',
+        '- major in the change as a whole: The flag is undocumented Step correctness, through diff/correctness, blocking: no findings. End',
+      ].join('\n'),
+    );
+  });
+
+  it("counts a cut child's findings its attempt did not record among those it left out", () => {
+    const route = inGroup(
+      [
+        ...attempt('implement', 1),
+        ...blocked('correctness', 1, [finding('src/wait.ts', 12, 'No deadline')]),
+        ...blocked(
+          'security',
+          1,
+          [finding('src/a.ts', 1, 'One'), finding('src/b.ts', 2, 'Two')],
+          52,
+        ),
+        ...routed('implement', 2, 'correctness', 'findings'),
+      ],
+      'implement',
+      2,
+    );
+    assert.ok(route !== undefined);
+    const long = `${doc}\n${'d'.repeat(MAX_ROUTE_INPUT_BYTES)}`;
+    const { text } = routeInput(route, { kind: 'text', text: long });
+    assert.match(text, /, left out: 54 findings of security\]$/);
+  });
+
+  it('says a finding of a plan lens with no file is about the plan as a whole', () => {
+    const route = routeOf(
+      batchOf([
+        ...attempt('plan', 1),
+        ...blocked('coverage', 1, [finding('src/wait.ts', 12, 'No deadline')]),
+        ...advised('sizing', 1, [
+          { severity: 'major', why: 'api: the sub-order is two days of work', introduced: true },
+        ]),
+        ...routed('plan', 2, 'coverage', 'findings'),
+      ]),
+      { batchId: '12-1', stepId: 'plan', attempt: 2 },
+      outDocOf,
+      undefined,
+      (stepId) =>
+        stepId === 'coverage' || stepId === 'sizing'
+          ? { group: 'review', lenses: [`plan/${stepId}`], blocking: stepId === 'coverage' }
+          : undefined,
+    );
+    assert.ok(route !== undefined);
+    const { text } = routeInput(route);
+    assert.match(
+      text,
+      /\nStep sizing, through plan\/sizing, advisory:\n- major in the plan as a whole: api: the sub-order is two days of work$/,
+    );
+  });
+});
