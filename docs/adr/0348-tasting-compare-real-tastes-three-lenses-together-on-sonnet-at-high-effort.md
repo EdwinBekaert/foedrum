@@ -1,6 +1,6 @@
 # 0348. tasting-compare --real tastes three lenses together on Sonnet at high effort
 
-Date: 2026-11-08 · Status: Accepted · Amends [0347](0347-tasting-compare-real-measures-tasters-without-the-rules-read-and-three-lenses-together.md) (a fourth setup of its kind)
+Date: 2026-11-08 · Status: Accepted · Amends [0347](0347-tasting-compare-real-measures-tasters-without-the-rules-read-and-three-lenses-together.md) (a fourth setup beside its three)
 
 ## Context
 #879's comparison under [ADR 0347](0347-tasting-compare-real-measures-tasters-without-the-rules-read-and-three-lenses-together.md) measured three lenses in one Taster only on Opus (`opus-together`).
@@ -24,5 +24,5 @@ The setups of `tasting-compare --real` are a fixed list in `scripts/tasting-comp
 - A comparison of `high-together` against `high-bare` reads `high-bare`'s runs from #879's comparison, in another folder with another seed: the scorer scores each comparison's lists apart.
 
 ## Alternatives considered
-- **A setup option for the model and the effort of a together step.** The fixed list keeps each setup's difference in one place a test pins; a fourth together setup is one name.
+- **A setup option for the model and the effort of a together step.** The fixed list keeps each setup's difference in one place a test pins; a second together setup is one name.
 - **Change `opus-together` to Sonnet.** The records of its earlier comparison would then name a setup that tasted another way.
