@@ -875,64 +875,77 @@ export const commands: readonly RegisteredCommand[] = [
     positionals: ['target', 'recipe', 'reason'],
     schema: RecipeCommand,
     handler: async ({ target, recipe, reason }, context) => {
-      if (typeof target === 'string') {
-        return changeBrewery('recipe', context, (_state, issued) => ({
-          kind: 'recipe',
-          ...issued(target),
-          recipe,
-          reason,
-        }));
-      }
-      const aliased = aliasedTarget(target, context);
-      if (aliased !== undefined && 'refused' in aliased) return failed('recipe', aliased.refused);
-      return writeBrewery('recipe', context, async (log) => {
-        const { now } = context;
-        const issued = issuedBy(context);
-        // Before anything is ordered or claimed; decide checks it again.
-        if (context.recipes().find(recipe) === undefined) {
-          return failed('recipe', `the Brewery has no recipe ${recipe}`);
+      // The batch a person chose the recipe of: its effects are applied once the store is closed,
+      // so its recipe label and its status comment show before the command returns (ADR 0355).
+      let chosen: string | undefined;
+      const choose = async (): Promise<CliResult> => {
+        if (typeof target === 'string') {
+          const result = await changeBrewery('recipe', context, (_state, issued) => ({
+            kind: 'recipe',
+            ...issued(target),
+            recipe,
+            reason,
+          }));
+          if (result.exitCode === 0) chosen = target;
+          return result;
         }
-        const ordering = orderingOf(log.state(), target, aliased, 'recipe', context);
-        if ('refused' in ordering) return failed('recipe', ordering.refused);
-        const { order, name, claim } = ordering;
-        const latest = latestBatch(log.state().batches.values(), order.issue, order.repo);
-        // Killing a running attempt stays a person's explicit stop (ADR 0205).
-        if (latest?.lane.kind === 'brewing') {
-          return failed(
-            'recipe',
-            `${name} is brewing; foedrum stop ${name.replace(/^#/, '')} first, then change its recipe`,
-          );
-        }
-        const lines: string[] = [];
-        let batchId: string;
-        if (
-          latest === undefined ||
-          latest.lane.kind === 'on_tap' ||
-          latest.lane.kind === 'cancelled'
-        ) {
-          const ordered = await orderIssue(log.state, order, claim, {
-            // Called only for a claim, which carries its config.
-            claims: () => context.claims(claim?.config ?? context.config()),
-            now: now(),
-            issued,
-          });
-          if ('refused' in ordered) return failed('recipe', ordered.refused);
-          const decision = log.issue(ordered, now());
-          if (decision.kind === 'refused') return failed('recipe', decision.reason);
-          batchId = ordered.batchId;
-          lines.push(`ordered ${name}`);
-        } else {
-          batchId = latest.id;
-        }
-        const decision = log.issue({ kind: 'recipe', ...issued(batchId), recipe, reason }, now());
-        // A batch ordered in the transaction before stays, as when the intake routed it between.
-        if (decision.kind === 'refused') {
-          const refused = failed('recipe', decision.reason);
-          return lines.length === 0 ? refused : { ...refused, stdout: `${lines.join('\n')}\n` };
-        }
-        lines.push(laneLine(log.state(), batchId));
-        return done(`${lines.join('\n')}\n`);
-      });
+        const aliased = aliasedTarget(target, context);
+        if (aliased !== undefined && 'refused' in aliased) return failed('recipe', aliased.refused);
+        return writeBrewery('recipe', context, async (log) => {
+          const { now } = context;
+          const issued = issuedBy(context);
+          // Before anything is ordered or claimed; decide checks it again.
+          if (context.recipes().find(recipe) === undefined) {
+            return failed('recipe', `the Brewery has no recipe ${recipe}`);
+          }
+          const ordering = orderingOf(log.state(), target, aliased, 'recipe', context);
+          if ('refused' in ordering) return failed('recipe', ordering.refused);
+          const { order, name, claim } = ordering;
+          const latest = latestBatch(log.state().batches.values(), order.issue, order.repo);
+          // Killing a running attempt stays a person's explicit stop (ADR 0205).
+          if (latest?.lane.kind === 'brewing') {
+            return failed(
+              'recipe',
+              `${name} is brewing; foedrum stop ${name.replace(/^#/, '')} first, then change its recipe`,
+            );
+          }
+          const lines: string[] = [];
+          let batchId: string;
+          if (
+            latest === undefined ||
+            latest.lane.kind === 'on_tap' ||
+            latest.lane.kind === 'cancelled'
+          ) {
+            const ordered = await orderIssue(log.state, order, claim, {
+              // Called only for a claim, which carries its config.
+              claims: () => context.claims(claim?.config ?? context.config()),
+              now: now(),
+              issued,
+            });
+            if ('refused' in ordered) return failed('recipe', ordered.refused);
+            const decision = log.issue(ordered, now());
+            if (decision.kind === 'refused') return failed('recipe', decision.reason);
+            batchId = ordered.batchId;
+            lines.push(`ordered ${name}`);
+          } else {
+            batchId = latest.id;
+          }
+          const decision = log.issue({ kind: 'recipe', ...issued(batchId), recipe, reason }, now());
+          // A batch ordered in the transaction before stays, as when the intake routed it between.
+          if (decision.kind === 'refused') {
+            const refused = failed('recipe', decision.reason);
+            return lines.length === 0 ? refused : { ...refused, stdout: `${lines.join('\n')}\n` };
+          }
+          lines.push(laneLine(log.state(), batchId));
+          chosen = batchId;
+          return done(`${lines.join('\n')}\n`);
+        });
+      };
+      const result = await choose();
+      if (chosen === undefined) return result;
+      const said = await context.applyEffects(chosen);
+      const more = said.map((line) => `${line}\n`).join('');
+      return { ...result, stdout: `${result.stdout}${more}` };
     },
   }),
   define({

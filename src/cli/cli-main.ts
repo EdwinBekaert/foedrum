@@ -130,9 +130,9 @@ export const cliFromCheckout = async (
       // Loaded only for resume: it brings serve's setup and the worktrees.
       resume: async (input, issued) =>
         (await import('./resume-main.ts')).resumeFromCheckout(cwd, input, issued, options),
-      applyEffects: async () => {
-        throw new Error('not implemented');
-      },
+      // Loaded only for recipe, once its choice is recorded: serve's setup and shell (ADR 0355).
+      applyEffects: async (batchId) =>
+        (await import('./apply-effects-main.ts')).applyEffectsFromCheckout(cwd, batchId, options),
       // Loaded only for init: the terminal's questions and the Brewery's files.
       init: async (input) => (await import('./init-main.ts')).initFromCheckout(cwd, options, input),
       env: process.env,

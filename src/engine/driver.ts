@@ -1305,8 +1305,8 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
   };
 
   // Each effect under its batch's lease, renewed before it: two drivers never apply one at once,
-  // and passes of this driver run one after another (ADR 0033).
-  const applyBatch = async (batchId: string): Promise<void> => {
+  // and passes of this driver run one after another (ADR 0033). False when an effect failed.
+  const applyBatch = async (batchId: string): Promise<boolean> => {
     // The next effect due from the state as the one before it left it: an effect may change
     // what follows, as an empty push leaves no pull request to open (ADR 0071). A key is tried
     // once a pass.
@@ -1323,7 +1323,7 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
       const { key, target } = next;
       tried.add(effectKey.encode(key));
       heartbeat();
-      if (!claim(batchId) || awaitsTakeover(batchId)) return;
+      if (!claim(batchId) || awaitsTakeover(batchId)) return true;
       doing({ kind: 'effect', key });
       try {
         await withinDeadline(key, (signal) => applyEffect(ledger, key, target, signal));
@@ -1333,32 +1333,46 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
           report({ kind: 'effect_failed', key, error });
         }
         if (latest.unread !== undefined) throw latest.unread;
-        return;
+        return false;
       }
     }
     if (latest.unread !== undefined) throw latest.unread;
     finishActions(batchId);
     recordAfter(batchId);
+    return true;
   };
-  const applyPass = async (): Promise<void> => {
+
+  /**
+   * The passes of one tick (ADR 0355): the batches whose effects failed in its first pass, before
+   * the drive, which wait for the next tick rather than its second pass, and whether this pass is
+   * the first, after which no batch is said to have recovered.
+   */
+  interface TickPasses {
+    setAside: Set<string>;
+    first: boolean;
+  }
+  const applyPass = async (passes?: TickPasses): Promise<void> => {
     if (effects === undefined && actions === undefined) return;
     const state = log.state();
     for (const batch of state.batches.values()) {
+      if (passes?.setAside.has(batch.id)) continue;
       // Whatever the pass over one batch throws is reported and left: the others go on (ADR 0327).
       try {
-        await applyBatch(batch.id);
+        if (!(await applyBatch(batch.id))) passes?.setAside.add(batch.id);
       } catch (error) {
+        passes?.setAside.add(batch.id);
         if (itsOwn(batch.id)) {
           sayFailure({ kind: 'batch_effects_failed', batchId: batch.id, error });
         }
       }
     }
+    if (passes?.first === true) return;
     passDone('effects', itsOwn);
     failureLines.passed('effect');
   };
   let pass: Promise<unknown> = Promise.resolve();
-  const applyEffects = (): Promise<void> => {
-    const next = pass.then(applyPass);
+  const applyEffects = (passes?: TickPasses): Promise<void> => {
+    const next = pass.then(() => applyPass(passes));
     pass = next.catch(() => {});
     return next;
   };
@@ -1472,8 +1486,12 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
       }
     }
     passDone('runs', () => true);
+    // Before the drive as well, which awaits each start's worktree and the ends that come at once:
+    // what a person's command changed shows on the issue before a step starts (ADR 0355).
+    const setAside = new Set<string>();
+    await applyEffects({ setAside, first: true });
     await drive();
-    await applyEffects();
+    await applyEffects({ setAside, first: false });
     settleFailing();
     // A batch that ended, with no attempt running and no effect due, is let go.
     const state = log.state();
@@ -1495,7 +1513,7 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
     held: () => [...held].sort(),
     drive,
     tick,
-    applyEffects,
+    applyEffects: () => applyEffects(),
     state: log.state,
     progress: (ref) => runner.progress(ref),
     close: () => {
