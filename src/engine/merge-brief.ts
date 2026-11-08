@@ -77,7 +77,7 @@ export const latestBrief = (
 };
 
 /** Whether the ledger recorded the hide of the `n`th merge brief of `batchId`. */
-const isHidden = (state: State, batchId: string, n: number): boolean =>
+export const isHidden = (state: State, batchId: string, n: number): boolean =>
   state.effects.has(effectKey.encode(hiddenKey(batchId, n)));
 
 /** Whether `brief` was posted for `record`: the same pull request, head and checks. */

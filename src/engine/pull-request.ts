@@ -1012,25 +1012,19 @@ const DRAFT = 'Opens as a draft: Foedrum marks it ready for review once its merg
  */
 const draftLine = (reports: readonly StepReport[]): string => {
   const asking = reports.filter(({ tasting }) => tasting?.verdict === 'changes');
-  const past = reports.flatMap(({ past }) => (past === undefined ? [] : [past]));
+  const pastLines = reports
+    .flatMap(({ past }) => (past === undefined ? [] : [past]))
+    .map(({ line, open }) => `- ${line}${open ? '; its findings are in the reports below' : ''}.`)
+    .join('\n');
   return [
-    ...(past.length === 0
-      ? []
-      : [
-          past
-            .map(
-              ({ line, open }) =>
-                `- ${line}${open ? '; its findings are in the reports below' : ''}.`,
-            )
-            .join('\n'),
-        ]),
-    ...(asking.length === 0
-      ? []
-      : [
-          `A Taster asks for changes (${asking.map(({ stepId }) => stepId).join(', ')}); its findings are in the reports below.`,
-        ]),
+    pastLines,
+    asking.length === 0
+      ? ''
+      : `A Taster asks for changes (${asking.map(({ stepId }) => stepId).join(', ')}); its findings are in the reports below.`,
     DRAFT,
-  ].join('\n\n');
+  ]
+    .filter((part) => part !== '')
+    .join('\n\n');
 };
 
 /**

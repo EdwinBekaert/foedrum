@@ -9,7 +9,7 @@ import type { BatchEffectKey } from '../schemas/store.ts';
 import type { DriverEffects } from './driver.ts';
 import { effectKey } from './effect-key.ts';
 import type { State } from './fold.ts';
-import { briefNow, hiddenKey, latestBrief, outdatedBriefs } from './merge-brief.ts';
+import { briefNow, isHidden, latestBrief, outdatedBriefs } from './merge-brief.ts';
 import { openOf } from './pull-request.ts';
 
 /** The draft state of a pull request on the code host, by its URL. */
@@ -79,8 +79,7 @@ export const readyForReviewEffects = (options: ReadyForReviewEffectsOptions): Dr
         return due(state, readyKey(batchId, n), latest.pullRequest, 'ready');
       }
       const outdated =
-        recorded(state, hiddenKey(batchId, n)) ||
-        outdatedBriefs(state, batch).some((brief) => brief.n === n);
+        isHidden(state, batchId, n) || outdatedBriefs(state, batch).some((brief) => brief.n === n);
       if (
         outdated &&
         recorded(state, readyKey(batchId, n)) &&
