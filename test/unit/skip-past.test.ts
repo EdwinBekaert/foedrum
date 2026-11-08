@@ -330,7 +330,8 @@ describe('what a pull request says of a step a skip went past', () => {
       ],
       ...others(4),
     });
-    assert.equal(batch.opened[0]?.draft, false);
+    // Every brewed pull request opens as a draft; its merge brief marks it ready (ADR 0350).
+    assert.equal(batch.opened[0]?.draft, true);
     const head = batch.head();
     batch.log.issue(
       {
@@ -422,7 +423,8 @@ describe('what a pull request says of a step a skip went past', () => {
       correctness: [approve, approve],
       ...others(2),
     });
-    assert.equal(batch.opened[0]?.draft, false);
+    // Every brewed pull request opens as a draft; its merge brief marks it ready (ADR 0350).
+    assert.equal(batch.opened[0]?.draft, true);
     const head = batch.head();
     batch.log.issue(
       {

@@ -388,7 +388,7 @@ describe('pullRequestActions: the pull request', () => {
     assert.match(request?.body ?? '', /\n\| `implement #1` \| succeeded \|\n/);
   });
 
-  it('opens it ready when every Taster approved and how it works is written (ADR 0167)', async () => {
+  it('opens it as a draft though every Taster approved and how it works is written (ADR 0350)', async () => {
     const { actions, requests } = actionsWith();
     const written = brewed.map((event) =>
       event.type === 'step.finished'
@@ -434,7 +434,8 @@ describe('pullRequestActions: the pull request', () => {
     ];
     keysOf(fold([ordered({ issue: 12 }), ...written, ...tasted, ...opening]), actions);
     await actions.target.apply(open);
-    assert.equal(requests[0]?.request.draft, false);
+    // Its merge brief marks it ready, once its checks passed.
+    assert.equal(requests[0]?.request.draft, true);
   });
 
   it("leaves out report text that looks like a secret, but not a commit the batch's state records (#235)", async () => {
