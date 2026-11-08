@@ -25,6 +25,7 @@ import { fakeRecipe, fakeRecipes } from '../helpers/fake-recipes.ts';
 
 const brewery = 'alice/brewery';
 const web = 'https://github.com/acme/web/pull/31';
+const lib = 'https://github.com/acme/lib/pull/8';
 const now = new Date('2026-11-08T09:00:00.000Z');
 const recipes = fakeRecipes({
   // One Taster whose findings go back to implement once.
@@ -33,6 +34,27 @@ const recipes = fakeRecipes({
     routes: { taste: { findings: 'implement' } },
     maxRounds: 1,
     pullRequests: [web],
+  }),
+  // The same Taster with two rounds back.
+  twice: fakeRecipe({
+    steps: ['implement', 'taste'],
+    routes: { taste: { findings: 'implement' } },
+    maxRounds: 2,
+    pullRequests: [web],
+  }),
+  // Two Tasters in a line, each sending its findings back to implement.
+  pair: fakeRecipe({
+    steps: ['implement', 'taste', 'audit'],
+    routes: { taste: { findings: 'implement' }, audit: { findings: 'implement' } },
+    maxRounds: 1,
+    pullRequests: [web],
+  }),
+  // The lined Taster's batch opening two pull requests.
+  both: fakeRecipe({
+    steps: ['implement', 'taste'],
+    routes: { taste: { findings: 'implement' } },
+    maxRounds: 1,
+    pullRequests: [web, lib],
   }),
 });
 
@@ -364,6 +386,76 @@ describe('preExistingIssueEffects (ADR 0356)', () => {
     const body = brewery.issues[0]?.body ?? '';
     assert.match(body, /\nIt has no recipe label, so the intake does not order it\.\n/);
     assert.doesNotMatch(body, /brews once/);
+  });
+
+  /** Batch 12-1 ordered with `recipe`. */
+  const ordered = (recipe: string): void => {
+    accept({ kind: 'order', batchId: '12-1', order: { issue: 12 } });
+    accept({ kind: 'route', batchId: '12-1', recipe, reason: 'label', source: 'label' });
+  };
+  /** The issues opened for batch 12-1 once its pull request merged, and the ledger's keys. */
+  const opened = async (pullRequests: readonly string[] = [web]) => {
+    for (const pullRequest of pullRequests) {
+      const event = {
+        type: 'pull_request.ended',
+        batchId: '12-1',
+        pullRequest,
+        state: 'merged',
+      } as const;
+      accept({ kind: 'record', event });
+    }
+    const brewery = breweryInMemory();
+    const driver = await open(brewery.host);
+    await driver.tick();
+    return brewery.issues;
+  };
+  const other: TastingFinding = { ...old, file: 'src/other.ts', why: 'Another old defect' };
+  const leftOther: Disposition = { ...leftAsIt, file: 'src/other.ts' };
+
+  it('opens one issue each for findings at the first place of two rounds: regression test', async () => {
+    ordered('twice');
+    run('implement', done());
+    run('taste', blocked([old]));
+    run('implement', done([leftAsIt]));
+    run('taste', blocked([other]));
+    run('implement', done([leftOther]));
+    run('taste', approved);
+    assert.equal((await opened()).length, 2);
+    for (const effect of ['pre-existing.taste.1.1', 'pre-existing.taste.2.1']) {
+      assert.ok(store.findEffect({ batchId: '12-1', effect }), effect);
+    }
+  });
+
+  it('opens one issue each for findings at the first place of two Tasters: regression test', async () => {
+    ordered('pair');
+    run('implement', done());
+    run('taste', blocked([old]));
+    run('implement', done([leftAsIt]));
+    run('taste', approved);
+    run('audit', blocked([other]));
+    run('implement', done([leftOther]));
+    run('taste', approved);
+    run('audit', approved);
+    assert.equal((await opened()).length, 2);
+    for (const effect of ['pre-existing.taste.1.1', 'pre-existing.audit.1.1']) {
+      assert.ok(store.findEffect({ batchId: '12-1', effect }), effect);
+    }
+  });
+
+  it('opens none while one of two pull requests closed without merging: regression test', async () => {
+    ordered('both');
+    run('implement', done());
+    run('taste', blocked([old]));
+    run('implement', done([leftAsIt]));
+    run('taste', approved);
+    const event = {
+      type: 'pull_request.ended',
+      batchId: '12-1',
+      pullRequest: lib,
+      state: 'closed',
+    } as const;
+    accept({ kind: 'record', event });
+    assert.equal((await opened([web])).length, 0);
   });
 
   it('links each opened issue in the status comment', async () => {
