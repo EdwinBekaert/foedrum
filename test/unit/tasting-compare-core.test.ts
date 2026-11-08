@@ -3,6 +3,7 @@ import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import {
+  AFTER_ROUND_ONE,
   addedLines,
   attemptsOf,
   choiceOf,
@@ -23,12 +24,15 @@ import {
   summarize,
   tableMarkdown,
 } from '../../scripts/tasting-compare/core.ts';
-import { readBreweryFiles } from '../../src/engine/brewery-files.ts';
+import { attemptLimits } from '../../src/brewers/attempt-plan.ts';
+import { settleAttempt } from '../../src/engine/brewer-runner.ts';
+import { FOEDRUM_DEFAULTS, readBreweryFiles } from '../../src/engine/brewery-files.ts';
 import { loadRecipes } from '../../src/engine/recipe-files.ts';
 import { parseJsonc } from '../../src/formats/jsonc.ts';
 import type { Event } from '../../src/schemas/events.ts';
 import type { TastingFinding } from '../../src/schemas/out-doc.ts';
 import { Recipe } from '../../src/schemas/recipe.ts';
+import { scriptedOutDoc } from '../helpers/nip-fixture.ts';
 import { makeTempDir } from '../helpers/temp-dir.ts';
 
 const fixture = join(import.meta.dirname, '..', 'fixtures', 'tasting-compare');
@@ -397,6 +401,34 @@ describe('recordOf', () => {
     assert.equal(read?.failure, undefined);
     const [cut] = recordOf([blocked(2)], 'together-7').attempts;
     assert.equal(cut?.failure, 'blocked by its findings, 2 of them not recorded');
+  });
+
+  it("ends the scripted Cellarman's and Brewmaster's next turn blocked with the summary a record reads: regression test", () => {
+    const loaded = loadRecipes(readBreweryFiles(join(FOEDRUM_DEFAULTS, 'no-such-brewery')));
+    assert.ok(loaded.valid, loaded.valid ? '' : loaded.problems.join('\n'));
+    for (const [recipe, step] of [
+      ['nip', 'implement'],
+      ['mash', 'plan'],
+    ] as const) {
+      const found = loaded.brewers.find(recipe, step);
+      assert.ok(found !== undefined, step);
+      const ending = settleAttempt(
+        {
+          exit: { kind: 'exited', code: 0 },
+          outDoc: scriptedOutDoc(AFTER_ROUND_ONE),
+          denials: 0,
+          deniedTools: [],
+          turns: 1,
+          commits: { kind: 'counted', count: 0 },
+        },
+        attemptLimits(found.brewer, 'a'.repeat(40)),
+      );
+      assert.deepEqual(
+        ending,
+        { kind: 'blocked', blockerKind: 'environment', summary: ROUND_ONE_END },
+        step,
+      );
+    }
   });
 
   it('reads the last end of a batch that was resumed after it was Stuck', () => {

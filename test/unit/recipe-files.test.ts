@@ -2505,6 +2505,30 @@ describe("loadRecipes: a Taster's findings always have a route, onFindings (ADR 
     ]);
   });
 
+  it('counts no round a step outside the group sent back to the same step: regression test', () => {
+    const solo = { id: 'solo', brewer: 'taster', lens: 'diff/correctness', onFindings: back };
+    const found = loaded(loadRecipes(amber([solo, group()]))).find('amber');
+    assert.ok(found !== undefined);
+    const attempts = new Map<number, Attempt>(
+      ['', 'solo', 'solo', 'security'].map((from, i): [number, Attempt] => [
+        i + 1,
+        {
+          phase: 'finished',
+          attempt: i + 1,
+          deadlineAt: D,
+          outcome: { kind: 'succeeded', output: null },
+          ...(from === '' ? {} : { route: { from, why: 'findings' } }),
+        },
+      ]),
+    );
+    const routed: Batch = {
+      ...batch({}),
+      steps: new Map([['cellarman', { id: 'cellarman', inputs: [], attempts }]]),
+    };
+    assert.equal(found.rounds(routed, 'correctness', 'findings'), 1);
+    assert.equal(found.rounds(routed, 'solo', 'findings'), 2);
+  });
+
   it("gives every child of a group the group's route, blocking on its findings", () => {
     const result = loadRecipes(amber([group()]));
     const found = loaded(result).find('amber');
