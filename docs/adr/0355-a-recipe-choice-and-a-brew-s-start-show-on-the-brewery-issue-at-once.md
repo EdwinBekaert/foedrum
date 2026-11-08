@@ -1,6 +1,6 @@
 # 0355. A recipe choice and a brew's start show on the Brewery issue at once
 
-Date: 2026-11-08 · Status: Accepted · Amends [0240](0240-order-and-recipe-work-by-the-brewery-issue-on-both-surfaces.md) (`foedrum recipe` applies the batch's due effects before it returns), [0072](0072-the-status-comment-edits-as-revisions-in-the-ledger.md) (a person's recipe line gives their reason) and [0033](0033-chaos-tests-effects-found-by-key-and-leases-at-start.md) (a tick passes over the effects before its drive as well as after)
+Date: 2026-11-08 · Status: Accepted · Amends [0240](0240-order-and-recipe-work-by-the-brewery-issue-on-both-surfaces.md) (`foedrum recipe` applies the batch's due effects before it returns), [0072](0072-the-status-comment-edits-as-revisions-in-the-ledger.md) (a person's recipe line gives their reason) [0033](0033-chaos-tests-effects-found-by-key-and-leases-at-start.md), [0266](0266-the-plan-and-status-comments-link-the-plan-s-out-doc-on-the-state-branch.md) and [0330](0330-a-stuck-batch-s-status-comment-is-edited-at-once-and-foedrum-brew-ticks-once-more-before-it-exits.md) (a tick passes over the effects before its drive as well as after)
 
 ## Context
 `foedrum recipe` recorded `batch.recipe_chosen`, with the reason it requires, and applied nothing on GitHub: the recipe label, the lane label and the status comment waited for the next driver's tick.
