@@ -65,6 +65,17 @@ const recipes = fakeRecipes({
     merges: ['green'],
     pullRequests: [],
   }),
+  // Test-first: a Cellarman that finds an older test wrong goes back to the Gauger (ADR 0358).
+  brut: fakeRecipe({
+    steps: ['gauge', 'red', 'implement', 'green'],
+    proven: 'gauge',
+    routes: {
+      red: { failed: 'gauge' },
+      implement: { findings: 'gauge' },
+      green: { failed: 'implement' },
+    },
+    maxRounds: 1,
+  }),
 });
 const succeeded: Ending = {
   kind: 'succeeded',
@@ -1014,6 +1025,54 @@ describe('openDriver', () => {
           'implement#1 refs/heads/foedrum/b1/plan/1',
           // A retry starts where the failed attempt started.
           'implement#2 refs/heads/foedrum/b1/plan/1',
+        ],
+      );
+    });
+
+    it('starts a Gauger sent back after the code at its own success, and the code again after the red proof (ADR 0358)', async () => {
+      const { runner, end } = handRunner();
+      const manager = fakeWorktrees();
+      intake.issue({ kind: 'order', batchId: 'b1', order: { issue: 1 } }, now);
+      const route = { kind: 'route', batchId: 'b1', recipe: 'brut', reason: 'label' } as const;
+      intake.issue({ ...route, source: 'label' }, now);
+      const driver = await open({ runner, ...worktreesOf(manager) });
+      const ref = (stepId: string, attempt = 1) => ({ batchId: 'b1', stepId, attempt });
+      const walk: [AttemptRef, Ending?][] = [
+        [ref('gauge')],
+        [ref('red')],
+        [ref('implement')],
+        // An older test fails on the code.
+        [ref('green'), { kind: 'failed', retryable: false, reason: '1 test failing: older' }],
+        // The Cellarman may not change it: it says so (ADR 0358).
+        [
+          ref('implement', 2),
+          { kind: 'blocked', blockerKind: 'findings', summary: 'older is wrong' },
+        ],
+        [ref('gauge', 2)],
+        [ref('red', 2)],
+        [ref('implement', 3)],
+      ];
+      await driver.drive();
+      for (const [attempt, ending] of walk) {
+        end(attempt, ending);
+        await driver.drive();
+      }
+      assert.deepStrictEqual(
+        manager.calls.flatMap((call) =>
+          call.kind === 'create' ? [`${call.ref.stepId}#${call.ref.attempt} ${call.base}`] : [],
+        ),
+        [
+          'gauge#1 origin/main',
+          'red#1 refs/heads/foedrum/b1/gauge/1',
+          'implement#1 refs/heads/foedrum/b1/red/1',
+          'green#1 refs/heads/foedrum/b1/implement/1',
+          'implement#2 refs/heads/foedrum/b1/implement/1',
+          // Not at implement#1's code: the older test's update comes before it.
+          'gauge#2 refs/heads/foedrum/b1/gauge/1',
+          'red#2 refs/heads/foedrum/b1/gauge/2',
+          // The cost: the code is written again, by a third Cellarman attempt where #958 took two.
+          'implement#3 refs/heads/foedrum/b1/red/2',
+          'green#2 refs/heads/foedrum/b1/implement/3',
         ],
       );
     });

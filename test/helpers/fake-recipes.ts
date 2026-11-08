@@ -29,6 +29,8 @@ export interface FakeRecipe {
   pullRequests?: readonly string[];
   /** The steps whose attempts merge the base before they run (ADR 0164); default none. */
   merges?: readonly string[];
+  /** The step a red proof proves, which starts again at its own success (ADR 0358); default none. */
+  proven?: string;
   /** The children of each step that is a parallel group, by its id (ADR 0168); default none. */
   groups?: Readonly<Record<string, readonly string[]>>;
   /** The children that run again after every round back for findings (ADR 0357); default none. */
@@ -52,6 +54,7 @@ export const fakeRecipe = ({
   actions = {},
   pullRequests = ['https://github.com/acme/api/pull/7'],
   merges = [],
+  proven,
   groups = {},
   everyRound = [],
   interactive = [],
@@ -89,6 +92,7 @@ export const fakeRecipe = ({
     chosen: (option) => chosen[option],
     action: (stepId) => actions[stepId],
     mergesBase: (stepId) => merges.includes(stepId),
+    proven: (stepId) => stepId === proven,
     // As the loaded recipe does, a parallel group has no deadline: only its children are scheduled.
     deadlineMs: (stepId) => {
       if (groups[stepId] !== undefined) throw new Error(`${stepId} is a parallel group`);

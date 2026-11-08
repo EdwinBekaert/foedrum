@@ -42,3 +42,18 @@ export const taskTreeStart = (
     }
   }
 };
+
+/**
+ * The revision a new attempt at `stepId` of `batch` starts at (ADR 0358): for the step a red proof
+ * proves (`proven`), once it succeeded in the batch's current run and while no open pull request
+ * sent the batch back, where its latest success ended, so its new commits come before the code;
+ * else the task tree (ADR 0066).
+ */
+export const attemptStart = (
+  _batch: Batch,
+  _stepId: string,
+  _repository: { readonly repo: string; readonly base: string },
+  _proven: boolean,
+): string => {
+  throw new Error('not implemented');
+};

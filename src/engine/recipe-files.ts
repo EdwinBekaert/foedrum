@@ -660,6 +660,9 @@ function lineRecipe(
     chosen: (option) => steps.find((entry) => entry.chosenBy === option)?.id,
     action: (id) => at(id).action,
     mergesBase: (id) => id === merges,
+    proven: () => {
+      throw new Error('not implemented');
+    },
     deadlineMs: (id) => durationMs(at(id).deadline),
     stall: (id) => at(id).stall,
     skip: (_batch, id) => {
