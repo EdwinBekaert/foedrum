@@ -20,6 +20,19 @@ export const checked = <T>(schema: z.ZodType<T>, body: unknown, what: string): T
   return parsed.data;
 };
 
+/** The data of a GraphQL answer to `what`, or an error that names each error it carries. */
+export const graphqlData = (
+  answer: { data: unknown; errors: readonly { message: string }[] },
+  what: string,
+): unknown => {
+  if (answer.errors.length > 0) {
+    throw new Error(
+      `GitHub refused ${what}: ${answer.errors.map(({ message }) => message).join('; ')}`,
+    );
+  }
+  return answer.data;
+};
+
 /** The names of an issue's labels, which GitHub gives as names or as objects. */
 export const labelNames = (labels: z.infer<typeof GitHubIssue>['labels']): string[] =>
   labels.map((label) => (typeof label === 'string' ? label : label.name));
