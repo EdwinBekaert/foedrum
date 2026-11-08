@@ -3603,3 +3603,48 @@ describe('the Next line of a pull request follows its merge brief (#940)', () =>
     );
   });
 });
+
+describe('renderStatus: a parallel group that ran in part after a round back (ADR 0357)', () => {
+  const approved = (attempt: number, fields: Partial<Attempt> = {}): Attempt =>
+    ({
+      phase: 'finished',
+      attempt,
+      deadlineAt: at,
+      outcome: {
+        kind: 'succeeded',
+        output: { status: 'done', summary: 'Tasted', assumptions: [], verdict: 'approve' },
+      },
+      ...fields,
+    }) as Attempt;
+  const blockedByFindings: Attempt = {
+    phase: 'finished',
+    attempt: 1,
+    deadlineAt: at,
+    outcome: {
+      kind: 'failed',
+      retryable: false,
+      reason: 'blocked (findings): the Taster asks for changes: a leak',
+    },
+  };
+  const routed = { route: { from: 'security', why: 'findings' } } as const;
+  /** Round 1: correctness approved, security sent the batch back; round 2: security alone. */
+  const partial = batch({
+    steps: new Map([
+      step('implement', done(1), { ...done(2), ...routed }),
+      step('correctness', approved(1)),
+      step('security', blockedByFindings, approved(2)),
+    ]),
+    path: [
+      { stepId: 'implement', attempt: 1 },
+      { stepId: 'correctness', attempt: 1 },
+      { stepId: 'security', attempt: 1 },
+      { stepId: 'implement', attempt: 2 },
+      { stepId: 'security', attempt: 2 },
+    ],
+  });
+  const shown = renderStatus(partial, ['implement', 'correctness', 'security']);
+
+  it('shows the round back as a line of the path with only the children that ran: regression test', () => {
+    assert.ok(shown.split('\n').includes('→ `implement #2` ✅ → `security #2` ✅'), shown);
+  });
+});
