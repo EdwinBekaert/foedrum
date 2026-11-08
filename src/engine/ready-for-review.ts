@@ -1,15 +1,16 @@
-// A brewed pull request is a draft until its merge brief is posted, and ready for review while
-// that brief is current (ADR 0350): marked ready once the brief is posted, and turned back to a
-// draft once a new head outdates it, while the pull request is still the batch's (`openOf`). Each
-// through the ledger, `[batch, "brief.<n>.ready"]` and `[batch, "brief.<n>.draft"]`, found on the
-// code host before it is applied (ADR 0033).
+// A brewed pull request is a draft until its merge brief is posted, and ready for review exactly
+// while that brief is current (ADR 0350): marked ready once the brief is current, and turned back
+// to a draft once it is not (a new head outdated it, or a re-run of its head no longer passes),
+// while the pull request is still the batch's (`openOf`). Each mark through the ledger, the `k`th
+// of brief `n` as `[batch, "brief.<n>.ready.<k>"]` or `[batch, "brief.<n>.draft.<k>"]`, found on
+// the code host before it is applied (ADR 0033).
 
 import type { MergeBriefDraft, MergeBriefReady } from '../schemas/status-comment.ts';
 import type { BatchEffectKey } from '../schemas/store.ts';
 import type { DriverEffects } from './driver.ts';
 import { effectKey } from './effect-key.ts';
 import type { State } from './fold.ts';
-import { briefNow, isHidden, latestBrief, outdatedBriefs } from './merge-brief.ts';
+import { briefNow, latestBrief } from './merge-brief.ts';
 import { openOf } from './pull-request.ts';
 
 /** The draft state of a pull request on the code host, by its URL. */
@@ -26,20 +27,18 @@ export interface ReadyForReviewEffectsOptions {
   host: PullRequestDrafts;
 }
 
-/** The effect that marks the pull request of the `n`th merge brief of `batchId` ready. */
-const readyKey = (batchId: string, n: number): BatchEffectKey => ({
+/** The `k`th mark of the pull request of the `n`th merge brief of `batchId`, ready or a draft. */
+const markKey = (batchId: string, n: number, to: 'ready' | 'draft', k: number): BatchEffectKey => ({
   batchId,
-  effect: `brief.${n}.ready`,
+  effect: `brief.${n}.${to}.${k}`,
 });
 
-/** The effect that turns the pull request of the `n`th merge brief of `batchId` back to a draft. */
-const draftKey = (batchId: string, n: number): BatchEffectKey => ({
-  batchId,
-  effect: `brief.${n}.draft`,
-});
-
-const recorded = (state: State, key: BatchEffectKey): boolean =>
-  state.effects.has(effectKey.encode(key));
+/** How many marks of brief `n` of `batchId` to `to` the ledger recorded, numbered from 1. */
+const marks = (state: State, batchId: string, n: number, to: 'ready' | 'draft'): number => {
+  let k = 0;
+  while (state.effects.has(effectKey.encode(markKey(batchId, n, to, k + 1)))) k++;
+  return k;
+};
 
 /** What a due key does to which pull request. */
 interface DueDraftState {
@@ -48,10 +47,10 @@ interface DueDraftState {
 }
 
 /**
- * The draft state of each batch's pull request, for the driver: ready for review once its current
- * merge brief is posted, a draft again once a new head outdated the latest brief it was marked
- * ready for. Never once someone else pushed to it, nor for a brief a later one of the same head
- * replaced, whose pull request the later one keeps ready.
+ * The draft state of each batch's pull request, for the driver: ready for review while its latest
+ * merge brief is current, a draft again once it is not, after a mark that made it ready. Never once
+ * someone else pushed to it, nor for a brief a later one replaced, whose pull request the later one
+ * marks.
  */
 export const readyForReviewEffects = (options: ReadyForReviewEffectsOptions): DriverEffects => {
   const { host } = options;
@@ -62,9 +61,7 @@ export const readyForReviewEffects = (options: ReadyForReviewEffectsOptions): Dr
     if (due === undefined) throw new Error(`No draft state ${key} is due`);
     return due;
   };
-  // A key the ledger recorded is done: its pull request is left to whoever changes it since.
-  const due = (state: State, key: BatchEffectKey, pullRequest: string, to: DueDraftState['to']) => {
-    if (recorded(state, key)) return [];
+  const due = (key: BatchEffectKey, pullRequest: string, to: DueDraftState['to']) => {
     dues.set(effectKey.encode(key), { pullRequest, to });
     return [key];
   };
@@ -75,17 +72,16 @@ export const readyForReviewEffects = (options: ReadyForReviewEffectsOptions): Dr
       const { next, latest } = latestBrief(state, batchId);
       const n = next - 1;
       if (latest === undefined) return [];
+      // Ready on the code host while it has one more mark to ready than to a draft.
+      const ready = marks(state, batchId, n, 'ready');
+      const drafted = marks(state, batchId, n, 'draft');
       if (briefNow(state, batch) !== undefined) {
-        return due(state, readyKey(batchId, n), latest.pullRequest, 'ready');
+        return ready > drafted
+          ? []
+          : due(markKey(batchId, n, 'ready', ready + 1), latest.pullRequest, 'ready');
       }
-      const outdated =
-        isHidden(state, batchId, n) || outdatedBriefs(state, batch).some((brief) => brief.n === n);
-      if (
-        outdated &&
-        recorded(state, readyKey(batchId, n)) &&
-        openOf(state, batch)?.url === latest.pullRequest
-      ) {
-        return due(state, draftKey(batchId, n), latest.pullRequest, 'draft');
+      if (ready > drafted && openOf(state, batch)?.url === latest.pullRequest) {
+        return due(markKey(batchId, n, 'draft', drafted + 1), latest.pullRequest, 'draft');
       }
       return [];
     },

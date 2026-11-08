@@ -64,9 +64,9 @@ import { usageWindowsText } from './usage-window.ts';
 
 /**
  * What the status comment says of a pull request's merge brief: the current one, or the open pull
- * request that has none (ADR 0229).
+ * request that has none (ADR 0229), with the brief of its head that no longer holds (ADR 0350).
  */
-export type BriefLine = MergeBrief | { pullRequest: string };
+export type BriefLine = MergeBrief | { pullRequest: string; held?: MergeBrief };
 
 /** The status comments on the code host, as the Brewery's own identity sees and makes them. */
 export interface StatusComments {
@@ -1367,10 +1367,14 @@ export const renderStatus = (
                 : [
                     `- ${link(brief.pullRequest)} is ready to merge on ${code(shortSha(brief.head))}: ${link(`${brief.pullRequest}#issuecomment-${brief.comment}`)}`,
                   ]),
-              // An open pull request with no current brief (ADR 0229).
+              // An open pull request with no current brief (ADR 0229), or one that no longer holds.
               ...(brief === undefined || 'comment' in brief
                 ? []
-                : [`- ${link(brief.pullRequest)} is not ready to merge yet: no merge brief`]),
+                : [
+                    brief.held === undefined
+                      ? `- ${link(brief.pullRequest)} is not ready to merge yet: no merge brief`
+                      : `- ${link(brief.pullRequest)} is not ready to merge yet: its merge brief ${link(`${brief.pullRequest}#issuecomment-${brief.held.comment}`)} no longer holds on ${code(shortSha(brief.held.head))}`,
+                  ]),
               // A body someone edited, or one with no marker, is not rendered again (ADR 0227).
               ...(left === undefined
                 ? []
