@@ -56,6 +56,13 @@ const recipes = fakeRecipes({
     maxRounds: 1,
     pullRequests: [web, lib],
   }),
+  // The lined Taster's batch opening no pull request.
+  none: fakeRecipe({
+    steps: ['implement', 'taste'],
+    routes: { taste: { findings: 'implement' } },
+    maxRounds: 1,
+    pullRequests: [],
+  }),
 });
 
 /** A finding there before the change, and one the change made. */
@@ -471,6 +478,42 @@ describe('preExistingIssueEffects (ADR 0356)', () => {
     } as const;
     accept({ kind: 'record', event });
     assert.equal((await opened([web])).length, 0);
+  });
+
+  it('opens none for a batch on tap with no pull request: regression test', async () => {
+    ordered('none');
+    run('implement', done());
+    run('taste', blocked([old]));
+    run('implement', done([leftAsIt]));
+    run('taste', approved);
+    assert.equal(log.state().batches.get('12-1')?.lane.kind, 'on_tap');
+    assert.equal((await opened([])).length, 0);
+  });
+
+  it("leaves a secret in a finding's place out of the title: regression test", async () => {
+    const file = `src/ghp_${'a1B2'.repeat(9)}.ts`;
+    onTap([{ ...old, file }], [{ ...leftAsIt, file }]);
+    const [issue] = await opened();
+    assert.equal(
+      issue?.title,
+      'Pre-existing: diff/correctness, minor in [left out: a text of step taste that looks like a secret]',
+    );
+  });
+
+  it('opens the issue after open revisions of the status comment, and links it: regression test', async () => {
+    onTap([old], [leftAsIt]);
+    const brewery = breweryInMemory();
+    const { comments, latest } = commentsInMemory();
+    const driver = await open(brewery.host, comments);
+    await driver.tick();
+    const revision = store.findEffect({ batchId: '12-1', effect: 'status.1' });
+    assert.deepStrictEqual((revision?.result as { open?: true }).open, true, 'an open revision');
+    assert.equal(brewery.issues.length, 0);
+    ended('merged');
+    await driver.tick();
+    assert.equal(brewery.issues.length, 1);
+    assert.match(latest(), /\*\*Filed\*\*\n- #40: /);
+    assert.equal(shown(), true);
   });
 
   it('links each opened issue in the status comment', async () => {
