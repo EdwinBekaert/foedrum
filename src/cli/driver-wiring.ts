@@ -36,6 +36,7 @@ import { laneLabelEffects } from '../engine/lane-labels.ts';
 import { mergeBriefEffects } from '../engine/merge-brief-post.ts';
 import { planCommentOf, planEffects } from '../engine/plan-comment.ts';
 import { planIssueEffects } from '../engine/plan-issues.ts';
+import { preExistingIssueEffects } from '../engine/pre-existing-issues.ts';
 import { type PullRequestRepository, pullRequestActions } from '../engine/pull-request-actions.ts';
 import { readyForReviewEffects } from '../engine/ready-for-review.ts';
 import { recipeLabelEffects } from '../engine/recipe-label.ts';
@@ -254,8 +255,13 @@ export const wireDriver = async (
   });
   // An approved plan's sub-orders, as Brewery sub-issues through the ledger (ADR 0285), first, so
   // a pass opens them all before the comments that name them are written.
-  const planIssues = planIssueEffects({
-    subIssues: githubSubIssues({ client, brewery: setup.brewery, login }),
+  const subIssues = githubSubIssues({ client, brewery: setup.brewery, login });
+  const planIssues = planIssueEffects({ subIssues });
+  // A merged batch's pre-existing findings, as Brewery issues before the status comment that links
+  // them is written (ADR 0356).
+  const preExisting = preExistingIssueEffects({
+    host: { ...subIssues, createLabel: marks.createLabel },
+    brewery: setup.brewery,
   });
   const pullRequests = githubPullRequests({ client, reads, login: async () => login });
   // A pull request is ready for review while its merge brief is current, else a draft (ADR 0350).
@@ -274,6 +280,7 @@ export const wireDriver = async (
   // A claim's effects only where a batch can be claimed: one list, so no source is left out of one.
   const effects = combineEffects(
     planIssues,
+    preExisting,
     status,
     planComments,
     labels,
