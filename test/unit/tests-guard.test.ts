@@ -786,3 +786,84 @@ describe('guardTests on the test files the base holds (ADR 0358)', () => {
     ]);
   });
 });
+
+describe('guardTests after a start merge that kept a conflict (ADR 0358, ADR 0244)', () => {
+  const older = 'test/older.test.mjs';
+  const moved = 'd'.repeat(40);
+  const flags =
+    '-c core.quotePath=false diff --no-color --no-ext-diff --no-textconv --text --no-renames --unified=0 --src-prefix=a/ --dst-prefix=b/';
+  const kept: Event = {
+    type: 'effect.applied',
+    key: effectKey.encode(baseMergeKey(ref)),
+    result: {
+      base: moved,
+      kept: { files: [{ path: 'src/add.mjs', status: 'both modified' }], more: 0 },
+    },
+  };
+  /** A clone whose rev-list answers `revList`, and whose diffs from `from` list `older`. */
+  const cloneWith = (revList: GitResult, olderFrom: string) => {
+    const calls: string[] = [];
+    const git: Git = (_cwd, args) => {
+      calls.push(args.join(' '));
+      if (args.includes('rev-list')) return Promise.resolve(revList);
+      if (args.includes('ls-tree') && args.includes(older)) {
+        return Promise.resolve(ok(`100644 blob ${blobOf(older, 'c')}\t${older}\0`));
+      }
+      if (args.includes('ls-tree') && args.includes(gaugeStart)) return Promise.resolve(ok(''));
+      if (args.includes('ls-tree')) {
+        const listed = `100644 blob ${blobOf('test/add.test.mjs')}\ttest/add.test.mjs\0`;
+        return Promise.resolve(ok(listed));
+      }
+      if (args.includes('cat-file')) return Promise.resolve(ok(`${gaugeLines.join('\n')}\n`));
+      const from = args[args.indexOf('--') - 2];
+      if (from === gaugeStart) return Promise.resolve(ok(gaugeDiff));
+      const path = from === olderFrom ? older : 'src/add.mjs';
+      return Promise.resolve(
+        ok(
+          [
+            `diff --git a/${path} b/${path}`,
+            `--- a/${path}`,
+            `+++ b/${path}`,
+            '@@ -2 +2 @@',
+            '-a',
+            '+b',
+            '',
+          ].join('\n'),
+        ),
+      );
+    };
+    return { calls, git };
+  };
+  const events = [...ordered, ...gauged, ...implementing, kept];
+
+  it('reads the change after the oldest merge of the moved base the brewer made', async () => {
+    const [newer, oldest] = ['f'.repeat(40), 'e'.repeat(40)];
+    const listed = `${newer} ${'9'.repeat(40)} ${moved}\n${oldest} ${implementStart} ${moved}\n`;
+    const { calls, git } = cloneWith(ok(listed), newer);
+    const { runner } = setup({ events, git });
+    const end = await runner.start({ ref, limits: defaultLimits }).ended;
+    assert.equal(end.ending.kind, 'succeeded');
+    assert.ok(calls.includes(`${flags} ${oldest} refs/heads/foedrum/12-1/implement/1 --`));
+  });
+
+  it('reads the change from where the attempt started when no commit merged the moved base', async () => {
+    const { calls, git } = cloneWith(ok(`${'9'.repeat(40)} ${implementStart}\n`), implementStart);
+    const { runner } = setup({ events, git });
+    const end = await runner.start({ ref, limits: defaultLimits }).ended;
+    assert.equal(end.ending.kind, 'failed');
+    assert.ok(calls.includes(`${flags} ${implementStart} refs/heads/foedrum/12-1/implement/1 --`));
+  });
+
+  it('is blocked on the environment when git cannot list the commits', async () => {
+    const failed = { code: 128, stdout: '', stderr: 'fatal: bad revision\n' };
+    const { git } = cloneWith(failed, implementStart);
+    const { runner } = setup({ events, git });
+    const end = await runner.start({ ref, limits: defaultLimits }).ended;
+    assert.deepEqual(end.ending, {
+      kind: 'blocked',
+      blockerKind: 'environment',
+      summary:
+        'the guard testsUnchanged cannot read the commits of step implement: fatal: bad revision',
+    });
+  });
+});

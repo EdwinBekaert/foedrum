@@ -1,6 +1,6 @@
 # 0358. An older test changes only in the Gauger's red commit
 
-Date: 2026-11-08 · Status: Accepted · Amends [0066](0066-the-task-tree-continues-from-the-latest-succeeded-attempt.md) (an attempt at the step a red proof proves starts at that step's own latest success, not at the task tree) and [0274](0274-the-red-proof-reads-line-coverage-of-the-change-and-a-test-map-not-test-names.md) (`testsUnchanged` also refuses a change to a test file the batch's base holds)
+Date: 2026-11-08 · Status: Accepted · Amends [0066](0066-the-task-tree-continues-from-the-latest-succeeded-attempt.md) (an attempt at the step a red proof proves starts at that step's own latest success, not at the task tree) [0274](0274-the-red-proof-reads-line-coverage-of-the-change-and-a-test-map-not-test-names.md) (`testsUnchanged` also refuses a change to a test file the batch's base holds), [0166](0166-the-finer-simplifies-a-batch-s-change-before-green.md) (the guard holds those files against the Finer too) and [0017](0017-test-first-recipes-and-tasting-lenses.md) (a fixture in a test area the base holds no longer changes freely)
 
 ## Context
 A test-first change updates an existing assertion that the new behaviour changes in its red commit, beside the new tests, so it fails there and passes at green (CLAUDE.md, Tests).
