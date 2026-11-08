@@ -39,3 +39,17 @@ export const MergeBriefHidden = z.union([
   z.strictObject({ comment: z.int().positive(), gone: z.literal(true) }),
 ]);
 export type MergeBriefHidden = z.infer<typeof MergeBriefHidden>;
+
+/** A merge brief's pull request marked ready for review, or found so (ADR 0350). */
+export const MergeBriefReady = z.strictObject({ ready: z.literal(true) });
+export type MergeBriefReady = z.infer<typeof MergeBriefReady>;
+
+/**
+ * A pull request whose merge brief a new head outdated, turned back into a draft or found one, or
+ * in a repository that cannot have drafts (ADR 0350).
+ */
+export const MergeBriefDraft = z.union([
+  z.strictObject({ draft: z.literal(true) }),
+  z.strictObject({ draftless: z.literal(true) }),
+]);
+export type MergeBriefDraft = z.infer<typeof MergeBriefDraft>;

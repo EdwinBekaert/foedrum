@@ -357,7 +357,7 @@ describe('runServe', () => {
     const checks = (_method: string, url: URL): Instead | undefined => {
       if (!passed) return undefined;
       if (/^\/repos\/acme\/web\/pulls\/\d+$/.test(url.pathname)) {
-        return { status: 200, body: { head: { sha: FAKE_COMMIT } } };
+        return { status: 200, body: { state: 'open', head: { sha: FAKE_COMMIT } } };
       }
       if (url.pathname.endsWith(`/commits/${FAKE_COMMIT}/check-runs`)) {
         const run = { name: 'ci', status: 'completed', conclusion: 'success', html_url: null };
@@ -510,7 +510,7 @@ describe('runServe', () => {
     // The head of the pull request and the one check on it, which passed (ADR 0213).
     const checks = (_method: string, url: URL): Instead | undefined => {
       if (/^\/repos\/acme\/web\/pulls\/\d+$/.test(url.pathname)) {
-        return { status: 200, body: { head: { sha: FAKE_COMMIT } } };
+        return { status: 200, body: { state: 'open', head: { sha: FAKE_COMMIT } } };
       }
       if (url.pathname.endsWith(`/commits/${FAKE_COMMIT}/check-runs`)) {
         const run = { name: 'ci', status: 'completed', conclusion: 'success', html_url: null };

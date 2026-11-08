@@ -97,7 +97,7 @@ export const currentBrief = (
 };
 
 /** The latest merge brief of `batch` while it is of the record that makes it ready now. */
-const briefNow = (state: State, batch: Batch): MergeBrief | undefined => {
+export const briefNow = (state: State, batch: Batch): MergeBrief | undefined => {
   const ready = readyOf(state, batch);
   return ready === undefined ? undefined : currentBrief(state, batch.id, ready);
 };

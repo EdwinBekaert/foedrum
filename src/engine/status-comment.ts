@@ -635,6 +635,8 @@ const nextLines = (
   subIssues: readonly number[] | undefined,
   rows: readonly SubOrderRow[],
   called: string,
+  brief?: BriefLine,
+  open?: OpenPullRequest,
 ): string[] => {
   const { lane } = batch;
   if (lane.kind === 'stuck') {
@@ -658,8 +660,8 @@ const nextLines = (
     }
   }
   if (lane.kind !== 'on_tap') return [];
-  const open = lane.pullRequests.filter((url) => batch.pullRequestEnds?.[url] === undefined);
-  if (open.length > 0) return [`Next: review and merge ${open.map(link).join(', ')}.`];
+  const unended = lane.pullRequests.filter((url) => batch.pullRequestEnds?.[url] === undefined);
+  if (unended.length > 0) return [`Next: ${pullRequestsNext(unended, brief, open)}.`];
   // A split order hands its work to its sub-orders (ADR 0293).
   if (lane.pullRequests.length > 0 || (batch.approval === undefined && rows.length === 0)) {
     return [];
@@ -676,6 +678,32 @@ const nextLines = (
   return [
     `Next: nothing to do; the sub-orders brew${named}, and each pull request comes to you on tap.`,
   ];
+};
+
+/**
+ * What the person does with each open pull request (ADR 0350): review and merge those whose merge
+ * brief is current, which are ready for review; wait for the brief of the one Foedrum follows
+ * (`openOf`); and, of one someone else pushed to, merge it without a brief or mark it ready.
+ */
+const pullRequestsNext = (
+  urls: readonly string[],
+  brief: BriefLine | undefined,
+  open: OpenPullRequest | undefined,
+): string => {
+  const briefed = urls.filter((url) => brief?.pullRequest === url && 'comment' in brief);
+  const others = urls.flatMap((url) => {
+    if (briefed.includes(url)) return [];
+    if (open?.url === url) {
+      return [
+        `wait for ${link(url)}'s merge brief: it comes once ${code('foedrum serve')} reads its checks passed on ${code(shortSha(open.head))}`,
+      ];
+    }
+    return [
+      `someone else pushed to ${link(url)}: review and merge it without a merge brief, or mark it ready yourself`,
+    ];
+  });
+  const merge = briefed.length === 0 ? [] : [`review and merge ${briefed.map(link).join(', ')}`];
+  return [...merge, ...others].join('; ');
 };
 
 /**
@@ -1277,7 +1305,7 @@ export const renderStatus = (
       ...subOrderPulls.map(subOrderPullLine),
       ...(paused === undefined ? [] : [pauseText(paused)]),
       ...usageWindowLines(batch, usageWindows),
-      ...nextLines(batch, subIssues, subOrderPulls, called),
+      ...nextLines(batch, subIssues, subOrderPulls, called, brief, open),
     ],
     [
       recipeText(batch.recipe),

@@ -558,7 +558,7 @@ export interface PullRequestTextInput {
 export interface PullRequestText {
   title: string;
   body: string;
-  /** Opened as a draft (ADR 0167): unless every Taster approved and how it works is written. */
+  /** Opened as a draft, always: its merge brief marks it ready (ADR 0350). */
   draft: boolean;
 }
 
@@ -1012,29 +1012,37 @@ const howItWorks = (stepId: string, sections: PullRequestSections, isCommit: IsC
   ].join('\n\n');
 };
 
-/** The line of a body without how it works, which then opens as a draft. */
+/** The line of a body without how it works. */
 const NO_HOW = 'No How it works: the Cellarman wrote none.';
 
-/** Why the pull request is a draft or ready, in one line, or what a skip went past, a line each. */
-const draftLine = (reports: readonly StepReport[], written: boolean): string => {
+/** Why the pull request is a draft: Foedrum marks it ready with its merge brief (ADR 0350). */
+const DRAFT = 'Opens as a draft: Foedrum marks it ready for review once its merge brief is posted.';
+
+/**
+ * What a skip went past, a line each (ADR 0345), the Tasters that ask for changes, and why the
+ * pull request is a draft. Worded to hold of a ready one too, which a later round renders it on.
+ */
+const draftLine = (reports: readonly StepReport[]): string => {
   const asking = reports.filter(({ tasting }) => tasting?.verdict === 'changes');
-  const asks = `asks for changes (${asking.map(({ stepId }) => stepId).join(', ')}); its findings are in the reports below.`;
   const past = reports.flatMap(({ past }) => (past === undefined ? [] : [past]));
-  if (past.length > 0) {
-    // Never that it waits to be marked ready: a later round renders this on a ready one (ADR 0345).
-    const lines = past
-      .map(({ line, open }) => `- ${line}${open ? '; its findings are in the reports below' : ''}.`)
-      .join('\n');
-    return asking.length === 0 ? lines : `${lines}\n\nA Taster ${asks}`;
-  }
-  if (!opensAsDraft(reports)) {
-    return written
-      ? 'Ready for review: every Taster approved.'
-      : 'A person reviews this before it is marked ready: every Taster approved, but it has no How it works.';
-  }
-  return asking.length === 0
-    ? 'A person reviews this before it is marked ready: no step tasted the change.'
-    : `A person reviews this before it is marked ready: a Taster ${asks}`;
+  return [
+    ...(past.length === 0
+      ? []
+      : [
+          past
+            .map(
+              ({ line, open }) =>
+                `- ${line}${open ? '; its findings are in the reports below' : ''}.`,
+            )
+            .join('\n'),
+        ]),
+    ...(asking.length === 0
+      ? []
+      : [
+          `A Taster asks for changes (${asking.map(({ stepId }) => stepId).join(', ')}); its findings are in the reports below.`,
+        ]),
+    DRAFT,
+  ].join('\n\n');
 };
 
 /**
@@ -1070,7 +1078,7 @@ export const pullRequestText = ({
     `Brewed by Foedrum${order === undefined ? '' : ` from ${order}`}${recipe === undefined ? '' : ` with the recipe ${recipe}`}.`,
     // Without how it works, a person reads the change first, whatever the Tasters say.
     ...(written?.sections?.howItWorks === undefined ? [NO_HOW] : []),
-    draftLine(reports, written?.sections?.howItWorks !== undefined),
+    draftLine(reports),
     ...(attempts.length === 0 ? [] : [brewTable(attempts, isCommit)]),
   ].join('\n\n');
   // A Brewery issue is closed by the engine once its pull requests merged (ADR 0296).
@@ -1162,6 +1170,7 @@ export const pullRequestText = ({
   return {
     title: oneLine === '' ? (order ?? 'Brewed by Foedrum') : oneLine.slice(0, MAX_TITLE),
     body: key === undefined ? body : markedBody(key, body),
-    draft: opensAsDraft(reports) || written?.sections?.howItWorks === undefined,
+    // Marked ready once its merge brief is posted (ADR 0350).
+    draft: true,
   };
 };

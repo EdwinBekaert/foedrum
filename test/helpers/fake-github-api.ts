@@ -205,6 +205,17 @@ export const fakeGitHubApi = (options: FakeGitHubApiOptions): FakeGitHubApi => {
     if (query.includes('repository(')) {
       return json(200, { data: { repository: { id: `R_${variables.owner}/${variables.name}` } } });
     }
+    // A pull request marked ready for review, or turned back into a draft (ADR 0350).
+    const drafting = /markPullRequestReadyForReview|convertPullRequestToDraft/.exec(query)?.[0];
+    if (drafting !== undefined) {
+      const { pullRequestId } = (variables as { input: { pullRequestId: string } }).input;
+      const pull = pulls.find((each) => pullNode(each) === pullRequestId);
+      if (pull === undefined) {
+        return json(200, { data: null, errors: [{ message: 'Could not resolve to a node' }] });
+      }
+      pull.draft = drafting === 'convertPullRequestToDraft';
+      return json(200, { data: { [drafting]: { pullRequest: { isDraft: pull.draft } } } });
+    }
     const { input } = variables as {
       input: { repositoryId: string; refUpdates: { name: string; beforeOid: string }[] };
     };
@@ -344,6 +355,8 @@ export const fakeGitHubApi = (options: FakeGitHubApiOptions): FakeGitHubApi => {
   };
 
   const pulls: FakeApiPull[] = [];
+  /** The node id GraphQL names a pull request by. */
+  const pullNode = (pull: FakeApiPull): string => `PR_${pull.repo}#${pull.number}`;
   const asPull = (pull: FakeApiPull) => ({
     number: pull.number,
     html_url: `https://github.com/${pull.repo}/pull/${pull.number}`,
@@ -370,6 +383,8 @@ export const fakeGitHubApi = (options: FakeGitHubApiOptions): FakeGitHubApi => {
         merged_at: merged?.at ?? null,
         merge_commit_sha: merged?.sha ?? null,
         body: found.body,
+        draft: found.draft === true,
+        node_id: pullNode(found),
         head: { ref: found.head, sha: headOf(found.number), repo: { full_name: found.repo } },
       });
     }

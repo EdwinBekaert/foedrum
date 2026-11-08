@@ -7,11 +7,13 @@ import type { PullRequestHost } from '../engine/pull-request-actions.ts';
 import type { PullRequestDrafts } from '../engine/ready-for-review.ts';
 import { pullRequestOf } from '../schemas/events.ts';
 import {
+  ConvertedToDraft,
   GitHubOpenedPullRequest,
   GitHubPullRequest,
   GitHubValidationErrors,
+  MarkedReady,
 } from '../schemas/github.ts';
-import { checked, refused, repoPath } from './answers.ts';
+import { checked, graphqlData, refused, repoPath } from './answers.ts';
 import type { GitHubClient } from './client.ts';
 import { type GitHubReads, pageSize } from './reads.ts';
 
@@ -22,13 +24,14 @@ export interface GitHubPullRequestsOptions {
   login: () => Promise<string>;
 }
 
+/** Whether an error GitHub gave says the repository does not support draft pull requests. */
+const noDrafts = ({ message }: { message: string }): boolean =>
+  /draft pull requests are not supported/i.test(message);
+
 /** Whether GitHub's 422 says the repository does not support draft pull requests. */
 const refusesDrafts = (body: unknown): boolean => {
   const read = GitHubValidationErrors.safeParse(body);
-  return (
-    read.success &&
-    read.data.errors.some(({ message }) => /draft pull requests are not supported/i.test(message))
-  );
+  return read.success && read.data.errors.some(noDrafts);
 };
 
 export const githubPullRequests = (options: GitHubPullRequestsOptions): PullRequestHost => {
@@ -107,9 +110,54 @@ export interface GitHubPullRequestDraftsOptions {
   reads: GitHubReads;
 }
 
-/** The draft state of the Brewery's pull requests on GitHub (ADR 0350). */
+const MARK_READY = `mutation($input: MarkPullRequestReadyForReviewInput!) {
+  markPullRequestReadyForReview(input: $input) { pullRequest { isDraft } }
+}`;
+
+const TO_DRAFT = `mutation($input: ConvertPullRequestToDraftInput!) {
+  convertPullRequestToDraft(input: $input) { pullRequest { isDraft } }
+}`;
+
+/**
+ * The draft state of the Brewery's pull requests on GitHub (ADR 0350): read through REST, and
+ * changed through GraphQL by the pull request's node id, since REST cannot change it.
+ */
 export const githubPullRequestDrafts = (
-  _options: GitHubPullRequestDraftsOptions,
+  options: GitHubPullRequestDraftsOptions,
 ): PullRequestDrafts => {
-  throw new Error('not implemented');
+  const { client, reads } = options;
+  const read = async (url: string, signal?: AbortSignal) => {
+    const { repo, number } = pullRequestOf(url);
+    const what = `the pull request ${repo}#${number}`;
+    const answer = await reads.get(`/repos/${repoPath(repo)}/pulls/${number}`, signal);
+    if (answer.status !== 200) throw refused(answer.status, answer.body, what);
+    return { what, found: checked(GitHubPullRequest, answer.body, what) };
+  };
+  // The node id GraphQL names the pull request by.
+  const nodeOf = async (url: string, signal?: AbortSignal) => {
+    const { what, found } = await read(url, signal);
+    if (found.node_id === undefined) throw new Error(`GitHub's answer to ${what} has no node id`);
+    return { what, input: { pullRequestId: found.node_id } };
+  };
+  return {
+    isDraft: async (url, signal) => (await read(url, signal)).found.draft === true,
+    markReady: async (url, signal) => {
+      const { what, input } = await nodeOf(url, signal);
+      const marking = `marking ${what} ready for review`;
+      checked(
+        MarkedReady,
+        graphqlData(await client.graphql(MARK_READY, { input }, signal), marking),
+        marking,
+      );
+    },
+    markDraft: async (url, signal) => {
+      const { what, input } = await nodeOf(url, signal);
+      const turning = `turning ${what} back into a draft`;
+      const answer = await client.graphql(TO_DRAFT, { input }, signal);
+      // A repository that cannot have drafts (a private one on GitHub Free) keeps it ready.
+      if (answer.errors.some(noDrafts)) return 'draftless';
+      checked(ConvertedToDraft, graphqlData(answer, turning), turning);
+      return 'draft';
+    },
+  };
 };
