@@ -147,4 +147,24 @@ describe("lensRounds: the dispositions of a group's every finding (#938, ADR 034
     const [acceptance] = lensRounds(batchOf(events), 'acceptance');
     assert.deepEqual(acceptance?.dispositions, [own]);
   });
+
+  it("keeps a round's dispositions when a later route of another step names none of its findings", () => {
+    const events: Event[] = [
+      ...round([fixedDeadline, dismissedJson]),
+      ...attempt('security', 1, {
+        kind: 'failed',
+        retryable: false,
+        reason: 'blocked (findings): the Taster asks for changes',
+      }),
+      // Another brewer, which never ran before, brought back by another child's route.
+      ...attempt(
+        'gauge',
+        1,
+        { kind: 'succeeded', output: { status: 'done', summary: 'Tests', assumptions: [] } },
+        { from: 'security', why: 'findings' },
+      ),
+    ];
+    const [acceptance] = lensRounds(batchOf(events), 'acceptance');
+    assert.deepEqual(acceptance?.dispositions, [dismissedJson]);
+  });
 });
