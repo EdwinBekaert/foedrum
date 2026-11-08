@@ -407,6 +407,29 @@ describe("stepReports: a pullRequest brewer's sections over several attempts (#9
       },
     ]);
   });
+
+  it('keeps the sections of the latest attempt that wrote any when a later one that succeeded wrote none (ADR 0353)', () => {
+    const state = fold([
+      ordered,
+      chosen,
+      ...ran('implement', 1, wrote('first')),
+      ...ran('implement', 2, outDoc('Round second')),
+    ]);
+    const batch = state.batches.get('12-1');
+    assert.ok(batch !== undefined);
+    assert.deepEqual(stepReports(batch), [
+      {
+        stepId: 'implement',
+        summary: 'Round second',
+        assumptions: [],
+        sections: {
+          howItWorks: 'How it works after the first round.',
+          seeIt: 'See it after the first round.',
+          beforeAfter: [],
+        },
+      },
+    ]);
+  });
 });
 
 describe('brewLog (ADR 0167)', () => {
