@@ -304,6 +304,68 @@ describe('preExistingIssueEffects (ADR 0356)', () => {
     assert.equal(quiet.issues.length, 0);
   });
 
+  it('opens none for a batch whose end was shown, after a mark and its recovery cleared the flag', async () => {
+    onTap([old], [leftAsIt]);
+    ended('merged');
+    const { comments } = commentsInMemory();
+    const status = await openDriver({
+      store,
+      runner: { start: () => assert.fail('no attempt starts'), progress: () => undefined },
+      recipes,
+      clock: () => now,
+      lock: () => fakeLock('cellar'),
+      takes: () => true,
+      stateBranch: { flush: async () => ({ kind: 'unchanged' }) },
+      limits: () => defaultLimits,
+      effects: statusEffects({ brewery, comments, recipes, clock: () => now }),
+      report: (notice) => notices.push(notice),
+    });
+    await status.tick();
+    status.close();
+    assert.equal(shown(), true, 'the end is shown');
+    const since = now.toISOString();
+    const failing = {
+      type: 'batch.failing',
+      batchId: '12-1',
+      pass: 'effects',
+      summary: 'down',
+      since,
+    } as const;
+    // What a driver records of a batch whose passes kept failing, and of its recovery (ADR 0335).
+    store.withTransaction((tx) => {
+      tx.append(failing);
+      tx.append({ type: 'batch.recovered', batchId: '12-1' });
+    });
+    assert.notEqual(shown(), true, 'the mark took the flag away');
+    const quiet = breweryInMemory();
+    const driver = await open(quiet.host);
+    await driver.tick();
+    assert.equal(quiet.issues.length, 0);
+  });
+
+  it('titles the issue with the place as it is, not escaped as Markdown', async () => {
+    onTap([{ ...old, file: 'src/__init__.py' }], [{ ...leftAsIt, file: 'src/__init__.py' }]);
+    ended('merged');
+    const brewery = breweryInMemory();
+    const driver = await open(brewery.host);
+    await driver.tick();
+    assert.equal(
+      brewery.issues[0]?.title,
+      'Pre-existing: diff/correctness, minor in src/__init__.py:9',
+    );
+  });
+
+  it('says the intake does not order the issue, and promises no brew from a label', async () => {
+    onTap([old], [leftAsIt]);
+    ended('merged');
+    const brewery = breweryInMemory();
+    const driver = await open(brewery.host);
+    await driver.tick();
+    const body = brewery.issues[0]?.body ?? '';
+    assert.match(body, /\nIt has no recipe label, so the intake does not order it\.\n/);
+    assert.doesNotMatch(body, /brews once/);
+  });
+
   it('links each opened issue in the status comment', async () => {
     onTap([old], [leftAsIt]);
     ended('merged');
