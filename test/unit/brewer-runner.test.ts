@@ -450,6 +450,26 @@ describe("settleAttempt: a Taster's riskLeft past its limit (#889, ADR 0337)", (
     assert.equal(report?.riskLeft?.[0]?.length, MAX_RISK_LEFT);
   });
 
+  it('a routed Taster that approves with a minor finding is blocked by it, its findings sent back (ADR 0354)', () => {
+    const minor = { ...finding, severity: 'minor' };
+    const approved = outDoc({
+      status: 'done',
+      summary: 'One nit',
+      verdict: 'approve',
+      findings: [minor],
+    });
+    const ending = settleAttempt(facts({ outDoc: approved }), {
+      outDoc: { file: 'taste.md', schema },
+      blocking: true,
+    });
+    assert.deepEqual(ending, {
+      kind: 'blocked',
+      blockerKind: 'findings',
+      summary: 'the Taster approves with findings: One nit',
+      findings: [minor],
+    });
+  });
+
   it("a riskLeft line over its limit leaves a blocking step's findings holding it up", () => {
     const ending = settleAttempt(facts({ outDoc: tasted('changes', [finding]) }), {
       outDoc: { file: 'taste.md', schema },

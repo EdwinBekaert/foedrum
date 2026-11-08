@@ -78,6 +78,9 @@ const BrewerStep = z
       ),
     // Only findings are routed: an environment or divergence blocker always makes the batch Stuck.
     onBlocked: z.strictObject({ findings: Route }).optional(),
+    onFindings: Route.optional().describe(
+      "A Taster's step on its own: where its findings send the batch back, and how often (ADR 0354)",
+    ),
     deadline: Duration.optional().describe("Overrides the brewer's deadline"),
     model: ModelAlias.optional().describe(
       "Overrides the brewer's model: an alias of models.jsonc; a blind-tasting swap of the brewer still wins (ADR 0321)",
@@ -154,6 +157,9 @@ const RedProofStep = z.strictObject({
 const ParallelStep = z.strictObject({
   id: StepId,
   parallel: z.array(BrewerStep).min(1).describe('Brewers that run side by side'),
+  onFindings: Route.optional().describe(
+    "Where its Tasters' findings send the batch back once every child ended, and how often, the rounds shared by its children (ADR 0354)",
+  ),
   when,
 });
 

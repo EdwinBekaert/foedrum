@@ -99,3 +99,33 @@ describe('the default plan lens (ADR 0312)', () => {
     assert.equal(lens?.path, 'defaults/lenses/plan/naive-reader.md');
   });
 });
+
+describe("the default recipes' Tasters, every finding routed (ADR 0354)", () => {
+  const loaded = loadRecipes(readBreweryFiles(join(root, '..', 'no-brewery')));
+
+  for (const [name, children] of [
+    ['mash', ['coverage', 'sizing', 'naive-reader']],
+    [
+      'decoction',
+      [
+        'coverage',
+        'sizing',
+        'naive-reader',
+        'order-and-overlap',
+        'testability',
+        'recipe-fit',
+        'security',
+      ],
+    ],
+  ] as const) {
+    it(`${name} sends every plan lens's findings back to the plan, twice at most in all`, () => {
+      assert.ok(loaded.valid);
+      const recipe = loaded.recipes.find(name);
+      assert.deepEqual(recipe?.children('taste'), [...children]);
+      for (const child of children) {
+        assert.equal(recipe.routesTo(child, 'findings'), 'plan', child);
+        assert.equal(recipe.maxRounds(child, 'findings'), 2, child);
+      }
+    });
+  }
+});

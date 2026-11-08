@@ -448,7 +448,7 @@ describe('createAttemptPlans: plan', () => {
     const { prompt } = await plans.plan({ ...start, ref: second });
     assert.match(
       prompt,
-      /name="route">\nStep correctness ended: [^\n]*No deadline\n[\s\S]*\nStep acceptance, through diff\/acceptance, advisory:\n- minor in src\/status\.ts:40: The help text does not name --json\n<\/untrusted-input-/,
+      /name="route">\nStep correctness ended: [^\n]*No deadline\n[\s\S]*\nStep acceptance, through diff\/acceptance, approves with findings:\n- minor in src\/status\.ts:40: The help text does not name --json\n<\/untrusted-input-/,
     );
   });
 
@@ -553,7 +553,7 @@ describe('createAttemptPlans: plan', () => {
     const { prompt } = await plans.plan({ ...start, ref: second });
     assert.match(
       prompt,
-      /\nStep security, through diff\/security, blocking: no findings\.\n\nStep review, through diff\/acceptance and diff\/design-conformance, advisory: no findings\.\n<\/untrusted-input-/,
+      /\nStep security, through diff\/security, asks for changes: no findings\.\n\nStep review, through diff\/acceptance and diff\/design-conformance, approves: no findings\.\n<\/untrusted-input-/,
     );
   });
 

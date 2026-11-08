@@ -2422,3 +2422,130 @@ describe("loadRecipes: a check that reads a survey's test map (ADR 0298)", () =>
     ]);
   });
 });
+
+describe("loadRecipes: a Taster's findings always have a route, onFindings (ADR 0354)", () => {
+  const taster = brewer('taster', { output: { doc: 'taste.md', schema: 'tasting' } });
+  const committer = brewer('cellarman', {
+    access: 'write',
+    git: { commit: true },
+    produces: 'commits',
+  });
+  const lenses = ['correctness', 'security'].map((name) => ({
+    path: `defaults/lenses/diff/${name}.md`,
+    text: `Look at ${name}.`,
+  }));
+  const correctness = { id: 'correctness', brewer: 'taster', lens: 'diff/correctness' };
+  const security = { id: 'security', brewer: 'taster', lens: 'diff/security' };
+  const back = { goto: 'cellarman', maxRounds: 2 };
+  const amber = (steps: readonly unknown[], brewers = [committer, taster]): BreweryFiles => ({
+    recipes: [opened('amber', [{ brewer: 'cellarman' }, ...steps], { testFirst: false })],
+    brewers,
+    defaults: { lenses },
+  });
+  const group = (fields = {}) => ({
+    id: 'tasting',
+    parallel: [correctness, security],
+    onFindings: back,
+    ...fields,
+  });
+
+  it('refuses a group of Tasters without onFindings, naming the fix', () => {
+    assert.deepEqual(problemsOf(amber([{ id: 'tasting', parallel: [correctness, security] }])), [
+      'recipes/amber.jsonc: step "tasting" is a parallel group of Tasters without "onFindings": add "onFindings": { "goto": <a step before the group>, "maxRounds": 2 }, where their findings send the batch back (ADR 0354)',
+    ]);
+  });
+
+  it("refuses a Taster's step on its own without onFindings, naming the fix", () => {
+    assert.deepEqual(problemsOf(amber([security])), [
+      'recipes/amber.jsonc: step "security" is a Taster\'s step without "onFindings": add "onFindings": { "goto": <a step before it>, "maxRounds": 2 }, where its findings send the batch back (ADR 0354)',
+    ]);
+  });
+
+  it('refuses blocking on a Taster in a group, whose findings go back along the group', () => {
+    const blocking = { ...correctness, blocking: true };
+    assert.deepEqual(problemsOf(amber([group({ parallel: [blocking, security] })])), [
+      'recipes/amber.jsonc: step "correctness" has "blocking": a Taster\'s findings always go back, along "onFindings" on its parallel group (ADR 0354)',
+    ]);
+  });
+
+  it("refuses onBlocked on a Taster's step on its own, naming onFindings", () => {
+    const routed = { ...security, onBlocked: { findings: back } };
+    assert.deepEqual(problemsOf(amber([routed])), [
+      'recipes/amber.jsonc: step "security" has "onBlocked": a Taster\'s findings go back along "onFindings" on its step (ADR 0354)',
+    ]);
+  });
+
+  it("refuses onFindings on a child of a group, which is the group's", () => {
+    const child = { ...security, onFindings: back };
+    assert.deepEqual(problemsOf(amber([group({ parallel: [correctness, child] })])), [
+      'recipes/amber.jsonc: step "security" in the parallel group "tasting" has "onFindings": put it on the group, whose children share its rounds (ADR 0354)',
+    ]);
+  });
+
+  it('refuses onFindings on a brewer that is no Taster', () => {
+    const scribe = brewer('scribe');
+    const notes = { id: 'notes', brewer: 'scribe', onFindings: back };
+    assert.deepEqual(problemsOf(amber([notes], [committer, taster, scribe])), [
+      'recipes/amber.jsonc: step "notes" has "onFindings", but its brewer "scribe" is no Taster: only a Taster\'s findings take that route (ADR 0354)',
+    ]);
+  });
+
+  it("refuses a group's onFindings that goes forward, past the group", () => {
+    const steps = [
+      group({ onFindings: { goto: 'polish', maxRounds: 1 } }),
+      { id: 'polish', brewer: 'cellarman' },
+    ];
+    assert.match(problemsOf(amber(steps)).join('\n'), /"tasting".*"polish"/);
+  });
+
+  it("gives every child of a group the group's route, blocking on its findings", () => {
+    const result = loadRecipes(amber([group()]));
+    const found = loaded(result).find('amber');
+    assert.ok(found !== undefined);
+    assert.equal(found.routesTo('security', 'findings'), 'cellarman');
+    assert.equal(found.maxRounds('correctness', 'findings'), 2);
+    assert.ok(result.valid);
+    assert.equal(result.brewers.find('amber', 'security')?.blocking, true);
+  });
+
+  it("routes a Taster's step on its own along its onFindings", () => {
+    const result = loadRecipes(amber([{ ...security, onFindings: back }]));
+    assert.equal(loaded(result).find('amber')?.routesTo('security', 'findings'), 'cellarman');
+    assert.ok(result.valid);
+    assert.equal(result.brewers.find('amber', 'security')?.blocking, true);
+  });
+
+  it("shares a group's rounds among its children, whichever child sent the batch back", () => {
+    const found = loaded(loadRecipes(amber([group()]))).find('amber');
+    assert.ok(found !== undefined);
+    const attempt = (n: number, from: string): [number, Attempt] => [
+      n,
+      {
+        phase: 'finished',
+        attempt: n,
+        deadlineAt: D,
+        outcome: { kind: 'succeeded', output: null },
+        ...(from === '' ? {} : { route: { from, why: 'findings' } }),
+      },
+    ];
+    const routed = (...froms: string[]): Batch => ({
+      ...batch({}),
+      steps: new Map([
+        [
+          'cellarman',
+          {
+            id: 'cellarman',
+            inputs: [],
+            attempts: new Map(froms.map((from, i) => attempt(i + 1, from))),
+          },
+        ],
+      ]),
+    });
+    // A round from correctness, as an older log records it, is security's too.
+    assert.equal(found.rounds(routed('', 'correctness'), 'security', 'findings'), 1);
+    assert.equal(found.loopBack(routed('', 'correctness'), 'security', 'findings'), 'cellarman');
+    const both = routed('', 'correctness', 'security');
+    assert.equal(found.rounds(both, 'correctness', 'findings'), 2);
+    assert.equal(found.loopBack(both, 'correctness', 'findings'), undefined);
+  });
+});

@@ -18,6 +18,7 @@ import {
 import { createAttemptPlans } from '../../src/brewers/attempt-plans.ts';
 import type { PromptInput } from '../../src/brewers/prompt.ts';
 import type { AttemptRef } from '../../src/engine/attempt-key.ts';
+import type { AttemptLimits } from '../../src/engine/brewer-runner.ts';
 import { FOEDRUM_DEFAULTS, readBreweryFiles } from '../../src/engine/brewery-files.ts';
 import { createCommandLog } from '../../src/engine/command-log.ts';
 import { type Command, decide } from '../../src/engine/decide.ts';
@@ -47,7 +48,10 @@ const valid = (result: LoadedRecipes) => {
 };
 
 /** The events of an order brewed with the default Nip, as the fake runner plays its steps. */
-const brewNipEvents = async (scripts: Record<string, readonly Behaviour[]>): Promise<Event[]> => {
+const brewNipEvents = async (
+  scripts: Record<string, readonly Behaviour[]>,
+  limits?: (stepId: string) => AttemptLimits,
+): Promise<Event[]> => {
   const store = openSqliteEventStore(':memory:');
   try {
     const brewing = createBrewing({
@@ -55,6 +59,7 @@ const brewNipEvents = async (scripts: Record<string, readonly Behaviour[]>): Pro
       runner: fakeBrewerRunner(scripts),
       recipes: valid(loadRecipes(noFiles)).recipes,
       clock: () => new Date('2026-10-21T12:00:00.000Z'),
+      ...(limits === undefined ? {} : { limits }),
     });
     assert.ok(brewing.command({ kind: 'order', batchId: 'b1', order: { issue: 1 } }));
     assert.ok(
@@ -428,11 +433,12 @@ describe('the default Nip', () => {
     }
   });
 
-  it("routes correctness's findings back to Cellarman, twice at most, and acceptance's nowhere (ADR 0264)", () => {
+  it("routes every Taster's findings back to Cellarman along the taste group's route, twice at most (ADR 0354)", () => {
     const nip = valid(loadRecipes(noFiles)).recipes.find('nip');
-    assert.equal(nip?.routesTo('correctness', 'findings'), 'implement');
-    assert.equal(nip.maxRounds('correctness', 'findings'), 2);
-    assert.equal(nip.routesTo('acceptance', 'findings'), undefined);
+    for (const taster of ['correctness', 'acceptance', 'security', 'design-conformance']) {
+      assert.equal(nip?.routesTo(taster, 'findings'), 'implement', taster);
+      assert.equal(nip.maxRounds(taster, 'findings'), 2, taster);
+    }
   });
 
   it('tastes through the security lens beside correctness and acceptance, advisory (ADR 0306)', () => {
@@ -440,10 +446,9 @@ describe('the default Nip', () => {
     const security = brewers.find('nip', 'security');
     assert.equal(security?.brewer.name, 'taster');
     assert.deepEqual([...(security.lenses?.keys() ?? [])], ['diff/security']);
-    // Advisory: its findings are listed in the pull request and the status comment, and its
-    // verdict counts toward the draft rule (ADR 0167), but a blocker sends nothing back.
-    assert.equal(security.blocking, false);
-    assert.equal(recipes.find('nip')?.routesTo('security', 'findings'), undefined);
+    // Its findings go back along the group's route, as every Taster's do (ADR 0354).
+    assert.equal(security.blocking, true);
+    assert.equal(recipes.find('nip')?.routesTo('security', 'findings'), 'implement');
   });
 
   it('nip tastes through design conformance', () => {
@@ -454,9 +459,9 @@ describe('the default Nip', () => {
     assert.equal(conformance?.brewer.name, 'taster');
     assert.deepEqual([...(conformance.lenses?.keys() ?? [])], ['diff/design-conformance']);
     assert.ok(defaults.includes('defaults/lenses/diff/design-conformance.md'), defaults.join(', '));
-    // Advisory, as acceptance and security are: nothing it finds sends the batch back.
-    assert.equal(conformance.blocking, false);
-    assert.equal(nip.routesTo('design-conformance', 'findings'), undefined);
+    // Its findings go back along the group's route, as every Taster's do (ADR 0354).
+    assert.equal(conformance.blocking, true);
+    assert.equal(nip.routesTo('design-conformance', 'findings'), 'implement');
   });
 
   it("nip's four Tasters start side by side and take one place of the Brewery's concurrency (ADR 0343)", async () => {
@@ -772,6 +777,149 @@ describe('the default Nip', () => {
     assert.equal(events.at(-1)?.type, 'batch.stuck', JSON.stringify(events.at(-1)));
   });
 
+  describe("every Taster's findings go back along the taste group's route (ADR 0354)", () => {
+    const { brewers } = valid(loadRecipes(noFiles));
+    // Each Taster's out doc read with its own schema and route, as the attempt plan reads it.
+    const tasted = (stepId: string): AttemptLimits => {
+      const found = brewers.find('nip', stepId);
+      return found?.lens === undefined
+        ? defaultLimits
+        : attemptLimits(found.brewer, undefined, found.blocking, found.together);
+    };
+    const done = behave.succeed();
+    const approves = behave.succeedWith({ verdict: 'approve', findings: [] });
+    const finding = (why: string, introduced = true) => ({
+      file: 'docs/design/rounds.md',
+      line: 4,
+      severity: 'minor',
+      why,
+      introduced,
+    });
+    const nit = (why: string, introduced = true): Behaviour =>
+      behave.succeedWith({ verdict: 'approve', findings: [finding(why, introduced)] });
+    const startedOf = (events: readonly Event[]) =>
+      events.flatMap((event) => (event.type === 'step.started' ? [event.stepId] : []));
+    const ROUND = ['correctness', 'acceptance', 'security', 'design-conformance'];
+    const BACK = ['implement', 'fine', 'green'];
+    const before = { survey: [done], 'survey-check': [done], gauge: [done], red: [done] };
+
+    it('sends a batch whose design conformance alone approves with a minor finding back to Cellarman, then tastes again', async () => {
+      const events = await brewNipEvents(
+        {
+          ...before,
+          implement: [done, done],
+          fine: [done, done],
+          green: [done, done],
+          correctness: [approves, approves],
+          acceptance: [approves, approves],
+          security: [approves, approves],
+          'design-conformance': [nit('the page still names the old flag'), approves],
+          'open-pull-request': [done],
+        },
+        tasted,
+      );
+      assert.deepEqual(startedOf(events).slice(4), [
+        ...BACK,
+        ...ROUND,
+        ...BACK,
+        ...ROUND,
+        'open-pull-request',
+      ]);
+    });
+
+    it('sends a finding that was there before the change back too, and a round that raises it no more goes on', async () => {
+      const events = await brewNipEvents(
+        {
+          ...before,
+          implement: [done, done],
+          fine: [done, done],
+          green: [done, done],
+          correctness: [nit('the poll had no deadline before the change', false), approves],
+          acceptance: [approves, approves],
+          security: [approves, approves],
+          'design-conformance': [approves, approves],
+          'open-pull-request': [done],
+        },
+        tasted,
+      );
+      const started = startedOf(events);
+      assert.equal(started.filter((step) => step === 'implement').length, 2);
+      assert.equal(started.at(-1), 'open-pull-request');
+      assert.notEqual(fold(events).batches.get('b1')?.lane.kind, 'stuck');
+    });
+
+    it('shares two rounds in all among the Tasters, then is Stuck with the last round open', async () => {
+      const events = await brewNipEvents(
+        {
+          ...before,
+          implement: [done, done, done],
+          fine: [done, done, done],
+          green: [done, done, done],
+          correctness: [nit('round one'), approves, approves],
+          acceptance: [approves, nit('round two'), approves],
+          security: [approves, approves, approves],
+          'design-conformance': [approves, approves, nit('round three')],
+          'open-pull-request': [done],
+        },
+        tasted,
+      );
+      const started = startedOf(events);
+      assert.equal(started.filter((step) => step === 'implement').length, 3);
+      assert.ok(!started.includes('open-pull-request'), started.join(', '));
+      const lane = fold(events).batches.get('b1')?.lane;
+      assert.equal(lane?.kind, 'stuck');
+      assert.deepEqual(lane?.kind === 'stuck' ? lane.reason : undefined, {
+        kind: 'blocked',
+        stepId: 'design-conformance',
+        blockerKind: 'findings',
+        summary: 'the Taster approves with findings: Done',
+        roundsOut: { rounds: 2, open: [finding('round three')], more: 0 },
+      });
+    });
+
+    it("names every Taster a skip left with findings open, an approving one's too (ADR 0345)", async () => {
+      const events = await brewNipEvents(
+        {
+          ...before,
+          implement: [done, done, done],
+          fine: [done, done, done],
+          green: [done, done, done],
+          correctness: [nit('one'), nit('two'), nit('three')],
+          acceptance: [approves, approves, nit('a gap')],
+          security: [approves, approves, approves],
+          'design-conformance': [approves, approves, approves],
+          'open-pull-request': [done],
+        },
+        tasted,
+      );
+      const skip = decide(
+        fold(events),
+        { kind: 'skip', batchId: 'b1', by: 'ada', via: 'terminal' },
+        {
+          now: new Date('2026-10-21T12:00:00.000Z'),
+          reminderMs: 3_600_000,
+          routingMs: 3_600_000,
+          recipes: valid(loadRecipes(noFiles)).recipes,
+        },
+      );
+      assert.equal(skip.kind, 'accepted');
+      const batch = fold([...events, ...(skip.kind === 'accepted' ? skip.events : [])]).batches.get(
+        'b1',
+      );
+      assert.ok(batch !== undefined);
+      const { body } = pullRequestText({ title: 'A title', reports: stepReports(batch) });
+      for (const step of ['correctness', 'acceptance']) {
+        assert.match(
+          body,
+          new RegExp(
+            `\`${step}\` is left open by a skip: its attempt 3 was blocked by its findings`,
+          ),
+        );
+      }
+      assert.doesNotMatch(body, /`security` is left open/);
+    });
+  });
+
   it("reads the typecheck in Nip's green step, after the build and before lint (#411)", () => {
     const loaded = valid(loadRecipes(noFiles));
     assert.deepEqual(loaded.checks.find('nip', 'green'), [
@@ -869,6 +1017,17 @@ describe('the default Cellarman', () => {
       .filter((part) => part.startsWith("## The pull request's sections"));
     assert.ok(section.includes(`{${earlier.name}}`), section);
     assert.match(section, /whole change/);
+  });
+
+  it("ends with its questions when a Taster's finding needs a decision it cannot make, and its version is raised (ADR 0354)", () => {
+    const found = cellarman();
+    assert.ok(found !== undefined, 'nip has no implement step');
+    const [section = ''] = found.instructions
+      .split(/\n(?=## )/)
+      .filter((part) => part.startsWith("## A Taster's findings"));
+    assert.match(section, /cannot settle[^\n]*`needs_input`/);
+    assert.doesNotMatch(section, /advisory/);
+    assert.ok(found.brewer.version > 13, String(found.brewer.version));
   });
 
   it('raises the version of the default Cellarman, whose prompt changed (#947)', () => {
