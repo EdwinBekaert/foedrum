@@ -157,7 +157,7 @@ export const openStateBranch = (options: StateBranchOptions): StateBranch => {
       return '';
     }
     const lock = join(cloneLocks.folder, PACKED_REFS_LOCK);
-    return `. Foedrum leaves it, since the attempt worktrees of a local repository use ${clone} too, outside the state branch's writer lock: delete ${lock} once no git runs in ${clone}: it was left by a git that was stopped`;
+    return `. Foedrum leaves it, since the attempt worktrees of a local repository use ${clone} too, outside the state branch's writer lock: a git that runs there holds it, or a git that was stopped left it: delete ${lock} once no git runs in ${clone}`;
   };
   // Every git that writes the worktree runs under the writer lock (ADR 0107), so a lock file
   // of git's found while it is held was left by a git that no longer runs: the index's and

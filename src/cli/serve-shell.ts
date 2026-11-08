@@ -3,7 +3,7 @@
 // claude runner, and the signals that stop it. git comes in, so its use is tested with a fake.
 
 import { mkdirSync } from 'node:fs';
-import { dirname } from 'node:path';
+import { dirname, resolve } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { claudeBrewerRunner } from '../brewers/claude-runner.ts';
 import { lockDriver } from '../engine/driver-lock.ts';
@@ -126,9 +126,13 @@ export const serveShell = (setup: ServeSetup, options: ServeShellOptions): Serve
         worktree: setup.stateWorktree,
         out: (line) => out(`foedrum ${command}: ${line}`),
         // A local repository whose clone is the Brewery's checkout deletes refs there outside the
-        // writer lock, so its packed-refs.lock is never stale for certain (ADR 0351).
+        // writer lock, so its packed-refs.lock is never stale for certain (ADR 0351). Compared by
+        // real path, so a link or another spelling of the checkout counts too.
         sharedWithTarget: setup.repositories.some(
-          ({ source, clone }) => source === 'local' && clone !== undefined && samePath(clone, root),
+          ({ source, clone }) =>
+            source === 'local' &&
+            clone !== undefined &&
+            samePath(realPath(resolve(clone)), realPath(resolve(root))),
         ),
       }),
     worktrees: async (repository) => {
