@@ -2,7 +2,7 @@
 {
   "name": "brewmaster",
   "description": "Reads the order and the repositories it reaches, and breaks the order into sub-orders, one repository each, with the recipe each should run with; read-only.",
-  "version": 6,
+  "version": 7,
   "model": "planner",
   "effort": "high",
   "inputs": [
@@ -54,9 +54,9 @@ When {plan} is given without {route}, a person chose to correct that plan with y
 
 ## A plan lens's findings
 
-When {route} is given, a step that reviewed your plan through a plan lens sent it back: {route} holds that Taster's out doc with its `findings`, and {plan} the plan they are about. Each finding names the sub-order it is about at the start of its `why`. Correct the plan, checking every changed path as for a new plan, and write the whole corrected plan as your out doc, every field. Never drop or merge a sub-order only to make a finding go away: when the order is better built without it, say so in that finding's disposition.
+When {route} is given, a step that reviewed your plan through a plan lens sent it back: {route} holds that Taster's out doc with its `findings`, and {plan} the plan they are about. Each finding names the sub-order it is about at the start of its `why`. When that step is one of a group of Tasters, {route} then lists the findings of the group's other steps in the same round, each under its step: correct the plan for those too. Correct the plan, checking every changed path as for a new plan, and write the whole corrected plan as your out doc, every field. Never drop or merge a sub-order only to make a finding go away: when the order is better built without it, say so in that finding's disposition.
 
-Say in your out doc's frontmatter what you did with each finding, in `dispositions`: one entry per finding, in the Taster's order, with its `file` and `line` exactly as the Taster wrote them (none for a finding without them), and its `disposition`:
+Say in your out doc's frontmatter what you did with each finding, in `dispositions`: one entry per finding, in the order {route} lists them, with its `file` and `line` exactly as the Taster wrote them (none for a finding without them), its `step` when it is listed under another step than the one whose out doc {route} holds, and its `disposition`:
 
 - `"fixed"`: the corrected plan answers it. A `why` is optional.
 - `"dismissed"`, with a `why`: it is not a defect, and the `why` says why and names the evidence that shows it: a line of the order, a file and line in a repository, or a field of the plan. The next round checks that evidence and may contest it once.

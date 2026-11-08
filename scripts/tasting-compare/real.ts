@@ -45,7 +45,8 @@ type Profile =
   | 'high'
   | 'opus-bare'
   | 'high-bare'
-  | 'opus-together';
+  | 'opus-together'
+  | 'high-together';
 const PROFILES: readonly Profile[] = [
   'today',
   'reads',
@@ -55,6 +56,7 @@ const PROFILES: readonly Profile[] = [
   'opus-bare',
   'high-bare',
   'opus-together',
+  'high-together',
 ];
 /**
  * One order tasted one way: the order first, so the record reads on its own. `867-comments` is
@@ -92,11 +94,11 @@ export const orderOf = (setup: RealSetup): (typeof REAL_ORDERS)[number] => {
   return found;
 };
 
-/** The recipe of every setup but `lens` and `opus-together`. */
+/** The recipe of every setup but `lens` and the together setups. */
 export const REAL_RECIPE = 'real-nip';
 /** The recipe of the `lens` setup (ADR 0337). */
 const REAL_LENS_RECIPE = 'real-nip-lens';
-/** The recipe of the `opus-together` setup (ADR 0347). */
+/** The recipe of the `opus-together` and `high-together` setups (ADR 0347, ADR 0348). */
 const REAL_TOGETHER_RECIPE = 'real-nip-together';
 
 /** The three Tasters `nip` had when #879 measured it, kept so `real-nip` means what it meant (ADR 0343). */
@@ -110,7 +112,7 @@ const LENS_TASTERS = [
   ...TASTERS,
   { id: 'design-conformance', brewer: 'taster', lens: 'diff/design-conformance' },
 ] as const;
-/** The `opus-together` setup's one Taster: `real-nip`'s three lenses in one step (ADR 0220, ADR 0347). */
+/** The together setups' one Taster: `real-nip`'s three lenses in one step (ADR 0220, ADR 0347, ADR 0348). */
 const TOGETHER = {
   id: 'together',
   brewer: 'taster',
@@ -125,7 +127,7 @@ const STEPS: ReadonlyMap<string, readonly string[]> = new Map([
 export const realRecipeOf = (setup: RealSetup): string => {
   const profile = profileOf(setup);
   if (profile === 'lens') return REAL_LENS_RECIPE;
-  return profile === 'opus-together' ? REAL_TOGETHER_RECIPE : REAL_RECIPE;
+  return profile.endsWith('-together') ? REAL_TOGETHER_RECIPE : REAL_RECIPE;
 };
 
 /** Each recipe's description and its Taster step. */
@@ -258,6 +260,7 @@ const tasterOf = (profile: Profile | 'comments', tasters: Tasters): string | und
     case 'opus-together':
       return bareTaster(tasters.current);
     case 'high-bare':
+    case 'high-together':
       return highTaster(bareTaster(tasters.current));
     case 'reads':
     case 'lens':
