@@ -965,6 +965,20 @@ describe('renderStatus', () => {
     );
   });
 
+  it("gives a person's reason for the recipe, as plain text on one line (ADR 0355)", () => {
+    const recipe = {
+      name: 'nip',
+      reason: 'a small fix,\nsee @carol <b>now</b>',
+      source: 'human',
+      by: 'bob',
+      via: 'terminal',
+    } as const;
+    assert.match(
+      renderStatus(batch({ recipe }), steps),
+      /^Recipe \*\*nip\*\*, chosen by bob \(terminal\): a small fix, see &#64;carol &lt;b&gt;now&lt;\/b&gt;$/m,
+    );
+  });
+
   it('says what a Conditioning batch waits for: a release or a sibling batch', () => {
     const waiting = (on: Extract<Lane, { kind: 'conditioning' }>['on']) =>
       renderStatus(batch({ lane: { kind: 'conditioning', on, remindAt: at } }), steps);

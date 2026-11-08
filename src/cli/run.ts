@@ -119,6 +119,12 @@ export interface CliContext {
    */
   resume: (input: ResumeInput, issued: { by: string; via: Surface }) => Promise<CliResult>;
   /**
+   * Applies the due effects of `batchId`, its recipe label and status comment among them, for
+   * `foedrum recipe` once its choice is recorded (ADR 0355); the lines to say, none when they all
+   * went out.
+   */
+  applyEffects: (batchId: string) => Promise<string[]>;
+  /**
    * Asks for and writes a Brewery's files, creating and cloning its repository outside a clone,
    * offers the intake labels, commits and pushes, then runs doctor (ADR 0199, ADR 0207); its
    * questions and lines go straight to the terminal, the answers its options give not asked (ADR

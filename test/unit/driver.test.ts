@@ -526,6 +526,29 @@ describe('openDriver', () => {
       );
     });
 
+    it('applies the effects due at a tick before it starts an attempt (ADR 0355)', async () => {
+      const host = fakeHost();
+      // The batch's lane, due once it brews, as its label is (ADR 0154).
+      const brewing = (state: State, batchId: string): EffectKey[] =>
+        state.batches.get(batchId)?.lane.kind === 'brewing' ? [{ batchId, effect: 'lane' }] : [];
+      const { runner } = handRunner();
+      // What the code host shows as each attempt starts.
+      const shown: string[][] = [];
+      order('b1');
+      const driver = await open({
+        runner: {
+          ...runner,
+          start: (attempt) => {
+            shown.push([...host.applied]);
+            return runner.start(attempt);
+          },
+        },
+        effects: { due: brewing, target: host.target },
+      });
+      await driver.tick();
+      assert.deepStrictEqual(shown, [['["b1","lane"]']]);
+    });
+
     it('decides which attempt leases to renew on the events its heartbeat transaction sees', async () => {
       const { runner, end } = handRunner();
       const host = fakeHost();
