@@ -80,8 +80,8 @@ const inGroup: Event[] = [
   started('security'),
 ];
 
-const accepts = (events: Event[], command: Command, expected: Event[]): void => {
-  assert.deepStrictEqual(decide(fold(events), command, context), {
+const accepts = (events: Event[], command: Command, expected: Event[], within = context): void => {
+  assert.deepStrictEqual(decide(fold(events), command, within), {
     kind: 'accepted',
     events: expected,
   });
@@ -324,5 +324,113 @@ describe('a parallel group (ADR 0168)', () => {
       kind: 'accepted',
       events: [finished('correctness', succeeded)],
     });
+  });
+});
+
+describe("a parallel group's findings, every child's along the group's route (ADR 0354)", () => {
+  // Both children route back to implement, one round in all, which security's findings used.
+  const routed: Context = {
+    ...context,
+    recipes: fakeRecipes({
+      flight: fakeRecipe({
+        steps: ['implement', 'tasting', 'polish'],
+        groups: { tasting: ['correctness', 'security'] },
+        routes: { correctness: { findings: 'implement' }, security: { findings: 'implement' } },
+        maxRounds: 1,
+      }),
+    }),
+  };
+  const found = (why: string) =>
+    ({ file: 'src/wait.ts', line: 3, severity: 'minor', why, introduced: true }) as const;
+  const finishAgain = (stepId: string, why: string) =>
+    ({
+      kind: 'finish',
+      batchId: 'b1',
+      stepId,
+      attempt: 2,
+      ending: { ...blocked, findings: [found(why)] },
+    }) as const;
+  const recorded = (stepId: string, why: string): Event => ({
+    type: 'step.finished',
+    batchId: 'b1',
+    stepId,
+    attempt: 2,
+    outcome: blockedOutcome,
+    findings: { kept: [found(why)], more: 0 },
+  });
+  /** Round 1 sent back by security, implement again, and both children started in round 2. */
+  const roundTwo: Event[] = [
+    ...inGroup,
+    finished('correctness', succeeded),
+    finished('security', blockedOutcome),
+    { ...scheduled('implement', 2), route: { from: 'security', why: 'findings' } },
+    started('implement', 2),
+    finished('implement', { kind: 'succeeded', output: null }, 2),
+    scheduled('correctness', 2),
+    scheduled('security', 2),
+    started('correctness', 2),
+    started('security', 2),
+  ];
+
+  it("waits for its siblings when a child's findings come after the group's rounds ran out", () => {
+    accepts(
+      roundTwo,
+      finishAgain('correctness', 'a nit'),
+      [recorded('correctness', 'a nit')],
+      routed,
+    );
+  });
+
+  it("keeps ten open findings of the round's children, counting the rest with each child's own more: regression test", () => {
+    const many = (why: string) => Array.from({ length: 6 }, (_, n) => found(`${why} ${n}`));
+    const cut = (stepId: string, why: string, more: number): Event => ({
+      type: 'step.finished',
+      batchId: 'b1',
+      stepId,
+      attempt: 2,
+      outcome: blockedOutcome,
+      findings: { kept: many(why), more },
+    });
+    const events = [...roundTwo, cut('correctness', 'a nit', 2)];
+    const decision = decide(
+      fold(events),
+      {
+        kind: 'finish',
+        batchId: 'b1',
+        stepId: 'security',
+        attempt: 2,
+        ending: { ...blocked, findings: many('a leak') },
+      },
+      routed,
+    );
+    assert.equal(decision.kind, 'accepted');
+    const stuck = decision.kind === 'accepted' ? decision.events.at(-1) : undefined;
+    assert.ok(stuck?.type === 'batch.stuck' && stuck.reason.kind === 'blocked');
+    const roundsOut = stuck.reason.roundsOut;
+    assert.deepEqual(roundsOut?.open, [...many('a nit'), ...many('a leak').slice(0, 4)]);
+    // Two of the security child's six past the ten, and the two correctness recorded no more of.
+    assert.equal(roundsOut?.more, 4);
+  });
+
+  it('makes the batch Stuck once the group ended, with every child of the round open', () => {
+    const events = [...roundTwo, recorded('correctness', 'a nit')];
+    accepts(
+      events,
+      finishAgain('security', 'a leak'),
+      [
+        recorded('security', 'a leak'),
+        stuckOn(
+          {
+            kind: 'blocked',
+            stepId: 'correctness',
+            blockerKind: 'findings',
+            summary: changes,
+            roundsOut: { rounds: 1, open: [found('a nit'), found('a leak')], more: 0 },
+          },
+          ['retry', 'skip', 'recipe', 'rewind', 'cancel'],
+        ),
+      ],
+      routed,
+    );
   });
 });

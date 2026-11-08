@@ -262,13 +262,16 @@ describe('what a pull request says of a step a skip went past', () => {
     assert.match(batch.comment(), line);
   });
 
-  it('says what a Taster the rounds stopped did, beside the reports it had before', async () => {
+  it('waits for every Taster of the last round before it is Stuck, so a skip stops none of them (ADR 0354)', async () => {
     const { opened, comment } = await pastItsRounds('Round three');
     const body = opened[0]?.body ?? '';
-    const line =
-      /`acceptance` did not pass: its attempt 3 was stopped, and a person's skip went past it/;
-    assert.match(body, line);
-    assert.match(comment(), line);
+    const line = /`acceptance` (did not pass|is left open)/;
+    assert.doesNotMatch(body, line);
+    assert.doesNotMatch(comment(), line);
+    assert.match(
+      body,
+      /`correctness` is left open by a skip: its attempt 3 was blocked by its findings/,
+    );
     assert.match(body, /acceptance: Nothing found\n\s+verdict: approve/);
   });
 
@@ -316,14 +319,8 @@ describe('what a pull request says of a step a skip went past', () => {
     const batch = await brewed({
       implement: [cellar, cellar, cellar, cellar],
       correctness: [
-        behave.succeedWith(
-          {
-            verdict: 'approve',
-            findings: [{ ...finding('A stale finding'), severity: 'minor' }],
-            riskLeft: ['A stale risk'],
-          },
-          'Nothing found',
-        ),
+        // An approval with no finding, as any finding would send it back (ADR 0354).
+        behave.succeedWith({ verdict: 'approve', riskLeft: ['A stale risk'] }, 'Nothing found'),
         changes('Round two'),
         changes('Round three'),
         changes('Round four'),
@@ -362,34 +359,12 @@ describe('what a pull request says of a step a skip went past', () => {
     const text = JSON.stringify(batch.updates.at(-1));
     assert.match(text, /`correctness` is left open by a skip/);
     assert.doesNotMatch(text, /correctness: Nothing found/);
-    assert.doesNotMatch(text, /A stale finding/);
     assert.doesNotMatch(text, /A stale risk/);
     const batchState = batch.state();
     const reports = stepReports(batchState);
     const correctness = reports.find(({ stepId }) => stepId === 'correctness');
     assert.ok(correctness !== undefined);
     assert.equal(correctness.tasting, undefined);
-  });
-
-  it('still names an advisory Taster that asks for changes beside what a skip went past', async () => {
-    const failing = behave.read([
-      { result: 'exited', check: 'test', command: 'npm test', exitCode: 1, tail: '1 failing' },
-    ]);
-    const batch = await brewed({
-      implement: [cellar],
-      green: [failing, failing],
-      correctness: [approve],
-      ...others(1),
-      security: [changes('An advisory finding')],
-    });
-    await batch.skip();
-    const body = batch.opened[0]?.body ?? '';
-    assert.match(body, /`green` did not pass/);
-    assert.match(
-      body,
-      /A Taster asks for changes \(security\); its findings are in the reports below/,
-    );
-    assert.doesNotMatch(body, /before it is marked ready/);
   });
 
   it('lists how many more findings the round recorded than it kept: regression test', () => {

@@ -10,9 +10,11 @@ import type { AttemptLimits } from '../engine/brewer-runner.ts';
 import type { ChecksInput } from '../engine/check-readings.ts';
 import type { EarlierSectionsInput } from '../engine/earlier-sections.ts';
 import {
+  ASKS_CHANGES,
   type Attempt,
   attemptBefore,
   type Batch,
+  blockedBy,
   roundRouteOf,
   type State,
 } from '../engine/fold.ts';
@@ -47,6 +49,7 @@ import {
   TASTING,
   type TastingFinding,
   TastingOutDoc,
+  tastingOf,
   tastingOutDocOf,
 } from '../schemas/out-doc.ts';
 import { PLAN, PlanOutDoc } from '../schemas/plan.ts';
@@ -127,8 +130,8 @@ export interface PlanFacts {
 /**
  * The limits the runner enforces for an attempt of `brewer` in a worktree that started at
  * `start`: a brewer that produces commits needs one after it for a `done` (ADR 0074). A Taster's
- * out doc is read with its findings and verdict, and on a `blocking` step a `changes` verdict
- * blocks it by findings (ADR 0161). Each finding that names a lens names one of the step's `lenses`,
+ * out doc is read with its findings and verdict, and on a `blocking` step, one with a findings route,
+ * any finding blocks it by findings (ADR 0161, ADR 0354). Each finding that names a lens names one of the step's `lenses`,
  * and on a step of several together each finding names one (ADR 0220). A recipe choice's question
  * offers only the step's `choices` (ADR 0232).
  */
@@ -783,23 +786,22 @@ const earlierFindingsText = (of: Reviewed): string =>
 export const MAX_ROUTE_INPUT_BYTES = 64 * 1024;
 
 /**
- * A Taster's step in a parallel group, as a findings route reads it (ADR 0349): its group, its
- * lenses, and whether it blocks.
+ * A Taster's step in a parallel group, as a findings route reads it (ADR 0349): its group and its
+ * lenses.
  */
 export interface GroupedTaster {
   group: string;
   lenses: readonly string[];
-  blocking: boolean;
 }
 
-/** The group, lenses and blocking of the step of an attempt, or none outside a group. */
+/** The group and lenses of the step of an attempt, or none outside a group. */
 export type GroupOf = (stepId: string, attempt: number) => GroupedTaster | undefined;
 
-/** `found`'s group, lenses and blocking, when it is a Taster's step in a parallel group. */
+/** `found`'s group and lenses, when it is a Taster's step in a parallel group. */
 export const groupOfStep = (found: StepBrewer | undefined): GroupedTaster | undefined => {
   if (found?.group === undefined) return undefined;
   const lenses = found.together ?? (found.lens === undefined ? [] : [found.lens]);
-  return { group: found.group, lenses, blocking: found.blocking === true };
+  return { group: found.group, lenses };
 };
 
 /**
@@ -809,7 +811,8 @@ export const groupOfStep = (found: StepBrewer | undefined): GroupedTaster | unde
 export interface GroupStepFindings {
   step: string;
   lenses: readonly string[];
-  blocking: boolean;
+  /** Whether its Taster asked for changes, rather than approved (ADR 0354). */
+  asksChanges: boolean;
   findings: readonly TastingFinding[];
   more: number;
 }
@@ -881,7 +884,7 @@ export function routeOf(
  * that round (ADR 0349): the attempts of the group's steps on the batch's path around it, with no
  * attempt of another step between, since entering the group schedules every child at once and a
  * round back leaves it. Each child's latest attempt there that reviewed gives its findings,
- * blocking children first, each in the order the batch scheduled them.
+ * children that asked for changes first, each in the order the batch scheduled them (ADR 0354).
  */
 function groupRoundOf(
   batch: Batch,
@@ -909,13 +912,20 @@ function groupRoundOf(
     if (stepId === from || taster === undefined || ran?.phase !== 'finished') continue;
     if (!reviewed(ran.outcome)) continue;
     const more = ran.outcome.kind === 'succeeded' ? 0 : (ran.findings?.more ?? 0);
-    const { lenses, blocking } = taster;
-    latest.set(stepId, { step: stepId, lenses, blocking, findings: roundFindings(ran), more });
+    // Blocked as the runner words a changes verdict, or an older Foedrum's advisory step that
+    // succeeded with one (ADR 0354).
+    const { outcome } = ran;
+    const asksChanges =
+      outcome.kind === 'failed'
+        ? outcome.reason.startsWith(`${blockedBy('findings')}${ASKS_CHANGES}`)
+        : outcome.kind === 'succeeded' && tastingOf(outcome.output)?.verdict === 'changes';
+    const { lenses } = taster;
+    latest.set(stepId, { step: stepId, lenses, asksChanges, findings: roundFindings(ran), more });
   }
   const scheduled = [...batch.steps.keys()].flatMap((id) => latest.get(id) ?? []);
   const others = [
-    ...scheduled.filter(({ blocking }) => blocking),
-    ...scheduled.filter(({ blocking }) => !blocking),
+    ...scheduled.filter(({ asksChanges }) => asksChanges),
+    ...scheduled.filter(({ asksChanges }) => !asksChanges),
   ];
   return others.length === 0 ? undefined : others;
 }
@@ -1205,9 +1215,15 @@ function bounded(text: string, limit: number, what: string): string {
  * plan, as a whole (ADR 0318).
  */
 function groupSections(others: readonly GroupStepFindings[]) {
-  return others.map(({ step, lenses, blocking, findings, more }) => {
+  return others.map(({ step, lenses, asksChanges, findings, more }) => {
     const through = lenses.length === 0 ? '' : `, through ${lenses.join(' and ')}`;
-    const head = `Step ${step}${through}, ${blocking ? 'blocking' : 'advisory'}:`;
+    // Its verdict, as the runner wrote it on the attempt (ADR 0354).
+    const verdict = asksChanges
+      ? 'asks for changes'
+      : findings.length + more > 0
+        ? 'approves with findings'
+        : 'approves';
+    const head = `Step ${step}${through}, ${verdict}:`;
     const of: Reviewed = lenses[0]?.startsWith('plan/') === true ? 'plan' : 'change';
     const lines = findings.map((finding) => ({
       text: `- ${lensFirst(finding)}${finding.severity} in ${finding.file === undefined ? `the ${of} as a whole` : placeOf(finding)}${finding.introduced ? '' : ', there before the change'}: ${flatLine(finding.why)}`,

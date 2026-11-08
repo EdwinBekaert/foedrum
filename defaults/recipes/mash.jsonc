@@ -1,7 +1,7 @@
 // Mash, a plan of an order (ADR 0234): the Brewmaster reads the order and its repository and breaks
 // the order into sub-orders, one repository each, with the recipe each should run with. Nothing is
-// built: three Tasters review the plan side by side (ADR 0321), coverage's and sizing's changes
-// send it back to the Brewmaster, and the plan is shown on the order's issue (ADR 0233), where the
+// built: three Tasters review the plan side by side (ADR 0321), their findings
+// send it back to the Brewmaster (ADR 0354), and the plan is shown on the order's issue (ADR 0233), where the
 // batch waits Stuck for its review (ADR 0275) until foedrum approve signs it off (ADR 0281).
 // The lauter step runs only when a person chooses foedrum lauter at that review: the Brewmaster
 // corrects the plan with them in a session, and the batch waits for a review of that plan
@@ -15,29 +15,21 @@
   "steps": [
     { "id": "plan", "brewer": "brewmaster" },
     {
+      // Every lens's findings send the plan back to the Brewmaster once all of them ended, two
+      // rounds in all, then the batch is Stuck with them open (ADR 0192, ADR 0354).
       "id": "taste",
       "parallel": [
-        // Blocking: a wrong or oversized cut wastes every sub-order built from it. Once all three
-        // Tasters end, the first one's changes send the plan back, each of the two twice at most.
         {
           "id": "coverage",
           "brewer": "taster",
           "lens": "plan/coverage",
           // It reads the code as well as the plan, to tell what the code already does.
-          "model": "planner",
-          "blocking": true,
-          "onBlocked": { "findings": { "goto": "plan", "maxRounds": 2 } }
+          "model": "planner"
         },
-        {
-          "id": "sizing",
-          "brewer": "taster",
-          "lens": "plan/sizing",
-          "blocking": true,
-          "onBlocked": { "findings": { "goto": "plan", "maxRounds": 2 } }
-        },
-        // Advisory: every finding shows in the plan comment's Review.
+        { "id": "sizing", "brewer": "taster", "lens": "plan/sizing" },
         { "id": "naive-reader", "brewer": "taster", "lens": "plan/naive-reader" }
-      ]
+      ],
+      "onFindings": { "goto": "plan", "maxRounds": 2 }
     },
     {
       "id": "lauter",

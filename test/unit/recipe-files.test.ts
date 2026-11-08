@@ -1492,8 +1492,15 @@ describe('loadRecipes: lens steps with a Taster (ADR 0161)', () => {
     produces: 'commits',
   });
   const security = { path: 'defaults/lenses/diff/security.md', text: 'Look for secrets.' };
+  // Every Taster's findings go back to cellarman (ADR 0354).
+  const routed = (step: unknown) =>
+    typeof step === 'object' && step !== null && 'brewer' in step && step.brewer === 'taster'
+      ? { ...step, onFindings: { goto: 'cellarman', maxRounds: 1 } }
+      : step;
   const tasting = (steps: readonly unknown[], brewers = [committer, taster]): BreweryFiles => ({
-    recipes: [opened('amber', [{ brewer: 'cellarman' }, ...steps], { testFirst: false })],
+    recipes: [
+      opened('amber', [{ brewer: 'cellarman' }, ...steps.map(routed)], { testFirst: false }),
+    ],
     brewers,
     defaults: { lenses: [security] },
   });
@@ -1514,7 +1521,8 @@ describe('loadRecipes: lens steps with a Taster (ADR 0161)', () => {
       path: 'defaults/lenses/diff/security.md',
       text: 'Look for secrets.',
     });
-    assert.equal(found?.blocking, false);
+    // Its findings route makes it block on any of them (ADR 0354).
+    assert.equal(found?.blocking, true);
     // The lens is in use, so doctor does not report it as unused (ADR 0141).
     assert.ok(result.catalog.named.lenses.has('diff/security'));
   });
@@ -1531,21 +1539,6 @@ describe('loadRecipes: lens steps with a Taster (ADR 0161)', () => {
     const lensesOf = (id: string) => [...(result.brewers.find('amber', id)?.lenses?.keys() ?? [])];
     assert.deepEqual(lensesOf('security'), ['diff/security']);
     assert.deepEqual(lensesOf('correctness'), ['diff/correctness']);
-  });
-
-  it("follows blocking on a Taster's step", () => {
-    const result = valid(
-      tasting([
-        {
-          id: 'taste',
-          brewer: 'taster',
-          lens: 'diff/security',
-          blocking: true,
-          onBlocked: { findings: { goto: 'cellarman', maxRounds: 1 } },
-        },
-      ]),
-    );
-    assert.equal(result.brewers.find('amber', 'taste')?.blocking, true);
   });
 
   it('a recipe with a blocking Brett step loads', () => {
@@ -1602,19 +1595,17 @@ describe('loadRecipes: a parallel group of lens steps (ADR 0168)', () => {
     path: `defaults/lenses/diff/${name}.md`,
     text: `Look at ${name}.`,
   }));
-  const correctness = {
-    id: 'correctness',
-    brewer: 'taster',
-    lens: 'diff/correctness',
-    blocking: true,
-    onBlocked: { findings: { goto: 'cellarman', maxRounds: 1 } },
-  };
+  const correctness = { id: 'correctness', brewer: 'taster', lens: 'diff/correctness' };
   const security = { id: 'security', brewer: 'taster', lens: 'diff/security' };
+  // Its Tasters' findings go back to cellarman (ADR 0354).
+  const onFindings = { goto: 'cellarman', maxRounds: 1 };
   const grouped = (children: readonly unknown[], brewers = [committer, taster]): BreweryFiles => ({
     recipes: [
-      opened('amber', [{ brewer: 'cellarman' }, { id: 'tasting', parallel: children }], {
-        testFirst: false,
-      }),
+      opened(
+        'amber',
+        [{ brewer: 'cellarman' }, { id: 'tasting', parallel: children, onFindings }],
+        { testFirst: false },
+      ),
     ],
     brewers,
     defaults: { lenses },
@@ -1688,7 +1679,7 @@ describe('loadRecipes: a parallel group of lens steps (ADR 0168)', () => {
             'amber',
             [
               { brewer: 'cellarman' },
-              { id: 'tasting', parallel: [security], when: 'recipe.testFirst' },
+              { id: 'tasting', parallel: [security], onFindings, when: 'recipe.testFirst' },
             ],
             { testFirst: false },
           ),
@@ -1696,26 +1687,6 @@ describe('loadRecipes: a parallel group of lens steps (ADR 0168)', () => {
       }),
     ).find('amber');
     assert.equal(amber?.skip(batch, 'tasting'), 'recipe.testFirst');
-  });
-
-  it('starts a recipe whose first step is a group at the group', () => {
-    const amber = loaded(
-      loadRecipes({
-        // Nothing commits before it, so its lens reviews a plan (ADR 0143).
-        recipes: [
-          recipe('amber', [
-            {
-              id: 'tasting',
-              parallel: [{ id: 'coverage', brewer: 'taster', lens: 'plan/coverage' }],
-            },
-          ]),
-        ],
-        brewers: [taster],
-        lenses: [{ path: 'lenses/plan/coverage.md', text: 'Look at what the plan covers.' }],
-      }),
-    ).find('amber');
-    assert.equal(amber?.firstStep, 'tasting');
-    assert.deepEqual(amber?.children('tasting'), ['coverage']);
   });
 
   it("refuses a group whose when reads something other than the recipe's settings", () => {
@@ -1728,7 +1699,7 @@ describe('loadRecipes: a parallel group of lens steps (ADR 0168)', () => {
             'amber',
             [
               { brewer: 'cellarman' },
-              { id: 'tasting', parallel: [security], when: 'cellarman.status' },
+              { id: 'tasting', parallel: [security], onFindings, when: 'cellarman.status' },
             ],
             { testFirst: false },
           ),
@@ -1745,7 +1716,7 @@ describe('loadRecipes: a parallel group of lens steps (ADR 0168)', () => {
     const reviewer = brewer('reviewer');
     const steps = [
       { brewer: 'cellarman' },
-      { id: 'tasting', parallel: [correctness, security] },
+      { id: 'tasting', parallel: [correctness, security], onFindings },
       { id: 'review', brewer: 'reviewer', onBlocked: route },
     ];
     assert.deepEqual(
@@ -1763,7 +1734,7 @@ describe('loadRecipes: a parallel group of lens steps (ADR 0168)', () => {
   it("refuses a check's route back to a group too", () => {
     const steps = [
       { brewer: 'cellarman' },
-      { id: 'tasting', parallel: [security] },
+      { id: 'tasting', parallel: [security], onFindings },
       { id: 'recheck', check: 'test', onFail: { goto: 'tasting', maxRounds: 1 } },
     ];
     assert.deepEqual(
@@ -1781,7 +1752,7 @@ describe('loadRecipes: a parallel group of lens steps (ADR 0168)', () => {
   it("refuses the pull request's route back to a group too (ADR 0219)", () => {
     const steps = [
       { brewer: 'cellarman' },
-      { id: 'tasting', parallel: [security] },
+      { id: 'tasting', parallel: [security], onFindings },
       { action: 'openPullRequest', onPullRequestFail: { goto: 'tasting', maxRounds: 1 } },
     ];
     assert.deepEqual(
@@ -1794,13 +1765,6 @@ describe('loadRecipes: a parallel group of lens steps (ADR 0168)', () => {
         'recipes/amber.jsonc: step "open-pull-request" routes back to the parallel group "tasting": route to one of the steps before it (ADR 0168)',
       ],
     );
-  });
-
-  it('refuses a route from a child to a sibling, which would run alone', () => {
-    const back = { ...correctness, onBlocked: { findings: { goto: 'security', maxRounds: 1 } } };
-    assert.deepEqual(problemsOf(grouped([security, back])), [
-      'recipes/amber.jsonc: step "correctness" in the parallel group "tasting" routes back to "security" in its own group: route to a step before the group (ADR 0168)',
-    ]);
   });
 });
 
@@ -1843,7 +1807,8 @@ describe('loadRecipes: an interactive brewer step (ADR 0222)', () => {
 
   it('refuses one in a parallel group: its children run side by side, and a session needs the terminal', () => {
     const child = { id: 'security', brewer: 'taster', lens: 'diff/security', ...talking };
-    assert.deepEqual(problemsOf(tasting([{ id: 'taste', parallel: [child] }])), [
+    const onFindings = { goto: 'cellarman', maxRounds: 1 };
+    assert.deepEqual(problemsOf(tasting([{ id: 'taste', parallel: [child], onFindings }])), [
       'recipes/amber.jsonc: step "security" in the parallel group "taste" is interactive: a parallel group runs its children side by side, and a session needs the terminal to itself (ADR 0222)',
     ]);
   });
@@ -2036,9 +2001,10 @@ describe('loadRecipes: a plan step counts its attempts since its latest plan (AD
     const tasting = (step: Record<string, unknown>, id = 'taste') => {
       const committing = 'diff' in step;
       const { diff: _diff, ...fields } = step;
+      const before = committing ? 'build' : 'plan';
       const steps = [
         committing ? { id: 'build', brewer: 'coder' } : { id: 'plan', brewer: 'planner' },
-        { id, brewer: 'taster', ...fields },
+        { id, brewer: 'taster', onFindings: { goto: before, maxRounds: 1 }, ...fields },
         ...(committing ? [{ action: 'openPullRequest' }] : []),
       ];
       const result = loadRecipes({
@@ -2206,7 +2172,13 @@ describe('loadRecipes: a Taster step that names several lenses together (#560, A
     path: `defaults/lenses/diff/${name}.md`,
     text: `Look at ${name}.`,
   }));
-  const together = { id: 'taste', brewer: 'taster', lenses: ['diff/security', 'diff/correctness'] };
+  const onFindings = { goto: 'cellarman', maxRounds: 1 };
+  const together = {
+    id: 'taste',
+    brewer: 'taster',
+    lenses: ['diff/security', 'diff/correctness'],
+    onFindings,
+  };
   const tasting = (steps: readonly unknown[], brewers = [committer, taster]): BreweryFiles => ({
     recipes: [opened('amber', [{ brewer: 'cellarman' }, ...steps], { testFirst: false })],
     brewers,
@@ -2227,20 +2199,16 @@ describe('loadRecipes: a Taster step that names several lenses together (#560, A
     assert.deepEqual([...(found?.lenses?.keys() ?? [])], ['diff/security', 'diff/correctness']);
     assert.deepEqual(found?.together, ['diff/security', 'diff/correctness']);
     assert.equal(found?.lens, undefined);
-    assert.equal(found?.blocking, false);
+    // Its findings route makes it block on any of them (ADR 0354).
+    assert.equal(found?.blocking, true);
     // Each lens is in use, so doctor does not report it as unused (ADR 0141).
     assert.ok(result.catalog.named.lenses.has('diff/security'));
     assert.ok(result.catalog.named.lenses.has('diff/correctness'));
     assert.ok(!result.catalog.named.lenses.has('diff/acceptance'));
   });
 
-  it('follows blocking on a lenses step, and its findings route', () => {
-    const blocking = {
-      ...together,
-      blocking: true,
-      onBlocked: { findings: { goto: 'cellarman', maxRounds: 1 } },
-    };
-    const result = valid(tasting([blocking]));
+  it('follows the findings route of a lenses step, and blocks on its findings (ADR 0354)', () => {
+    const result = valid(tasting([together]));
     assert.equal(result.brewers.find('amber', 'taste')?.blocking, true);
     const amber = result.recipes.find('amber');
     assert.equal(
@@ -2252,7 +2220,7 @@ describe('loadRecipes: a Taster step that names several lenses together (#560, A
   it('loads a lenses step as a child of a parallel group, beside a lens step apart', () => {
     const security = { id: 'security', brewer: 'taster', lens: 'diff/security' };
     const rest = { id: 'rest', brewer: 'taster', lenses: ['diff/correctness', 'diff/acceptance'] };
-    const result = valid(tasting([{ id: 'tasting', parallel: [security, rest] }]));
+    const result = valid(tasting([{ id: 'tasting', parallel: [security, rest], onFindings }]));
     const amber = result.recipes.find('amber');
     assert.deepEqual(amber?.children('tasting'), ['security', 'rest']);
     assert.equal(amber?.group('rest'), 'tasting');
@@ -2264,7 +2232,8 @@ describe('loadRecipes: a Taster step that names several lenses together (#560, A
   });
 
   it('refuses lenses on a brewer that is no Taster, as it refuses a lens', () => {
-    assert.deepEqual(problemsOf(tasting([{ ...together, brewer: 'cellarman' }])), [
+    const { onFindings: _route, ...unrouted } = together;
+    assert.deepEqual(problemsOf(tasting([{ ...unrouted, brewer: 'cellarman' }])), [
       'recipes/amber.jsonc: step "taste" has "lenses", but its brewer "cellarman" is no Taster: a lens step\'s brewer answers with the out doc schema "tasting" (ADR 0161, ADR 0220)',
     ]);
   });
@@ -2446,5 +2415,168 @@ describe("loadRecipes: a check that reads a survey's test map (ADR 0298)", () =>
     assert.deepEqual(problemsOf(files({ check: 'lint' })), [
       'recipes/stout.jsonc: step "survey-check" reads the test map of survey "survey" against one run, so its checks must include "test" (ADR 0298)',
     ]);
+  });
+});
+
+describe("loadRecipes: a Taster's findings always have a route, onFindings (ADR 0354)", () => {
+  const taster = brewer('taster', { output: { doc: 'taste.md', schema: 'tasting' } });
+  const committer = brewer('cellarman', {
+    access: 'write',
+    git: { commit: true },
+    produces: 'commits',
+  });
+  const lenses = ['correctness', 'security'].map((name) => ({
+    path: `defaults/lenses/diff/${name}.md`,
+    text: `Look at ${name}.`,
+  }));
+  const correctness = { id: 'correctness', brewer: 'taster', lens: 'diff/correctness' };
+  const security = { id: 'security', brewer: 'taster', lens: 'diff/security' };
+  const back = { goto: 'cellarman', maxRounds: 2 };
+  const amber = (steps: readonly unknown[], brewers = [committer, taster]): BreweryFiles => ({
+    recipes: [opened('amber', [{ brewer: 'cellarman' }, ...steps], { testFirst: false })],
+    brewers,
+    defaults: { lenses },
+  });
+  const group = (fields = {}) => ({
+    id: 'tasting',
+    parallel: [correctness, security],
+    onFindings: back,
+    ...fields,
+  });
+
+  it('refuses a group of Tasters without onFindings, naming the fix', () => {
+    assert.deepEqual(problemsOf(amber([{ id: 'tasting', parallel: [correctness, security] }])), [
+      'recipes/amber.jsonc: step "tasting" is a parallel group of Tasters without "onFindings": add "onFindings": { "goto": <a step before the group>, "maxRounds": 2 }, where their findings send the batch back (ADR 0354)',
+    ]);
+  });
+
+  it("refuses a Taster's step on its own without onFindings, naming the fix", () => {
+    assert.deepEqual(problemsOf(amber([security])), [
+      'recipes/amber.jsonc: step "security" is a Taster\'s step without "onFindings": add "onFindings": { "goto": <a step before it>, "maxRounds": 2 }, where its findings send the batch back (ADR 0354)',
+    ]);
+  });
+
+  it('refuses blocking on a Taster in a group, whose findings go back along the group', () => {
+    const blocking = { ...correctness, blocking: true };
+    assert.deepEqual(problemsOf(amber([group({ parallel: [blocking, security] })])), [
+      'recipes/amber.jsonc: step "correctness" has "blocking": a Taster\'s findings always go back, along "onFindings" on its parallel group (ADR 0354)',
+    ]);
+  });
+
+  it("refuses onBlocked on a Taster's step on its own, naming onFindings", () => {
+    const routed = { ...security, onBlocked: { findings: back } };
+    assert.deepEqual(problemsOf(amber([routed])), [
+      'recipes/amber.jsonc: step "security" has "onBlocked": a Taster\'s findings go back along "onFindings" on its step (ADR 0354)',
+    ]);
+  });
+
+  it("refuses onFindings on a child of a group, which is the group's", () => {
+    const child = { ...security, onFindings: back };
+    assert.deepEqual(problemsOf(amber([group({ parallel: [correctness, child] })])), [
+      'recipes/amber.jsonc: step "security" in the parallel group "tasting" has "onFindings": put it on the group, whose children share its rounds (ADR 0354)',
+    ]);
+  });
+
+  it('refuses onFindings on a brewer that is no Taster', () => {
+    const scribe = brewer('scribe');
+    const notes = { id: 'notes', brewer: 'scribe', onFindings: back };
+    assert.deepEqual(problemsOf(amber([notes], [committer, taster, scribe])), [
+      'recipes/amber.jsonc: step "notes" has "onFindings", but its brewer "scribe" is no Taster: only a Taster\'s findings take that route (ADR 0354)',
+    ]);
+  });
+
+  it("refuses a group's onFindings that goes forward, past the group", () => {
+    const steps = [
+      group({ onFindings: { goto: 'polish', maxRounds: 1 } }),
+      { id: 'polish', brewer: 'cellarman' },
+    ];
+    assert.deepEqual(problemsOf(amber(steps)), [
+      'recipes/amber.jsonc: ✖ A route goes back to an earlier step at the same level or in an enclosing loop → at steps[1].onFindings.goto',
+    ]);
+  });
+
+  it("refuses a group's onFindings that goes back to another group, which no attempt runs: regression test", () => {
+    const steps = [
+      { id: 'first', parallel: [correctness], onFindings: back },
+      { id: 'second', parallel: [security], onFindings: { goto: 'first', maxRounds: 1 } },
+    ];
+    assert.deepEqual(problemsOf(amber(steps)), [
+      'recipes/amber.jsonc: step "second" routes back to the parallel group "first": route to one of the steps before it (ADR 0168)',
+    ]);
+  });
+
+  it('counts no round a step outside the group sent back to the same step: regression test', () => {
+    const solo = { id: 'solo', brewer: 'taster', lens: 'diff/correctness', onFindings: back };
+    const found = loaded(loadRecipes(amber([solo, group()]))).find('amber');
+    assert.ok(found !== undefined);
+    const attempts = new Map<number, Attempt>(
+      ['', 'solo', 'solo', 'security'].map((from, i): [number, Attempt] => [
+        i + 1,
+        {
+          phase: 'finished',
+          attempt: i + 1,
+          deadlineAt: D,
+          outcome: { kind: 'succeeded', output: null },
+          ...(from === '' ? {} : { route: { from, why: 'findings' } }),
+        },
+      ]),
+    );
+    const routed: Batch = {
+      ...batch({}),
+      steps: new Map([['cellarman', { id: 'cellarman', inputs: [], attempts }]]),
+    };
+    assert.equal(found.rounds(routed, 'correctness', 'findings'), 1);
+    assert.equal(found.rounds(routed, 'solo', 'findings'), 2);
+  });
+
+  it("gives every child of a group the group's route, blocking on its findings", () => {
+    const result = loadRecipes(amber([group()]));
+    const found = loaded(result).find('amber');
+    assert.ok(found !== undefined);
+    assert.equal(found.routesTo('security', 'findings'), 'cellarman');
+    assert.equal(found.maxRounds('correctness', 'findings'), 2);
+    assert.ok(result.valid);
+    assert.equal(result.brewers.find('amber', 'security')?.blocking, true);
+  });
+
+  it("routes a Taster's step on its own along its onFindings", () => {
+    const result = loadRecipes(amber([{ ...security, onFindings: back }]));
+    assert.equal(loaded(result).find('amber')?.routesTo('security', 'findings'), 'cellarman');
+    assert.ok(result.valid);
+    assert.equal(result.brewers.find('amber', 'security')?.blocking, true);
+  });
+
+  it("shares a group's rounds among its children, whichever child sent the batch back", () => {
+    const found = loaded(loadRecipes(amber([group()]))).find('amber');
+    assert.ok(found !== undefined);
+    const attempt = (n: number, from: string): [number, Attempt] => [
+      n,
+      {
+        phase: 'finished',
+        attempt: n,
+        deadlineAt: D,
+        outcome: { kind: 'succeeded', output: null },
+        ...(from === '' ? {} : { route: { from, why: 'findings' } }),
+      },
+    ];
+    const routed = (...froms: string[]): Batch => ({
+      ...batch({}),
+      steps: new Map([
+        [
+          'cellarman',
+          {
+            id: 'cellarman',
+            inputs: [],
+            attempts: new Map(froms.map((from, i) => attempt(i + 1, from))),
+          },
+        ],
+      ]),
+    });
+    // A round from correctness, as an older log records it, is security's too.
+    assert.equal(found.rounds(routed('', 'correctness'), 'security', 'findings'), 1);
+    assert.equal(found.loopBack(routed('', 'correctness'), 'security', 'findings'), 'cellarman');
+    const both = routed('', 'correctness', 'security');
+    assert.equal(found.rounds(both, 'correctness', 'findings'), 2);
+    assert.equal(found.loopBack(both, 'correctness', 'findings'), undefined);
   });
 });

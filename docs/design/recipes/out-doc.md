@@ -46,7 +46,7 @@ Commit your changes with git add and git commit before you write {outDoc}, and l
 The attempt's shell commands and the rule not to push are not in the contract: they are the engine's fixed rules, in the attempt's system prompt file ([how a brewer runs](how-a-brewer-runs.md), [ADR 0183](../../adr/0183-the-engine-s-fixed-rules-for-a-brewer-go-in-an-appended-system-prompt.md)).
 
 One example per status, because the schema is strict: a brewer that copies the example for its status as it is writes a valid out doc, and one that fills in every key of a single template did not (#195).
-The blocked example says `findings`, the one kind that can give the work another chance: another round inside a loop, else the step's `onBlocked` route, else Stuck (the table below), bounded by `maxRounds`.
+The blocked example says `findings`, the one kind that can give the work another chance: another round inside a loop, else the step's `onBlocked` route, or a Taster's `onFindings` ([ADR 0354](../../adr/0354-every-finding-of-a-taster-goes-back-along-one-on-findings-route.md)), else Stuck (the table below), bounded by `maxRounds`.
 The contract stays around 350 tokens (ADR 0005, [ADR 0308](../../adr/0308-a-taster-reads-the-checks-that-ran-on-its-head-and-an-out-doc-claims-only-what-its-session-did.md)): a unit test holds it to 1,400 characters, and to 1,600 with the lines about committing.
 Its rule on claims keeps every brewer's assumptions and risks to what its session did or read ([ADR 0308](../../adr/0308-a-taster-reads-the-checks-that-ran-on-its-head-and-an-out-doc-claims-only-what-its-session-did.md)).
 Brewer-specific fields (for example a review verdict) are added by the brewer's own schema.
@@ -64,9 +64,9 @@ It never fails an attempt, a line past its limit being cut with a mark: `readOut
 
 | Out doc | Next |
 |---|---|
-| `done` | Guards pass → next step; a Taster's `changes` verdict on a blocking step is routed as `blocked` + `findings` ([ADR 0161](../../adr/0161-lens-steps-run-a-taster-whose-findings-are-advisory-unless-the-step-blocks.md)) |
+| `done` | Guards pass → next step; a Taster's `done` with any finding, or a `changes` verdict, is routed as `blocked` + `findings` along its step's or group's `onFindings` ([ADR 0161](../../adr/0161-lens-steps-run-a-taster-whose-findings-are-advisory-unless-the-step-blocks.md), [ADR 0354](../../adr/0354-every-finding-of-a-taster-goes-back-along-one-on-findings-route.md)) |
 | `needs_input` | Stuck 🔔 with the questions; the answer, from any surface, resumes the brewer's session as the next attempt when its `retryMode` is `resume` ([brewers](brewers.md) says when that is overridden); otherwise, or when the session cannot be resumed, a fresh attempt gets every round's answers as its `answers` input ([ADR 0118](../../adr/0118-retrymode-resume-loads-and-an-answer-resumes-the-session-that-asked.md)) |
-| `blocked` + `findings` | Next loop round, until `maxRounds`; outside a loop, the step's `onBlocked` route, else Stuck |
+| `blocked` + `findings` | Next loop round, until `maxRounds`; outside a loop, the step's `onBlocked` route, or a Taster's step's or group's `onFindings` once every child of its group ended ([ADR 0354](../../adr/0354-every-finding-of-a-taster-goes-back-along-one-on-findings-route.md)), else Stuck |
 | `blocked` + `environment` | Stuck immediately: another round would hit the same wall |
 | `blocked` + `divergence` | Stuck: the plan does not match reality |
 | `failed` / missing / invalid | Retry per `maxAttempts`, then Stuck |

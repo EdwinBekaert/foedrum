@@ -81,7 +81,7 @@ export const STEPS: readonly Step[] = [
     id: 'lenses',
     title: 'foedrum lenses',
     lookFor:
-      "each lens's rounds, findings and tokens: correctness's finding is fixed; diff/acceptance, not in this recipe, has no rounds.",
+      "each lens's rounds, findings and tokens: correctness's finding is fixed, the other three's dismissed; diff/acceptance has no rounds.",
   },
   {
     id: 'brew',
@@ -103,7 +103,7 @@ export const STEPS: readonly Step[] = [
   {
     id: 'mash',
     title: `foedrum mash ${MASH_ORDER.number} --as ${USER}`,
-    lookFor: `the Innkeeper asks which recipe brews #${MASH_ORDER.number}; the answer chooses mash; three Tasters review the plan, which waits Stuck with their notes.`,
+    lookFor: `the Innkeeper asks which recipe brews #${MASH_ORDER.number}; the answer chooses mash; three Tasters review the plan, sent back once, then waiting Stuck.`,
   },
 ];
 

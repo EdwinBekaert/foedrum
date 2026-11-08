@@ -101,9 +101,8 @@ export interface Scripted {
  * step's attempts in a batch (ADR 0139): the Maltster's test map, the Gauger's failing test,
  * the Cellarman's fix that forgets the `!` (the check reads it red), then the one that does not,
  * the Finer after each with nothing to simplify, and Nip's four Tasters side by side (ADR 0197,
- * ADR 0306, ADR 0343): an advisory finding through the correctness lens, an approval through the
- * acceptance lens, which finds both items of the order's checklist built, and one each through the
- * security and design conformance lenses.
+ * ADR 0306, ADR 0343), each approving with no finding, which would send the batch back to the
+ * Cellarman (ADR 0354): the acceptance lens finds both items of the order's checklist built.
  */
 export const NIP_SCRIPT: Readonly<Record<string, readonly Scripted[]>> = {
   survey: [
@@ -151,19 +150,8 @@ export const NIP_SCRIPT: Readonly<Record<string, readonly Scripted[]>> = {
     {
       files: {},
       message: '',
-      summary: 'One minor finding through diff/correctness.',
-      tasting: {
-        verdict: 'approve',
-        findings: [
-          {
-            file: 'greet.mjs',
-            line: 2,
-            severity: 'minor',
-            why: 'a name of only spaces is greeted as itself, not as a stranger',
-            introduced: true,
-          },
-        ],
-      },
+      summary: 'No finding through diff/correctness: greet("") greets a stranger.',
+      tasting: { verdict: 'approve', findings: [] },
     },
   ],
   acceptance: [

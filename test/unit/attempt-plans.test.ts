@@ -347,7 +347,7 @@ describe('createAttemptPlans: plan', () => {
     );
   });
 
-  it("gives the step a parallel group's route goes back to the advisory child's findings of the round (#938, ADR 0349)", async () => {
+  it("gives the step a parallel group's route goes back to an approving child's findings of the round (#938, ADR 0349, ADR 0354)", async () => {
     const grouped = loadRecipes({
       ...readBreweryFiles(join(FOEDRUM_DEFAULTS, 'no-such-brewery')),
       recipes: [
@@ -364,11 +364,10 @@ describe('createAttemptPlans: plan', () => {
                     id: 'correctness',
                     brewer: 'taster',
                     lens: 'diff/correctness',
-                    blocking: true,
-                    onBlocked: { findings: { goto: 'brew', maxRounds: 1 } },
                   },
                   { id: 'acceptance', brewer: 'taster', lens: 'diff/acceptance' },
                 ],
+                onFindings: { goto: 'brew', maxRounds: 1 },
               },
               { action: 'openPullRequest' },
             ],
@@ -448,11 +447,11 @@ describe('createAttemptPlans: plan', () => {
     const { prompt } = await plans.plan({ ...start, ref: second });
     assert.match(
       prompt,
-      /name="route">\nStep correctness ended: [^\n]*No deadline\n[\s\S]*\nStep acceptance, through diff\/acceptance, advisory:\n- minor in src\/status\.ts:40: The help text does not name --json\n<\/untrusted-input-/,
+      /name="route">\nStep correctness ended: [^\n]*No deadline\n[\s\S]*\nStep acceptance, through diff\/acceptance, approves with findings:\n- minor in src\/status\.ts:40: The help text does not name --json\n<\/untrusted-input-/,
     );
   });
 
-  it('names a second blocking child and a child of several lenses as the recipe loads them, the blocking one first: regression test', async () => {
+  it('names a second child that asked for changes and a child of several lenses as the recipe loads them, those that asked for changes first: regression test', async () => {
     const grouped = loadRecipes({
       ...readBreweryFiles(join(FOEDRUM_DEFAULTS, 'no-such-brewery')),
       recipes: [
@@ -469,8 +468,6 @@ describe('createAttemptPlans: plan', () => {
                     id: 'correctness',
                     brewer: 'taster',
                     lens: 'diff/correctness',
-                    blocking: true,
-                    onBlocked: { findings: { goto: 'brew', maxRounds: 1 } },
                   },
                   {
                     id: 'review',
@@ -481,10 +478,9 @@ describe('createAttemptPlans: plan', () => {
                     id: 'security',
                     brewer: 'taster',
                     lens: 'diff/security',
-                    blocking: true,
-                    onBlocked: { findings: { goto: 'brew', maxRounds: 1 } },
                   },
                 ],
+                onFindings: { goto: 'brew', maxRounds: 1 },
               },
               { action: 'openPullRequest' },
             ],
@@ -553,7 +549,7 @@ describe('createAttemptPlans: plan', () => {
     const { prompt } = await plans.plan({ ...start, ref: second });
     assert.match(
       prompt,
-      /\nStep security, through diff\/security, blocking: no findings\.\n\nStep review, through diff\/acceptance and diff\/design-conformance, advisory: no findings\.\n<\/untrusted-input-/,
+      /\nStep security, through diff\/security, asks for changes: no findings\.\n\nStep review, through diff\/acceptance and diff\/design-conformance, approves: no findings\.\n<\/untrusted-input-/,
     );
   });
 
@@ -2671,7 +2667,12 @@ describe('createAttemptPlans: a Taster that reviews a plan (ADR 0312)', () => {
           'amber',
           [
             { id: 'plan', brewer: 'brewmaster' },
-            { id: 'taste', brewer: 'taster', lens: 'plan/naive-reader' },
+            {
+              id: 'taste',
+              brewer: 'taster',
+              lens: 'plan/naive-reader',
+              onFindings: { goto: 'plan', maxRounds: 1 },
+            },
           ],
           { testFirst: false },
         ),
@@ -2863,7 +2864,12 @@ describe('createAttemptPlans: a Taster that reviews a plan (ADR 0312)', () => {
             'amber',
             [
               { id: 'plan', brewer: 'brewmaster' },
-              { id: 'taste', brewer: 'taster', lenses: ['plan/naive-reader', 'plan/sizing'] },
+              {
+                id: 'taste',
+                brewer: 'taster',
+                lenses: ['plan/naive-reader', 'plan/sizing'],
+                onFindings: { goto: 'plan', maxRounds: 1 },
+              },
             ],
             { testFirst: false },
           ),
@@ -2896,7 +2902,12 @@ describe('createAttemptPlans: a Taster that reviews a plan (ADR 0312)', () => {
             'amber',
             [
               { id: 'plan', brewer: 'brewmaster' },
-              { id: 'taste', brewer: 'taster', lenses: ['plan/naive-reader', 'plan/sizing'] },
+              {
+                id: 'taste',
+                brewer: 'taster',
+                lenses: ['plan/naive-reader', 'plan/sizing'],
+                onFindings: { goto: 'plan', maxRounds: 1 },
+              },
             ],
             { testFirst: false },
           ),

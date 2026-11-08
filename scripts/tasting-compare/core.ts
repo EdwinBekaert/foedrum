@@ -6,6 +6,7 @@
 
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { onFindings } from '../../src/engine/fold.ts';
 import type { Event, Usage } from '../../src/schemas/events.ts';
 import { lensOfFinding, TastingFinding } from '../../src/schemas/out-doc.ts';
 import type { StepOutcome } from '../../src/schemas/step-outcome.ts';
@@ -40,6 +41,29 @@ export const IMPLEMENT = 'implement';
 /** The step id of a together setup's one Taster, and of the apart setup's group. */
 export const TASTE = 'taste';
 
+/**
+ * Where a run's Tasters send their findings: back to the scripted step, once, as every Taster's
+ * findings go back (ADR 0354). That step's next turn ends the run, so a run measures one round.
+ */
+export const backTo = (goto: string) => ({ onFindings: { goto, maxRounds: 1 } });
+
+/** The summary of the scripted step's turn that ends a run after its first tasting round. */
+export const ROUND_ONE_END = 'tasting-compare ends the run after its first tasting round';
+
+/**
+ * The scripted step's turn after the Tasters' first round sent the batch back (ADR 0354): it ends
+ * blocked, so the batch is Stuck and the run ends with round 1 alone, at no more Taster sessions.
+ */
+export const AFTER_ROUND_ONE: Scripted = {
+  files: {},
+  message: '',
+  summary: ROUND_ONE_END,
+  doc: { status: 'blocked', blockerKind: 'environment' },
+};
+
+/** How a run ended that its scripted step ended after the first tasting round. */
+export const ENDED_AFTER_ROUND_ONE = 'after round 1';
+
 /** A lens step's id in the apart group: the lens's name without its folder. */
 export const stepIdOf = (lens: string): string => lens.slice(lens.indexOf('/') + 1);
 
@@ -64,8 +88,9 @@ export const recipeText = (setup: SetupName): string => {
       ? {
           id: TASTE,
           parallel: lenses.map((lens) => ({ id: stepIdOf(lens), brewer: 'taster', lens })),
+          ...backTo(IMPLEMENT),
         }
-      : { id: TASTE, brewer: 'taster', lenses };
+      : { id: TASTE, brewer: 'taster', lenses, ...backTo(IMPLEMENT) };
   const recipe = {
     name: setup,
     description: `The seeded change of #567, tasted ${setup.startsWith('apart') ? 'apart' : 'together'}`,
@@ -175,6 +200,8 @@ export interface FinishedAttempt {
   stepId: string;
   attempt: number;
   outcome: StepOutcome;
+  /** A Taster's findings, recorded when they blocked it (ADR 0221, ADR 0354). */
+  findings?: { kept: readonly unknown[]; more: number } | undefined;
   usage?: Usage | undefined;
   receipt?:
     | {
@@ -262,7 +289,7 @@ const attemptsIn = (
   steps: ReadonlyMap<string, readonly string[]>,
 ): TasterAttempt[] => {
   const attempts: TasterAttempt[] = [];
-  for (const { stepId, outcome, usage, receipt } of finished) {
+  for (const { stepId, outcome, usage, receipt, findings: recorded } of finished) {
     const lenses = steps.get(stepId);
     if (lenses === undefined) continue;
     let failure: string | undefined;
@@ -276,9 +303,19 @@ const attemptsIn = (
         }
         break;
       }
-      case 'failed':
-        failure = `failed: ${outcome.reason}`;
+      case 'failed': {
+        // A Taster blocked by its findings reviewed: every finding goes back (ADR 0354), and the
+        // event recorded them, its first ones when there were more.
+        if (!onFindings(outcome)) {
+          failure = `failed: ${outcome.reason}`;
+          break;
+        }
+        const read = findingsOf({ findings: recorded?.kept ?? [] });
+        findings = read.findings;
+        const more = recorded?.more ?? 0;
+        if (more > 0) failure = `blocked by its findings, ${more} of them not recorded`;
         break;
+      }
       case 'needs_input':
       case 'cancelled':
         failure = outcome.kind;
@@ -319,8 +356,13 @@ export const recordIn = (
   const finished: FinishedAttempt[] = [];
   for (const { event } of events) {
     if (event.type === 'batch.on_tap') ended = 'on_tap';
-    else if (event.type === 'batch.stuck') ended = `stuck: ${event.reason.kind}`;
-    else if (event.type === 'batch.cancelled') ended = 'cancelled';
+    else if (event.type === 'batch.stuck') {
+      const { reason } = event;
+      ended =
+        reason.kind === 'blocked' && reason.summary === ROUND_ONE_END
+          ? ENDED_AFTER_ROUND_ONE
+          : `stuck: ${reason.kind}`;
+    } else if (event.type === 'batch.cancelled') ended = 'cancelled';
     else if (event.type === 'step.finished') finished.push(event);
   }
   return { ended, attempts: attemptsIn(finished, steps) };
@@ -343,7 +385,9 @@ export const runFailure = ({
   ended,
   attempts,
 }: Pick<RunRecord, 'ended' | 'attempts'>): string | undefined =>
-  ended !== 'on_tap' ? `the batch ended ${ended}` : attemptFailure(attempts);
+  ended !== 'on_tap' && ended !== ENDED_AFTER_ROUND_ONE
+    ? `the batch ended ${ended}`
+    : attemptFailure(attempts);
 
 /** A finding outside the key, for a person to judge. */
 export interface OtherFinding {

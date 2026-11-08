@@ -40,8 +40,14 @@ const porter = recipeText(
   ],
   { testFirst: false },
 );
-// A Taster before its batch moved on: of a plan, since no step before it commits.
-const earlierTaster = { brewer: 'taster', lens: 'plan/naive-reader' };
+// A Taster before its batch moved on: of a plan, since no step before it commits, whose findings
+// go back to that plan (ADR 0354).
+const first = { id: 'plan', brewer: 'brewmaster' };
+const earlierTaster = {
+  brewer: 'taster',
+  lens: 'plan/naive-reader',
+  onFindings: { goto: 'plan', maxRounds: 1 },
+};
 const ask = { id: 'ask', brewer: 'cellarman' };
 const open = { id: 'open', action: 'openPullRequest' };
 const diffTaster = (id: string) => ({ id, brewer: 'taster', lens: 'diff/correctness' });
@@ -53,13 +59,21 @@ const loaded = loadRecipes({
   ...readBreweryFiles(join(import.meta.dirname, '..', '..', 'no-brewery')),
   recipes: [
     { path: 'recipes/porter.jsonc', text: porter },
-    building('reviewed', [{ id: 'old-taster', ...earlierTaster }, ask, open]),
-    building('tasted', [{ id: 'implement', brewer: 'cellarman' }, diffTaster('new-taster'), open]),
+    building('reviewed', [first, { id: 'old-taster', ...earlierTaster }, ask, open]),
+    building('tasted', [
+      { id: 'implement', brewer: 'cellarman' },
+      { ...diffTaster('new-taster'), onFindings: { goto: 'implement', maxRounds: 1 } },
+      open,
+    ]),
     building('built-first', [{ id: 'implement', brewer: 'cellarman' }, ask, open]),
-    building('plain-taste', [{ id: 'taste', ...earlierTaster }, ask, open]),
+    building('plain-taste', [first, { id: 'taste', ...earlierTaster }, ask, open]),
     building('group-taste', [
       { id: 'implement', brewer: 'cellarman' },
-      { id: 'taste', parallel: [diffTaster('one'), diffTaster('two')] },
+      {
+        id: 'taste',
+        parallel: [diffTaster('one'), diffTaster('two')],
+        onFindings: { goto: 'implement', maxRounds: 1 },
+      },
       open,
     ]),
   ],
@@ -261,6 +275,7 @@ describe('the merge brief of a batch mashed to a building recipe (#867)', () => 
   const briefAfterMove = async (first: () => void): Promise<string> => {
     accept({ kind: 'order', batchId, order: { issue: 7 } });
     accept({ kind: 'route', batchId, recipe: 'reviewed', reason: 'label', source: 'label' });
+    run('plan', done);
     first();
     const { lane } = log.state().batches.get(batchId) ?? {};
     if (lane?.kind !== 'stuck') run('ask', { kind: 'needs_input', questions: [which] });
@@ -285,14 +300,18 @@ describe('the merge brief of a batch mashed to a building recipe (#867)', () => 
   } as const;
 
   it('never says a skip left open a Taster an earlier recipe blocked, when no one skipped it', async () => {
-    const body = await briefAfterMove(() =>
-      run('old-taster', {
-        kind: 'blocked',
-        blockerKind: 'findings',
-        summary: 'A change is asked',
-        findings: [heldBack],
-      }),
-    );
+    const blocked: Ending = {
+      kind: 'blocked',
+      blockerKind: 'findings',
+      summary: 'A change is asked',
+      findings: [heldBack],
+    };
+    // Its one round back to the plan, then Stuck with the finding open (ADR 0192, ADR 0354).
+    const body = await briefAfterMove(() => {
+      run('old-taster', blocked);
+      run('plan', done);
+      run('old-taster', blocked);
+    });
     assert.match(body, /- `new-taster`: the cut was not run/);
     assert.doesNotMatch(body, /left open by a skip/);
     assert.doesNotMatch(body, /Breaks the plan/);
@@ -354,7 +373,14 @@ describe('the merge brief of a batch mashed to a building recipe (#867)', () => 
   });
 
   it("shows the risk the current recipe's Taster left, never an earlier recipe's", async () => {
-    movedOff('reviewed', () => run('old-taster', tasted('the plan may be too big')), 'tasted');
+    movedOff(
+      'reviewed',
+      () => {
+        run('plan', done);
+        run('old-taster', tasted('the plan may be too big'));
+      },
+      'tasted',
+    );
     run('implement', done);
     run('new-taster', tasted('the cut was not run'));
     opened();
@@ -364,7 +390,14 @@ describe('the merge brief of a batch mashed to a building recipe (#867)', () => 
   });
 
   it("says no Taster tasted a change only an earlier recipe's Taster read", async () => {
-    movedOff('reviewed', () => run('old-taster', tasted('the plan may be too big')), 'porter');
+    movedOff(
+      'reviewed',
+      () => {
+        run('plan', done);
+        run('old-taster', tasted('the plan may be too big'));
+      },
+      'porter',
+    );
     porterToOpen();
     const body = await briefBody();
     assert.match(body, /- No Taster tasted this change\./);
@@ -372,7 +405,14 @@ describe('the merge brief of a batch mashed to a building recipe (#867)', () => 
   });
 
   it('posts the brief of a batch that ran a plain step named as a group of its current recipe', async () => {
-    movedOff('plain-taste', () => run('taste', tasted('the plan may be too big')), 'group-taste');
+    movedOff(
+      'plain-taste',
+      () => {
+        run('plan', done);
+        run('taste', tasted('the plan may be too big'));
+      },
+      'group-taste',
+    );
     run('implement', done);
     run('one', tasted('the first risk'));
     run('two', tasted('the second risk'));

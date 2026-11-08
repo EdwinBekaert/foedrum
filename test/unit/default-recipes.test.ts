@@ -87,7 +87,12 @@ describe('the default plan lens (ADR 0312)', () => {
     const files = readBreweryFiles(join(root, '..', 'no-brewery'));
     const steps = [
       { id: 'plan', brewer: 'brewmaster' },
-      { id: 'naive', brewer: 'taster', lens: 'plan/naive-reader' },
+      {
+        id: 'naive',
+        brewer: 'taster',
+        lens: 'plan/naive-reader',
+        onFindings: { goto: 'plan', maxRounds: 1 },
+      },
     ];
     const kettle = { name: 'kettle', description: 'Plan, then read it.', testFirst: false, steps };
     const loaded = loadRecipes({
@@ -98,4 +103,38 @@ describe('the default plan lens (ADR 0312)', () => {
     const lens = loaded.brewers.find('kettle', 'naive')?.lenses?.get('plan/naive-reader');
     assert.equal(lens?.path, 'defaults/lenses/plan/naive-reader.md');
   });
+});
+
+describe("the default recipes' Tasters, every finding routed (ADR 0354)", () => {
+  const loaded = loadRecipes(readBreweryFiles(join(root, '..', 'no-brewery')));
+
+  it('every default recipe loads', () => {
+    assert.ok(loaded.valid, loaded.valid ? '' : loaded.problems.join('\n'));
+  });
+
+  for (const [name, children] of [
+    ['mash', ['coverage', 'sizing', 'naive-reader']],
+    [
+      'decoction',
+      [
+        'coverage',
+        'sizing',
+        'naive-reader',
+        'order-and-overlap',
+        'testability',
+        'recipe-fit',
+        'security',
+      ],
+    ],
+  ] as const) {
+    it(`${name} sends every plan lens's findings back to the plan, twice at most in all`, () => {
+      assert.ok(loaded.valid);
+      const recipe = loaded.recipes.find(name);
+      assert.deepEqual(recipe?.children('taste'), [...children]);
+      for (const child of children) {
+        assert.equal(recipe.routesTo(child, 'findings'), 'plan', child);
+        assert.equal(recipe.maxRounds(child, 'findings'), 2, child);
+      }
+    });
+  }
 });

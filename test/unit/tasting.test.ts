@@ -1,7 +1,7 @@
 // Tasting through lenses (#26, ADR 0017, ADR 0161): a recipe's lens step runs the default Taster
 // with the lens's text as an input, and its findings reach the pull request and the status
-// comment. Advisory by default; with "blocking": true a changes verdict sends the batch back along
-// the step's onBlocked route, then makes it Stuck. Played on the fake brewer runner: no model.
+// comment. Every finding sends the batch back along the step's onFindings route, then makes it
+// Stuck (ADR 0354). Played on the fake brewer runner: no model.
 
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -97,12 +97,17 @@ const tasted = (verdict: string, findings: readonly unknown[], summary = 'Tasted
   };
 };
 
-/** Brews `recipe` from `files` on the fake runner, with each step's limits from its brewer. */
+/**
+ * Brews `recipe` from `files` on the fake runner, with each step's limits from its brewer; with
+ * `advisory`, every Taster settles as an older Foedrum's advisory step did, succeeding with its
+ * findings, which this version's every Taster sends back instead (ADR 0354).
+ */
 const brew = async (
   files: BreweryFiles,
   recipe: string,
   scripts: (attempt: { stepId: string }) => Behaviour | undefined,
   seen?: (batch: Batch, attempt: { batchId: string; stepId: string; attempt: number }) => void,
+  advisory = false,
 ): Promise<{ events: Event[]; batch: Batch }> => {
   const store = openSqliteEventStore(':memory:');
   try {
@@ -119,7 +124,7 @@ const brew = async (
         const found = brewers.find(recipe, stepId);
         return found === undefined
           ? defaultLimits
-          : attemptLimits(found.brewer, undefined, found.blocking, found.together);
+          : attemptLimits(found.brewer, undefined, found.blocking && !advisory, found.together);
       },
       clock: () => new Date('2026-10-23T12:00:00.000Z'),
     });
@@ -152,15 +157,25 @@ const startedSteps = (events: readonly Event[]): string[] =>
 describe('the tasting room: one lens step per lens, one after another (#26)', () => {
   const room = withRecipe('tasting-room', [
     { id: 'implement', brewer: 'cellarman' },
-    ...LENSES.map((lens) => ({ id: lens, brewer: 'taster', lens: `diff/${lens}` })),
+    ...LENSES.map((lens) => ({
+      id: lens,
+      brewer: 'taster',
+      lens: `diff/${lens}`,
+      onFindings: { goto: 'implement', maxRounds: 1 },
+    })),
     { action: 'openPullRequest' },
   ]);
 
   it("reports each planted defect from its own Taster's attempt, and still reaches the pull request", async () => {
-    const { events, batch } = await brew(room, 'tasting-room', ({ stepId }) =>
-      stepId in PLANTED
-        ? tasted('changes', [PLANTED[stepId]], `One finding through diff/${stepId}`)
-        : behave.succeed(),
+    const { events, batch } = await brew(
+      room,
+      'tasting-room',
+      ({ stepId }) =>
+        stepId in PLANTED
+          ? tasted('changes', [PLANTED[stepId]], `One finding through diff/${stepId}`)
+          : behave.succeed(),
+      undefined,
+      true,
     );
     assert.deepEqual(startedSteps(events), ['implement', ...LENSES, 'open-pull-request']);
     assert.deepEqual(batch.lane, { kind: 'on_tap', pullRequests: [PULL_REQUEST] });
@@ -193,15 +208,14 @@ describe('the tasting room: one lens step per lens, one after another (#26)', ()
   });
 });
 
-describe('a blocking lens step (#26, ADR 0161)', () => {
+describe('a lens step whose findings go back (#26, ADR 0161, ADR 0354)', () => {
   const blocking = withRecipe('stout', [
     { id: 'implement', brewer: 'cellarman' },
     {
       id: 'correctness',
       brewer: 'taster',
       lens: 'diff/correctness',
-      blocking: true,
-      onBlocked: { findings: { goto: 'implement', maxRounds: 1 } },
+      onFindings: { goto: 'implement', maxRounds: 1 },
     },
     { action: 'openPullRequest' },
   ]);
@@ -257,7 +271,12 @@ describe('a blocking lens step (#26, ADR 0161)', () => {
 describe('the default Taster (defaults/brewers/taster.md)', () => {
   const room = withRecipe('amber', [
     { id: 'implement', brewer: 'cellarman' },
-    { id: 'correctness', brewer: 'taster', lens: 'diff/correctness' },
+    {
+      id: 'correctness',
+      brewer: 'taster',
+      lens: 'diff/correctness',
+      onFindings: { goto: 'implement', maxRounds: 1 },
+    },
     { action: 'openPullRequest' },
   ]);
 
@@ -509,9 +528,13 @@ describe('the default Taster (defaults/brewers/taster.md)', () => {
     it('a plan Taster still reads the instructions only when its lens asks, and its body says what it read: regression test', () => {
       const planned: BreweryFiles = {
         ...withRecipe('amber', [
-          { id: 'coverage', brewer: 'taster', lens: 'plan/coverage' },
-          { id: 'implement', brewer: 'cellarman' },
-          { action: 'openPullRequest' },
+          { id: 'plan', brewer: 'brewmaster' },
+          {
+            id: 'coverage',
+            brewer: 'taster',
+            lens: 'plan/coverage',
+            onFindings: { goto: 'plan', maxRounds: 1 },
+          },
         ]),
         lenses: [{ path: 'lenses/plan/coverage.md', text: 'Look at what the plan covers.' }],
       };
@@ -716,39 +739,8 @@ describe('the default Taster (defaults/brewers/taster.md)', () => {
     assert.match(change, /\[cut: the rest is past the change input's limit of 262144 bytes\]$/);
   });
 
-  it('fails the plan of a Taster that reviews a plan before the batch has one, reading no change', async () => {
-    const planned: BreweryFiles = {
-      ...withRecipe('amber', [
-        { id: 'correctness', brewer: 'taster', lens: 'plan/coverage' },
-        { id: 'implement', brewer: 'cellarman' },
-        { action: 'openPullRequest' },
-      ]),
-      lenses: [{ path: 'lenses/plan/coverage.md', text: 'Look at what the plan covers.' }],
-    };
-    const { plan, calls } = await planTaster(answers, planned);
-    await assert.rejects(
-      plan,
-      /^Error: the input "plan" needs the batch's plan, which it has none of yet$/,
-    );
-    assert.deepEqual(calls, []);
-  });
-
-  it("gives the runner a Taster's schema, and blocking only on a blocking step", async () => {
-    const blocking = withRecipe('amber', [
-      { id: 'implement', brewer: 'cellarman' },
-      {
-        id: 'correctness',
-        brewer: 'taster',
-        lens: 'diff/correctness',
-        blocking: true,
-        onBlocked: { findings: { goto: 'implement', maxRounds: 1 } },
-      },
-      { action: 'openPullRequest' },
-    ]);
-    for (const [files, expected] of [
-      [blocking, { blocking: true }],
-      [room, {}],
-    ] as const) {
+  it("gives the runner a Taster's schema, blocking on its findings, as every Taster's step has a findings route (ADR 0354)", async () => {
+    for (const [files, expected] of [[room, { blocking: true }]] as const) {
       const { outDoc, ...rest } = (await planTaster(answers, files)).limits;
       assert.equal(outDoc.file, 'taste.md');
       // A Taster's out doc, read with its findings and verdict.
@@ -762,7 +754,12 @@ describe('the default Taster (defaults/brewers/taster.md)', () => {
   describe('a step of several lenses together (#560, ADR 0220)', () => {
     const together = withRecipe('amber', [
       { id: 'implement', brewer: 'cellarman' },
-      { id: 'correctness', brewer: 'taster', lenses: ['diff/acceptance', 'diff/correctness'] },
+      {
+        id: 'correctness',
+        brewer: 'taster',
+        lenses: ['diff/acceptance', 'diff/correctness'],
+        onFindings: { goto: 'implement', maxRounds: 1 },
+      },
       { action: 'openPullRequest' },
     ]);
     const lensText = (name: string) =>
@@ -906,6 +903,7 @@ describe('the tasting room in one parallel group (#428, ADR 0168)', () => {
     {
       id: 'tasting',
       parallel: LENSES.map((lens) => ({ id: lens, brewer: 'taster', lens: `diff/${lens}` })),
+      onFindings: { goto: 'implement', maxRounds: 1 },
     },
     { action: 'openPullRequest' },
   ]);
@@ -915,7 +913,7 @@ describe('the tasting room in one parallel group (#428, ADR 0168)', () => {
       : behave.succeed();
 
   it('reports each planted defect from its own attempt, all of them started before any ended', async () => {
-    const { events, batch } = await brew(room, 'tasting-room', planted);
+    const { events, batch } = await brew(room, 'tasting-room', planted, undefined, true);
     const at = (type: Event['type']) =>
       events.flatMap((event, index) =>
         event.type === type && 'stepId' in event && LENSES.includes(event.stepId) ? [index] : [],
@@ -1027,7 +1025,12 @@ describe('the tasting room in one parallel group (#428, ADR 0168)', () => {
 });
 
 describe('a step of several lenses together, brewed (#560, ADR 0220)', () => {
-  const step = { id: 'taste', brewer: 'taster', lenses: ['diff/correctness', 'diff/security'] };
+  const step = {
+    id: 'taste',
+    brewer: 'taster',
+    lenses: ['diff/correctness', 'diff/security'],
+    onFindings: { goto: 'implement', maxRounds: 1 },
+  };
   const porter = (fields: Record<string, unknown> = {}) =>
     withRecipe('porter', [
       { id: 'implement', brewer: 'cellarman' },
@@ -1038,10 +1041,7 @@ describe('a step of several lenses together, brewed (#560, ADR 0220)', () => {
   const security = { ...PLANTED.security, lens: 'diff/security' };
 
   it("blocks a blocking step on any lens's changes, with every lens's findings open on the Stuck reason", async () => {
-    const files = porter({
-      blocking: true,
-      onBlocked: { findings: { goto: 'implement', maxRounds: 1 } },
-    });
+    const files = porter();
     const { brewers, recipes } = valid(loadRecipes(files));
     const routes: ({ source: unknown } | undefined)[] = [];
     const { events, batch } = await brew(
@@ -1118,8 +1118,15 @@ describe('a step of several lenses together, brewed (#560, ADR 0220)', () => {
   it("shows each finding's lens in the pull request body and the status comment, ten per lens", async () => {
     const files = porter();
     const many = Array.from({ length: 12 }, (_, at) => ({ ...correctness, line: at + 1 }));
-    const { batch } = await brew(files, 'porter', ({ stepId }) =>
-      stepId === 'taste' ? tasted('changes', [...many, security], 'Two lenses') : behave.succeed(),
+    const { batch } = await brew(
+      files,
+      'porter',
+      ({ stepId }) =>
+        stepId === 'taste'
+          ? tasted('changes', [...many, security], 'Two lenses')
+          : behave.succeed(),
+      undefined,
+      true,
     );
     assert.deepEqual(batch.lane, { kind: 'on_tap', pullRequests: [PULL_REQUEST] });
     const { body } = pullRequestText({
@@ -1150,8 +1157,13 @@ describe('a step of several lenses together, brewed (#560, ADR 0220)', () => {
     const mixed = many.flatMap((finding, at) =>
       at % 4 === 3 ? [finding, { ...security, line: at }] : [finding],
     );
-    const { batch } = await brew(files, 'porter', ({ stepId }) =>
-      stepId === 'taste' ? tasted('changes', mixed, 'Two lenses') : behave.succeed(),
+    const { batch } = await brew(
+      files,
+      'porter',
+      ({ stepId }) =>
+        stepId === 'taste' ? tasted('changes', mixed, 'Two lenses') : behave.succeed(),
+      undefined,
+      true,
     );
     const status = renderStatus(batch, valid(loadRecipes(files)).recipes.find('porter')?.steps);
     const lines = status.split('\n').filter((line) => line.startsWith('- `taste`: '));
@@ -1166,7 +1178,12 @@ describe('a step of several lenses together, brewed (#560, ADR 0220)', () => {
   it('shows ten findings of a one-lens step in all, also when some name its lens (review of #571)', async () => {
     const files = withRecipe('porter', [
       { id: 'implement', brewer: 'cellarman' },
-      { id: 'taste', brewer: 'taster', lens: 'diff/correctness' },
+      {
+        id: 'taste',
+        brewer: 'taster',
+        lens: 'diff/correctness',
+        onFindings: { goto: 'implement', maxRounds: 1 },
+      },
       { action: 'openPullRequest' },
     ]);
     const unnamed = { ...PLANTED.correctness, severity: 'minor' };

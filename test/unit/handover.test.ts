@@ -343,7 +343,12 @@ describe('an unaccepted proposal and later prompts', () => {
             'amber',
             [
               { id: 'plan', brewer: 'brewmaster' },
-              { id: 'taste', brewer: 'taster', lens: 'plan/naive-reader' },
+              {
+                id: 'taste',
+                brewer: 'taster',
+                lens: 'plan/naive-reader',
+                onFindings: { goto: 'plan', maxRounds: 1 },
+              },
             ],
             { testFirst: false },
           ),

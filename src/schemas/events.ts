@@ -489,7 +489,7 @@ export const MutantRecord = z.strictObject({
 export type MutantRecord = z.infer<typeof MutantRecord>;
 
 /**
- * The findings of an attempt blocked by findings, a blocking Taster's `changes` (ADR 0221): the
+ * The findings of an attempt blocked by findings, a routed Taster's (ADR 0221, ADR 0354): the
  * first of them, cut as a Stuck reason's open findings are, and how many more there were.
  */
 export const RecordedFindings = z.strictObject({
@@ -811,7 +811,7 @@ export const Event = z.discriminatedUnion('type', [
     // Ended as claude hit a usage limit: it counts against no retry, and its step runs again once
     // the usage window reopens (ADR 0206).
     usageLimited: z.literal(true).optional(),
-    // A blocking Taster's findings, when it asked for changes (ADR 0221).
+    // A routed Taster's findings, whatever its verdict (ADR 0221, ADR 0354).
     findings: RecordedFindings.optional(),
     // A check step's: the test map it found stale without failing for it (ADR 0282).
     staleMap: StaleMap.optional(),

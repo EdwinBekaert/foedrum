@@ -345,6 +345,7 @@ describe('runBrew', () => {
             {
               id: 'taste',
               parallel: TASTERS.map((id) => ({ id, brewer: 'taster', lens: `diff/${id}` })),
+              onFindings: { goto: 'brew', maxRounds: 1 },
             },
             { action: 'openPullRequest' },
           ],

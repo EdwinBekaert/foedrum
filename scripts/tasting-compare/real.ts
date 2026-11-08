@@ -12,6 +12,7 @@ import { z } from '../../src/schemas/zod.ts';
 import type { FakeApiComment } from '../../test/helpers/fake-github-api.ts';
 import type { Scripted } from '../../test/helpers/nip-fixture.ts';
 import {
+  backTo,
   escapeCell,
   IMPLEMENT,
   nextRunOf,
@@ -140,24 +141,25 @@ export const realRecipeOf = (setup: RealSetup): string => {
 const RECIPES: Record<string, { description: string; taste: Record<string, unknown> }> = {
   [REAL_RECIPE]: {
     description:
-      'A head as it was brewed, tasted by correctness, acceptance and security, nothing blocking',
-    taste: { id: TASTE, parallel: TASTERS },
+      'A head as it was brewed, tasted by correctness, acceptance and security, one round tasted',
+    taste: { id: TASTE, parallel: TASTERS, ...backTo(IMPLEMENT) },
   },
   [REAL_LENS_RECIPE]: {
     description:
-      'A head as it was brewed, tasted by correctness, acceptance, security and design conformance, nothing blocking',
-    taste: { id: TASTE, parallel: LENS_TASTERS },
+      'A head as it was brewed, tasted by correctness, acceptance, security and design conformance, one round tasted',
+    taste: { id: TASTE, parallel: LENS_TASTERS, ...backTo(IMPLEMENT) },
   },
   [REAL_TOGETHER_RECIPE]: {
     description:
-      'A head as it was brewed, tasted by correctness, acceptance and security together in one Taster, nothing blocking',
-    taste: TOGETHER,
+      'A head as it was brewed, tasted by correctness, acceptance and security together in one Taster, one round tasted',
+    taste: { ...TOGETHER, ...backTo(IMPLEMENT) },
   },
 };
 
 /**
- * The scripted implementer, `setup`'s Tasters with nothing blocking, so every run ends, and the pull
- * request a recipe that commits must open (ADR 0084). No check runs, and the Gauger is skipped as
+ * The scripted implementer, `setup`'s Tasters, whose findings send the batch back to it, and its
+ * next turn ends the run after that first round (ADR 0354), and the pull request a recipe that
+ * commits must open (ADR 0084). No check runs, and the Gauger is skipped as
  * testFirst off skips it (ADR 0224).
  */
 export const realRecipeText = (setup: RealSetup): string => {

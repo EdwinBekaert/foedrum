@@ -740,11 +740,17 @@ describe('tasting-compare --real', () => {
       assert.doesNotMatch(description ?? '', /design conformance/);
     });
 
-    it('blocks nowhere, so every run ends', () => {
+    it('sends findings back to the scripted step once, whose next turn ends the run (ADR 0354)', () => {
       for (const step of tasteOf(realRecipeText('855-reads'))) {
         assert.equal(step.blocking, undefined, step.id);
         assert.equal(step.onBlocked, undefined, step.id);
       }
+      const recipe = Recipe.parse(parseJsonc(realRecipeText('855-reads')));
+      const taste = recipe.steps.find((step) => 'parallel' in step);
+      assert.deepEqual(taste && 'onFindings' in taste ? taste.onFindings : undefined, {
+        goto: 'implement',
+        maxRounds: 1,
+      });
     });
 
     it('is named as the label of every order, loads as a Brewery file, and opens a pull request', () => {
@@ -804,7 +810,7 @@ describe('tasting-compare --real', () => {
         ]);
       });
 
-      it('its recipe blocks nowhere, so every run ends', () => {
+      it('its recipe blocks no Taster on its own, so every run ends after one round', () => {
         for (const step of tasteOf(lensRecipe())) {
           assert.equal(step.blocking, undefined, step.id);
           assert.equal(step.onBlocked, undefined, step.id);
@@ -1535,7 +1541,11 @@ describe('tasting-compare --real: the opus and high setups (ADR 0344)', () => {
       assert.equal(realRecipeOf('855-opus-together'), 'real-nip-together');
       const recipe = Recipe.parse(parseJsonc(files['recipes/real-nip-together.jsonc'] ?? ''));
       const tasters = recipe.steps.filter((step) => 'brewer' in step && step.brewer === 'taster');
-      assert.deepEqual(tasters, [{ id: 'together', brewer: 'taster', lenses: NIP_LENSES }]);
+      // Its findings go back to the scripted step, whose next turn ends the run (ADR 0354).
+      const back = { goto: 'implement', maxRounds: 1 };
+      assert.deepEqual(tasters, [
+        { id: 'together', brewer: 'taster', lenses: NIP_LENSES, onFindings: back },
+      ]);
       assert.equal(
         recipe.steps.some((step) => 'parallel' in step),
         false,
@@ -1551,7 +1561,7 @@ describe('tasting-compare --real: the opus and high setups (ADR 0344)', () => {
       assert.deepEqual(line, commandLine('855-opus-bare'));
     });
 
-    it('the together recipe loads as a Brewery file, blocks nowhere, and opens a pull request', () => {
+    it('the together recipe loads as a Brewery file, tastes one round, and opens a pull request', () => {
       const files = realBreweryFiles('855-opus-together', REAL_TASTERS);
       const brewery = makeTempDir('tasting-compare-real');
       try {
@@ -1810,7 +1820,11 @@ describe('tasting-compare --real: the opus and high setups (ADR 0344)', () => {
       assert.equal(realRecipeOf('855-high-together'), 'real-nip-together');
       const recipe = Recipe.parse(parseJsonc(files['recipes/real-nip-together.jsonc'] ?? ''));
       const tasters = recipe.steps.filter((step) => 'brewer' in step && step.brewer === 'taster');
-      assert.deepEqual(tasters, [{ id: 'together', brewer: 'taster', lenses: NIP_LENSES }]);
+      // Its findings go back to the scripted step, whose next turn ends the run (ADR 0354).
+      const back = { goto: 'implement', maxRounds: 1 };
+      assert.deepEqual(tasters, [
+        { id: 'together', brewer: 'taster', lenses: NIP_LENSES, onFindings: back },
+      ]);
       assert.equal(
         files['brewers/taster.md'],
         realBreweryFiles('855-high-bare', REAL_TASTERS)['brewers/taster.md'],

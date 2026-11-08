@@ -62,12 +62,17 @@ export const fakeRecipe = ({
   const opens = steps.find((stepId) => actions[stepId] === 'openPullRequest');
   const groupOf = (stepId: string): string | undefined =>
     Object.entries(groups).find(([, children]) => children.includes(stepId))?.[0];
-  // As the loaded recipe does, a route counts the attempts of its goto step it scheduled.
+  // As the loaded recipe does, a route counts the attempts of its goto step it scheduled, and the
+  // children of a group share its findings route's rounds (ADR 0354).
   const roundsOf: Recipe['rounds'] = (batch, stepId, why) => {
     const goto = routes[stepId]?.[why];
     if (goto === undefined) return undefined;
+    const group = groupOf(stepId);
+    const from = why === 'findings' && group !== undefined ? (groups[group] ?? []) : [stepId];
     const attempts = [...(batch.steps.get(goto)?.attempts.values() ?? [])];
-    return attempts.filter(({ route }) => route?.from === stepId && route.why === why).length;
+    return attempts
+      .filter(({ route }) => route !== undefined && from.includes(route.from))
+      .filter(({ route }) => route?.why === why).length;
   };
   return {
     firstStep,

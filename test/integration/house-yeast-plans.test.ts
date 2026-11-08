@@ -51,7 +51,12 @@ const loaded = loadRecipes({
         'amber',
         [
           { id: 'implement', brewer: 'cellarman' },
-          { id: 'correctness', brewer: 'taster', lens: 'diff/correctness' },
+          {
+            id: 'correctness',
+            brewer: 'taster',
+            lens: 'diff/correctness',
+            onFindings: { goto: 'implement', maxRounds: 1 },
+          },
           { action: 'openPullRequest' },
         ],
         { testFirst: false },

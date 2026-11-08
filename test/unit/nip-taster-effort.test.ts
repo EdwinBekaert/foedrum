@@ -142,8 +142,19 @@ describe("nip's Tasters at high effort, without the Taster's read of the rules (
             'amber',
             [
               { id: 'implement', brewer: 'cellarman' },
-              { id: 'deep', brewer: 'taster', lens: 'diff/correctness', effort: 'xhigh' },
-              { id: 'plain', brewer: 'taster', lens: 'diff/correctness' },
+              {
+                id: 'deep',
+                brewer: 'taster',
+                lens: 'diff/correctness',
+                effort: 'xhigh',
+                onFindings: { goto: 'implement', maxRounds: 1 },
+              },
+              {
+                id: 'plain',
+                brewer: 'taster',
+                lens: 'diff/correctness',
+                onFindings: { goto: 'implement', maxRounds: 1 },
+              },
               { action: 'openPullRequest' },
             ],
             { testFirst: false },
@@ -165,7 +176,13 @@ describe("nip's Tasters at high effort, without the Taster's read of the rules (
             'amber',
             [
               { id: 'implement', brewer: 'cellarman' },
-              { id: 'deep', brewer: 'taster', lens: 'diff/correctness', effort },
+              {
+                id: 'deep',
+                brewer: 'taster',
+                lens: 'diff/correctness',
+                effort,
+                onFindings: { goto: 'implement', maxRounds: 1 },
+              },
               { action: 'openPullRequest' },
             ],
             { testFirst: false },

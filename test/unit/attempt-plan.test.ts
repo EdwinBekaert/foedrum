@@ -431,7 +431,9 @@ describe("attemptLimits: a Taster's verdict (ADR 0161)", () => {
     invalid('changes', []);
     invalid('changes', [minor]);
     invalid('changes', [before]);
-    assert.equal(ended('approve', true, [minor, before]).kind, 'succeeded');
+    // A valid approval with findings blocks a routed step all the same (ADR 0354).
+    assert.equal(ended('approve', true, [minor, before]).kind, 'blocked');
+    assert.equal(ended('approve', false, [minor, before]).kind, 'succeeded');
     assert.equal(ended('changes', true, [major, minor]).kind, 'blocked');
   });
 

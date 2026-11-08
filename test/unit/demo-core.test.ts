@@ -167,18 +167,13 @@ describe('the demo Brewery', () => {
     const group = {
       id: 'taste',
       parallel: [
-        // The one lens that blocks: its changes send the batch back to implement once (ADR 0193).
-        {
-          id: 'correctness',
-          brewer: 'taster',
-          lens: 'diff/correctness',
-          blocking: true,
-          onBlocked: { findings: { goto: 'implement', maxRounds: 1 } },
-        },
+        { id: 'correctness', brewer: 'taster', lens: 'diff/correctness' },
         { id: 'security', brewer: 'taster', lens: 'diff/security' },
         { id: 'test-design', brewer: 'taster', lens: 'diff/test-design' },
         { id: 'design-conformance', brewer: 'taster', lens: 'diff/design-conformance' },
       ],
+      // Every lens's findings send the batch back to implement once (ADR 0193, ADR 0354).
+      onFindings: { goto: 'implement', maxRounds: 1 },
     };
     // Brett mutates the change after the group, advisory (ADR 0319).
     const mutants = { id: 'mutants', brewer: 'brett' };
@@ -223,7 +218,7 @@ describe('problemsOf', () => {
   // plan, Stuck for review; and its status comment and plan comment.
   const mashed = 'foedrum mash: #3 needs input at innkeep:\n';
   const planned =
-    'foedrum brew: #3 is stuck: the plan of plan #1 is ready for your review; options: retry\n';
+    'foedrum brew: #3 is stuck: the plan of plan #2 is ready for your review; options: retry\n';
   const statusComment = { author: 'cellar-bot', body: '### Foedrum · batch `3-1`\n\nStuck' };
   const planComment = { author: 'cellar-bot', body: `${PLAN_HEADING} \`3-1\`` };
   const run = (fields: Partial<DemoRun> = {}): DemoRun => ({

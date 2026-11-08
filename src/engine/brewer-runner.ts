@@ -19,6 +19,7 @@ import type { ScanFinding } from '../schemas/store.ts';
 import type { z } from '../schemas/zod.ts';
 import type { AttemptRef } from './attempt-key.ts';
 import type { Ending } from './decide.ts';
+import { APPROVES_WITH_FINDINGS, ASKS_CHANGES } from './fold.ts';
 import type { ProgressSource } from './supervisor.ts';
 
 /** What the runner enforces for one attempt and where the brewer reports its outcome. */
@@ -40,8 +41,9 @@ export interface AttemptLimits {
    */
   readableBody?: true;
   /**
-   * For a blocking step: a Taster's `done` with the verdict `changes` is blocked by findings (ADR
-   * 0161), and a Brett attempt with a surviving mutant is (ADR 0319).
+   * For a blocking step: a Taster's `done` with any finding, or the verdict `changes`, is blocked
+   * by findings, as its step has a findings route (ADR 0161, ADR 0354), and a Brett attempt with a
+   * surviving mutant is (ADR 0319).
    */
   blocking?: boolean;
   /**
@@ -353,16 +355,16 @@ export function settleAttempt(facts: AttemptFacts, limits: AttemptLimits): Endin
   const frontmatter = read.frontmatter;
   switch (frontmatter.status) {
     case 'done':
-      // The engine reads the verdict; the Taster does not choose to block (ADR 0161).
-      if (
-        limits.blocking === true &&
-        'verdict' in frontmatter &&
-        frontmatter.verdict === 'changes'
-      ) {
-        const summary = `the Taster asks for changes: ${frontmatter.summary}`;
+      // The engine reads the out doc; the Taster does not choose to block (ADR 0161). Every
+      // finding of a routed Taster goes back, whatever its verdict (ADR 0354).
+      if (limits.blocking === true && 'verdict' in frontmatter) {
         // The findings stay open on the Stuck reason when the route has no rounds left (ADR 0192).
         const findings = tastingOf(frontmatter)?.findings ?? [];
-        return { kind: 'blocked', blockerKind: 'findings', summary, findings };
+        if (frontmatter.verdict === 'changes' || findings.length > 0) {
+          const said = frontmatter.verdict === 'changes' ? ASKS_CHANGES : APPROVES_WITH_FINDINGS;
+          const summary = `${said}: ${frontmatter.summary}`;
+          return { kind: 'blocked', blockerKind: 'findings', summary, findings };
+        }
       }
       if (limits.readableBody === true) {
         const unread = unreadableBody(read.body, frontmatter);

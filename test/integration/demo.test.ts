@@ -168,9 +168,12 @@ describe('npm run demo', () => {
     );
     assert.match(
       report,
-      /diff\/design-conformance .*\n +2 rounds, 1 finding: 1 minor\n +ended: 1 open\n/,
+      /diff\/design-conformance .*\n +2 rounds, 1 finding: 1 minor\n +ended: 1 dismissed\n/,
     );
-    assert.match(report, /diff\/security .*\n +2 rounds, 1 finding: 1 minor\n +ended: 1 open\n/);
+    assert.match(
+      report,
+      /diff\/security .*\n +2 rounds, 1 finding: 1 minor\n +ended: 1 dismissed\n/,
+    );
     // foedrum brew orders the second issue, routes it by its label, and drives it to on tap.
     const brew = part('brew');
     assert.ok(brew.includes(`$ foedrum brew ${BREW_ORDER.number} --as ${USER}\n`), brew);
@@ -248,11 +251,11 @@ describe('npm run demo', () => {
       'implement#2 succeeded',
       'fine#2 succeeded',
       'green#2 succeeded',
-      // Round 1: correctness blocks with its finding, and the batch goes back to implement once.
+      // Round 1: every lens's finding goes back, and the batch goes back to implement once (ADR 0354).
       'correctness#1 failed',
-      'design-conformance#1 succeeded',
-      'security#1 succeeded',
-      'test-design#1 succeeded',
+      'design-conformance#1 failed',
+      'security#1 failed',
+      'test-design#1 failed',
       'implement#3 succeeded',
       'fine#3 succeeded',
       'green#3 succeeded',
@@ -307,16 +310,16 @@ describe('npm run demo', () => {
       /brewing +correctness #2 started, security #2 started, test-design #2 started, design-conformance #2 started/,
     );
     // The status comment's path has both rounds, the four lenses side by side in each and a line
-    // where the batch went back to implement (#662), each failed attempt with why (#656), and each
-    // one's findings show under its own step.
+    // where the batch went back to implement (#662), and each failed attempt with why (#656); every
+    // lens approved round 2 with no finding, so none shows under its step (ADR 0354).
     const comment = host.comments(BREWERY, ORDER.number)[0]?.body ?? '';
     assert.match(comment, /Recipe \*\*nip-parallel\*\*/);
     assert.match(
       comment,
-      /`gauge #1` ❌ the attempt was lost → .*`green #1` ❌ the check "test" failed, 1 test failing\n→ .*`green #2` ✅ → `correctness #1` ❌ blocked \(findings\) → `security #1` ✅ → `test-design #1` ✅ → `design-conformance #1` ✅\n→ `implement #3` ✅ → `fine #3` ✅ → `green #3` ✅ → `correctness #2` ✅ → `security #2` ✅ → `test-design #2` ✅ → `design-conformance #2` ✅ → `mutants #1` ✅ → `open-pull-request #1` ✅/,
+      /`gauge #1` ❌ the attempt was lost → .*`green #1` ❌ the check "test" failed, 1 test failing\n→ .*`green #2` ✅ → `correctness #1` ❌ blocked \(findings\) → `security #1` ❌ blocked \(findings\) → `test-design #1` ❌ blocked \(findings\) → `design-conformance #1` ❌ blocked \(findings\)\n→ `implement #3` ✅ → `fine #3` ✅ → `green #3` ✅ → `correctness #2` ✅ → `security #2` ✅ → `test-design #2` ✅ → `design-conformance #2` ✅ → `mutants #1` ✅ → `open-pull-request #1` ✅/,
     );
     for (const lens of ['security', 'test-design', 'design-conformance']) {
-      assert.match(comment, new RegExp(`^- \`${lens}\`: minor in `, 'm'));
+      assert.doesNotMatch(comment, new RegExp(`^- \`${lens}\`: minor in `, 'm'));
     }
     // Brett's mutants ran in scratch trees: the one no test reaches survived, listed with its edit
     // under Findings, and the other was killed (ADR 0319).
@@ -377,11 +380,11 @@ describe('npm run demo', () => {
     assert.ok(mash.includes('$ foedrum answer 3 mash\n'), mash);
     assert.match(
       mash,
-      /foedrum brew: #3 is stuck: the plan of plan #1 is ready for your review; [^\n]*the plan: https:\/\/github\.com\/demo\/brewery\/issues\/3#issuecomment-\d+$/m,
+      /foedrum brew: #3 is stuck: the plan of plan #2 is ready for your review; [^\n]*the plan: https:\/\/github\.com\/demo\/brewery\/issues\/3#issuecomment-\d+$/m,
     );
     const stuck = mash.slice(mash.indexOf('$ foedrum stuck\n'));
     assert.ok(stuck.startsWith('$ foedrum stuck\n'), mash);
-    assert.match(stuck, /^ +3-1 +[^\n]*the plan of plan #1 is ready for your review(?:;|$)/m);
+    assert.match(stuck, /^ +3-1 +[^\n]*the plan of plan #2 is ready for your review(?:;|$)/m);
     assert.match(stuck, /^ {4}next: \S/m);
   });
 
@@ -393,7 +396,7 @@ describe('npm run demo', () => {
     const plan = mash.slice(heading);
     assert.match(
       plan,
-      /^ +Full plan: \[3-1\/plan-1\.md\]\(<https:\/\/github\.com\/demo\/brewery\/[^>]+>\)$/m,
+      /^ +Full plan: \[3-1\/plan-2\.md\]\(<https:\/\/github\.com\/demo\/brewery\/[^>]+>\)$/m,
     );
     assert.match(plan, /^ +\| Sub-order \| Size \| Recipe \| Depends on \| Ready \|$/m);
     assert.match(plan, /^ +```mermaid\n +flowchart LR\n/m);
@@ -405,7 +408,7 @@ describe('npm run demo', () => {
     assert.notEqual(planUrl, statusUrl);
     assert.ok(
       mash.includes(
-        `🔔 **Stuck**: the plan of \`plan\` #1 is ready for your review: [plan comment](<${planUrl}>)`,
+        `🔔 **Stuck**: the plan of \`plan\` #2 is ready for your review: [plan comment](<${planUrl}>)`,
       ),
       mash,
     );
@@ -424,15 +427,17 @@ describe('npm run demo', () => {
     );
   });
 
-  it('step 12 shows the three plan lenses after the plan, and their note in the Review (ADR 0321)', () => {
+  it("step 12 shows the three plan lenses after the plan, and the naive reader's note sending it back once (ADR 0321, ADR 0354)", () => {
     const mash = part('mash');
     assert.ok(
-      mash.includes('`plan #1` ✅ → `coverage #1` ✅ → `sizing #1` ✅ → `naive-reader #1` ✅'),
+      mash.includes(
+        '`plan #1` ✅ → `coverage #1` ✅ → `sizing #1` ✅ → `naive-reader #1` ❌ blocked (findings)',
+      ),
       mash,
     );
-    assert.match(
-      mash.slice(mash.indexOf('**Review**')),
-      /^ +- `naive-reader` #1: minor, advisory: readme: "one section" does not say where/m,
+    assert.ok(
+      mash.includes('`plan #2` ✅ → `coverage #2` ✅ → `sizing #2` ✅ → `naive-reader #2` ✅'),
+      mash,
     );
   });
 
