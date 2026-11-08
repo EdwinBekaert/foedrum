@@ -90,17 +90,14 @@ const preExistingOf = (batch: Batch): PreExisting[] => {
   );
 };
 
-const dueOf = (state: State, batchId: string): PreExisting[] => {
-  const batch = state.batches.get(batchId);
-  return batch === undefined ? [] : preExistingOf(batch);
-};
-
 /** The issues the ledger has for the pre-existing findings of `batchId`, in the order they are due. */
-export const filedIssues = (state: State, batchId: string): FiledIssue[] =>
-  dueOf(state, batchId).flatMap(({ key, stepId, finding }) => {
+export const filedIssues = (state: State, batchId: string): FiledIssue[] => {
+  const batch = state.batches.get(batchId);
+  return (batch === undefined ? [] : preExistingOf(batch)).flatMap(({ key, stepId, finding }) => {
     const opened = openedIssue(state, key);
     return opened === undefined ? [] : [{ number: opened.number, stepId, finding }];
   });
+};
 
 /** The issue of `found`: its title and body, every model text through the status comment's filters. */
 const issueOf = (state: State, batch: Batch, found: PreExisting) => {
