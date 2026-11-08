@@ -365,6 +365,21 @@ describe('preExistingIssueEffects (ADR 0356)', () => {
     assert.equal(quiet.issues.length, 0);
   });
 
+  it('cuts a long title at 200 characters, never inside one', async () => {
+    // The place puts a character of two UTF-16 units across the 200th unit of the title.
+    const prefix = 'Pre-existing: diff/correctness, minor in ';
+    // Short words, since one long run of letters looks like a secret and is left out whole.
+    const words = 'one-two '.repeat(40).slice(0, 199 - prefix.length - 'src/'.length);
+    const file = `src/${words}${String.fromCodePoint(0x1f600)}${' three'.repeat(8)}.ts`;
+    onTap([{ ...old, file }], [{ ...leftAsIt, file }]);
+    ended('merged');
+    const brewery = breweryInMemory();
+    const driver = await open(brewery.host);
+    await driver.tick();
+    const title = brewery.issues[0]?.title ?? '';
+    assert.equal(title, [...`${prefix}${file}:9`].slice(0, 200).join(''));
+  });
+
   it('titles the issue with the place as it is, not escaped as Markdown', async () => {
     onTap([{ ...old, file: 'src/__init__.py' }], [{ ...leftAsIt, file: 'src/__init__.py' }]);
     ended('merged');
