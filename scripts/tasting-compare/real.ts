@@ -127,9 +127,7 @@ const STEPS: ReadonlyMap<string, readonly string[]> = new Map([
 export const realRecipeOf = (setup: RealSetup): string => {
   const profile = profileOf(setup);
   if (profile === 'lens') return REAL_LENS_RECIPE;
-  return profile === 'opus-together' || profile === 'high-together'
-    ? REAL_TOGETHER_RECIPE
-    : REAL_RECIPE;
+  return profile.endsWith('-together') ? REAL_TOGETHER_RECIPE : REAL_RECIPE;
 };
 
 /** Each recipe's description and its Taster step. */
