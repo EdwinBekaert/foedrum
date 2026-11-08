@@ -169,4 +169,28 @@ describe('runApplyEffects (ADR 0355)', () => {
       ['cellar'],
     );
   });
+
+  it('applies the effects while another driver holds only another batch', async () => {
+    const setup = setupOf();
+    chosen(setup);
+    const expiresAt = new Date(t0.getTime() + 60_000);
+    store.withTransaction((tx) =>
+      tx.putBatchLease({ batchId: '13-1', owner: 'cellar', expiresAt }),
+    );
+    assert.deepStrictEqual(await runApplyEffects(setup, shell(), request), []);
+    const labels = api.issue('acme/brewery', 12)?.labels ?? [];
+    assert.ok(labels.includes('recipe:porter'), labels.join(', '));
+  });
+
+  it('says the effects wait when its driver cannot take its lock', async () => {
+    const setup = setupOf();
+    chosen(setup);
+    const lock = () => {
+      throw new Error('the driver recipe-4242 is already running');
+    };
+    assert.deepStrictEqual(await runApplyEffects(setup, shell({ lock }), request), [
+      'the recipe label and status comment go up at the next foedrum brew or foedrum serve: the driver recipe-4242 is already running',
+    ]);
+    assert.deepStrictEqual(api.issue('acme/brewery', 12)?.labels, []);
+  });
 });

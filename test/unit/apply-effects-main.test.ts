@@ -29,4 +29,18 @@ describe('applyEffectsFromCheckout (ADR 0355)', () => {
     };
     assert.deepStrictEqual(await linesOf(options), [`${later}the PATH cannot be read`]);
   });
+
+  it("says the effects wait with each of the setup's problems, where no Brewery is", async () => {
+    const options = {
+      exec: async () => ({ exitCode: 1, stdout: '', stderr: 'not here', output: 'not here' }),
+      resolve: () => undefined,
+    };
+    const lines = await linesOf(options);
+    assert.ok(lines.length > 0);
+    for (const line of lines) assert.ok(line.startsWith(later), line);
+    assert.ok(
+      lines.some((line) => /foedrum\.jsonc/.test(line)),
+      lines.join('\n'),
+    );
+  });
 });
