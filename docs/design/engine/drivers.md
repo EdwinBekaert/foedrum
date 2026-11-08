@@ -17,7 +17,7 @@ flowchart TD
   D --> P{"pollEvery passed, no pass underway,<br/>no rate-limit pause?"}
   P -->|"yes"| I["start an intake pass, not awaited<br/>order, claim, route"]
   P -->|"no"| T
-  I --> T["driver tick: leases, supervisor,<br/>attempts, effects"]
+  I --> T["driver tick: leases, supervisor,<br/>effects, attempts, effects"]
   T --> Z{"stop signal?"}
   Z -->|"no, wait 5 s"| P
   Z -->|"yes"| E["wait for the pass underway,<br/>stop the runs, let the lock go"]
@@ -35,6 +35,8 @@ A run whose end rejects (the runner broke, not the attempt) is stopped and recor
 An end whose record throws (deciding or appending its finish fails) is reported (`command_failed`) and keeps its lease until it expires, so the supervisor loses and retries its attempt ([ADR 0027](../../adr/0027-supervisor-lost-and-stalled-attempts.md)); a throw from the read of the state after a recorded end is reported as `command_failed` against that end's finish too, although that finish is recorded and its lease released: only the check whether its batch ended failed, and the driver's next look at the ended batches in the store still cleans its worktrees.
 Either way the other ends of the pass are still recorded and let their leases go: the driver takes them off its queue one at a time (#278, #289).
 Its supervisor acts on its own and the free batches only, and it applies a batch's effects only while it holds the batch's lease, renewed before each effect, one pass at a time, each within a deadline below the lease that aborts it ([ADR 0050](../../adr/0050-the-intake-of-target-repository-issues.md)).
+A tick passes over the effects before its drive and again after it, so what a person's command or the supervisor changed shows on the issue before a step starts; a batch whose effects failed in the first pass waits for the next tick, and only the second pass says a batch recovered ([ADR 0355](../../adr/0355-a-recipe-choice-and-a-brew-s-start-show-on-the-brewery-issue-at-once.md)).
+Steps that end at once (a survey with no session, a quick check) and the step they lead to start in one drive, so their status shows at the pass after it.
 A pass over one batch's effects that throws outside any one effect is reported (`batch_effects_failed`), what the pass already recorded stays and the next pass goes on from there, the other batches go on, and a batch that has ended stays held while its effects cannot be read and the others are let go ([ADR 0327](../../adr/0327-a-pass-over-one-batch-s-effects-that-throws-stops-no-other-batch.md)).
 A throw for one batch in the supervisor, the pass over the runs, the drive or an ended batch's cleanup is reported (`batch_failed`, naming the batch and the pass), and the other batches go on ([ADR 0328](../../adr/0328-one-batch-s-error-stops-no-other-in-the-supervisor-or-the-drive.md)).
 A batch that threw gets no command from that tick's supervisor, and its lost attempt's expired lease stays for the next tick, as does one whose `lose` threw.
