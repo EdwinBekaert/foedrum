@@ -131,6 +131,27 @@ describe('runApplyEffects (ADR 0355)', () => {
     assert.deepStrictEqual(api.issue('acme/brewery', 12)?.labels, []);
   });
 
+  it('says an effect that failed, and that the rest go up at the next brew or serve', async () => {
+    const setup = setupOf();
+    chosen(setup);
+    const { exec } = ghOver(api.fetch);
+    // GitHub answers all but the issue's labels.
+    const gh: ServeShell['gh'] = (file, args, options) =>
+      args.some((arg) => /issues\/12\/labels/.test(arg))
+        ? Promise.reject(new Error('the labels cannot be read'))
+        : exec(file, args, options);
+    const lines = await runApplyEffects(setup, shell({ gh }), request);
+    assert.equal(
+      lines.at(-1),
+      'the recipe label and status comment go up at the next foedrum brew or foedrum serve: an effect failed',
+    );
+    assert.ok(
+      lines.slice(0, -1).some((line) => line.includes('the labels cannot be read')),
+      lines.join('\n'),
+    );
+    assert.deepStrictEqual(store.batchLeases(t0), [], 'it lets the batch go');
+  });
+
   it('leaves the effects to the driver that holds the batch', async () => {
     const setup = setupOf();
     chosen(setup);

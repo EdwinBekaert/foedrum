@@ -1205,6 +1205,18 @@ describe('foedrum: commands that change state', () => {
       assert.deepStrictEqual(applied, ['22-1']);
     });
 
+    it('applies no effects for a choice it refused (ADR 0355)', async () => {
+      const applyEffects = async () => assert.fail('nothing was chosen');
+      assert.deepStrictEqual(
+        await run(['recipe', '#23', 'stout', 'the plan needs an analysis'], { applyEffects }),
+        refused('recipe', '#23 is brewing; foedrum stop 23 first, then change its recipe'),
+      );
+      assert.deepStrictEqual(
+        await run(['recipe', '22-1', 'porter', 'why not'], { applyEffects }),
+        refused('recipe', 'the Brewery has no recipe porter'),
+      );
+    });
+
     it('refuses an issue whose batch is brewing, naming foedrum stop, and appends nothing', async () => {
       const before = lastId();
       assert.deepStrictEqual(
