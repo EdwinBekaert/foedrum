@@ -80,3 +80,17 @@ export function changedTestLines(
   }
   return found;
 }
+
+/**
+ * The files `attempt` changed or removed that lie in a separate test area of `modules` and that
+ * `atBase`, the batch's base, holds: an older test is the Gauger's to change, in a red commit
+ * (ADR 0358). New test files, and those only the batch added, change freely.
+ */
+export const olderTestFiles = (
+  _attempt: readonly DiffFile[],
+  _atBase: ReadonlySet<string>,
+  _modules: readonly EffectiveModule[],
+  _options: { foldCase: boolean },
+): string[] => {
+  throw new Error('not implemented');
+};

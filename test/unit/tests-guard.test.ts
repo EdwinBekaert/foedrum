@@ -622,6 +622,7 @@ describe('guardTests: regression tests', () => {
 });
 
 describe('guardTests on the test files the base holds (ADR 0358)', () => {
+  const older = 'test/older.test.mjs';
   /** A diff of the attempt that changes an assertion in each of `paths`. */
   const changing = (...paths: string[]) =>
     paths
@@ -635,11 +636,97 @@ describe('guardTests on the test files the base holds (ADR 0358)', () => {
       ])
       .concat('')
       .join('\n');
+  const flags =
+    '-c core.quotePath=false diff --no-color --no-ext-diff --no-textconv --text --no-renames --unified=0 --src-prefix=a/ --dst-prefix=b/';
+
+  it("fails an attempt that changed a test file the batch's base holds, naming it", async () => {
+    const before = { [older]: ['  assert.equal(add(1, 2), 3);'] };
+    const { calls, runner } = setup({ tip: tips.kept, before, changed: changing(older) });
+    const end = await runner.start({ ref, limits: defaultLimits }).ended;
+    assert.deepEqual(end.ending, {
+      kind: 'failed',
+      retryable: true,
+      reason:
+        "the guard testsUnchanged: the attempt changed a test file the batch's base holds, test/older.test.mjs: a test that must change goes back to the Gauger as a finding (ADR 0358)",
+    });
+    const asked = calls.map(({ args }) => args.join(' '));
+    // Its own change, from where it started to its branch, in the clone.
+    assert.ok(asked.includes(`${flags} ${implementStart} refs/heads/foedrum/12-1/implement/1 --`));
+    assert.ok(
+      asked.includes(`--literal-pathspecs ls-tree -z --full-tree ${gaugeStart} -- ${older}`),
+    );
+    assert.ok(calls.every(({ cwd }) => cwd === clone));
+  });
+
+  it('names how many more test files the base holds it changed', async () => {
+    const before = { [older]: ['a'], 'test/other.test.mjs': ['b'] };
+    const changed = changing(older, 'test/other.test.mjs');
+    const { runner } = setup({ tip: tips.kept, before, changed });
+    const end = await runner.start({ ref, limits: defaultLimits }).ended;
+    assert.equal(
+      end.ending.kind === 'failed' && end.ending.reason,
+      "the guard testsUnchanged: the attempt changed 2 test files the batch's base holds, test/older.test.mjs (and 1 more): a test that must change goes back to the Gauger as a finding (ADR 0358)",
+    );
+  });
+
+  it('lets an attempt change a test file the base does not hold, beside the red tests', async () => {
+    const changed = changing('test/new.test.mjs', 'test/add.test.mjs');
+    const { calls, runner } = setup({ tip: tips.kept, changed });
+    const end = await runner.start({ ref, limits: defaultLimits }).ended;
+    assert.equal(end.ending.kind, 'succeeded');
+    // It asked the base for them, and the base holds neither.
+    const listed = `${gaugeStart} -- test/new.test.mjs test/add.test.mjs`;
+    assert.ok(calls.some(({ args }) => args.join(' ').endsWith(listed)));
+  });
 
   it('lets an attempt change code the base holds', async () => {
     const before = { 'src/add.mjs': ['export const add = () => 0;'] };
     const { runner } = setup({ tip: tips.kept, before, changed: changing('src/add.mjs') });
     const end = await runner.start({ ref, limits: defaultLimits }).ended;
     assert.equal(end.ending.kind, 'succeeded');
+  });
+
+  it("reads the attempt's change from its start merge, against the moved base (ADR 0244)", async () => {
+    const moved = 'd'.repeat(40);
+    const mergedAt = 'e'.repeat(40);
+    const merged: Event = {
+      type: 'effect.applied',
+      key: effectKey.encode(baseMergeKey(ref)),
+      result: { base: moved, merged: mergedAt },
+    };
+    const { calls, runner } = setup({
+      events: [...ordered, ...gauged, ...implementing, merged],
+      maps: { [moved]: mapOf('test/**') },
+      tip: tips.kept,
+      listings: { [moved]: { [older]: ['a'] } },
+      changed: changing(older),
+    });
+    const end = await runner.start({ ref, limits: defaultLimits }).ended;
+    assert.equal(end.ending.kind, 'failed');
+    const asked = calls.map(({ args }) => args.join(' '));
+    assert.ok(asked.includes(`${flags} ${mergedAt} refs/heads/foedrum/12-1/implement/1 --`));
+  });
+
+  it('is blocked on the environment when git cannot read the base', async () => {
+    const tipFile = `100644 blob ${blobOf('test/add.test.mjs')}\ttest/add.test.mjs\0`;
+    const base: Git = (_cwd, args) => {
+      if (args.includes('ls-tree') && args.includes(older)) {
+        return Promise.resolve({ code: 128, stdout: '', stderr: 'fatal: not a tree object\n' });
+      }
+      // Where the proven step started, the red test file was not yet.
+      if (args.includes('ls-tree') && args.includes(gaugeStart)) return Promise.resolve(ok(''));
+      if (args.includes('ls-tree')) return Promise.resolve(ok(tipFile));
+      if (args.includes('cat-file')) return Promise.resolve(ok(`${gaugeLines.join('\n')}\n`));
+      const from = args[args.indexOf('--') - 2];
+      return Promise.resolve(ok(from === gaugeStart ? gaugeDiff : changing(older)));
+    };
+    const { runner } = setup({ git: base });
+    const end = await runner.start({ ref, limits: defaultLimits }).ended;
+    assert.deepEqual(end.ending, {
+      kind: 'blocked',
+      blockerKind: 'environment',
+      summary:
+        'the guard testsUnchanged cannot read the commits of step implement: fatal: not a tree object',
+    });
   });
 });
