@@ -1,5 +1,6 @@
 // Recipes: brewers, checks and actions in order, with loops (brewers-and-recipes §3).
 
+import { Effort } from './brewer.ts';
 import { LensName, PathSafeId } from './ids.ts';
 import { ModelAlias } from './models.ts';
 import { CheckName, CommandObject, Duration } from './primitives.ts';
@@ -80,6 +81,9 @@ const BrewerStep = z
     deadline: Duration.optional().describe("Overrides the brewer's deadline"),
     model: ModelAlias.optional().describe(
       "Overrides the brewer's model: an alias of models.jsonc; a blind-tasting swap of the brewer still wins (ADR 0321)",
+    ),
+    effort: Effort.optional().describe(
+      "Overrides the brewer's effort on this step; a blind-tasting swap of the brewer's model keeps it (ADR 0352)",
     ),
     interactive: z
       .literal(true)

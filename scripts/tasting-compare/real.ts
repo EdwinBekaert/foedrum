@@ -35,6 +35,12 @@ export const REAL_ORDERS = [
 
 /** The commit whose `taster.md` the `today` setup tastes with. */
 export const TODAY_COMMIT = '765cc856';
+/**
+ * The Taster every setup but `today` starts from, in the real fixture's folder: the default's text
+ * before ADR 0352, the last that told a diff Taster to read the rules, so each setup means what it
+ * meant when it was measured.
+ */
+export const READS_TASTER = 'taster-reads.md';
 
 type OrderNumber = (typeof REAL_ORDERS)[number]['order'];
 type Profile =
@@ -175,24 +181,24 @@ export const realRecipeText = (setup: RealSetup): string => {
 export interface Tasters {
   /** `today`'s pinned text, the one at `TODAY_COMMIT`. */
   today: string;
-  /** The Taster that reads the rules. */
+  /** The Taster that reads the rules, the fixture's `READS_TASTER` (ADR 0352). */
   reads: string;
 }
 
 const MEDIUM_EFFORT = '"effort": "medium"';
 
-/** The `high` setup's Taster: the default's text at another effort, and no other change. */
-export const highTaster = (current: string): string => {
-  if (current.split(MEDIUM_EFFORT).length !== 2) {
+/** The `high` setup's Taster: the reading Taster's text at another effort, and no other change. */
+export const highTaster = (reads: string): string => {
+  if (reads.split(MEDIUM_EFFORT).length !== 2) {
     throw new Error(
-      `the default Taster does not say ${MEDIUM_EFFORT} once: high would compare nothing`,
+      `the reading Taster does not say ${MEDIUM_EFFORT} once: high would compare nothing`,
     );
   }
-  return current.replace(MEDIUM_EFFORT, () => '"effort": "high"');
+  return reads.replace(MEDIUM_EFFORT, () => '"effort": "high"');
 };
 
 /**
- * What the `-bare` Taster leaves out of the default's text, each once (ADR 0347): the first bullet,
+ * What the `-bare` Taster leaves out of the reading Taster's text, each once (ADR 0347): the first bullet,
  * the sentence of "Read the change first" that points at the rules, the section's opening and its
  * "What to read" bullet, and the body's `Rules read:` line. The section's other bullets stay: they
  * say what the rules are to a Taster that reads them by itself.
@@ -206,19 +212,19 @@ const BARE_CUTS = [
 ] as const;
 
 /**
- * The `-bare` setups' Taster: the default's text without what tells it to read the rules, and no
- * other change (ADR 0347). A default that does not hold each cut once stops the comparison, as
+ * The `-bare` setups' Taster: the reading Taster's text without what tells it to read the rules, and
+ * no other change (ADR 0347). A text that does not hold each cut once stops the comparison, as
  * `highTaster` does, since a later edit could otherwise compare nothing.
  */
-export const bareTaster = (current: string): string =>
+export const bareTaster = (reads: string): string =>
   BARE_CUTS.reduce((text, cut) => {
     if (text.split(cut).length !== 2) {
       throw new Error(
-        `the default Taster does not hold this text once: bare would compare nothing: ${cut.slice(0, 80)}`,
+        `the reading Taster does not hold this text once: bare would compare nothing: ${cut.slice(0, 80)}`,
       );
     }
     return text.replace(cut, () => '');
-  }, current);
+  }, reads);
 
 /**
  * A comparison's name: lower-case letters, digits and `-`, starting with a letter or a digit, so it
@@ -249,8 +255,11 @@ const OPUS_MODELS = `${JSON.stringify({ models: { opus: 'opus' }, brewers: { tas
 /** The setups that put the Taster on Opus. */
 const ON_OPUS: ReadonlySet<Profile | 'comments'> = new Set(['opus', 'opus-bare', 'opus-together']);
 
-/** A setup's Taster text, when it replaces the default's. */
-const tasterOf = (profile: Profile | 'comments', tasters: Tasters): string | undefined => {
+/**
+ * A setup's Taster text, which replaces the default's: since ADR 0352 the default reads no rules, so
+ * the setups that tasted with it then taste the reading Taster.
+ */
+const tasterOf = (profile: Profile | 'comments', tasters: Tasters): string => {
   switch (profile) {
     case 'today':
       return tasters.today;
@@ -266,7 +275,7 @@ const tasterOf = (profile: Profile | 'comments', tasters: Tasters): string | und
     case 'lens':
     case 'opus':
     case 'comments':
-      return undefined;
+      return tasters.reads;
     default: {
       const never: never = profile;
       return never;
@@ -275,15 +284,14 @@ const tasterOf = (profile: Profile | 'comments', tasters: Tasters): string | und
 };
 
 /**
- * The Brewery's files of a run of `setup` beyond Nip's: the recipe, and what its setup changes:
- * `today`'s Taster, the bare Taster, `high`'s effort or `opus`'s model.
+ * The Brewery's files of a run of `setup` beyond Nip's: the recipe, its Taster, and what its setup
+ * changes: `today`'s Taster, the bare Taster, `high`'s effort or `opus`'s model.
  */
 export const realBreweryFiles = (setup: RealSetup, tasters: Tasters): Record<string, string> => {
   const profile = profileOf(setup);
-  const taster = tasterOf(profile, tasters);
   return {
     [`recipes/${realRecipeOf(setup)}.jsonc`]: realRecipeText(setup),
-    ...(taster === undefined ? {} : { 'brewers/taster.md': taster }),
+    'brewers/taster.md': tasterOf(profile, tasters),
     ...(ON_OPUS.has(profile) ? { 'models.jsonc': OPUS_MODELS } : {}),
   };
 };
@@ -309,12 +317,12 @@ export const realCommentsOf = (
       ]
     : [];
 
-/** Throws when `today`'s pinned Taster is the default's text: the comparison would be of nothing. */
-export const refuseSameTaster = (today: string, current: string): void => {
+/** Throws when `today`'s pinned Taster is the reading Taster's text: the comparison would be of nothing. */
+export const refuseSameTaster = (today: string, reads: string): void => {
   const lines = (text: string): string => text.replaceAll('\r\n', '\n');
-  if (lines(today) === lines(current)) {
+  if (lines(today) === lines(reads)) {
     throw new Error(
-      `the Taster at ${TODAY_COMMIT} and the default are the same Taster: the setups would compare nothing`,
+      `the Taster at ${TODAY_COMMIT} and the reading Taster are the same Taster: the setups would compare nothing`,
     );
   }
 };

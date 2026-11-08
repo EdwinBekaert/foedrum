@@ -100,6 +100,7 @@ import {
   comparisonStop,
   nextRealRun,
   orderOf,
+  READS_TASTER,
   REAL_ORDERS,
   REAL_SETUPS,
   type RealSetup,
@@ -326,15 +327,15 @@ const realMode = async (): Promise<Mode<RealSetup>> => {
   if (today.code !== 0) {
     throw new Error(`the Taster of ${TODAY_COMMIT} cannot be read: ${today.stderr.trim()}`);
   }
-  const current = readFileSync(join(root, 'defaults', 'brewers', 'taster.md'), 'utf8');
-  refuseSameTaster(today.stdout, current);
   const folder = join(fixture, 'real');
+  const reads = readFileSync(join(folder, READS_TASTER), 'utf8');
+  refuseSameTaster(today.stdout, reads);
   return {
     folders: realFolderOf,
     setups: realSetups,
     order: (setup) => join(folder, `${orderOf(setup).order}.md`),
     recipeOf: realRecipeOf,
-    breweryFiles: (setup) => realBreweryFiles(setup, { today: today.stdout, reads: current }),
+    breweryFiles: (setup) => realBreweryFiles(setup, { today: today.stdout, reads }),
     target: async (setup, scratch, git) => {
       // Only the base: later history stays out of the scratch remote, whatever a Taster may run.
       await git(scratch, ['init', '-q', '--bare', '--initial-branch=main', 'web.git']);
