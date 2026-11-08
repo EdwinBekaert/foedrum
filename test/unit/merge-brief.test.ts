@@ -1785,6 +1785,19 @@ describe('the merge brief (ADR 0225)', () => {
       assert.deepStrictEqual(asked.slice(2), [`isDraft ${url}`, `markDraft ${url}`]);
     });
 
+    it('leaves a merged pull request as it is, though its brief is no longer current: regression test', async () => {
+      nip();
+      const { drafts, asked } = fakeDrafts();
+      finished([passed('ci/test')]);
+      assert.deepStrictEqual(await both(drafts), ['brief.1', 'brief.1.ready.1']);
+      accept({
+        kind: 'record',
+        event: { type: 'pull_request.ended', batchId: 'web-7', pullRequest: url, state: 'merged' },
+      });
+      assert.deepStrictEqual(await post(readyForReviewEffects({ host: drafts })), []);
+      assert.deepStrictEqual(asked, [`isDraft ${url}`, `markReady ${url}`]);
+    });
+
     it('records a draft it finds a draft already, without turning it', async () => {
       nip();
       const { drafts, asked, set } = fakeDrafts();
