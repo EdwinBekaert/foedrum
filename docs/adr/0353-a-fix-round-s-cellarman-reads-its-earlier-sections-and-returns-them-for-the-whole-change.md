@@ -19,6 +19,7 @@ The prompt asked for "what the change does", without saying whose change, and a 
 ## Consequences
 - After any number of fix rounds, the body's sections describe the whole change as the last round's Cellarman saw it.
 - A fix round that writes no sections leaves the body with the sections of the latest round that wrote some, where before it left the body without How it works.
+- The lookback reaches past a rewind and a person's choice of another recipe, as the body's other reports do: after a rewind, a round that writes no sections shows the sections an attempt before the rewind wrote. The fold does not record which attempts a rewind left behind, so telling them apart would need a new field; nothing needs it yet.
 - **Migration**: a Brewery with its own `cellarman.md` keeps its prompt, and with it the old behaviour, until it copies the new lines: the `earlierSections` input of its frontmatter and the paragraph that opens "The pull request's sections". Nothing else in a Brewery changes.
 
 ## Alternatives considered
