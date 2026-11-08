@@ -103,6 +103,10 @@ describe('the default plan lens (ADR 0312)', () => {
 describe("the default recipes' Tasters, every finding routed (ADR 0354)", () => {
   const loaded = loadRecipes(readBreweryFiles(join(root, '..', 'no-brewery')));
 
+  it('every default recipe loads', () => {
+    assert.ok(loaded.valid, loaded.valid ? '' : loaded.problems.join('\n'));
+  });
+
   for (const [name, children] of [
     ['mash', ['coverage', 'sizing', 'naive-reader']],
     [
