@@ -4,6 +4,7 @@
 
 import { same } from '../engine/issue-claims.ts';
 import type { PullRequestHost } from '../engine/pull-request-actions.ts';
+import type { PullRequestDrafts } from '../engine/ready-for-review.ts';
 import { pullRequestOf } from '../schemas/events.ts';
 import {
   GitHubOpenedPullRequest,
@@ -99,4 +100,16 @@ export const githubPullRequests = (options: GitHubPullRequestsOptions): PullRequ
       if (answer.status !== 200) throw refused(answer.status, answer.body, what);
     },
   };
+};
+
+export interface GitHubPullRequestDraftsOptions {
+  client: GitHubClient;
+  reads: GitHubReads;
+}
+
+/** The draft state of the Brewery's pull requests on GitHub (ADR 0350). */
+export const githubPullRequestDrafts = (
+  _options: GitHubPullRequestDraftsOptions,
+): PullRequestDrafts => {
+  throw new Error('not implemented');
 };

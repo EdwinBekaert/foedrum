@@ -13,6 +13,10 @@ import type { EventStore } from '../../src/engine/event-store.ts';
 import { readyOf } from '../../src/engine/merge-brief.ts';
 import { type MergeBriefHost, mergeBriefEffects } from '../../src/engine/merge-brief-post.ts';
 import { pullRequestKey, pushKey } from '../../src/engine/pull-request.ts';
+import {
+  type PullRequestDrafts,
+  readyForReviewEffects,
+} from '../../src/engine/ready-for-review.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import { type StatusComments, statusEffects } from '../../src/engine/status-comment.ts';
 import type {
@@ -1633,6 +1637,148 @@ describe('the merge brief (ADR 0225)', () => {
       const body = await brief();
       assert.match(body, /- No Taster tasted this change\./);
       assert.match(body, /\*\*Findings\*\*\nNo finding was recorded\./);
+    });
+  });
+  describe('ready for review while its brief is current (ADR 0350)', () => {
+    const keyOf = (effect: string) => effectKey.encode({ batchId: 'web-7', effect });
+    /** A code host of one pull request, a draft unless `draftless`, that logs what it was asked. */
+    const fakeDrafts = (draftless = false) => {
+      let draft = !draftless;
+      const asked: string[] = [];
+      const drafts: PullRequestDrafts = {
+        isDraft: async (pullRequest) => {
+          asked.push(`isDraft ${pullRequest}`);
+          return draft;
+        },
+        markReady: async (pullRequest) => {
+          asked.push(`markReady ${pullRequest}`);
+          draft = false;
+        },
+        markDraft: async (pullRequest) => {
+          asked.push(`markDraft ${pullRequest}`);
+          if (draftless) return 'draftless';
+          draft = true;
+          return 'draft';
+        },
+      };
+      return { drafts, asked, set: (to: boolean) => (draft = to) };
+    };
+    /** The briefs due, then the draft states due, each applied and recorded as a driver does. */
+    const both = async (drafts: PullRequestDrafts): Promise<string[]> => [
+      ...(await post(effectsOf(fakeHost().host))),
+      ...(await post(readyForReviewEffects({ host: drafts }))),
+    ];
+    /** A late check fails the ready head, and a fix round pushes `fixed` as round 2. */
+    const fixRound = (): void => {
+      pending();
+      finished([passed('ci/test'), failed('ci/late')]);
+      accept({
+        kind: 'fix_pull_request',
+        batchId: 'web-7',
+        pullRequest: url,
+        head,
+        cause: { kind: 'checks' },
+      });
+      nipFromImplement(2, fixed);
+    };
+
+    it('marks the pull request ready for review once its merge brief is posted, and only then', async () => {
+      nip();
+      const { drafts, asked } = fakeDrafts();
+      pending();
+      assert.deepStrictEqual(await both(drafts), []);
+      finished([passed('ci/test')]);
+      assert.deepStrictEqual(await both(drafts), ['brief.1', 'brief.1.ready']);
+      assert.deepStrictEqual(asked, [`isDraft ${url}`, `markReady ${url}`]);
+      assert.deepStrictEqual(log.state().effects.get(keyOf('brief.1.ready')), { ready: true });
+      assert.deepStrictEqual(await both(drafts), []);
+    });
+
+    it('records as ready, without marking it, a pull request that is no draft', async () => {
+      nip();
+      // A repository that cannot have drafts opened it ready (ADR 0167).
+      const { drafts, asked } = fakeDrafts(true);
+      finished([passed('ci/test')]);
+      assert.deepStrictEqual(await both(drafts), ['brief.1', 'brief.1.ready']);
+      assert.deepStrictEqual(asked, [`isDraft ${url}`]);
+      assert.deepStrictEqual(log.state().effects.get(keyOf('brief.1.ready')), { ready: true });
+    });
+
+    it('turns it back into a draft once a fix round outdates its brief, and ready again with the next', async () => {
+      nip();
+      const { drafts, asked } = fakeDrafts();
+      finished([passed('ci/test')]);
+      assert.deepStrictEqual(await both(drafts), ['brief.1', 'brief.1.ready']);
+      fixRound();
+      assert.deepStrictEqual(await both(drafts), ['brief.1.hidden', 'brief.1.draft']);
+      assert.deepStrictEqual(log.state().effects.get(keyOf('brief.1.draft')), { draft: true });
+      assert.deepStrictEqual(await both(drafts), []);
+      finished([passed('ci/test'), passed('ci/late')], fixed);
+      assert.deepStrictEqual(await both(drafts), ['brief.2', 'brief.2.ready']);
+      assert.deepStrictEqual(asked, [
+        `isDraft ${url}`,
+        `markReady ${url}`,
+        `isDraft ${url}`,
+        `markDraft ${url}`,
+        `isDraft ${url}`,
+        `markReady ${url}`,
+      ]);
+    });
+
+    it('records a draft it finds a draft already, without turning it', async () => {
+      nip();
+      const { drafts, asked, set } = fakeDrafts();
+      finished([passed('ci/test')]);
+      assert.deepStrictEqual(await both(drafts), ['brief.1', 'brief.1.ready']);
+      fixRound();
+      set(true);
+      assert.deepStrictEqual(await both(drafts), ['brief.1.hidden', 'brief.1.draft']);
+      assert.ok(!asked.includes(`markDraft ${url}`));
+      assert.deepStrictEqual(log.state().effects.get(keyOf('brief.1.draft')), { draft: true });
+    });
+
+    it('records a repository that cannot have drafts as draftless', async () => {
+      nip();
+      const { drafts } = fakeDrafts(true);
+      finished([passed('ci/test')]);
+      assert.deepStrictEqual(await both(drafts), ['brief.1', 'brief.1.ready']);
+      fixRound();
+      assert.deepStrictEqual(await both(drafts), ['brief.1.hidden', 'brief.1.draft']);
+      assert.deepStrictEqual(log.state().effects.get(keyOf('brief.1.draft')), {
+        draftless: true,
+      });
+    });
+
+    it('leaves the pull request as it is once someone else pushed to it', async () => {
+      nip();
+      const { drafts, asked } = fakeDrafts();
+      finished([passed('ci/test')]);
+      assert.deepStrictEqual(await both(drafts), ['brief.1', 'brief.1.ready']);
+      baseChecked({ branchMoved: 'e'.repeat(40) });
+      assert.deepStrictEqual(await both(drafts), ['brief.1.hidden']);
+      assert.deepStrictEqual(asked, [`isDraft ${url}`, `markReady ${url}`]);
+    });
+
+    it('keeps it ready when a later record of the same head posts its own brief', async () => {
+      nip();
+      const { drafts, asked } = fakeDrafts();
+      finished([passed('ci/test')]);
+      assert.deepStrictEqual(await both(drafts), ['brief.1', 'brief.1.ready']);
+      pending();
+      finished([passed('ci/test'), passed('ci/late')]);
+      assert.deepStrictEqual(await both(drafts), ['brief.2', 'brief.2.ready']);
+      assert.deepStrictEqual(await both(drafts), ['brief.1.hidden']);
+      assert.ok(!asked.includes(`markDraft ${url}`));
+    });
+
+    it('turns back no brief that was never marked ready', async () => {
+      nip();
+      const { drafts, asked } = fakeDrafts();
+      finished([passed('ci/test')]);
+      assert.deepStrictEqual(await post(effectsOf(fakeHost().host)), ['brief.1']);
+      fixRound();
+      assert.deepStrictEqual(await both(drafts), ['brief.1.hidden']);
+      assert.deepStrictEqual(asked, []);
     });
   });
 });

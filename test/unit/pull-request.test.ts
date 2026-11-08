@@ -895,7 +895,8 @@ describe('opensAsDraft (ADR 0167)', () => {
 
 describe('pullRequestText', () => {
   const closes = { repo: 'acme/brewery', issue: 12 };
-  const untasted = 'A person reviews this before it is marked ready: no step tasted the change.';
+  const untasted =
+    'Opens as a draft: Foedrum marks it ready for review once its merge brief is posted.';
   /** The body's lines from the line that is `first`, `count` of them. */
   const linesFrom = (body: string, first: string, count: number) => {
     const lines = body.split('\n');
@@ -1118,7 +1119,7 @@ describe('pullRequestText', () => {
         '',
         'Brewed by Foedrum from acme/brewery#12 with the recipe nip.',
         '',
-        'Ready for review: every Taster approved.',
+        'Opens as a draft: Foedrum marks it ready for review once its merge brief is posted.',
         '',
         '| Attempt | Result |',
         '|---|---|',
@@ -1450,7 +1451,7 @@ describe('pullRequestText', () => {
     assert.equal(text.draft, true);
     assert.ok(
       text.body.includes(
-        '\nNo How it works: the Cellarman wrote none.\n\nA person reviews this before it is marked ready: every Taster approved, but it has no How it works.\n',
+        '\nNo How it works: the Cellarman wrote none.\n\nOpens as a draft: Foedrum marks it ready for review once its merge brief is posted.\n',
       ),
       text.body,
     );
@@ -1460,7 +1461,8 @@ describe('pullRequestText', () => {
       { ...implement, sections: { howItWorks: 'How.', beforeAfter: [] } },
       ...tasted,
     ];
-    assert.equal(pullRequestText({ title: 'T', closes, reports: written }).draft, false);
+    // Every brewed pull request opens as a draft, whatever the Tasters say (ADR 0350).
+    assert.equal(pullRequestText({ title: 'T', closes, reports: written }).draft, true);
   });
 
   it('says why it is a draft when a Taster asks for changes', () => {
@@ -1481,7 +1483,7 @@ describe('pullRequestText', () => {
     const { body } = pullRequestText({ title: 'T', closes, reports });
     assert.ok(
       body.includes(
-        '\nA person reviews this before it is marked ready: a Taster asks for changes (correctness); its findings are in the reports below.\n',
+        '\nA Taster asks for changes (correctness); its findings are in the reports below.\n\nOpens as a draft: Foedrum marks it ready for review once its merge brief is posted.\n',
       ),
       body,
     );

@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { createGitHubClient } from '../../src/github/client.ts';
 import { githubOrderTitle } from '../../src/github/order-text.ts';
-import { githubPullRequests } from '../../src/github/pull-requests.ts';
+import { githubPullRequestDrafts, githubPullRequests } from '../../src/github/pull-requests.ts';
 import { createGitHubReads } from '../../src/github/reads.ts';
 import { type Answer, fakeFetch } from '../helpers/fake-fetch.ts';
 import { ghOver } from '../helpers/fake-gh.ts';
@@ -271,5 +271,97 @@ describe('githubOrderTitle', () => {
       title({ issue: 12 }),
       /GitHub answered issue #8 to the issue acme\/brewery#12/,
     );
+  });
+});
+
+describe('githubPullRequestDrafts (ADR 0350)', () => {
+  const graphql = 'https://api.github.com/graphql';
+  /** A pull request as `GET /repos/{owner}/{repo}/pulls/{n}` answers it. */
+  const pull = (draft: boolean, nodeId: string | undefined = 'PR_9') => ({
+    state: 'open',
+    draft,
+    ...(nodeId === undefined ? {} : { node_id: nodeId }),
+  });
+  const draftsWith = (answers: Answer[]) => {
+    const fake = fakeFetch(answers);
+    const client = createGitHubClient({ exec: ghOver(fake.fetch).exec });
+    return {
+      drafts: githubPullRequestDrafts({ client, reads: createGitHubReads(client) }),
+      ...fake,
+    };
+  };
+  /** The query and variables of a GraphQL request. */
+  const asked = (request: { body?: unknown } | undefined) =>
+    request?.body as { query: string; variables: unknown };
+
+  it('reads whether the pull request is a draft', async () => {
+    const { drafts, requests } = draftsWith([
+      { status: 200, body: pull(true) },
+      { status: 200, body: pull(false) },
+    ]);
+    assert.equal(await drafts.isDraft(url), true);
+    assert.equal(await drafts.isDraft(url), false);
+    assert.equal(requests[0]?.url, 'https://api.github.com/repos/acme/api/pulls/9');
+  });
+
+  it('marks it ready for review by its node id', async () => {
+    const { drafts, requests } = draftsWith([
+      { status: 200, body: pull(true) },
+      {
+        status: 200,
+        body: { data: { markPullRequestReadyForReview: { pullRequest: { isDraft: false } } } },
+      },
+    ]);
+    await drafts.markReady(url);
+    assert.equal(requests[1]?.url, graphql);
+    const { query, variables } = asked(requests[1]);
+    assert.match(query, /markPullRequestReadyForReview/);
+    assert.deepStrictEqual(variables, { input: { pullRequestId: 'PR_9' } });
+  });
+
+  it('turns it back into a draft by its node id', async () => {
+    const { drafts, requests } = draftsWith([
+      { status: 200, body: pull(false) },
+      {
+        status: 200,
+        body: { data: { convertPullRequestToDraft: { pullRequest: { isDraft: true } } } },
+      },
+    ]);
+    assert.equal(await drafts.markDraft(url), 'draft');
+    const { query, variables } = asked(requests[1]);
+    assert.match(query, /convertPullRequestToDraft/);
+    assert.deepStrictEqual(variables, { input: { pullRequestId: 'PR_9' } });
+  });
+
+  it('says draftless when GitHub says the repository cannot have drafts', async () => {
+    const { drafts } = draftsWith([
+      { status: 200, body: pull(false) },
+      {
+        status: 200,
+        body: {
+          data: { convertPullRequestToDraft: null },
+          errors: [{ message: 'Draft pull requests are not supported in this repository.' }],
+        },
+      },
+    ]);
+    assert.equal(await drafts.markDraft(url), 'draftless');
+  });
+
+  it('fails on another GraphQL error, an answer it did not expect, or a refused read', async () => {
+    const { drafts } = draftsWith([
+      { status: 200, body: pull(false) },
+      {
+        status: 200,
+        body: { data: { convertPullRequestToDraft: null }, errors: [{ message: 'Forbidden' }] },
+      },
+      { status: 200, body: pull(true) },
+      { status: 200, body: { data: { markPullRequestReadyForReview: null } } },
+      { status: 200, body: pull(true, undefined) },
+      { status: 404, body: { message: 'Not Found' } },
+    ]);
+    await assert.rejects(drafts.markDraft(url), /Forbidden/);
+    await assert.rejects(drafts.markReady(url), /not what it should be/);
+    await assert.rejects(drafts.markReady(url), /no node id/);
+    await assert.rejects(drafts.isDraft(url), /404.*acme\/api.*Not Found/);
   });
 });

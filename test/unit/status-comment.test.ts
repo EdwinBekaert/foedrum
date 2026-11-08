@@ -3393,10 +3393,15 @@ describe('the Next line of a status comment that waits on the person (#777)', ()
 
   it('an on-tap status comment with a pull request ends with Next: review and merge it', () => {
     const lane: Lane = { kind: 'on_tap', pullRequests: [pr, other] };
-    assert.equal(nextOf(render(batch({ lane }))), `Next: review and merge <${pr}>, <${other}>.`);
+    // With no brief and none Foedrum follows, each is merged without one (#940).
+    const none = ': review and merge it without a merge brief, or mark it ready yourself';
+    assert.equal(
+      nextOf(render(batch({ lane }))),
+      `Next: someone else pushed to <${pr}>${none}; someone else pushed to <${other}>${none}.`,
+    );
     // The one that merged is not named; once both ended, nothing waits on the person.
     const merged = batch({ lane, pullRequestEnds: { [pr]: 'merged' } });
-    assert.equal(nextOf(render(merged)), `Next: review and merge <${other}>.`);
+    assert.equal(nextOf(render(merged)), `Next: someone else pushed to <${other}>${none}.`);
     const ended = batch({ lane, pullRequestEnds: { [pr]: 'merged', [other]: 'closed' } });
     assert.doesNotMatch(render(ended), /Next:/);
   });
@@ -3516,5 +3521,71 @@ describe('the Next line of a status comment that waits on the person (#777)', ()
     );
     assert.match(text, /the rest is cut/);
     assert.equal(nextOf(text), 'Next: get it moving with `retry`, `cancel`.');
+  });
+});
+
+describe('the Next line of a pull request follows its merge brief (#940)', () => {
+  const head = 'a'.repeat(40);
+  const other = 'https://github.com/alice/lib/pull/3';
+  const third = 'https://github.com/alice/api/pull/4';
+  const onTap = (fields: Partial<Batch> = {}): Batch =>
+    batch({ lane: { kind: 'on_tap', pullRequests: [pr] }, ...fields });
+  const followed = { url: pr, head, branch: 'foedrum/7' };
+  const briefOn = (url: string) => ({
+    comment: 9,
+    pullRequest: url,
+    head,
+    digest: '0123456789abcdef',
+  });
+  const render = (
+    rendered: Batch,
+    brief?: Parameters<typeof renderStatus>[6],
+    open?: Parameters<typeof renderStatus>[8],
+  ): string =>
+    renderStatus(rendered, steps, undefined, undefined, undefined, {}, brief, undefined, open);
+  /** The last line of the comment's first block, the lane's, which a cut never drops. */
+  const nextOf = (text: string): string | undefined => text.split('\n\n')[1]?.split('\n').at(-1);
+  const waits = (url: string): string =>
+    `wait for <${url}>'s merge brief: it comes once \`foedrum serve\` reads its checks passed on \`aaaaaaaa\``;
+
+  it('says to merge a pull request only once its merge brief is there', () => {
+    const pending = onTap({ pullRequestChecks: { [pr]: { kind: 'pending', head, since: at } } });
+    const before = nextOf(render(pending, { pullRequest: pr }, followed));
+    assert.equal(before, `Next: ${waits(pr)}.`);
+    assert.doesNotMatch(before ?? '', /merge </);
+    const passed = onTap({ pullRequestChecks: { [pr]: { kind: 'finished', head, checks: [] } } });
+    assert.equal(nextOf(render(passed, briefOn(pr), followed)), `Next: review and merge <${pr}>.`);
+  });
+
+  it('says to wait for the brief of a pull request Foedrum follows whose checks failed', () => {
+    const failing = onTap({
+      pullRequestChecks: {
+        [pr]: {
+          kind: 'finished',
+          head,
+          checks: [{ name: 'ci', kind: 'check_run', conclusion: 'failure' }],
+        },
+      },
+    });
+    assert.equal(nextOf(render(failing, { pullRequest: pr }, followed)), `Next: ${waits(pr)}.`);
+  });
+
+  it('says someone else pushed to a pull request Foedrum follows no more', () => {
+    assert.equal(
+      nextOf(render(onTap())),
+      `Next: someone else pushed to <${pr}>: review and merge it without a merge brief, or mark it ready yourself.`,
+    );
+  });
+
+  it('does not take a brief of another pull request for its own', () => {
+    assert.equal(nextOf(render(onTap(), briefOn(other), followed)), `Next: ${waits(pr)}.`);
+  });
+
+  it('reads each of several open pull requests on the one Next line', () => {
+    const several = batch({ lane: { kind: 'on_tap', pullRequests: [third, other, pr] } });
+    assert.equal(
+      nextOf(render(several, briefOn(pr), { ...followed, url: other })),
+      `Next: review and merge <${pr}>; someone else pushed to <${third}>: review and merge it without a merge brief, or mark it ready yourself; ${waits(other)}.`,
+    );
   });
 });

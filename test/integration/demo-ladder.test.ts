@@ -242,7 +242,7 @@ describe('npm run demo -- ladder', () => {
       standing(
         2,
         'foedrum:awaiting-merge',
-        'review and merge <https://github\\.com/demo/lib/pull/\\d+>\\.',
+        "wait for <https://github\\.com/demo/lib/pull/\\d+>'s merge brief: it comes once `foedrum serve` reads its checks passed on `[0-9a-f]{8}`\\.",
       ),
     );
     assert.doesNotMatch(stdout, /foedrum:on-tap/);
