@@ -901,26 +901,6 @@ function groupRoutes(recipe: RecipeFile): string[] {
 }
 
 /**
- * Why a child of a parallel group of `recipe` routes back to a sibling (ADR 0168): it would run
- * that sibling alone, and once its rounds are used up the group would wait for the child with
- * nothing in flight.
- */
-function siblingRoutes(recipe: RecipeFile): string[] {
-  return recipe.steps.flatMap((step) => {
-    if (!('parallel' in step)) return [];
-    const siblings = new Set(step.parallel.map(stepId));
-    return step.parallel.flatMap((child) => {
-      const goto = child.onBlocked?.findings.goto;
-      return goto === undefined || !siblings.has(goto)
-        ? []
-        : [
-            `step "${stepId(child)}" in the parallel group "${step.id}" routes back to "${goto}" in its own group: route to a step before the group (ADR 0168)`,
-          ];
-    });
-  });
-}
-
-/**
  * The steps of `recipe` in a line, a parallel group's children as steps of their own in its place
  * (ADR 0168), each group's `when`, and why a group's `when` cannot load.
  */
@@ -1153,7 +1133,7 @@ export function loadRecipes(breweryFiles: BreweryFiles): LoadedRecipes {
     (text) => readJsonc(text, RecipeFile),
     problems,
   )) {
-    const routes = [...groupRoutes(value), ...siblingRoutes(value)];
+    const routes = groupRoutes(value);
     const { listed, groups, problems: unlisted } = listSteps(value);
     const loads = listed.map((entry) =>
       loadStep(entry, entry.index === value.steps.length - 1, shelf),

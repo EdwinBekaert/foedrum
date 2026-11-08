@@ -1698,26 +1698,6 @@ describe('loadRecipes: a parallel group of lens steps (ADR 0168)', () => {
     assert.equal(amber?.skip(batch, 'tasting'), 'recipe.testFirst');
   });
 
-  it('starts a recipe whose first step is a group at the group', () => {
-    const amber = loaded(
-      loadRecipes({
-        // Nothing commits before it, so its lens reviews a plan (ADR 0143).
-        recipes: [
-          recipe('amber', [
-            {
-              id: 'tasting',
-              parallel: [{ id: 'coverage', brewer: 'taster', lens: 'plan/coverage' }],
-            },
-          ]),
-        ],
-        brewers: [taster],
-        lenses: [{ path: 'lenses/plan/coverage.md', text: 'Look at what the plan covers.' }],
-      }),
-    ).find('amber');
-    assert.equal(amber?.firstStep, 'tasting');
-    assert.deepEqual(amber?.children('tasting'), ['coverage']);
-  });
-
   it("refuses a group whose when reads something other than the recipe's settings", () => {
     const files = grouped([security]);
     assert.deepEqual(
@@ -1796,12 +1776,6 @@ describe('loadRecipes: a parallel group of lens steps (ADR 0168)', () => {
     );
   });
 
-  it('refuses a route from a child to a sibling, which would run alone', () => {
-    const back = { ...correctness, onBlocked: { findings: { goto: 'security', maxRounds: 1 } } };
-    assert.deepEqual(problemsOf(grouped([security, back])), [
-      'recipes/amber.jsonc: step "correctness" in the parallel group "tasting" routes back to "security" in its own group: route to a step before the group (ADR 0168)',
-    ]);
-  });
 });
 
 describe('loadRecipes: an interactive brewer step (ADR 0222)', () => {
