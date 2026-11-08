@@ -173,6 +173,7 @@ const SETUPS: readonly RealSetup[] = [
   '855-opus-bare',
   '855-high-bare',
   '855-opus-together',
+  '855-high-together',
   '864-today',
   '864-reads',
   '864-lens',
@@ -181,6 +182,7 @@ const SETUPS: readonly RealSetup[] = [
   '864-opus-bare',
   '864-high-bare',
   '864-opus-together',
+  '864-high-together',
   '867-today',
   '867-reads',
   '867-lens',
@@ -189,6 +191,7 @@ const SETUPS: readonly RealSetup[] = [
   '867-opus-bare',
   '867-high-bare',
   '867-opus-together',
+  '867-high-together',
   '867-comments',
 ];
 
@@ -999,6 +1002,7 @@ describe('tasting-compare --real', () => {
         '| 855-opus-bare | 0 | 0 | 0 | 0 of 0 |',
         '| 855-high-bare | 0 | 0 | 0 | 0 of 0 |',
         '| 855-opus-together | 0 | 0 | 0 | 0 of 0 |',
+        '| 855-high-together | 0 | 0 | 0 | 0 of 0 |',
         '| 864-today | 0 | 0 | 0 | 0 of 0 |',
         '| 864-reads | 0 | 0 | 0 | 0 of 0 |',
         '| 864-lens | 0 | 0 | 0 | 0 of 0 |',
@@ -1007,6 +1011,7 @@ describe('tasting-compare --real', () => {
         '| 864-opus-bare | 0 | 0 | 0 | 0 of 0 |',
         '| 864-high-bare | 0 | 0 | 0 | 0 of 0 |',
         '| 864-opus-together | 0 | 0 | 0 | 0 of 0 |',
+        '| 864-high-together | 0 | 0 | 0 | 0 of 0 |',
         '| 867-today | 0 | 0 | 0 | 0 of 0 |',
         '| 867-reads | 1 | 0 | 0 | 0 of 1 |',
         '| 867-lens | 0 | 0 | 0 | 0 of 0 |',
@@ -1015,6 +1020,7 @@ describe('tasting-compare --real', () => {
         '| 867-opus-bare | 0 | 0 | 0 | 0 of 0 |',
         '| 867-high-bare | 0 | 0 | 0 | 0 of 0 |',
         '| 867-opus-together | 0 | 0 | 0 | 0 of 0 |',
+        '| 867-high-together | 0 | 0 | 0 | 0 of 0 |',
         '| 867-comments | 0 | 0 | 0 | 0 of 0 |',
         '',
         'Score lists/<order>.md by hand, then read bodies/<order>.md, then open codes.md, which says which setup each code is.',
@@ -1444,7 +1450,7 @@ describe('tasting-compare --real: the opus and high setups (ADR 0344)', () => {
     it('refuses a name no setup has, and says which it knows', () => {
       assert.throws(
         () => selectRealSetups('opus,hihg'),
-        /hihg.*today, reads, lens, opus, high, opus-bare, high-bare, opus-together, comments/,
+        /hihg.*today, reads, lens, opus, high, opus-bare, high-bare, opus-together, high-together, comments/,
       );
     });
 
@@ -1785,6 +1791,82 @@ describe('tasting-compare --real: the opus and high setups (ADR 0344)', () => {
         risks.map((risk) => risk.slice(0, risk.indexOf(': '))),
         NIP_LENSES,
       );
+    });
+  });
+
+  describe('the high-together setup (ADR 0348)', () => {
+    const NIP_LENSES = ['diff/correctness', 'diff/acceptance', 'diff/security'];
+
+    it("the high-together setup is high-bare's Taster with the three lenses in one step on Sonnet", () => {
+      const files = realBreweryFiles('855-high-together', REAL_TASTERS);
+      assert.equal(realRecipeOf('855-high-together'), 'real-nip-together');
+      const recipe = Recipe.parse(parseJsonc(files['recipes/real-nip-together.jsonc'] ?? ''));
+      const tasters = recipe.steps.filter((step) => 'brewer' in step && step.brewer === 'taster');
+      assert.deepEqual(tasters, [{ id: 'together', brewer: 'taster', lenses: NIP_LENSES }]);
+      assert.equal(
+        files['brewers/taster.md'],
+        realBreweryFiles('855-high-bare', REAL_TASTERS)['brewers/taster.md'],
+      );
+      assert.equal(files['models.jsonc'], undefined);
+      assert.deepEqual(Object.keys(files).sort(), [
+        'brewers/taster.md',
+        'recipes/real-nip-together.jsonc',
+      ]);
+
+      const line = commandLine('855-high-together', 'together');
+      assert.equal(line[line.indexOf('--model') + 1], 'sonnet');
+      assert.equal(line[line.indexOf('--effort') + 1], 'high');
+      assert.deepEqual(line, commandLine('855-high-bare'));
+    });
+
+    it('the high-together setup tastes the recipe opus-together tastes', () => {
+      assert.equal(
+        realBreweryFiles('864-high-together', REAL_TASTERS)['recipes/real-nip-together.jsonc'],
+        realBreweryFiles('864-opus-together', REAL_TASTERS)['recipes/real-nip-together.jsonc'],
+      );
+    });
+
+    it('--setups high-together names that setup alone, order by order', () => {
+      assert.deepEqual(selectRealSetups('high-together'), [
+        '855-high-together',
+        '864-high-together',
+        '867-high-together',
+      ]);
+    });
+
+    it("a high-together run's list has the headings of a high-bare run's, and codes.md its Sonnet row", () => {
+      const joined: RealRecord = {
+        ...record('855-high-together', 1, 'x'),
+        attempts: [
+          {
+            ...attempt(
+              'together',
+              [
+                { ...finding('a hole'), lens: 'diff/security' },
+                { ...finding('a wrong sum'), lens: 'diff/correctness' },
+              ],
+              { riskLeft: ['diff/acceptance: an item unread'], models: ['claude-sonnet-5-5'] },
+            ),
+            lenses: NIP_LENSES,
+          },
+        ],
+      };
+      const bare: RealRecord = {
+        ...record('855-high-bare', 1, 'x'),
+        attempts: [
+          attempt('security', [finding('a hole')]),
+          attempt('correctness', [finding('a wrong sum')]),
+          attempt('acceptance', [], { riskLeft: ['an item unread'] }),
+        ],
+      };
+      const shown = (run: RealRecord) =>
+        (blinded([run], 'a seed').lists['855'] ?? '').replace(/^## Run .*$/m, '');
+      assert.equal(shown(joined), shown(bare));
+      const rows = blinded([joined], 'a seed')
+        .codes.split('\n')
+        .filter((line) => line.includes('855-high-together'));
+      assert.equal(rows.length, 1);
+      assert.match(rows[0] ?? '', /\| together \| claude-sonnet-5-5 \|/);
     });
   });
 

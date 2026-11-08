@@ -45,7 +45,8 @@ type Profile =
   | 'high'
   | 'opus-bare'
   | 'high-bare'
-  | 'opus-together';
+  | 'opus-together'
+  | 'high-together';
 const PROFILES: readonly Profile[] = [
   'today',
   'reads',
@@ -259,6 +260,8 @@ const tasterOf = (profile: Profile | 'comments', tasters: Tasters): string | und
       return bareTaster(tasters.current);
     case 'high-bare':
       return highTaster(bareTaster(tasters.current));
+    case 'high-together':
+      throw new Error('not implemented');
     case 'reads':
     case 'lens':
     case 'opus':
