@@ -46,14 +46,16 @@ export interface LensRound {
 
 /**
  * The rounds of `stepId` in `batch`, in the order they started, up to attempt `before` when given:
- * each attempt of it that reviewed (`reviewed`), with the dispositions of the attempt its findings
- * route brought back, or of a retry or an answered attempt that continued that one; a route of
- * another step is never its own.
+ * each attempt of it that reviewed (`reviewed`), with the dispositions of the attempt a findings
+ * route brought back, or of a retry or an answered attempt that continued that one, that are its
+ * own: those that name `stepId`, and those that name no step when the route was `stepId`'s. A
+ * route of another step of its group carries its findings too (ADR 0349).
  */
 export function lensRounds(batch: Batch, stepId: string, before?: number): LensRound[] {
   const rounds: LensRound[] = [];
-  // The round each other step's latest attempt answers, while a retry or an answer continues it.
-  const answering = new Map<string, LensRound>();
+  // The round each other step's latest attempt answers, and the step whose route it came back
+  // by, while a retry or an answer continues it.
+  const answering = new Map<string, { round: LensRound; from: string }>();
   for (const { stepId: on, attempt } of batch.path ?? []) {
     if (on === stepId && attempt === before) break;
     const ran = batch.steps.get(on)?.attempts.get(attempt);
@@ -66,14 +68,19 @@ export function lensRounds(batch: Batch, stepId: string, before?: number): LensR
     }
     const { route } = ran;
     const latest = rounds.at(-1);
-    if (route?.from === stepId && route.why === 'findings' && latest !== undefined) {
-      answering.set(on, latest);
+    if (route?.why === 'findings' && latest !== undefined) {
+      answering.set(on, { round: latest, from: route.from });
     } else if (ran.retry !== true && ran.answered !== true) {
       answering.delete(on);
     }
     const answered = answering.get(on);
     if (answered !== undefined && ran.phase === 'finished' && ran.outcome.kind === 'succeeded') {
-      answered.dispositions = dispositionsOf(ran.outcome.output);
+      const { round, from } = answered;
+      const own = dispositionsOf(ran.outcome.output).filter(
+        (found) => (found.step ?? from) === stepId,
+      );
+      // Another step's route answers this step's round only where it names it.
+      if (from === stepId || own.length > 0) round.dispositions = own;
     }
   }
   return rounds;

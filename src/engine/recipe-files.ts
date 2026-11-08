@@ -852,6 +852,7 @@ function brewerLine(step: BrewerStep, group: string | undefined, shelf: Shelf): 
     ]),
     ...(step.lenses === undefined ? { lens: first.name } : { together: names }),
     blocking: step.blocking ?? false,
+    ...(group === undefined ? {} : { group }),
   };
   return { line, brewer: tasting };
 }
