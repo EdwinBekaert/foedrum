@@ -111,6 +111,8 @@ const setup = ({
   mapAt,
   tip = tips.weakened,
   before = {},
+  listings = {},
+  changed = '',
   platform = 'linux',
 }: {
   events?: Event[];
@@ -126,6 +128,10 @@ const setup = ({
   tip?: Readonly<Record<string, readonly string[]>>;
   /** The files where the proven step started, by path: what `ls-tree` lists at `gaugeStart`. */
   before?: Readonly<Record<string, readonly string[]>>;
+  /** The files `ls-tree` lists at another commit, by commit, in place of `before` and `tip`. */
+  listings?: Readonly<Record<string, Readonly<Record<string, readonly string[]>>>>;
+  /** The diff of the attempt's own change: every range but the proven step's (ADR 0358). */
+  changed?: string;
   /** Whose case rule the guard matches the map's globs by. */
   platform?: NodeJS.Platform;
 } = {}) => {
@@ -137,8 +143,9 @@ const setup = ({
       calls.push({ cwd, args, ...(options === undefined ? {} : { options }) });
       if (args.includes('ls-tree')) {
         const end = args.indexOf('--');
-        const started = args[end - 1] === gaugeStart;
-        const files = started ? before : tip;
+        const commit = args[end - 1] ?? '';
+        const started = commit === gaugeStart;
+        const files = listings[commit] ?? (started ? before : tip);
         const listed = args.slice(end + 1).filter((path) => files[path] !== undefined);
         const at = started ? 'c' : 'b';
         return Promise.resolve(
@@ -157,7 +164,8 @@ const setup = ({
             : ok(`${lines.join('\n')}\n`),
         );
       }
-      return Promise.resolve(ok(gaugeDiff));
+      const from = args[args.indexOf('--') - 2];
+      return Promise.resolve(ok(from === gaugeStart ? gaugeDiff : changed));
     });
   const asked: AttemptRef[] = [];
   const runner = guardTests({
@@ -610,5 +618,28 @@ describe('guardTests: regression tests', () => {
         ({ args }) => args.includes('ls-tree') && args.includes('refs/heads/foedrum/12-1/fine/1'),
       ),
     );
+  });
+});
+
+describe('guardTests on the test files the base holds (ADR 0358)', () => {
+  /** A diff of the attempt that changes an assertion in each of `paths`. */
+  const changing = (...paths: string[]) =>
+    paths
+      .flatMap((path) => [
+        `diff --git a/${path} b/${path}`,
+        `--- a/${path}`,
+        `+++ b/${path}`,
+        '@@ -2 +2 @@',
+        '-  assert.equal(add(1, 2), 3);',
+        "+  assert.equal(add(1, 2), 'three');",
+      ])
+      .concat('')
+      .join('\n');
+
+  it('lets an attempt change code the base holds', async () => {
+    const before = { 'src/add.mjs': ['export const add = () => 0;'] };
+    const { runner } = setup({ tip: tips.kept, before, changed: changing('src/add.mjs') });
+    const end = await runner.start({ ref, limits: defaultLimits }).ended;
+    assert.equal(end.ending.kind, 'succeeded');
   });
 });
