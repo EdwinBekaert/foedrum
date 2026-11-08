@@ -388,18 +388,6 @@ export const unlinked = (text: string): string => {
   return out;
 };
 
-/**
- * Whether the pull request opens as a draft (ADR 0167): unless a Taster tasted the change, every
- * Taster approved, and no person's skip went past a step that did not pass (ADR 0345).
- */
-export const opensAsDraft = (reports: readonly StepReport[]): boolean => {
-  if (reports.some(({ past }) => past !== undefined)) return true;
-  const verdicts = reports.flatMap(({ tasting }) =>
-    tasting === undefined ? [] : [tasting.verdict],
-  );
-  return verdicts.length === 0 || verdicts.some((verdict) => verdict !== 'approve');
-};
-
 /** What a report says of `one`, a step a person's skip went past (ADR 0345). */
 const pastOf = (one: PastBySkip): NonNullable<StepReport['past']> => {
   const open = blockedByFindings(one.attempt);

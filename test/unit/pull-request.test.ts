@@ -12,7 +12,6 @@ import {
   brewLog,
   latestBody,
   openedPullRequest,
-  opensAsDraft,
   pullRequestText,
   quotedDiagrams,
   stepReports,
@@ -263,13 +262,6 @@ describe("stepReports and the body: Brett's survivors (ADR 0319)", () => {
       body,
     );
     assert.doesNotMatch(body, /ghp|A1b2/);
-  });
-
-  it('an advisory Brett step with survivors opens no draft when every Taster approved (regression test)', () => {
-    assert.ok(mutated !== undefined);
-    const approved = { verdict: 'approve' as const, findings: [] };
-    const tasted = { stepId: 'taste', summary: 'Tasted', assumptions: [], tasting: approved };
-    assert.equal(opensAsDraft([...stepReports(mutated), tasted]), false);
   });
 });
 
@@ -862,34 +854,6 @@ describe('quotedDiagrams (ADR 0180)', () => {
     assert.equal(quotedDiagrams(block('graph TD; A --> B{f(x}')), left);
     assert.equal(quotedDiagrams(block('sequenceDiagram x', '  A->>B: y')), left);
     assert.equal(quotedDiagrams(block('sequenceDiagram', '  activate U extra')), left);
-  });
-});
-
-describe('opensAsDraft (ADR 0167)', () => {
-  const report = (stepId: string, verdict?: 'approve' | 'changes') => ({
-    stepId,
-    summary: 'S',
-    assumptions: [],
-    ...(verdict === undefined ? {} : { tasting: { verdict, findings: [] } }),
-  });
-
-  it('is a draft when no step tasted the change', () => {
-    assert.equal(opensAsDraft([]), true);
-    assert.equal(opensAsDraft([report('implement')]), true);
-  });
-
-  it('is a draft when a Taster asks for changes', () => {
-    assert.equal(
-      opensAsDraft([report('implement'), report('a', 'approve'), report('b', 'changes')]),
-      true,
-    );
-  });
-
-  it('is ready when every Taster approved', () => {
-    assert.equal(
-      opensAsDraft([report('implement'), report('a', 'approve'), report('b', 'approve')]),
-      false,
-    );
   });
 });
 
