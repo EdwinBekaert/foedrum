@@ -729,4 +729,60 @@ describe('guardTests on the test files the base holds (ADR 0358)', () => {
         'the guard testsUnchanged cannot read the commits of step implement: fatal: not a tree object',
     });
   });
+
+  it("reads the attempt's change after the merge it concluded, when its start merge kept a conflict (ADR 0244)", async () => {
+    const moved = 'd'.repeat(40);
+    const concluded = 'f'.repeat(40);
+    const kept: Event = {
+      type: 'effect.applied',
+      key: effectKey.encode(baseMergeKey(ref)),
+      result: {
+        base: moved,
+        kept: { files: [{ path: 'src/add.mjs', status: 'both modified' }], more: 0 },
+      },
+    };
+    const calls: string[] = [];
+    const git: Git = (_cwd, args) => {
+      calls.push(args.join(' '));
+      if (args.includes('rev-list')) {
+        // The brewer's commit after the merge it concluded, then the merge, newest first.
+        return Promise.resolve(
+          ok(`${'9'.repeat(40)} ${concluded}\n${concluded} ${implementStart} ${moved}\n`),
+        );
+      }
+      if (args.includes('ls-tree') && args.includes(older)) {
+        return Promise.resolve(ok(`100644 blob ${blobOf(older, 'c')}\t${older}\0`));
+      }
+      if (args.includes('ls-tree') && args.includes(gaugeStart)) return Promise.resolve(ok(''));
+      if (args.includes('ls-tree')) {
+        return Promise.resolve(
+          ok(`100644 blob ${blobOf('test/add.test.mjs')}\ttest/add.test.mjs\0`),
+        );
+      }
+      if (args.includes('cat-file')) return Promise.resolve(ok(`${gaugeLines.join('\n')}\n`));
+      const from = args[args.indexOf('--') - 2];
+      // The moved base changed the older test; the brewer changed only code after the merge.
+      if (from === gaugeStart) return Promise.resolve(ok(gaugeDiff));
+      return Promise.resolve(ok(from === concluded ? changing('src/add.mjs') : changing(older)));
+    };
+    const { runner } = setup({ events: [...ordered, ...gauged, ...implementing, kept], git });
+    const end = await runner.start({ ref, limits: defaultLimits }).ended;
+    assert.equal(end.ending.kind, 'succeeded');
+    assert.ok(calls.includes(`${flags} ${concluded} refs/heads/foedrum/12-1/implement/1 --`));
+  });
+
+  it('asks the base only for the files the attempt changed in a test area', async () => {
+    const before = { [older]: ['a'] };
+    const changed = changing('src/add.mjs', older);
+    const { calls, runner } = setup({ tip: tips.kept, before, changed });
+    await runner.start({ ref, limits: defaultLimits }).ended;
+    const listed = calls
+      .map(({ args }) => args.join(' '))
+      .filter(
+        (args) => args.includes(`ls-tree -z --full-tree ${gaugeStart} --`) && args.includes(older),
+      );
+    assert.deepEqual(listed, [
+      `--literal-pathspecs ls-tree -z --full-tree ${gaugeStart} -- ${older}`,
+    ]);
+  });
 });
