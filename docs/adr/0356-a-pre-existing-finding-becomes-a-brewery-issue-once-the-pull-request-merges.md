@@ -33,7 +33,7 @@ The maintainer's rule is that a finding never waits for a person (#926), and the
 
 ### The issue
 - **In the Brewery only**, never in the target repository: the text is a model's.
-- **Title:** `Pre-existing: <lens>, <severity> in <file>:<line>`, the lens only when the finding has one, as plain text, since GitHub shows a title as it is: a place that looks like a secret is left out, and the title is cut at 200 characters.
+- **Title:** `Pre-existing: <lens>, <severity> in <file>:<line>`, the lens only when the finding has one, as plain text, since GitHub shows a title as it is: a place that looks like a secret is left out, and the title is cut at 200 characters, between characters.
 - **Body:** the batch, its order's Brewery issue and the pull requests it merged as, then the step and attempt that found it, the Taster's words, and the words of the step that left it as pre-existing.
   Every model text is shown as the status comment shows one (ADR 0088): a text that looks like a secret is left out, and the rest is escaped as plain text, with no Markdown, HTML or mention.
   The Taster's words and the disposition's are cut at 2,000 characters each, which is the limit on a disposition's `why`.
@@ -49,7 +49,7 @@ The maintainer's rule is that a finding never waits for a person (#926), and the
 - **The status comment** shows a section `**Filed**`, after the findings, with one line per opened issue: `- #<n>: <lens>, <severity> in <file>:<line>, there before the change`.
   It is in the merge's own last revision, which ADR 0345 still writes once the batch ended.
 - **The merge brief** cannot link the issues: it is posted on the target repository's pull request before the merge, which may be public, and no brief follows a pull request that ended.
-  Its line for a pre-existing finding now ends `, filed in the Brewery once this merges`.
+  Its line for a pre-existing disposition at a finding's place now ends `, filed in the Brewery once this merges`; one at a place no finding has, which opens no issue, says nothing of it.
 
 ### Migration
 - A Brewery needs nothing new.
