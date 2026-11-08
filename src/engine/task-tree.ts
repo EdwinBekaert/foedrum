@@ -1,5 +1,6 @@
 // Where a new attempt's worktree starts (ADR 0066): at the batch's task tree, the commits of the
-// steps before it. Pure; the worktree manager resolves the revision after its fetch.
+// steps before it, or for the step a red proof proves, at its own latest success (ADR 0358). Pure;
+// the worktree manager resolves the revision after its fetch.
 
 import { attemptBranch } from '../workspace/attempt-worktrees.ts';
 import type { Batch } from './fold.ts';

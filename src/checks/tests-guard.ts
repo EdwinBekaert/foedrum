@@ -1,7 +1,8 @@
-// The testsUnchanged guard, the shell (ADR 0017, ADR 0274, ADR 0297): around the brewer runner,
-// once an attempt of a guarded step succeeded, it reads from git what the proven step committed
-// and the repository's test maps, and fails the attempt when it changed or removed a line the step
-// added to a separate test file of the map. tests-unchanged.ts decides.
+// The testsUnchanged guard, the shell (ADR 0017, ADR 0274, ADR 0297, ADR 0358): around the brewer
+// runner, once an attempt of a guarded step succeeded, it reads from git what the proven step
+// committed, the attempt's own change and the repository's test maps, and fails the attempt when it
+// changed or removed a line the step added to a separate test file of the map, or a separate test
+// file the batch's base holds. tests-unchanged.ts decides.
 
 import { type AttemptRef, attemptKey } from '../engine/attempt-key.ts';
 import { mergedBase, startMergeOf } from '../engine/base-merge.ts';
@@ -15,7 +16,7 @@ import { attemptBranch } from '../workspace/attempt-worktrees.ts';
 import type { Git, GitResult } from '../workspace/git.ts';
 import { cut } from './red-proof.ts';
 import { readDiff, stepCommits } from './step-commits.ts';
-import { type EffectiveModule, effectiveMap, type ReadTestMapAt } from './test-map.ts';
+import { areaOf, type EffectiveModule, effectiveMap, type ReadTestMapAt } from './test-map.ts';
 import { changedTestLines, guardedFiles, olderTestFiles } from './tests-unchanged.ts';
 
 /** As much as a diff of the step may hold: a test file at the tip is read with the same bound. */
@@ -80,6 +81,31 @@ async function readTip(
     files.set(path, read.stdout);
   }
   return { files };
+}
+
+/**
+ * The merge of `base` that an attempt which started at `from` concluded on its way to `tip` (ADR
+ * 0244): the oldest commit between them with `base` as a parent; undefined when there is none, as
+ * for a merge left unconcluded, which fails the attempt elsewhere. Or why git could not read them.
+ */
+async function concludedMerge(
+  git: Git,
+  cwd: string,
+  from: string,
+  tip: string,
+  base: string,
+  signal: AbortSignal,
+): Promise<{ commit: string } | { error: string } | undefined> {
+  const options = { maxOutputBytes: MAX_TIP_BYTES, timeoutMs: TIP_READ_MS, signal };
+  const listed = await git(cwd, ['rev-list', '--parents', `${from}..${tip}`, '--'], options);
+  if (listed.code !== 0) return { error: failure('rev-list', listed) };
+  const merges = listed.stdout
+    .split(/\r?\n/)
+    .map((line) => line.trim().split(' '))
+    .filter(([, ...parents]) => parents.includes(base));
+  // rev-list lists the newest first.
+  const commit = merges.at(-1)?.[0];
+  return commit === undefined || commit === '' ? undefined : { commit };
 }
 
 export interface TestsGuardOptions {
@@ -215,15 +241,26 @@ export function guardTests(options: TestsGuardOptions): BrewerRunner {
       }
       if (base === undefined) return end;
       // A test file the base holds is the Gauger's to change, before the code (ADR 0358): the
-      // attempt's own change, from its start merge when it made one (ADR 0244).
-      const start =
-        startMergeOf(state(), { ...ref, attempt: ran.attempt })?.merged ?? worktree.commit;
+      // attempt's own change, from its start merge when it made one, or the merge it concluded
+      // when that kept a conflict, so the moved base's own changes are not the attempt's (ADR 0244).
+      const merge = startMergeOf(state(), { ...ref, attempt: ran.attempt });
+      const concluded =
+        merge?.kept === undefined
+          ? undefined
+          : await concludedMerge(git, cwd, worktree.commit, tip, merge.base, signal);
+      if (concluded !== undefined && 'error' in concluded) return unreadable(concluded.error);
+      const start = concluded?.commit ?? merge?.merged ?? worktree.commit;
       const own = await readDiff(git, cwd, { from: start, to: tip }, { signal });
       if (signal.aborted) return { ...end, ending: { kind: 'cancelled' } };
       if ('error' in own) return unreadable(own.error);
+      // Only the files in a test area are asked for: a large change's paths would pass a command
+      // line's length.
       const candidates = [
         ...new Set(own.files.flatMap(({ oldPath, newPath }) => [oldPath, newPath])),
-      ].filter((path): path is string => path !== undefined);
+      ].filter(
+        (path): path is string =>
+          path !== undefined && areaOf(kept.modules, path, foldCase)?.area === 'tests',
+      );
       const atBase = await listTree(git, cwd, base, candidates, signal);
       if (signal.aborted) return { ...end, ending: { kind: 'cancelled' } };
       if ('error' in atBase) return unreadable(atBase.error);
