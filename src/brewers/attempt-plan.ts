@@ -1189,17 +1189,30 @@ function bounded(text: string, limit: number, what: string): string {
   return `${bytes.subarray(0, end).toString('utf8')}${note}`;
 }
 
-/** The lines of each other child of a group in a round back, a section per step (ADR 0349). */
-function groupSections(others: readonly GroupStepFindings[]): { step: string; lines: string[] }[] {
+/**
+ * The lines of each other child of a group in a round back, a section per step (ADR 0349), each
+ * with how many findings it stands for: a finding's line one, the line of those its attempt did
+ * not record that many. A finding with no file is about the change, or a plan lens's about the
+ * plan, as a whole (ADR 0318).
+ */
+function groupSections(others: readonly GroupStepFindings[]) {
   return others.map(({ step, lenses, blocking, findings, more }) => {
     const through = lenses.length === 0 ? '' : `, through ${lenses.join(' and ')}`;
     const head = `Step ${step}${through}, ${blocking ? 'blocking' : 'advisory'}:`;
-    const lines = findings.map(
-      (finding) =>
-        `- ${lensFirst(finding)}${finding.severity} in ${placeOf(finding)}${finding.introduced ? '' : ', there before the change'}: ${flatLine(finding.why)}`,
-    );
-    if (more > 0) lines.push(`- and ${more} more its attempt did not record`);
-    return { step, lines: lines.length === 0 ? [`${head} no findings.`] : [head, ...lines] };
+    const of: Reviewed = lenses[0]?.startsWith('plan/') === true ? 'plan' : 'change';
+    const lines = findings.map((finding) => ({
+      text: `- ${lensFirst(finding)}${finding.severity} in ${finding.file === undefined ? `the ${of} as a whole` : placeOf(finding)}${finding.introduced ? '' : ', there before the change'}: ${flatLine(finding.why)}`,
+      count: 1,
+    }));
+    if (more > 0)
+      lines.push({ text: `- and ${more} more its attempt did not record`, count: more });
+    return {
+      step,
+      lines:
+        lines.length === 0
+          ? [{ text: `${head} no findings.`, count: 0 }]
+          : [{ text: head, count: 0 }, ...lines],
+    };
   });
 }
 
@@ -1219,12 +1232,12 @@ const groupCut = (left: readonly { step: string; count: number }[]): string =>
  */
 function withGroup(head: string, others: readonly GroupStepFindings[]): string {
   const sections = groupSections(others);
-  const findingsOf = (lines: readonly string[]) =>
-    lines.filter((line) => line.startsWith('- ')).length;
+  const countOf = (lines: readonly { count: number }[]) =>
+    lines.reduce((sum, { count }) => sum + count, 0);
   const bytes = (text: string) => Buffer.byteLength(text, 'utf8');
   const intro = '\n\nThe other steps of its parallel group taste, in the same round:';
   // The longest line a cut can end with: every finding of every step left out.
-  const all = sections.map(({ step, lines }) => ({ step, count: findingsOf(lines) }));
+  const all = sections.map(({ step, lines }) => ({ step, count: countOf(lines) }));
   const room =
     MAX_ROUTE_INPUT_BYTES - bytes(`\n\n${groupCut(all.filter(({ count }) => count > 0))}`);
   let text = `${bounded(head, room - bytes(intro), 'route input')}${intro}`;
@@ -1232,14 +1245,14 @@ function withGroup(head: string, others: readonly GroupStepFindings[]): string {
   for (const { step, lines } of sections) {
     let shown = 0;
     let section = '\n';
-    for (const line of lines) {
+    for (const { text: line, count } of lines) {
       const next = `${section}\n${line}`;
       if (left.length > 0 || bytes(text + next) > room) break;
       section = next;
-      if (line.startsWith('- ')) shown++;
+      shown += count;
     }
     if (section !== '\n') text += section;
-    const count = findingsOf(lines) - shown;
+    const count = countOf(lines) - shown;
     if (count > 0) left.push({ step, count });
   }
   return left.length === 0 ? text : `${text}\n\n${groupCut(left)}`;
