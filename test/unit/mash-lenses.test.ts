@@ -411,11 +411,15 @@ describe('foedrum brew on recipe:mash and recipe:decoction, through the default 
       'naive-reader': [approves, approves],
     };
     assert.equal(await runBrew(setup, shell(script), request), 3, lines.join('\n'));
-    // The whole group runs again on the corrected plan.
-    assert.deepStrictEqual(
-      [...started].sort(),
-      ['coverage', 'naive-reader', 'plan', 'sizing'].flatMap((step) => [`${step}#1`, `${step}#2`]),
-    );
+    // Only coverage, whose findings sent the plan back, reads the corrected plan (ADR 0357).
+    assert.deepStrictEqual([...started].sort(), [
+      'coverage#1',
+      'coverage#2',
+      'naive-reader#1',
+      'plan#1',
+      'plan#2',
+      'sizing#1',
+    ]);
     assert.equal(started[0], 'plan#1');
     assert.ok(started.indexOf('plan#2') < started.indexOf('coverage#2'), started.join(' '));
     assert.ok(prompts.get('coverage#2')?.includes('The guide'), 'coverage#2 reads the new plan');
@@ -454,12 +458,13 @@ describe('foedrum brew on recipe:mash and recipe:decoction, through the default 
   it("coverage and sizing share the group's two rounds: three plans at most (ADR 0354)", async () => {
     const script = {
       plan: [planned, replanned(), replanned()],
-      coverage: [asksChanges(guide), approves, approves],
-      sizing: [approves, asksChanges(big), asksChanges(big)],
-      'naive-reader': [approves, approves, approves],
+      coverage: [asksChanges(guide), approves],
+      sizing: [asksChanges(big), asksChanges(big), asksChanges(big)],
+      'naive-reader': [approves],
     };
     assert.equal(await runBrew(setup, shell(script), request), 3, lines.join('\n'));
-    // Sizing asks again on the third plan, and the group's route has no round left.
+    // Coverage's round, then sizing's alone: sizing asks again on the third plan, and the group's
+    // route has no round left.
     assert.ok(started.includes('plan#3'), started.join(' '));
     assert.ok(!started.includes('plan#4'), started.join(' '));
     assert.equal(stuckReason().kind, 'blocked');
