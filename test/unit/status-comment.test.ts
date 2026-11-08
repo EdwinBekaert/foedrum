@@ -3708,4 +3708,36 @@ describe('renderStatus: a parallel group that ran in part after a round back (AD
     const text = renderStatus(fixing, ['implement', 'correctness']);
     assert.equal(lineOf(text, 'correctness'), '- ✅ `correctness`');
   });
+
+  it("counts a kept Taster's rounds from the batch's latest run from the start (ADR 0357)", () => {
+    const routedBy = (from: string) => ({ route: { from, why: 'findings' } }) as const;
+    const blocked = (attempt: number): Attempt => ({ ...blockedByFindings, attempt });
+    // Run 1 tasted twice; a person's recipe choice ran the recipe again from the fifth attempt,
+    // where correctness approved in its run's round 1 and security's findings sent it back.
+    const again = batch({
+      steps: new Map([
+        step('implement', done(1), { ...done(2), ...routedBy('correctness') }, done(3), {
+          ...done(4),
+          ...routedBy('security'),
+        }),
+        step('correctness', blocked(1), approved(2), approved(3)),
+        step('security', approved(1), blocked(2), approved(3)),
+      ]),
+      path: [
+        { stepId: 'implement', attempt: 1 },
+        { stepId: 'correctness', attempt: 1 },
+        { stepId: 'security', attempt: 1 },
+        { stepId: 'implement', attempt: 2 },
+        { stepId: 'correctness', attempt: 2 },
+        { stepId: 'implement', attempt: 3 },
+        { stepId: 'correctness', attempt: 3 },
+        { stepId: 'security', attempt: 2 },
+        { stepId: 'implement', attempt: 4 },
+        { stepId: 'security', attempt: 3 },
+      ],
+      runFrom: 5,
+    });
+    const text = renderStatus(again, ['implement', 'correctness', 'security']);
+    assert.equal(lineOf(text, 'correctness'), '- ✅ `correctness`, from round 1');
+  });
 });

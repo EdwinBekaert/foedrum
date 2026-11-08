@@ -515,6 +515,42 @@ describe('a parallel group after a round back for findings, past it and after a 
       twice,
     );
   });
+
+  it("runs the whole group again after a person's rewind to a step before it (ADR 0357)", () => {
+    const failed = { kind: 'failed', retryable: false, reason: 'the build broke' } as const;
+    const reason: StuckReason = {
+      kind: 'blocked',
+      stepId: 'implement',
+      blockerKind: 'environment',
+      summary: 'the build broke',
+    };
+    const shas = { 'acme/api': 'a'.repeat(40) };
+    const rewound: Event[] = [
+      ...sentBack,
+      finished('implement', failed, 2),
+      stuckOn(reason, ['retry', 'rewind', 'cancel']),
+      { type: 'batch.rewound', batchId: 'b1', toStepId: 'implement', ...by, shas },
+      scheduled('implement', 3),
+      started('implement', 3),
+    ];
+    const command = {
+      kind: 'finish',
+      batchId: 'b1',
+      stepId: 'implement',
+      attempt: 3,
+      ending: { kind: 'succeeded', output: null },
+    } as const;
+    accepts(
+      rewound,
+      command,
+      [
+        finished('implement', { kind: 'succeeded', output: null }, 3),
+        next('correctness', 2),
+        next('security', 2),
+      ],
+      twice,
+    );
+  });
 });
 
 describe('a parallel group after a round back for findings (ADR 0357)', () => {
