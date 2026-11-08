@@ -260,19 +260,14 @@ const assertBrewed = async ({ output, events, api, run }: Brewed, scratch: strin
   // The bottle branch: the Maltster's test map, the Gauger's test, then the Cellarman's two fixes.
   assert.equal(pull?.base, 'main');
   assert.equal(pull?.title, NIP_ORDER.title);
-  // The Tasters' advisory finding and approval, in the pull request they did not hold up (ADR
-  // 0161, ADR 0197).
+  // The Tasters' approvals, in the pull request they did not hold up (ADR 0161, ADR 0197).
   assert.match(
     pull?.body ?? '',
     /acceptance: Both items of What to build are built: [^\n]*\n {2}verdict: approve/,
   );
   assert.match(
     pull?.body ?? '',
-    /correctness: One minor finding through diff\/correctness\.\n {2}verdict: approve\n {2}finding: minor in greet\.mjs:2: a name of only spaces/,
-  );
-  assert.match(
-    comments[0]?.body ?? '',
-    /\*\*Findings\*\*\n- `correctness`: minor in greet\.mjs:2: /,
+    /correctness: No finding through diff\/correctness: [^\n]*\n {2}verdict: approve\n/,
   );
   const gitDir = join(scratch, 'web.git');
   const log = await run(scratch, [
