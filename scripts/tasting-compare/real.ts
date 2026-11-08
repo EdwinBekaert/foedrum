@@ -175,8 +175,8 @@ export const realRecipeText = (setup: RealSetup): string => {
 export interface Tasters {
   /** `today`'s pinned text, the one at `TODAY_COMMIT`. */
   today: string;
-  /** The default's text, `defaults/brewers/taster.md`. */
-  current: string;
+  /** The Taster that reads the rules. */
+  reads: string;
 }
 
 const MEDIUM_EFFORT = '"effort": "medium"';
@@ -255,13 +255,13 @@ const tasterOf = (profile: Profile | 'comments', tasters: Tasters): string | und
     case 'today':
       return tasters.today;
     case 'high':
-      return highTaster(tasters.current);
+      return highTaster(tasters.reads);
     case 'opus-bare':
     case 'opus-together':
-      return bareTaster(tasters.current);
+      return bareTaster(tasters.reads);
     case 'high-bare':
     case 'high-together':
-      return highTaster(bareTaster(tasters.current));
+      return highTaster(bareTaster(tasters.reads));
     case 'reads':
     case 'lens':
     case 'opus':

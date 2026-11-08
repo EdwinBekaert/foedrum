@@ -334,7 +334,7 @@ const realMode = async (): Promise<Mode<RealSetup>> => {
     setups: realSetups,
     order: (setup) => join(folder, `${orderOf(setup).order}.md`),
     recipeOf: realRecipeOf,
-    breweryFiles: (setup) => realBreweryFiles(setup, { today: today.stdout, current }),
+    breweryFiles: (setup) => realBreweryFiles(setup, { today: today.stdout, reads: current }),
     target: async (setup, scratch, git) => {
       // Only the base: later history stays out of the scratch remote, whatever a Taster may run.
       await git(scratch, ['init', '-q', '--bare', '--initial-branch=main', 'web.git']);

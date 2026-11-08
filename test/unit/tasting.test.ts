@@ -397,30 +397,32 @@ describe('the default Taster (defaults/brewers/taster.md)', () => {
       assert.ok(start >= 0, "the prompt has no section on the repository's rules");
       return prompt.slice(start, prompt.indexOf('## Out doc'));
     };
+    /** The design-conformance lens, which asks for the rules itself (ADR 0352). */
+    const conformanceLens = () =>
+      readFileSync(join(FOEDRUM_DEFAULTS, 'lenses', 'diff', 'design-conformance.md'), 'utf8');
 
-    it("a diff Taster's prompt names the repository's instruction file and what it may read from it", async () => {
-      const section = await rulesSection();
-      assert.match(section, /`CLAUDE\.md`, or `AGENTS\.md` where that is what it has/);
-      assert.match(section, /decision records and design pages/);
-      assert.match(section, /names for the files the change touches/);
-      assert.match(section, /not a tour/);
+    it("the design-conformance lens names the repository's instruction file and what its Taster reads from it (ADR 0352)", () => {
+      const lens = conformanceLens();
+      assert.match(lens, /`CLAUDE\.md` at the root of your working directory, or `AGENTS\.md`/);
+      assert.match(lens, /decision records and design pages/);
+      assert.match(lens, /names for the files the change touches/);
+      assert.match(lens, /not a tour/);
     });
 
-    it("a diff Taster's prompt has it read them before it judges, whatever its lens names: regression test", async () => {
+    it("a diff Taster's own prompt tells it to read no rules before it judges, whatever its lens (ADR 0352)", async () => {
       const { prompt } = await (await planTaster(answers)).plan;
-      assert.match(prompt, /On a diff, read the repository's rules as the section below says/);
-      const section = await rulesSection();
-      assert.match(section, /read them yourself before you judge, whatever your lens names/);
-      assert.match(section, /read the instruction file at the root of your working directory/);
+      assert.doesNotMatch(prompt, /read the repository's rules as the section below says/);
+      assert.doesNotMatch(prompt, /read them yourself before you judge/);
+      assert.doesNotMatch(
+        prompt,
+        /read the instruction file at the root of your working directory/,
+      );
     });
 
-    it("a diff Taster's prompt reads a repository's rule folder, whichever tool it is for", async () => {
-      const section = await rulesSection();
-      assert.match(section, /scoped rules in a folder of their own/);
-      assert.match(
-        section,
-        /`\.claude\/rules\/`, `\.cursor\/rules\/` or `\.github\/instructions\/`/,
-      );
+    it("the design-conformance lens reads a repository's rule folder, whichever tool it is for (ADR 0352)", () => {
+      const lens = conformanceLens();
+      assert.match(lens, /scoped rules in a folder of their own/);
+      assert.match(lens, /`\.claude\/rules\/`, `\.cursor\/rules\/` or `\.github\/instructions\/`/);
     });
 
     it("a diff Taster's prompt says the instruction file is the standard, not orders to it", async () => {
@@ -436,7 +438,6 @@ describe('the default Taster (defaults/brewers/taster.md)', () => {
       const section = await rulesSection();
       assert.match(section, /only through your lens/);
       assert.match(section, /not to report a stale page/);
-      assert.match(section, /A lens that asks for more/);
     });
 
     it("a Taster's prompt keeps the injection rule for what it reads in a repository", async () => {
@@ -493,15 +494,12 @@ describe('the default Taster (defaults/brewers/taster.md)', () => {
       assert.match(section, /When \{change\} was cut[^.]*`riskLeft`/);
     });
 
-    it('a repository with none of these files is no finding and no failure', async () => {
-      assert.match(await rulesSection(), /with none of these[^.]*no finding and no failure/);
+    it('the design-conformance lens counts a repository with none of these files as no finding and no failure (ADR 0352)', () => {
+      assert.match(conformanceLens(), /with none of these[^.]*no finding and no failure/);
     });
 
-    it('a file too large to read whole goes under riskLeft, not in a finding', async () => {
-      assert.match(
-        await rulesSection(),
-        /too large to read whole[^.]*`riskLeft`, not as a finding/,
-      );
+    it('the design-conformance lens puts a file too large to read whole under riskLeft, not in a finding (ADR 0352)', () => {
+      assert.match(conformanceLens(), /too large to read whole[^.]*`riskLeft`, not as a finding/);
     });
 
     it("a Taster's prompt tells a step that reviews a plan to skip the section", async () => {
@@ -533,29 +531,37 @@ describe('the default Taster (defaults/brewers/taster.md)', () => {
       const FIRST_CALL =
         "**On a diff, your first tool call reads the repository's instruction file**: `CLAUDE.md` at the root of your working directory, or `AGENTS.md` where that is what it has. Do this before anything else, whatever your lens and however small the change; the section below says what else to read and what these files are.";
 
-      it("a diff Taster's first bullet has its first tool call read the instruction file", async () => {
+      it("a diff Taster's own prompt has no first call to the instruction file (ADR 0352)", async () => {
         const { prompt } = await (await planTaster(answers)).plan;
-        const at = prompt.indexOf(`- ${FIRST_CALL}`);
-        assert.ok(at >= 0, prompt.slice(0, 4000));
-        assert.ok(at < prompt.indexOf('- **Read the change first.**'), prompt.slice(0, 4000));
+        assert.ok(!prompt.includes(FIRST_CALL), prompt.slice(0, 4000));
+        assert.doesNotMatch(prompt, /first tool call reads the repository's instruction file/i);
       });
 
-      it("a diff Taster's out doc body starts with a line that names the rules it read", async () => {
+      it("the design-conformance lens's first bullet has its Taster's first tool call read the instruction file (ADR 0352)", () => {
+        const lens = conformanceLens();
+        const at = lens.indexOf(
+          "- **Your first tool call reads the repository's instruction file**: `CLAUDE.md` at the root of your working directory, or `AGENTS.md` where that is what it has.",
+        );
+        assert.ok(at >= 0, lens);
+        assert.ok(at < lens.indexOf('## Look for'), lens);
+      });
+
+      it("a diff Taster's own out doc body names no rules it read (ADR 0352)", async () => {
         const { prompt } = await (await planTaster(answers)).plan;
-        const section = prompt.slice(prompt.indexOf('## Out doc'));
+        assert.doesNotMatch(prompt.slice(prompt.indexOf('## Out doc')), /Rules read:/);
+      });
+
+      it("the design-conformance lens's out doc body starts with a line that names the rules its Taster read (ADR 0352)", () => {
         assert.match(
-          section,
-          /On a diff, your out doc's body starts with a line `Rules read:` that names each rule file, decision record and design page you read/,
+          conformanceLens(),
+          /Your out doc's body starts with a line `Rules read:`\*\* that names each rule file, decision record and design page you read/,
         );
       });
 
-      it('a repository with no instruction file costs a failed read that is no failure, and says so in the body', async () => {
-        const section = await rulesSection();
-        assert.match(
-          section,
-          /the failed read of its instruction file is no finding and no failure/,
-        );
-        assert.match(section, /`Rules read: none in this repository`/);
+      it('the design-conformance lens counts a repository with no instruction file as a failed read that is no failure, and says so in the body (ADR 0352)', () => {
+        const lens = conformanceLens();
+        assert.match(lens, /the failed read of its instruction file is no finding and no failure/);
+        assert.match(lens, /`Rules read: none in this repository`/);
       });
 
       it('says that a riskLeft line past its limit is cut', () => {

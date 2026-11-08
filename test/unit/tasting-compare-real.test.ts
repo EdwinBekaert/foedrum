@@ -162,7 +162,12 @@ const attempt = (
   ...more,
 });
 
-const TASTERS = { today: 'the old text', current: 'the default text' };
+/** The Taster that reads the rules, which a scratch Brewery loads as its brewer (ADR 0352). */
+const READS = readFileSync(
+  join(root, 'test', 'fixtures', 'tasting-compare', 'real', 'taster-reads.md'),
+  'utf8',
+);
+const TASTERS = { today: 'the old text', reads: READS };
 
 const SETUPS: readonly RealSetup[] = [
   '855-today',
@@ -771,9 +776,9 @@ describe('tasting-compare --real', () => {
       assert.doesNotThrow(() => refuseSameTaster('version 7\n', 'version 8\n'));
     });
 
-    it('the today setup replaces the Taster, and the reads setup keeps the default', () => {
+    it('the today setup replaces the Taster with its old text, and the reads setup with the Taster that reads the rules (ADR 0352)', () => {
       assert.equal(realBreweryFiles('864-today', TASTERS)['brewers/taster.md'], 'the old text');
-      assert.equal(realBreweryFiles('864-reads', TASTERS)['brewers/taster.md'], undefined);
+      assert.equal(realBreweryFiles('864-reads', TASTERS)['brewers/taster.md'], READS);
     });
 
     describe('the lens setup (#889, ADR 0337)', () => {
@@ -825,9 +830,9 @@ describe('tasting-compare --real', () => {
         );
       });
 
-      it("its recipe is named as an order's label and loads as a Brewery file, on the default Taster", () => {
+      it("its recipe is named as an order's label and loads as a Brewery file, on the Taster that reads the rules (ADR 0352)", () => {
         const files = realBreweryFiles('855-lens', TASTERS);
-        assert.equal(files['brewers/taster.md'], undefined);
+        assert.equal(files['brewers/taster.md'], READS);
         assert.equal(Recipe.parse(parseJsonc(lensRecipe())).name, 'real-nip-lens');
         const brewery = makeTempDir('tasting-compare-real');
         try {
@@ -1172,8 +1177,8 @@ describe('tasting-compare --real', () => {
 });
 
 describe('tasting-compare --real: the opus and high setups (ADR 0344)', () => {
-  const DEFAULT_TASTER = readFileSync(join(root, 'defaults', 'brewers', 'taster.md'), 'utf8');
-  const REAL_TASTERS = { today: 'the old text', current: DEFAULT_TASTER };
+  const READS_TASTER = READS;
+  const REAL_TASTERS = TASTERS;
   const SESSION = '00000000-0000-4000-8000-000000000001';
 
   /** A step's brewer and its `claude` line, through serve's own setup of the scratch Brewery. */
@@ -1245,11 +1250,11 @@ describe('tasting-compare --real: the opus and high setups (ADR 0344)', () => {
   });
 
   it("the high setup differs from reads by the Taster's effort alone", () => {
-    const reads = realBreweryFiles('855-reads', REAL_TASTERS);
+    const { 'brewers/taster.md': _, ...reads } = realBreweryFiles('855-reads', REAL_TASTERS);
     const { 'brewers/taster.md': taster, ...others } = realBreweryFiles('855-high', REAL_TASTERS);
     assert.deepEqual(others, reads);
-    assert.equal(taster, DEFAULT_TASTER.replace('"effort": "medium"', '"effort": "high"'));
-    assert.notEqual(taster, DEFAULT_TASTER);
+    assert.equal(taster, READS_TASTER.replace('"effort": "medium"', '"effort": "high"'));
+    assert.notEqual(taster, READS_TASTER);
 
     const line = commandLine('855-high');
     assert.equal(line[line.indexOf('--effort') + 1], 'high');
@@ -1275,14 +1280,20 @@ describe('tasting-compare --real: the opus and high setups (ADR 0344)', () => {
     }
   });
 
-  it('the other setups write no models.jsonc, and only today replaces the Taster: regression test', () => {
+  it("the other setups write no models.jsonc, and taste today's Taster or the one that reads the rules (ADR 0352)", () => {
     for (const setup of ['855-today', '855-reads', '855-lens', '867-comments'] as const) {
       assert.equal(realBreweryFiles(setup, REAL_TASTERS)['models.jsonc'], undefined, setup);
     }
     assert.equal(realBreweryFiles('855-today', REAL_TASTERS)['brewers/taster.md'], 'the old text');
     for (const setup of ['855-reads', '855-lens', '867-comments'] as const) {
-      assert.equal(realBreweryFiles(setup, REAL_TASTERS)['brewers/taster.md'], undefined, setup);
+      assert.equal(realBreweryFiles(setup, REAL_TASTERS)['brewers/taster.md'], READS_TASTER, setup);
     }
+  });
+
+  it("the default Taster no longer holds the bare cut's texts, so the setups cut the Taster that reads (ADR 0352)", () => {
+    const current = readFileSync(join(root, 'defaults', 'brewers', 'taster.md'), 'utf8');
+    assert.throws(() => bareTaster(current), /bare would compare nothing/);
+    assert.doesNotThrow(() => bareTaster(READS_TASTER));
   });
 
   describe('the high Taster', () => {
@@ -1487,18 +1498,18 @@ describe('tasting-compare --real: the opus and high setups (ADR 0344)', () => {
   });
 
   describe('the bare and together setups (ADR 0347)', () => {
-    const BARE = () => bareTaster(DEFAULT_TASTER);
+    const BARE = () => bareTaster(READS_TASTER);
     const NIP_LENSES = ['diff/correctness', 'diff/acceptance', 'diff/security'];
 
     it("the opus-bare setup differs from opus by the Taster's read of the rules alone", () => {
-      const opus = realBreweryFiles('855-opus', REAL_TASTERS);
+      const { 'brewers/taster.md': _, ...opus } = realBreweryFiles('855-opus', REAL_TASTERS);
       const { 'brewers/taster.md': taster, ...others } = realBreweryFiles(
         '855-opus-bare',
         REAL_TASTERS,
       );
       assert.deepEqual(others, opus);
       assert.equal(taster, BARE());
-      assert.notEqual(taster, DEFAULT_TASTER);
+      assert.notEqual(taster, READS_TASTER);
       assert.deepEqual(commandLine('855-opus-bare'), commandLine('855-opus'));
     });
 
@@ -1571,13 +1582,13 @@ describe('tasting-compare --real: the opus and high setups (ADR 0344)', () => {
         '**What to read.**',
       ]) {
         assert.equal(bare.includes(words), false, words);
-        assert.equal(DEFAULT_TASTER.includes(words), true, words);
+        assert.equal(READS_TASTER.includes(words), true, words);
       }
     });
 
     it('the bare Taster keeps every other line of the default byte for byte', () => {
       const bare = BARE().split('\n');
-      const all = DEFAULT_TASTER.split('\n');
+      const all = READS_TASTER.split('\n');
       assert.equal(bare.length, all.length - 6);
       const changed = bare.filter((line) => !all.includes(line));
       assert.equal(changed.length, 1, changed.join('\n'));
@@ -1614,7 +1625,7 @@ describe('tasting-compare --real: the opus and high setups (ADR 0344)', () => {
         'starts with a line `Rules read:`',
       ]) {
         assert.throws(
-          () => bareTaster(DEFAULT_TASTER.replace(words, 'other words')),
+          () => bareTaster(READS_TASTER.replace(words, 'other words')),
           /bare would compare nothing/,
           words,
         );
@@ -1622,11 +1633,8 @@ describe('tasting-compare --real: the opus and high setups (ADR 0344)', () => {
     });
 
     it('refuses a default Taster that holds a text it cuts twice, as it could not tell which', () => {
-      const first = DEFAULT_TASTER.split('\n').find((line) => line.includes('**What to read.**'));
-      assert.throws(
-        () => bareTaster(`${DEFAULT_TASTER}\n${first}\n`),
-        /bare would compare nothing/,
-      );
+      const first = READS_TASTER.split('\n').find((line) => line.includes('**What to read.**'));
+      assert.throws(() => bareTaster(`${READS_TASTER}\n${first}\n`), /bare would compare nothing/);
     });
 
     it('the opus-bare and opus-together setups ask for opus, and high-bare for sonnet', () => {
@@ -2000,6 +2008,7 @@ describe('tasting-compare --real: 867-comments (ADR 0333)', () => {
     assert.equal(realRecipeOf('867-comments'), REAL_RECIPE);
     assert.deepEqual(Object.keys(realBreweryFiles('867-comments', TASTERS)), [
       `recipes/${REAL_RECIPE}.jsonc`,
+      'brewers/taster.md',
     ]);
   });
 
