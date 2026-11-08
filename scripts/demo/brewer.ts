@@ -48,7 +48,15 @@ const tasting = (lens: string, file: string, line: number, why: string): Scripte
   },
 });
 
-/** The finding the blocking correctness lens asks changes for in round 1 (ADR 0193). */
+/** A Taster's out doc that approves with no finding, once round 1's findings were answered. */
+const approved = (lens: string): Scripted => ({
+  files: {},
+  message: '',
+  summary: `Round 1's finding through ${lens} is answered, and nothing new is found.`,
+  tasting: { verdict: 'approve', findings: [] },
+});
+
+/** The finding the correctness lens asks changes for in round 1 (ADR 0193). */
 const SPACES = {
   file: 'greet.mjs',
   line: 2,
@@ -65,12 +73,34 @@ const FIX_SPACES: Scripted = {
   },
   message: 'Greet a visitor whose name is only spaces as a stranger',
   summary: 'greet greets a name of only spaces as a stranger, as the correctness lens asked.',
+  // Every finding of round 1 sent the batch back, each answered here (ADR 0191, ADR 0354).
   dispositions: [
     {
       file: SPACES.file,
       line: SPACES.line,
       disposition: 'fixed',
       why: 'greet trims the name before it asks whether it is empty',
+    },
+    {
+      step: 'security',
+      file: 'greet.mjs',
+      line: 2,
+      disposition: 'dismissed',
+      why: 'greet returns plain text, as the order asks; escaping it is for whoever writes it into HTML',
+    },
+    {
+      step: 'test-design',
+      file: 'greet.test.mjs',
+      line: 10,
+      disposition: 'dismissed',
+      why: "the Gauger's tests are the order's; a name of only spaces is the fix's own case, which Brett's mutants measure",
+    },
+    {
+      step: 'design-conformance',
+      file: 'greet.mjs',
+      line: 2,
+      disposition: 'dismissed',
+      why: 'the repository keeps no design documents: its README is the only page, and the order does not touch it',
     },
   ],
 };
@@ -115,6 +145,35 @@ const INNKEEP: Scripted = {
   },
 };
 
+/** The sub-orders of the Brewmaster's plan of the third order. */
+const SUB_ORDERS: readonly Record<string, unknown>[] = [
+  {
+    id: 'languages',
+    title: 'greet takes a language',
+    repo: TARGET,
+    size: { lines: 40, mechanism: 'a second parameter and a table of greetings' },
+    doneWhen: "greet('Ann', 'fr') returns 'Bonjour, Ann!'",
+    touches: [{ path: 'greet.mjs' }, { path: 'greet.test.mjs' }],
+    recipe: 'nip',
+    why: 'one small change, test-first',
+    ready: true,
+  },
+  {
+    id: 'readme',
+    title: 'The README shows the languages',
+    repo: TARGET,
+    size: { lines: 15, mechanism: 'one section' },
+    doneWhen: 'the README names fr and nl with an example of each',
+    touches: [{ path: 'README.md', new: true }],
+    dependencies: [{ on: 'languages', kind: 'code' }],
+    recipe: 'nip',
+    why: 'a page after the code it shows',
+    testFirst: false,
+    testFirstOff: 'a page has no test',
+    ready: true,
+  },
+];
+
 /**
  * The Brewmaster's plan of the third order (ADR 0233, ADR 0234): two sub-orders in the target
  * repository, the README's after greet's, so the plan comment draws their order; with its
@@ -125,33 +184,7 @@ const PLAN: Scripted = {
   message: '',
   summary: 'Greet in a language first, then show it in the README.',
   doc: {
-    subOrders: [
-      {
-        id: 'languages',
-        title: 'greet takes a language',
-        repo: TARGET,
-        size: { lines: 40, mechanism: 'a second parameter and a table of greetings' },
-        doneWhen: "greet('Ann', 'fr') returns 'Bonjour, Ann!'",
-        touches: [{ path: 'greet.mjs' }, { path: 'greet.test.mjs' }],
-        recipe: 'nip',
-        why: 'one small change, test-first',
-        ready: true,
-      },
-      {
-        id: 'readme',
-        title: 'The README shows the languages',
-        repo: TARGET,
-        size: { lines: 15, mechanism: 'one section' },
-        doneWhen: 'the README names fr and nl with an example of each',
-        touches: [{ path: 'README.md', new: true }],
-        dependencies: [{ on: 'languages', kind: 'code' }],
-        recipe: 'nip',
-        why: 'a page after the code it shows',
-        testFirst: false,
-        testFirstOff: 'a page has no test',
-        ready: true,
-      },
-    ],
+    subOrders: SUB_ORDERS,
     alternatives: {
       considered: [{ cut: 'one sub-order', whyNot: 'the README would show a greet not yet built' }],
       whyThis: 'each part merges alone, the code first',
@@ -159,6 +192,23 @@ const PLAN: Scripted = {
     assumptions: [
       'English stays the greeting when no language is given.',
       'Only fr and nl for now; another language is a new order.',
+    ],
+  },
+};
+
+/** The plan corrected for the naive reader's finding, and what came of it (ADR 0191, ADR 0354). */
+const PLAN_CORRECTED: Scripted = {
+  ...PLAN,
+  summary: 'Greet in a language first, then show it in a section of the README after its title.',
+  doc: {
+    ...PLAN.doc,
+    subOrders: SUB_ORDERS.map((entry) =>
+      entry.id === 'readme'
+        ? { ...entry, size: { lines: 15, mechanism: 'one section, after the title' } }
+        : entry,
+    ),
+    dispositions: [
+      { disposition: 'fixed', why: 'the readme entry says the section goes after the title' },
     ],
   },
 };
@@ -208,12 +258,11 @@ const MUTANTS: Scripted = {
 
 /**
  * The Nip fixture's Maltster, Gauger and Cellarman, with a Taster for each lens step of the
- * demo's parallel group (ADR 0168), playing a tasting loop (ADR 0193). In round 1 the blocking correctness lens
- * asks for changes with one finding, and the advisory ones approve with a finding of their own,
- * so the status comment shows each one's findings under its own step. The Cellarman's third
- * attempt fixes the finding and records it fixed, and the Finer runs after it once more. In
- * round 2 correctness approves, and the advisory lenses, whose findings are still open, raise
- * them again. Brett mutates the change after them, once.
+ * demo's parallel group (ADR 0168), playing a tasting loop (ADR 0193). In round 1 the correctness lens
+ * asks for changes with one finding, and the other three approve with a finding of their own, and
+ * every finding sends the batch back (ADR 0354). The Cellarman's third attempt fixes correctness's
+ * finding and dismisses the other three with a reason, and the Finer runs after it once more. In
+ * round 2 every lens approves with no finding. Brett mutates the change after them, once.
  */
 export const DEMO_SCRIPT: Readonly<Record<string, readonly Scripted[]>> = {
   survey: NIP_SCRIPT.survey ?? [],
@@ -234,16 +283,23 @@ export const DEMO_SCRIPT: Readonly<Record<string, readonly Scripted[]>> = {
       tasting: { verdict: 'approve', findings: [] },
     },
   ],
-  security: [security, security],
-  'test-design': [testDesign, testDesign],
-  'design-conformance': [designConformance, designConformance],
+  security: [security, approved('diff/security')],
+  'test-design': [testDesign, approved('diff/test-design')],
+  'design-conformance': [designConformance, approved('diff/design-conformance')],
   mutants: [MUTANTS],
   // The third order's mash: the Innkeeper's question, the Brewmaster's plan (ADR 0232), and three
-  // Tasters of it side by side (ADR 0321), the advisory one with a note for the Review.
+  // Tasters of it side by side (ADR 0321); the naive reader's note sends the plan back once
+  // (ADR 0354), and the corrected plan passes all three.
   innkeep: [INNKEEP],
-  plan: [PLAN],
-  coverage: [planTasting('The two sub-orders build what the order asks, and nothing more.')],
-  sizing: [planTasting('Each sub-order is one mechanism, far under 1,000 lines.')],
+  plan: [PLAN, PLAN_CORRECTED],
+  coverage: [
+    planTasting('The two sub-orders build what the order asks, and nothing more.'),
+    planTasting('The two sub-orders still build what the order asks, and nothing more.'),
+  ],
+  sizing: [
+    planTasting('Each sub-order is one mechanism, far under 1,000 lines.'),
+    planTasting('Each sub-order is still one mechanism, far under 1,000 lines.'),
+  ],
   'naive-reader': [
     planTasting('One entry leaves a small guess.', [
       {
@@ -252,6 +308,7 @@ export const DEMO_SCRIPT: Readonly<Record<string, readonly Scripted[]>> = {
         introduced: true,
       },
     ]),
+    planTasting('The readme entry now says where its section goes.'),
   ],
 };
 

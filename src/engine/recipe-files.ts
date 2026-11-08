@@ -301,6 +301,8 @@ function readAll<T extends { name: string }>(
 type BrewerStep = Extract<Step, { brewer: string }>;
 type CheckStep = Extract<Step, { check: unknown }>;
 type ActionStep = Extract<Step, { action: string }>;
+/** A route back: where to, and how often (ADR 0064). */
+type Route = NonNullable<Extract<Step, { parallel: unknown }>['onFindings']>;
 
 /** A step the engine runs, as its recipe answers about it. */
 interface LineStep {
@@ -465,6 +467,11 @@ function untasted(step: BrewerStep, brewer: BrewerFrontmatter): string[] {
       ...(step.blocking === undefined || isBrett(brewer)
         ? []
         : [`step "${id}" has "blocking", which the engine does not follow yet (ADR 0053)`]),
+      ...(step.onFindings === undefined
+        ? []
+        : [
+            `step "${id}" has "onFindings", but its brewer "${brewer.name}" is no Taster: only a Taster's findings take that route (ADR 0354)`,
+          ]),
     ];
   }
   if (step.lens === undefined && step.lenses === undefined) {
@@ -478,6 +485,41 @@ function untasted(step: BrewerStep, brewer: BrewerFrontmatter): string[] {
     ];
   }
   return [];
+}
+
+/**
+ * Why the route of a Taster's `step` cannot load (ADR 0354): its findings always go back, along
+ * `onFindings` on its parallel group, `grouped`, or on the step when it stands alone, and never by
+ * `blocking` or `onBlocked`. A group without a route is refused once, for the group.
+ */
+function unrouted(step: BrewerStep, group: string | undefined): string[] {
+  const id = stepId(step);
+  const where = group === undefined ? 'its step' : 'its parallel group';
+  const fields = [
+    ...(step.blocking === undefined
+      ? []
+      : [
+          `step "${id}" has "blocking": a Taster's findings always go back, along "onFindings" on ${where} (ADR 0354)`,
+        ]),
+    ...(step.onBlocked === undefined
+      ? []
+      : [
+          `step "${id}" has "onBlocked": a Taster's findings go back along "onFindings" on ${where} (ADR 0354)`,
+        ]),
+  ];
+  if (fields.length > 0) return fields;
+  if (group !== undefined) {
+    return step.onFindings === undefined
+      ? []
+      : [
+          `step "${id}" in the parallel group "${group}" has "onFindings": put it on the group, whose children share its rounds (ADR 0354)`,
+        ];
+  }
+  return step.onFindings === undefined
+    ? [
+        `step "${id}" is a Taster's step without "onFindings": add "onFindings": { "goto": <a step before it>, "maxRounds": 2 }, where its findings send the batch back (ADR 0354)`,
+      ]
+    : [];
 }
 
 /** The input a lens step's Taster reads its lens from (ADR 0161). */
@@ -577,12 +619,17 @@ function lineRecipe(
   const attemptsOf = (batch: Batch, id: string): readonly Attempt[] => [
     ...(batch.steps.get(id)?.attempts.values() ?? []),
   ];
-  // A route counts the attempts of its goto step it scheduled (ADR 0064).
+  // A route counts the attempts of its goto step it scheduled (ADR 0064); a group's children share
+  // its findings route's rounds, whichever child sent the batch back (ADR 0354).
   const roundsOf: Recipe['rounds'] = (batch, id, why) => {
-    const { route } = at(id);
+    const { route, group } = at(id);
     if (route === undefined || route.why !== why) return undefined;
+    const from = why === 'findings' && group !== undefined ? (children.get(group) ?? []) : [id];
     return attemptsOf(batch, route.goto).filter(
-      (attempt) => attempt.route?.from === id && attempt.route.why === why,
+      (attempt) =>
+        attempt.route !== undefined &&
+        from.includes(attempt.route.from) &&
+        attempt.route.why === why,
     ).length;
   };
   return {
@@ -756,7 +803,12 @@ const lensesOf = (step: BrewerStep): readonly string[] =>
   step.lenses ?? (step.lens === undefined ? [] : [step.lens]);
 
 /** A brewer step's line and brewer, a Taster's with its lenses (ADR 0161), in `group` if any. */
-function brewerLine(step: BrewerStep, group: string | undefined, shelf: Shelf): StepLoad {
+function brewerLine(
+  step: BrewerStep,
+  group: string | undefined,
+  groupRoute: Route | undefined,
+  shelf: Shelf,
+): StepLoad {
   const id = stepId(step);
   const shelved = shelf.brewers.get(step.brewer);
   if (shelved === undefined) {
@@ -795,7 +847,10 @@ function brewerLine(step: BrewerStep, group: string | undefined, shelf: Shelf): 
         : `step "${id}" has "chooses", but its brewer "${brewer.name}" does not answer with the out doc schema "${RECIPE_CHOICE}" (ADR 0232)`,
     ];
   }
-  const refusedLens = untasted(step, brewer);
+  const refusedLens = [
+    ...untasted(step, brewer),
+    ...(isTaster(brewer) ? unrouted(step, group) : []),
+  ];
   const named = lensesOf(step);
   if (refusedLens.length === 0) {
     for (const name of named) {
@@ -811,7 +866,8 @@ function brewerLine(step: BrewerStep, group: string | undefined, shelf: Shelf): 
   const deadline = step.deadline ?? brewer.deadline;
   const long = tooLong(id, deadline);
   if (long !== undefined) return [long];
-  const findings = step.onBlocked?.findings;
+  // A Taster's findings go back along its group's route, or its own (ADR 0354).
+  const findings = isTaster(brewer) ? (groupRoute ?? step.onFindings) : step.onBlocked?.findings;
   const line: LineStep = {
     id,
     when: step.when,
@@ -849,7 +905,8 @@ function brewerLine(step: BrewerStep, group: string | undefined, shelf: Shelf): 
       ...stepLensFiles.map((lens): [string, Lens] => [lens.name, lens]),
     ]),
     ...(step.lenses === undefined ? { lens: first.name } : { together: names }),
-    blocking: step.blocking ?? false,
+    // Every finding of a routed Taster holds the batch up and goes back (ADR 0354).
+    blocking: findings !== undefined,
     ...(group === undefined ? {} : { group }),
   };
   return { line, brewer: tasting };
@@ -860,10 +917,12 @@ interface ListedStep {
   step: Step;
   index: number;
   group?: string;
+  /** The group's onFindings route, which its children share (ADR 0354). */
+  groupRoute?: Route;
 }
 
 /** The step `listed` as the engine runs it, when it does; `last` when it is the recipe's last. */
-function loadStep({ step, group }: ListedStep, last: boolean, shelf: Shelf): StepLoad {
+function loadStep({ step, group, groupRoute }: ListedStep, last: boolean, shelf: Shelf): StepLoad {
   if (group !== undefined && step.when !== undefined) {
     return [
       `step "${stepId(step)}" in the parallel group "${group}" has a "when", which the engine does not follow in a parallel group yet (ADR 0168)`,
@@ -873,11 +932,12 @@ function loadStep({ step, group }: ListedStep, last: boolean, shelf: Shelf): Ste
   if (typeof runnable === 'string') return [runnable];
   if ('action' in runnable) return actionLine(runnable, last);
   if ('check' in runnable) return checkLine(runnable);
-  return brewerLine(runnable, group, shelf);
+  return brewerLine(runnable, group, groupRoute, shelf);
 }
 
 /** Where a step's route back goes, when it has one (ADR 0064, ADR 0219). */
 function routeBack(step: Step): string | undefined {
+  if ('onFindings' in step && step.onFindings !== undefined) return step.onFindings.goto;
   if ('onFail' in step) return step.onFail?.goto;
   if ('onBlocked' in step) return step.onBlocked?.findings.goto;
   if ('onPullRequestFail' in step) return step.onPullRequestFail?.goto;
@@ -916,7 +976,18 @@ function listSteps(recipe: RecipeFile): {
     const unfollowed = step.when === undefined ? undefined : unfollowedWhen(step.id, step.when);
     if (unfollowed !== undefined) problems.push(unfollowed);
     groups.set(step.id, step.when);
-    return step.parallel.map((child) => ({ step: child, index, group: step.id }));
+    const { onFindings } = step;
+    if (onFindings === undefined) {
+      problems.push(
+        `step "${step.id}" is a parallel group of Tasters without "onFindings": add "onFindings": { "goto": <a step before the group>, "maxRounds": 2 }, where their findings send the batch back (ADR 0354)`,
+      );
+    }
+    return step.parallel.map((child) => ({
+      step: child,
+      index,
+      group: step.id,
+      ...(onFindings === undefined ? {} : { groupRoute: onFindings }),
+    }));
   });
   return { listed, groups, problems };
 }

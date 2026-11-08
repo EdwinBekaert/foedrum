@@ -68,6 +68,7 @@ import { nipBreweryFiles, type Scripted, scriptedNip } from '../test/helpers/nip
 import { DEMO_GIT_CONFIG } from './demo/brewer.ts';
 import { BREWERY, gitConfig, gitEnvOf, LOGIN, localConfig, TARGET, USER } from './demo/core.ts';
 import {
+  AFTER_ROUND_ONE,
   IMPLEMENT,
   nextRun,
   type RunRecord,
@@ -265,7 +266,11 @@ const diffMode = (): Mode<SetupName> => {
         message: subject,
         summary: 'The seeded change of #567, committed as it is.',
       };
-      return { [IMPLEMENT]: [implement], ...(dryRun ? scriptedTastings(setup, key) : {}) };
+      // A round of findings goes back to it, and its next turn ends the run (ADR 0354).
+      return {
+        [IMPLEMENT]: [implement, AFTER_ROUND_ONE],
+        ...(dryRun ? scriptedTastings(setup, key) : {}),
+      };
     },
     scriptedStep: IMPLEMENT,
     next: nextRun,
@@ -286,7 +291,7 @@ const planMode = (): Mode<PlanSetupName> => {
       planRecipes(setup, readFileSync(join(planFixture, 'prose.jsonc'), 'utf8')),
     target: (_setup, scratch, git) => patchedTarget(scratch, git),
     script: async (setup) => ({
-      [PLAN_STEP]: [seeded],
+      [PLAN_STEP]: [seeded, AFTER_ROUND_ONE],
       ...(dryRun ? scriptedPlanTastings(setup, key) : {}),
     }),
     scriptedStep: PLAN_STEP,
@@ -365,7 +370,7 @@ const realMode = async (): Promise<Mode<RealSetup>> => {
         summary: `The head ${head}, committed as it was brewed.`,
       };
       return {
-        [IMPLEMENT]: [implement],
+        [IMPLEMENT]: [implement, AFTER_ROUND_ONE],
         ...(dryRun ? scriptedRealTastings(changed[0] ?? '') : {}),
       };
     },

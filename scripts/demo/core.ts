@@ -22,18 +22,12 @@ export const LOGIN = 'cellar-bot';
 export const RECIPE = 'nip-parallel';
 
 /**
- * The Tasters' lens steps of the recipe's parallel group, which run side by side (ADR 0168). The
- * correctness lens blocks: its changes send the batch back to implement once, so the demo shows a
- * tasting loop (ADR 0193); the others are advisory.
+ * The Tasters' lens steps of the recipe's parallel group, which run side by side (ADR 0168). Every
+ * finding of theirs sends the batch back to implement once, so the demo shows a tasting loop
+ * (ADR 0193, ADR 0354).
  */
 const LENS_STEPS = [
-  {
-    id: 'correctness',
-    brewer: 'taster',
-    lens: 'diff/correctness',
-    blocking: true,
-    onBlocked: { findings: { goto: 'implement', maxRounds: 1 } },
-  },
+  { id: 'correctness', brewer: 'taster', lens: 'diff/correctness' },
   { id: 'security', brewer: 'taster', lens: 'diff/security' },
   { id: 'test-design', brewer: 'taster', lens: 'diff/test-design' },
   { id: 'design-conformance', brewer: 'taster', lens: 'diff/design-conformance' },
@@ -42,13 +36,12 @@ const LENS_STEPS = [
 /**
  * The recipe: Nip's steps from `defaults/recipes/nip.jsonc`, with its taste group of four lens
  * steps, correctness, acceptance, security and design conformance (ADR 0197, ADR 0306, ADR 0343),
- * swapped for the demo's own four, correctness, security, test design and design conformance, one of
- * which blocks (ADR 0193). Nip's own correctness blocks too, with two rounds where the demo's has one
- * (ADR 0264). After the group, an advisory Brett step mutates the change: a parallel group
+ * swapped for the demo's own four, correctness, security, test design and design conformance, whose
+ * findings go back to implement once (ADR 0193, ADR 0354), where Nip's go back twice at most. After the group, an advisory Brett step mutates the change: a parallel group
  * runs only Tasters (ADR 0168), and no default recipe runs Brett yet (ADR 0319).
  */
 export const recipeText = (): string =>
-  `// Nip's steps, tasted through four lenses side by side (ADR 0168), one of them blocking (ADR 0193), then mutated by Brett (ADR 0319).\n${JSON.stringify(
+  `// Nip's steps, tasted through four lenses side by side (ADR 0168), their findings sent back once (ADR 0354), then mutated by Brett (ADR 0319).\n${JSON.stringify(
     {
       name: RECIPE,
       description: 'Quick fix in one repository, test-first, tasted through four lenses at once',
@@ -81,7 +74,11 @@ export const recipeText = (): string =>
           check: ['build', 'typecheck', 'lint', 'format', 'test'],
           onFail: { goto: 'implement', maxRounds: 1 },
         },
-        { id: 'taste', parallel: LENS_STEPS },
+        {
+          id: 'taste',
+          parallel: LENS_STEPS,
+          onFindings: { goto: 'implement', maxRounds: 1 },
+        },
         { id: 'mutants', brewer: 'brett' },
         { action: 'openPullRequest', onPullRequestFail: { goto: 'implement', maxRounds: 2 } },
       ],
@@ -175,9 +172,12 @@ export const ON_TAP_LINE = 'demo: #1 is on tap';
 export const BREW_ON_TAP_LINE = 'foedrum brew: #2 is on tap';
 /** The line foedrum mash stops at: the Innkeeper's question of the third order's batch. */
 export const QUESTION_LINE = 'foedrum mash: #3 needs input at innkeep:';
-/** The start of foedrum brew's last line once the Brewmaster's plan waits for its review. */
+/**
+ * The start of foedrum brew's last line once the Brewmaster's plan waits for its review: its second,
+ * after the naive reader's note sent the first back (ADR 0354).
+ */
 export const PLAN_REVIEW_LINE =
-  'foedrum brew: #3 is stuck: the plan of plan #1 is ready for your review';
+  'foedrum brew: #3 is stuck: the plan of plan #2 is ready for your review';
 
 /**
  * The demo's scratch folder: `.foedrum/tmp/demo` in the checkout, or `asked` resolved against

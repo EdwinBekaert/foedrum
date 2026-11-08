@@ -155,7 +155,7 @@ export type Attempt =
       stopped?: true;
       /** Ended as claude hit a usage limit: it counts against no retry (ADR 0206). */
       usageLimited?: true;
-      /** A blocking Taster's findings, when it asked for changes (ADR 0221). */
+      /** A routed Taster's findings, whatever its verdict (ADR 0221, ADR 0354). */
       findings?: RecordedFindings;
       /** A check step's: the test map it found stale without failing for it (ADR 0282). */
       staleMap?: StaleMap;
@@ -183,7 +183,11 @@ export interface Step {
 /** How a blocked out doc's failure reason starts, by its blocker kind. */
 export const blockedBy = (kind: BlockerKind): string => `blocked (${kind}): `;
 
-/** Whether `outcome` is a blocked out doc's on findings: a blocking Taster's `changes` (ADR 0161). */
+/** How a routed Taster's blocked summary starts, by its verdict (ADR 0161, ADR 0354). */
+export const ASKS_CHANGES = 'the Taster asks for changes';
+export const APPROVES_WITH_FINDINGS = 'the Taster approves with findings';
+
+/** Whether `outcome` is a blocked out doc's on findings: a routed Taster's (ADR 0161, ADR 0354). */
 export const onFindings = (outcome: StepOutcome): boolean =>
   outcome.kind === 'failed' &&
   !outcome.retryable &&

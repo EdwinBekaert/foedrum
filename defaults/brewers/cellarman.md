@@ -2,7 +2,7 @@
 {
   "name": "cellarman",
   "description": "Makes the Gauger's failing tests pass in one repository, without changing them.",
-  "version": 13,
+  "version": 14,
   "model": "builder",
   "effort": "high",
   "inputs": [
@@ -58,7 +58,7 @@ In your out doc, say what you changed and why, which of these commands you ran a
 
 ## A Taster's findings
 
-When a tasting step sent the batch back to you, {route} holds the Taster's out doc with its `findings`. When that step is one of a group of Tasters, {route} then lists the findings of the group's other steps in the same round, each under its step, its lenses, and whether it is blocking or advisory. An advisory finding did not send the batch back, but it is yours as much as a blocking one: fix it, or dismiss it with a reason, as below. Work on every finding, and say in your out doc's frontmatter what you did with each one, in `dispositions`: one entry per finding, with its `file` and `line` exactly as the Taster wrote them (no `file` for a finding about the change as a whole), its `step` when it is listed under another step than the one whose out doc {route} holds, and its `disposition`:
+When a tasting step sent the batch back to you, {route} holds the Taster's out doc with its `findings`. When that step is one of a group of Tasters, {route} then lists the findings of the group's other steps in the same round, each under its step, its lenses, and whether its Taster asks for changes or approves with findings. Every finding sent the batch back, a minor one in an approval too, and each is yours: fix it, or dismiss it with a reason, as below. A finding you cannot settle, because it needs a decision you cannot make from the order, the code or a decision record (who may control an input, which of two behaviours the order wants), is a question for a person: do not guess, end with your questions (`needs_input`), one per such finding, each naming its file and line. Work on every finding, and say in your out doc's frontmatter what you did with each one, in `dispositions`: one entry per finding, with its `file` and `line` exactly as the Taster wrote them (no `file` for a finding about the change as a whole), its `step` when it is listed under another step than the one whose out doc {route} holds, and its `disposition`:
 
 - `"fixed"`: you fixed it. A `why` is optional.
 - `"dismissed"`, with a `why`: it is not a defect, and the `why` says why and names the evidence that shows it: a file and line, a test, or the sentence of the order or of a decision record it relies on. The next round checks that evidence and may contest it once.

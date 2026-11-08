@@ -4,8 +4,8 @@
 // the red proof shows they fail for the missing behaviour, Cellarman makes them pass, the Finer
 // simplifies the change (ADR 0166), the checks read the result, four Tasters review the change side
 // by side, through the correctness, acceptance, security and design conformance lenses (ADR 0168,
-// ADR 0197, ADR 0306, ADR 0343), correctness's changes send the batch back to Cellarman (ADR 0264),
-// and the pull request opens with their findings (ADR 0161). The other three advise. Correctness,
+// ADR 0197, ADR 0306, ADR 0343), every finding of theirs sends the batch back to Cellarman
+// (ADR 0354), and the pull request opens with what came of them (ADR 0161). Correctness,
 // acceptance and security run at high effort, and design conformance at the Taster's own medium
 // (ADR 0352).
 {
@@ -46,29 +46,22 @@
       "check": ["build", "typecheck", "lint", "format", "test"],
       "onFail": { "goto": "implement", "maxRounds": 1 }
     },
-    // Every finding is listed in the pull request and the status comment.
+    // Every finding of every Taster goes back to Cellarman once all four ended, fixed or dismissed
+    // there with a reason, through the Finer and green again: two rounds in all, then the batch is
+    // Stuck with the findings still open (ADR 0192, ADR 0354).
     {
       "id": "taste",
       "parallel": [
-        // Blocking: once all four Tasters end, its changes send the batch back to Cellarman, twice at
-        // most, through the Finer and green again, and then it is Stuck (ADR 0168, ADR 0264).
-        {
-          "id": "correctness",
-          "brewer": "taster",
-          "lens": "diff/correctness",
-          "effort": "high",
-          "blocking": true,
-          "onBlocked": { "findings": { "goto": "implement", "maxRounds": 2 } }
-        },
-        // Advisory: whether the change builds each item of the order's checklist, and nothing else.
+        { "id": "correctness", "brewer": "taster", "lens": "diff/correctness", "effort": "high" },
+        // Whether the change builds each item of the order's checklist, and nothing else.
         { "id": "acceptance", "brewer": "taster", "lens": "diff/acceptance", "effort": "high" },
-        // Advisory: untrusted input the change handles, and where it goes (ADR 0306). A Brewery
-        // that wants it to block sets "blocking" in its own nip.jsonc.
+        // Untrusted input the change handles, and where it goes (ADR 0306).
         { "id": "security", "brewer": "taster", "lens": "diff/security", "effort": "high" },
-        // Advisory: the repository's decisions and documents the change contradicts or leaves stale
+        // The repository's decisions and documents the change contradicts or leaves stale
         // (ADR 0343), judged by the rules its lens has it read (ADR 0352).
         { "id": "design-conformance", "brewer": "taster", "lens": "diff/design-conformance" }
-      ]
+      ],
+      "onFindings": { "goto": "implement", "maxRounds": 2 }
     },
     // A check that fails on the pull request's head sends the batch back to Cellarman, twice at most,
     // and the fix is pushed to the same pull request (ADR 0219).

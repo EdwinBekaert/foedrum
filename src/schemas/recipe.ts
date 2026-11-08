@@ -289,6 +289,9 @@ function references(step: Step): Reference[] {
     const path = ['onBlocked', 'findings', 'goto'];
     found.push({ id: step.onBlocked.findings.goto, path, kind: 'route' });
   }
+  if ('onFindings' in step && step.onFindings) {
+    found.push({ id: step.onFindings.goto, path: ['onFindings', 'goto'], kind: 'route' });
+  }
   if ('onPullRequestFail' in step && step.onPullRequestFail) {
     const path = ['onPullRequestFail', 'goto'];
     found.push({ id: step.onPullRequestFail.goto, path, kind: 'route' });

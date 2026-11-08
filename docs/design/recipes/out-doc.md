@@ -64,7 +64,7 @@ It never fails an attempt, a line past its limit being cut with a mark: `readOut
 
 | Out doc | Next |
 |---|---|
-| `done` | Guards pass → next step; a Taster's `changes` verdict on a blocking step is routed as `blocked` + `findings` ([ADR 0161](../../adr/0161-lens-steps-run-a-taster-whose-findings-are-advisory-unless-the-step-blocks.md)) |
+| `done` | Guards pass → next step; a Taster's `done` with any finding, or a `changes` verdict, is routed as `blocked` + `findings` along its step's or group's `onFindings` ([ADR 0161](../../adr/0161-lens-steps-run-a-taster-whose-findings-are-advisory-unless-the-step-blocks.md), [ADR 0354](../../adr/0354-every-finding-of-a-taster-goes-back-along-one-on-findings-route.md)) |
 | `needs_input` | Stuck 🔔 with the questions; the answer, from any surface, resumes the brewer's session as the next attempt when its `retryMode` is `resume` ([brewers](brewers.md) says when that is overridden); otherwise, or when the session cannot be resumed, a fresh attempt gets every round's answers as its `answers` input ([ADR 0118](../../adr/0118-retrymode-resume-loads-and-an-answer-resumes-the-session-that-asked.md)) |
 | `blocked` + `findings` | Next loop round, until `maxRounds`; outside a loop, the step's `onBlocked` route, else Stuck |
 | `blocked` + `environment` | Stuck immediately: another round would hit the same wall |

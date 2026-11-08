@@ -9,7 +9,9 @@ import { z } from '../../src/schemas/zod.ts';
 import type { Scripted } from '../../test/helpers/nip-fixture.ts';
 import {
   attemptFailure,
+  backTo,
   choiceBetween,
+  ENDED_AFTER_ROUND_ONE,
   nextRunOf,
   type RunRecord,
   type RunScore,
@@ -70,8 +72,9 @@ const tasterSteps = (setup: PlanSetupName): Map<string, readonly string[]> => {
 };
 
 /**
- * The recipe of `setup`: the scripted plan, then its Tasters, with no blocking step and no route, so
- * a run measures one round and ends at the plan's review (ADR 0275). Each step apart names the model
+ * The recipe of `setup`: the scripted plan, then its Tasters, whose findings send the plan back to
+ * the scripted Brewmaster, whose next turn ends the run (ADR 0354), so a run measures one round and
+ * ends after it, or at the plan's review when no Taster finds anything (ADR 0275). Each step apart names the model
  * `decoction` gives its lens; a step together is on the Taster's own model (ADR 0220).
  */
 export const planRecipeText = (setup: PlanSetupName): string => {
@@ -86,8 +89,9 @@ export const planRecipeText = (setup: PlanSetupName): string => {
           lens,
           ...(ON_PLANNER.includes(lens) ? { model: 'planner' } : {}),
         })),
+        ...backTo(PLAN_STEP),
       }
-    : { id: TASTE, brewer: 'taster', lenses };
+    : { id: TASTE, brewer: 'taster', lenses, ...backTo(PLAN_STEP) };
   const recipe = {
     name: setup,
     description: `The seeded plan of #804, tasted ${apart ? 'apart' : 'together'}; it builds nothing`,
@@ -175,7 +179,9 @@ export const planRecordOf = (
 
 /** Why a run failed, or undefined: its batch does not wait for its plan's review, or a Taster failed. */
 export const planRunFailure = ({ ended, attempts }: PlanRunRecord): string | undefined =>
-  ended === 'stuck: plan_review' ? attemptFailure(attempts) : `the batch ended ${ended}`;
+  ended === 'stuck: plan_review' || ended === ENDED_AFTER_ROUND_ONE
+    ? attemptFailure(attempts)
+    : `the batch ended ${ended}`;
 
 /** Scores a run against the mistakes of its setup's lenses; every other finding is listed. */
 export const scorePlanRun = (record: PlanRunRecord, key: PlanKey): RunScore =>

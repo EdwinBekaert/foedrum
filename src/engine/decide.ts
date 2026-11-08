@@ -118,7 +118,7 @@ export type HumanCommand =
 
 /**
  * How an attempt ended: a step outcome, or a brewer's `blocked` out doc with its blocker kind, and
- * for a blocking Taster's `changes` its findings (ADR 0192).
+ * for a routed Taster's its findings, whatever its verdict (ADR 0192, ADR 0354).
  */
 export type Ending =
   | StepOutcome
@@ -757,7 +757,7 @@ function finish(draft: Draft, command: Extract<Command, { kind: 'finish' }>): vo
     ...(stopped ? { paused: true } : {}),
     ...(byStop ? { stopped: true } : {}),
     ...(limited === undefined ? {} : { usageLimited: true }),
-    // A blocking Taster's findings, which no other event keeps unless its rounds run out (ADR 0221).
+    // A routed Taster's findings, which no other event keeps unless its rounds run out (ADR 0221).
     ...(ending.kind === 'blocked' && ending.findings !== undefined
       ? { findings: cutFindings(ending.findings, MOST_RECORDED_FINDINGS) }
       : {}),
@@ -794,7 +794,11 @@ function finish(draft: Draft, command: Extract<Command, { kind: 'finish' }>): vo
           // The next round, until the route's rounds are used up (brewers-and-recipes §2).
           const back = recipe.loopBack(batch, stepId, 'findings');
           const group = recipe.group(stepId);
-          if (back === undefined) {
+          // A routed child's findings wait for its group, which goes back or is Stuck as one
+          // (ADR 0168, ADR 0354).
+          if (group !== undefined && recipe.routesTo(stepId, 'findings') !== undefined) {
+            settle(draft, batchId, group);
+          } else if (back === undefined) {
             const rounds = recipe.rounds(batch, stepId, 'findings');
             stick(
               draft,
@@ -803,10 +807,7 @@ function finish(draft: Draft, command: Extract<Command, { kind: 'finish' }>): vo
                 ? blocked
                 : { ...blocked, roundsOut: roundsOut(rounds, ending.findings ?? []) },
             );
-          }
-          // A child's verdict waits for its group's other children (ADR 0168).
-          else if (group !== undefined) settle(draft, batchId, group);
-          else goBack(draft, batchId, back, { from: stepId, why: 'findings' });
+          } else goBack(draft, batchId, back, { from: stepId, why: 'findings' });
           return;
         }
         // Another round would hit the same wall, or the plan does not match reality.
@@ -1392,31 +1393,38 @@ const roundsOut = (rounds: number, findings: readonly TastingFinding[]): RoundsO
 };
 
 /**
- * The step the child `stepId` of a parallel group goes back to once its group ended: its latest
- * attempt was blocked by findings with its route's rounds not used up (ADR 0168).
+ * The latest attempt of the child `stepId` of a parallel group when it was blocked by findings it
+ * has a route for (ADR 0168, ADR 0354).
  */
-function sentBack(batch: Batch, recipe: Recipe, stepId: string): string | undefined {
+function blockedChild(
+  batch: Batch,
+  recipe: Recipe,
+  stepId: string,
+): Extract<Attempt, { phase: 'finished' }> | undefined {
   const step = batch.steps.get(stepId);
   const latest = step && latestAttempt(step);
   if (latest?.phase !== 'finished' || !onFindings(latest.outcome)) return undefined;
-  return recipe.loopBack(batch, stepId, 'findings');
+  return recipe.routesTo(stepId, 'findings') === undefined ? undefined : latest;
 }
 
 /**
  * Whether the child `stepId` of a parallel group has ended (ADR 0168): its latest attempt
- * succeeded, or it was blocked by findings with its route's rounds not used up. Every other ending
- * retries the child or makes the batch Stuck.
+ * succeeded, or it was blocked by findings it has a route for, whatever rounds are left, which its
+ * group decides once every child ended (ADR 0354). Every other ending retries the child or makes
+ * the batch Stuck.
  */
 function ended(batch: Batch, recipe: Recipe, stepId: string): boolean {
   const step = batch.steps.get(stepId);
   const latest = step && latestAttempt(step);
   if (latest?.phase === 'finished' && latest.outcome.kind === 'succeeded') return true;
-  return sentBack(batch, recipe, stepId) !== undefined;
+  return blockedChild(batch, recipe, stepId) !== undefined;
 }
 
 /**
- * Ends the parallel group `group` once every child of it has ended (ADR 0168): back along the
- * route of its first child that was blocked by findings, else on to the step after the group.
+ * Ends the parallel group `group` once every child of it has ended (ADR 0168): back once along the
+ * route its children share when any of them was blocked by findings, from the first in the
+ * recipe; Stuck with every such child's findings open when its rounds are used up (ADR 0192,
+ * ADR 0354); else on to the step after the group.
  */
 function settle(draft: Draft, batchId: string, group: string): void {
   const batch = draft.batch(batchId);
@@ -1434,14 +1442,33 @@ function settle(draft: Draft, batchId: string, group: string): void {
     return;
   }
   if (!children.every((child) => ended(batch, recipe, child))) return;
-  for (const child of children) {
-    const back = sentBack(batch, recipe, child);
-    if (back !== undefined) {
-      goBack(draft, batchId, back, { from: child, why: 'findings' });
-      return;
-    }
+  const blocked = children.flatMap((child) => {
+    const attempt = blockedChild(batch, recipe, child);
+    return attempt === undefined ? [] : [{ child, attempt }];
+  });
+  const [first] = blocked;
+  if (first === undefined) {
+    continueAfter(draft, batchId, group);
+    return;
   }
-  continueAfter(draft, batchId, group);
+  const back = recipe.loopBack(batch, first.child, 'findings');
+  if (back !== undefined) {
+    goBack(draft, batchId, back, { from: first.child, why: 'findings' });
+    return;
+  }
+  const { outcome } = first.attempt;
+  const reason = outcome.kind === 'failed' ? outcome.reason : '';
+  const findings = blocked.map(({ attempt }) => attempt.findings ?? { kept: [], more: 0 });
+  const open = findings.flatMap(({ kept }) => kept);
+  const kept = open.slice(0, MOST_OPEN_FINDINGS);
+  const more = open.length - kept.length + findings.reduce((sum, each) => sum + each.more, 0);
+  stick(draft, batchId, {
+    kind: 'blocked',
+    stepId: first.child,
+    blockerKind: 'findings',
+    summary: reason.slice(blockedBy('findings').length),
+    roundsOut: { rounds: recipe.rounds(batch, first.child, 'findings') ?? 0, open: kept, more },
+  });
 }
 
 /**
