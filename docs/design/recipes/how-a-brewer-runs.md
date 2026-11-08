@@ -59,7 +59,7 @@ claude --print --verbose --output-format stream-json
   Either way, prompts, the system prompt and settings travel via stdin and files only, never arguments.
 - `--safe-mode` implements `context: lean`: without it, `claude -p` loads the target repository's `CLAUDE.md`, hooks and MCP servers.
   How `context: repo` gives a brewer the repository's instructions without its hooks is open (ADR 0042).
-  `context: lean` says what loads, not what a brewer may read: a brewer whose prompt asks reads a repository's rules with its Read tool, inside its worktree, as the default Taster does on a diff ([ADR 0331](../../adr/0331-a-taster-on-a-diff-reads-the-repository-s-rules-as-its-standard.md)).
+  `context: lean` says what loads, not what a brewer may read: a brewer whose prompt asks reads a repository's rules with its Read tool, inside its worktree, as a Taster whose lens asks for them does, such as design conformance ([ADR 0331](../../adr/0331-a-taster-on-a-diff-reads-the-repository-s-rules-as-its-standard.md), [ADR 0352](../../adr/0352-nip-s-correctness-acceptance-and-security-tasters-run-at-high-effort-without-the-rules-read.md)).
 - Claude Code keeps an attempt's session where it ran (30 days by default), so anyone on that machine can step into a finished attempt's session with `foedrum resume <issue> [<step>[#<n>]]` from a terminal (ADR 0126), or into a running step's session, which then ends by the out doc it writes as an attempt of its own (ADR 0127); `/foedrum:resume` prints that line.
   Sessions are not carried to another machine ([a session on another machine](sessions-elsewhere.md)).
 
