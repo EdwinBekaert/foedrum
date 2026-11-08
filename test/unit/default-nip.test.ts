@@ -405,8 +405,8 @@ describe('the default Nip', () => {
     assert.equal(loaded.brewers.find('nip', 'gauge')?.brewer.name, 'gauger');
     assert.equal(loaded.brewers.find('nip', 'implement')?.brewer.name, 'cellarman');
     // After green, four Tasters review side by side, through the correctness, acceptance, security
-    // and design conformance lenses (ADR 0168, ADR 0197, ADR 0306, ADR 0343); correctness blocks
-    // (ADR 0264), the others advise.
+    // and design conformance lenses (ADR 0168, ADR 0197, ADR 0306, ADR 0343), and every finding of
+    // each sends the batch back (ADR 0354).
     assert.deepEqual(loaded.recipes.find('nip')?.children('taste'), [
       'correctness',
       'acceptance',
@@ -417,7 +417,7 @@ describe('the default Nip', () => {
       const taste = loaded.brewers.find('nip', lens);
       assert.equal(taste?.brewer.name, 'taster', lens);
       assert.deepEqual([...(taste?.lenses?.keys() ?? [])], [`diff/${lens}`]);
-      assert.equal(taste?.blocking, lens === 'correctness', lens);
+      assert.equal(taste?.blocking, true, lens);
     }
     assert.deepEqual(loaded.checks.redProof('nip'), { id: 'red', of: 'gauge' });
     for (const path of [
@@ -1673,14 +1673,16 @@ describe("the default Nip's round back to the Cellarman carries every Taster's f
     assert.ok(text.includes(correctnessDoc), text);
     assert.match(
       text,
-      /\nStep acceptance, through diff\/acceptance, advisory:\n- major in src\/status\.ts:40: The order asks for --json; the flag added is --JSON(\n|$)/,
+      /\nStep acceptance, through diff\/acceptance, asks for changes:\n- major in src\/status\.ts:40: The order asks for --json; the flag added is --JSON(\n|$)/,
     );
-    // The fake runner keeps no worktree, so correctness's blocked round is read from the events.
+    // The fake runner keeps no worktree, so each blocked round's dispositions are read from the
+    // events. Acceptance's round was blocked by its findings too (ADR 0354), and a blocked round's
+    // findings are read from its out doc in that worktree, which the fake runner does not keep.
     assert.deepEqual(disposed.get('correctness'), [dispositions[0]]);
     assert.deepEqual(disposed.get('acceptance'), [dispositions[1]]);
     assert.match(
       earlier.get('acceptance') ?? '',
-      /src\/status\.ts:40: [^\n]*--JSON\n {2}dismissed: The order's second sentence asks for --JSON/,
+      /^Round acceptance#1:\nIts findings could not be read: no worktree of it is recorded\.$/,
     );
     const started = events.flatMap((event) =>
       event.type === 'step.started' ? [event.stepId] : [],
@@ -1688,7 +1690,7 @@ describe("the default Nip's round back to the Cellarman carries every Taster's f
     assert.equal(started.at(-1), 'open-pull-request');
   });
 
-  it("goes on past acceptance's advisory changes alone, and counts correctness's rounds against its own route: regression test", async () => {
+  it("sends the batch back again for acceptance's changes alone, a round of the two its group shares (ADR 0354)", async () => {
     const asks = tasted([advisoryFinding]).behaviour;
     const { events } = await brewed(
       { correctness: tasted([]).behaviour, acceptance: asks },
@@ -1701,13 +1703,7 @@ describe("the default Nip's round back to the Cellarman carries every Taster's f
         ? [`${event.stepId}#${event.attempt} from ${event.route.from}`]
         : [],
     );
-    // Acceptance asked for changes in both rounds; only correctness's first sent the batch back.
-    assert.deepEqual(routes, ['implement#2 from correctness']);
-    assert.equal(
-      events.filter(
-        (event) => event.type === 'step.started' && event.stepId === 'open-pull-request',
-      ).length,
-      1,
-    );
+    // Acceptance asked for changes in both rounds, and each round went back along the group's route.
+    assert.deepEqual(routes, ['implement#2 from correctness', 'implement#3 from acceptance']);
   });
 });
