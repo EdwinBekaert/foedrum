@@ -5,11 +5,12 @@
 // file the batch's base holds. tests-unchanged.ts decides.
 
 import { type AttemptRef, attemptKey } from '../engine/attempt-key.ts';
-import { mergedBase, startMergeOf } from '../engine/base-merge.ts';
+import { mergedBase } from '../engine/base-merge.ts';
 import type { AttemptEnd, AttemptStart, BrewerRunner } from '../engine/brewer-runner.ts';
 import type { State } from '../engine/fold.ts';
 import { ranIn } from '../engine/session-resume.ts';
 import type { AttemptProgress } from '../engine/supervisor.ts';
+import type { DiffFile } from '../formats/unified-diff.ts';
 import { foldsCase } from '../platform/paths.ts';
 import type { TestMap } from '../schemas/test-map.ts';
 import { attemptBranch } from '../workspace/attempt-worktrees.ts';
@@ -84,28 +85,38 @@ async function readTip(
 }
 
 /**
- * The merge of `base` that an attempt which started at `from` concluded on its way to `tip` (ADR
- * 0244): the oldest commit between them with `base` as a parent; undefined when there is none, as
- * for a merge left unconcluded, which fails the attempt elsewhere. Or why git could not read them.
+ * The stretches of an attempt's own commits from `from` to `tip`, read in `cwd`, the clone (ADR
+ * 0358): along the first-parent line, the commits between two merges, each read on its own, so
+ * what a merge brought in (the moved base of a fix round's start merge, ADR 0244) is not the
+ * attempt's. Or why git could not list them.
  */
-async function concludedMerge(
+async function stretches(
   git: Git,
   cwd: string,
   from: string,
   tip: string,
-  base: string,
   signal: AbortSignal,
-): Promise<{ commit: string } | { error: string } | undefined> {
+): Promise<{ ranges: { from: string; to: string }[] } | { error: string }> {
   const options = { maxOutputBytes: MAX_TIP_BYTES, timeoutMs: TIP_READ_MS, signal };
-  const listed = await git(cwd, ['rev-list', '--parents', `${from}..${tip}`, '--'], options);
+  const args = ['rev-list', '--first-parent', '--parents', `${from}..${tip}`, '--'];
+  const listed = await git(cwd, args, options);
   if (listed.code !== 0) return { error: failure('rev-list', listed) };
-  const merges = listed.stdout
+  const ranges: { from: string; to: string }[] = [];
+  let start = from;
+  // rev-list lists the newest first.
+  const commits = listed.stdout
     .split(/\r?\n/)
     .map((line) => line.trim().split(' '))
-    .filter(([, ...parents]) => parents.includes(base));
-  // rev-list lists the newest first.
-  const commit = merges.at(-1)?.[0];
-  return commit === undefined || commit === '' ? undefined : { commit };
+    .filter(([commit]) => commit !== undefined && commit !== '')
+    .reverse();
+  for (const [commit = '', first = '', ...others] of commits) {
+    if (others.length === 0) continue;
+    // A merge: the stretch before it, then on from it.
+    if (first !== start) ranges.push({ from: start, to: first });
+    start = commit;
+  }
+  ranges.push({ from: start, to: tip });
+  return { ranges };
 }
 
 export interface TestsGuardOptions {
@@ -241,18 +252,18 @@ export function guardTests(options: TestsGuardOptions): BrewerRunner {
       }
       if (base === undefined) return end;
       // A test file the base holds is the Gauger's to change, before the code (ADR 0358): the
-      // attempt's own change, from its start merge when it made one, or the merge it concluded
-      // when that kept a conflict, so the moved base's own changes are not the attempt's (ADR 0244).
-      const merge = startMergeOf(state(), { ...ref, attempt: ran.attempt });
-      const concluded =
-        merge?.kept === undefined
-          ? undefined
-          : await concludedMerge(git, cwd, worktree.commit, tip, merge.base, signal);
-      if (concluded !== undefined && 'error' in concluded) return unreadable(concluded.error);
-      const start = concluded?.commit ?? merge?.merged ?? worktree.commit;
-      const own = await readDiff(git, cwd, { from: start, to: tip }, { signal });
+      // attempt's own change, each stretch between its merges, so what a merge brought in, the
+      // moved base of a fix round's start merge included, is not the attempt's (ADR 0244).
+      const between = await stretches(git, cwd, worktree.commit, tip, signal);
       if (signal.aborted) return { ...end, ending: { kind: 'cancelled' } };
-      if ('error' in own) return unreadable(own.error);
+      if ('error' in between) return unreadable(between.error);
+      const own = { files: [] as DiffFile[] };
+      for (const range of between.ranges) {
+        const read = await readDiff(git, cwd, range, { signal });
+        if (signal.aborted) return { ...end, ending: { kind: 'cancelled' } };
+        if ('error' in read) return unreadable(read.error);
+        own.files.push(...read.files);
+      }
       // Only the files in a test area are asked for: a large change's paths would pass a command
       // line's length.
       const candidates = [
