@@ -33,6 +33,7 @@ import {
   type UsageWindows,
 } from './fold.ts';
 import { handoverLines, handoversOf } from './handover.ts';
+import { keptRound } from './lens-rounds.ts';
 import { briefLine } from './merge-brief.ts';
 import { unreportedLine, unreportedOf } from './named-tests.ts';
 import { orderEnd, type SubOrderRow, subOrderRows } from './order-end.ts';
@@ -823,10 +824,14 @@ const stepLine = (batch: Batch, stepId: string, told: Told, stateBranchUrl?: str
   switch (outcome.kind) {
     // The out doc the step's line sums up, linked (ADR 0275): a check step and an action, as
     // openPullRequest, write none, and every out doc has its assumptions.
-    case 'succeeded':
+    case 'succeeded': {
+      // A Taster's approval its group did not run again after a round back (ADR 0357).
+      const round = keptRound(batch, stepId);
+      const ran = round === undefined ? id : `${id}, from round ${round}`;
       return stateBranchUrl === undefined || !OutDocAssumptions.safeParse(outcome.output).success
-        ? `- ✅ ${id}`
-        : `- ✅ ${id}: out doc: ${outDocLabelled(batch, stepId, { attempt: n, output: outcome.output }, stateBranchUrl)}`;
+        ? `- ✅ ${ran}`
+        : `- ✅ ${ran}: out doc: ${outDocLabelled(batch, stepId, { attempt: n, output: outcome.output }, stateBranchUrl)}`;
+    }
     case 'failed':
       return `- ❌ ${id}: attempt ${n} failed: ${told(plainReason(outcome.reason), stepId)}`;
     case 'needs_input': {

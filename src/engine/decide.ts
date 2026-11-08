@@ -1247,8 +1247,11 @@ function enter(draft: Draft, batchId: string, stepId: string): void {
   const recipe = recipeOf(draft, batch);
   const when = recipe.skip(batch, stepId);
   if (when === undefined) {
-    // A parallel group schedules every child at once (ADR 0168).
-    for (const child of recipe.children(stepId) ?? [stepId]) schedule(draft, batchId, child);
+    // A parallel group schedules every child at once (ADR 0168), but those it leaves out after a
+    // round back for findings (ADR 0357).
+    const children = recipe.children(stepId) ?? [stepId];
+    const kept = keptChildren(batch, recipe, children);
+    for (const child of children) if (!kept.has(child)) schedule(draft, batchId, child);
     return;
   }
   draft.push({ type: 'step.skipped', batchId, stepId, when });
@@ -1405,6 +1408,34 @@ function blockedChild(
   const latest = step && latestAttempt(step);
   if (latest?.phase !== 'finished' || !onFindings(latest.outcome)) return undefined;
   return recipe.routesTo(stepId, 'findings') === undefined ? undefined : latest;
+}
+
+/**
+ * The `children` of a parallel group the batch does not run again as it enters the group
+ * (ADR 0357): after a round back for findings, which a child blocked by them since the batch's
+ * latest recipe choice shows, each child without `everyRound` whose latest attempt succeeded and so
+ * found nothing; none on any other entry.
+ */
+function keptChildren(batch: Batch, recipe: Recipe, children: readonly string[]): Set<string> {
+  const path = batch.path ?? [];
+  const from = batch.recipeFrom ?? 0;
+  const sentBack = children.some((child) => {
+    const attempt = blockedChild(batch, recipe, child)?.attempt;
+    const at = path.findIndex((ref) => ref.stepId === child && ref.attempt === attempt);
+    return attempt !== undefined && at >= from;
+  });
+  if (!sentBack) return new Set();
+  return new Set(
+    children.filter((child) => {
+      const step = batch.steps.get(child);
+      const latest = step && latestAttempt(step);
+      return (
+        !recipe.everyRound(child) &&
+        latest?.phase === 'finished' &&
+        latest.outcome.kind === 'succeeded'
+      );
+    }),
+  );
 }
 
 /**

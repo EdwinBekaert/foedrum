@@ -5,7 +5,8 @@
 // simplifies the change (ADR 0166), the checks read the result, four Tasters review the change side
 // by side, through the correctness, acceptance, security and design conformance lenses (ADR 0168,
 // ADR 0197, ADR 0306, ADR 0343), every finding of theirs sends the batch back to Cellarman
-// (ADR 0354), and the pull request opens with what came of them (ADR 0161). Correctness,
+// (ADR 0354), after which correctness and the Tasters that had findings run again (ADR 0357), and
+// the pull request opens with what came of them (ADR 0161). Correctness,
 // acceptance and security run at high effort, and design conformance at the Taster's own medium
 // (ADR 0352).
 {
@@ -48,11 +49,19 @@
     },
     // Every finding of every Taster goes back to Cellarman once all four ended, fixed or dismissed
     // there with a reason, through the Finer and green again: two rounds in all, then the batch is
-    // Stuck with the findings still open (ADR 0192, ADR 0354).
+    // Stuck with the findings still open (ADR 0192, ADR 0354). A round back runs correctness and
+    // the Tasters that had findings again; one that found nothing keeps its approval (ADR 0357).
     {
       "id": "taste",
       "parallel": [
-        { "id": "correctness", "brewer": "taster", "lens": "diff/correctness", "effort": "high" },
+        // The one Taster that reads the whole change again after every round back (ADR 0357).
+        {
+          "id": "correctness",
+          "brewer": "taster",
+          "lens": "diff/correctness",
+          "effort": "high",
+          "everyRound": true
+        },
         // Whether the change builds each item of the order's checklist, and nothing else.
         { "id": "acceptance", "brewer": "taster", "lens": "diff/acceptance", "effort": "high" },
         // Untrusted input the change handles, and where it goes (ADR 0306).

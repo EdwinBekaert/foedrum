@@ -33,6 +33,7 @@ import { latestSections } from './earlier-sections.ts';
 import { effectKey, numberedEffects } from './effect-key.ts';
 import type { Attempt, Batch, State, Step } from './fold.ts';
 import type { Handover } from './handover.ts';
+import { keptRound } from './lens-rounds.ts';
 import { withoutSecrets } from './out-doc-text.ts';
 import {
   blockedByFindings,
@@ -240,6 +241,8 @@ export interface StepReport {
   assumptions: readonly string[];
   /** A Taster's verdict and findings (ADR 0161). */
   tasting?: TastingReport;
+  /** The round of a Taster's approval its group did not run again after a round back (ADR 0357). */
+  round?: number;
   /** The pull request's sections a `pullRequest` brewer wrote in its latest attempt that wrote any (ADR 0167, ADR 0353). */
   sections?: PullRequestSections;
   /** A Finer's changes, or why there was nothing to simplify (ADR 0166). */
@@ -442,6 +445,7 @@ export const stepReports = (batch: Batch): StepReport[] => {
     const { summary, assumptions } = doc.data;
     const leftOpen = blockedByFindings(one?.attempt);
     const tasting = leftOpen ? undefined : tastingOf(output);
+    const round = tasting === undefined ? undefined : keptRound(batch, step.id);
     // A round that wrote no sections leaves those of the latest one that wrote some (ADR 0353).
     const sections = latestSections(batch, step.id)?.sections;
     const fining = finingOf(output);
@@ -453,6 +457,7 @@ export const stepReports = (batch: Batch): StepReport[] => {
         summary: leftOpen ? notPassed(one?.attempt) : summary,
         assumptions,
         ...(tasting === undefined ? {} : { tasting }),
+        ...(round === undefined ? {} : { round }),
         ...(sections === undefined ? {} : { sections }),
         ...(fining === undefined ? {} : { fining }),
         ...(gauge === undefined ? {} : { gauge }),
@@ -1099,7 +1104,18 @@ export const pullRequestText = ({
   };
   const flat = (text: string, stepId: string) => shown(text, stepId).replace(/\s+/g, ' ');
   const lines = reports.flatMap(
-    ({ stepId, summary, assumptions, tasting, fining, gauge, toFile, mutants = [], past }) => [
+    ({
+      stepId,
+      summary,
+      assumptions,
+      tasting,
+      round,
+      fining,
+      gauge,
+      toFile,
+      mutants = [],
+      past,
+    }) => [
       `${stepId}: ${shown(summary, stepId)}`,
       ...assumptions.map((assumption) => `  assumed: ${flat(assumption, stepId)}`),
       ...(gauge?.tests ?? []).map((name) => `  test: ${flat(name, stepId)}`),
@@ -1120,7 +1136,7 @@ export const pullRequestText = ({
       ...(tasting === undefined
         ? []
         : [
-            `  verdict: ${tasting.verdict}`,
+            `  verdict: ${tasting.verdict}${round === undefined ? '' : `, from round ${round}`}`,
             ...tasting.findings.map(
               (finding) =>
                 `  finding: ${flat(findingText(finding), stepId)}: ${flat(finding.why, stepId)}`,
