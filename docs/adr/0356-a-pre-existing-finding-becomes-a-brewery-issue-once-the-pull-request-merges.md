@@ -13,8 +13,9 @@ The maintainer's rule is that a finding never waits for a person (#926), and the
 - **Once every pull request of the batch merged.** This is the test that closes a Brewery issue (ADR 0296): the batch is on tap and every pull request it opened ended `merged`.
   A pull request closed without merging opens none.
   A claimed batch's findings open Brewery issues too.
-- **Only while the batch's status comment has not shown its end** (`endShown`, ADR 0345).
-  A batch that ended before this record has shown it, so an upgrade opens no issue for an old merge.
+- **Only while no revision of the batch's status comment in the ledger has shown its end** (ADR 0345): one rendered after the batch ended, or one from before that record, which says nothing of it.
+  A batch that ended before this record has such a revision, so an upgrade opens no issue for an old merge, nor for a batch still on tap whose revisions are all from before ADR 0345.
+  The ledger is read, not the fold's `endShown`, which a mark and its recovery clear (ADR 0335).
 
 ### Which findings
 - **Each finding of a Taster's round that its disposition marks `pre-existing`**, paired as the merge brief and a later round pair them: the first disposition at the finding's place not already taken (`lensRounds`, `withDispositions`, `src/engine/lens-rounds.ts`).
@@ -32,11 +33,12 @@ The maintainer's rule is that a finding never waits for a person (#926), and the
 
 ### The issue
 - **In the Brewery only**, never in the target repository: the text is a model's.
-- **Title:** `Pre-existing: <lens>, <severity> in <file>:<line>`.
+- **Title:** `Pre-existing: <lens>, <severity> in <file>:<line>`, the lens only when the finding has one, as plain text, since GitHub shows a title as it is: a place that looks like a secret is left out, and the title is cut at 200 characters.
 - **Body:** the batch, its order's Brewery issue and the pull requests it merged as, then the step and attempt that found it, the Taster's words, and the words of the step that left it as pre-existing.
   Every model text is shown as the status comment shows one (ADR 0088): a text that looks like a secret is left out, and the rest is escaped as plain text, with no Markdown, HTML or mention.
   The Taster's words and the disposition's are cut at 2,000 characters each, which is the limit on a disposition's `why`.
-- **The label `foedrum:pre-existing`**, in the colour of every label Foedrum creates, and no `recipe:` label: the intake leaves it alone until a person gives it one.
+- **The label `foedrum:pre-existing`**, in the colour of every label Foedrum creates, and no `recipe:` label, so the intake does not order it.
+  The body says only that; ordering it is as for any Brewery issue, which the intake takes only from an allow-listed user (ADR 0068).
 
 ### The label
 - **Made by its effect, before the issue opens**, as the lane labels (ADR 0154) and the recipe labels (ADR 0232) are: a label already there counts as made.
@@ -62,4 +64,5 @@ The maintainer's rule is that a finding never waits for a person (#926), and the
 - **Open the issues when the pull request opens.** Rejected: the change may still be sent back or closed, and the maintainer chose the merge.
 - **Key the effect by the disposition instead of the finding.** Rejected: the issue's text is the Taster's finding, and a disposition with no finding has none.
 - **Keep the status comment live while an issue is due, through `open` on its revision.** Rejected: the effect order already writes the last revision after the issues, and a second mechanism guards against nothing that can happen now.
+- **Read the shown end from the fold's `endShown`.** Rejected: a mark and its recovery clear it on an ended batch, which would let an old merge open issues after the upgrade.
 - **A `doctor` check for the label.** Rejected: the effect makes the label, so a missing one breaks nothing.
