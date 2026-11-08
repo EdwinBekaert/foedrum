@@ -3,6 +3,8 @@
 
 import { attemptBranch } from '../workspace/attempt-worktrees.ts';
 import type { Batch } from './fold.ts';
+import { sentBackFrom } from './pull-request-fix.ts';
+import { ranIn } from './session-resume.ts';
 
 // GitHub names are case-insensitive.
 export const sameRepo = (a: string, b: string): boolean => a.toLowerCase() === b.toLowerCase();
@@ -50,10 +52,28 @@ export const taskTreeStart = (
  * else the task tree (ADR 0066).
  */
 export const attemptStart = (
-  _batch: Batch,
-  _stepId: string,
-  _repository: { readonly repo: string; readonly base: string },
-  _proven: boolean,
+  batch: Batch,
+  stepId: string,
+  repository: { readonly repo: string; readonly base: string },
+  proven: boolean,
 ): string => {
-  throw new Error('not implemented');
+  const step = batch.steps.get(stepId);
+  // An open pull request's branch holds the code already, and is never pushed again without it.
+  if (!proven || step === undefined || sentBackFrom(batch).size > 0) {
+    return taskTreeStart(batch, repository);
+  }
+  const done = [...step.attempts.values()].findLast(
+    (attempt) => attempt.phase === 'finished' && attempt.outcome.kind === 'succeeded',
+  );
+  const ran = done === undefined ? undefined : ranIn(step, done);
+  // A success before the latest rewind or recipe choice belongs to the run before it (ADR 0357).
+  const at = batch.path?.findIndex(
+    (each) => each.stepId === stepId && each.attempt === done?.attempt,
+  );
+  const current = at === undefined || at >= (batch.runFrom ?? 0);
+  if (ran === undefined || !current || !sameRepo(ran.worktree.repo, repository.repo)) {
+    return taskTreeStart(batch, repository);
+  }
+  // Built from the attempt, never the recorded branch (ADR 0037).
+  return `refs/heads/${attemptBranch({ batchId: batch.id, stepId, attempt: ran.attempt })}`;
 };
