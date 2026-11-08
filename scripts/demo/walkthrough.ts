@@ -58,7 +58,7 @@ export const STEPS: readonly Step[] = [
     id: 'restart',
     title: 'The kill and the restart',
     lookFor:
-      'the restart finds gauge #1 lost with the killed Cellar, and brews it again as gauge #2.',
+      'the restart removes the packed-refs.lock the kill left, finds gauge #1 lost, and brews it again as gauge #2.',
   },
   {
     id: 'checks',

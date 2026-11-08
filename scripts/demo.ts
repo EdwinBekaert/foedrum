@@ -226,6 +226,9 @@ indented(brewing);
 
 await next();
 indented(killed);
+// What a git the kill stopped while it deleted a ref leaves behind (#941); the restart removes it.
+write(join(brewery, '.git', 'packed-refs.lock'), '');
+say("demo: the kill left .git/packed-refs.lock in the Brewery's clone, as a git it stopped would");
 say('demo: the Cellar starts again on the same Brewery');
 const restart = await live('finish');
 const [found, after] = splitOutput(restart.output, (line) => line.startsWith(LOST_LINE), 'with');
