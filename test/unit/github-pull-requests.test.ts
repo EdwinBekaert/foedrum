@@ -277,10 +277,10 @@ describe('githubOrderTitle', () => {
 describe('githubPullRequestDrafts (ADR 0350)', () => {
   const graphql = 'https://api.github.com/graphql';
   /** A pull request as `GET /repos/{owner}/{repo}/pulls/{n}` answers it. */
-  const pull = (draft: boolean, nodeId: string | undefined = 'PR_9') => ({
+  const pull = (draft: boolean, nodeId: string | null = 'PR_9') => ({
     state: 'open',
     draft,
-    ...(nodeId === undefined ? {} : { node_id: nodeId }),
+    ...(nodeId === null ? {} : { node_id: nodeId }),
   });
   const draftsWith = (answers: Answer[]) => {
     const fake = fakeFetch(answers);
@@ -356,7 +356,7 @@ describe('githubPullRequestDrafts (ADR 0350)', () => {
       },
       { status: 200, body: pull(true) },
       { status: 200, body: { data: { markPullRequestReadyForReview: null } } },
-      { status: 200, body: pull(true, undefined) },
+      { status: 200, body: pull(true, null) },
       { status: 404, body: { message: 'Not Found' } },
     ]);
     await assert.rejects(drafts.markDraft(url), /Forbidden/);
