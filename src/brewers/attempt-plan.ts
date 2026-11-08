@@ -773,6 +773,38 @@ const earlierFindingsText = (of: Reviewed): string =>
 /** The most of a route input a prompt holds, in UTF-8 bytes (ADR 0128). */
 export const MAX_ROUTE_INPUT_BYTES = 64 * 1024;
 
+/**
+ * A Taster's step in a parallel group, as a findings route reads it (ADR 0349): its group, its
+ * lenses, and whether it blocks.
+ */
+export interface GroupedTaster {
+  group: string;
+  lenses: readonly string[];
+  blocking: boolean;
+}
+
+/** The group, lenses and blocking of the step of an attempt, or none outside a group. */
+export type GroupOf = (stepId: string, attempt: number) => GroupedTaster | undefined;
+
+/** `found`'s group, lenses and blocking, when it is a Taster's step in a parallel group. */
+export const groupOfStep = (found: StepBrewer | undefined): GroupedTaster | undefined => {
+  if (found?.group === undefined) return undefined;
+  const lenses = found.together ?? (found.lens === undefined ? [] : [found.lens]);
+  return { group: found.group, lenses, blocking: found.blocking === true };
+};
+
+/**
+ * Another child of the routing step's group, in the round that sent the batch back (ADR 0349):
+ * its findings, and how many more its blocked attempt did not record.
+ */
+export interface GroupStepFindings {
+  step: string;
+  lenses: readonly string[];
+  blocking: boolean;
+  findings: readonly TastingFinding[];
+  more: number;
+}
+
 /** What sent an attempt back along the route that scheduled it, and where to read the rest. */
 export interface PlannedRoute {
   source: Extract<InputSource, { kind: 'route' }>;
@@ -780,6 +812,8 @@ export interface PlannedRoute {
   text: string;
   /** The out doc of the attempt that blocked with findings, in its worktree. */
   outDoc?: { path: string; root: string };
+  /** The other children of the routing step's parallel group, in the same round (ADR 0349). */
+  group?: readonly GroupStepFindings[];
 }
 
 /**
@@ -793,6 +827,7 @@ export function routeOf(
   ref: AttemptRef,
   outDocOf: (stepId: string, attempt: number) => string | undefined,
   mergeOf: (ref: AttemptRef) => MergeResult | undefined = () => undefined,
+  groupOf: GroupOf = () => undefined,
 ): PlannedRoute | undefined {
   const step = batch.steps.get(ref.stepId);
   const route = step === undefined ? undefined : roundRouteOf(step, ref.attempt);
@@ -824,8 +859,56 @@ export function routeOf(
   const doc = outDocOf(from, routing.attempt);
   // A resumed attempt ran in the worktree of the session it continues (ADR 0117).
   const root = routing.worktree?.path ?? routing.session?.worktree;
-  if (why === 'failed' || root === undefined || doc === undefined) return { source, text };
-  return { source, text, outDoc: { path: join(root, doc), root } };
+  const group =
+    why === 'findings' ? groupRoundOf(batch, from, routing.attempt, groupOf) : undefined;
+  const others = group === undefined ? {} : { group };
+  if (why === 'failed' || root === undefined || doc === undefined)
+    return { source, text, ...others };
+  return { source, text, outDoc: { path: join(root, doc), root }, ...others };
+}
+
+/**
+ * The other children of the group of step `from`, whose attempt `attempt` sent the batch back, in
+ * that round (ADR 0349): the attempts of the group's steps on the batch's path around it, with no
+ * attempt of another step between, since entering the group schedules every child at once and a
+ * round back leaves it. Each child's latest attempt there that reviewed gives its findings,
+ * blocking children first, each in the order the batch scheduled them.
+ */
+function groupRoundOf(
+  batch: Batch,
+  from: string,
+  attempt: number,
+  groupOf: GroupOf,
+): PlannedRoute['group'] {
+  const own = groupOf(from, attempt);
+  if (own === undefined) return undefined;
+  const path = batch.path ?? [];
+  const inGroup = (at: number) => {
+    const ref = path[at];
+    return ref !== undefined && groupOf(ref.stepId, ref.attempt)?.group === own.group;
+  };
+  const at = path.findIndex((ref) => ref.stepId === from && ref.attempt === attempt);
+  if (at < 0) return undefined;
+  let first = at;
+  while (inGroup(first - 1)) first--;
+  let last = at;
+  while (inGroup(last + 1)) last++;
+  const latest = new Map<string, GroupStepFindings>();
+  for (const { stepId, attempt: number } of path.slice(first, last + 1)) {
+    const ran = batch.steps.get(stepId)?.attempts.get(number);
+    const taster = groupOf(stepId, number);
+    if (stepId === from || taster === undefined || ran?.phase !== 'finished') continue;
+    if (!reviewed(ran.outcome)) continue;
+    const more = ran.outcome.kind === 'succeeded' ? 0 : (ran.findings?.more ?? 0);
+    const { lenses, blocking } = taster;
+    latest.set(stepId, { step: stepId, lenses, blocking, findings: roundFindings(ran), more });
+  }
+  const scheduled = [...batch.steps.keys()].flatMap((id) => latest.get(id) ?? []);
+  const others = [
+    ...scheduled.filter(({ blocking }) => blocking),
+    ...scheduled.filter(({ blocking }) => !blocking),
+  ];
+  return others.length === 0 ? undefined : others;
 }
 
 /** What a check run or a commit status is called in a route input. */
@@ -1106,6 +1189,75 @@ function bounded(text: string, limit: number, what: string): string {
   return `${bytes.subarray(0, end).toString('utf8')}${note}`;
 }
 
+/**
+ * The lines of each other child of a group in a round back, a section per step (ADR 0349), each
+ * with how many findings it stands for: a finding's line one, the line of those its attempt did
+ * not record that many. A finding with no file is about the change, or a plan lens's about the
+ * plan, as a whole (ADR 0318).
+ */
+function groupSections(others: readonly GroupStepFindings[]) {
+  return others.map(({ step, lenses, blocking, findings, more }) => {
+    const through = lenses.length === 0 ? '' : `, through ${lenses.join(' and ')}`;
+    const head = `Step ${step}${through}, ${blocking ? 'blocking' : 'advisory'}:`;
+    const of: Reviewed = lenses[0]?.startsWith('plan/') === true ? 'plan' : 'change';
+    const lines = findings.map((finding) => ({
+      text: `- ${lensFirst(finding)}${finding.severity} in ${finding.file === undefined ? `the ${of} as a whole` : placeOf(finding)}${finding.introduced ? '' : ', there before the change'}: ${flatLine(finding.why)}`,
+      count: 1,
+    }));
+    if (more > 0)
+      lines.push({ text: `- and ${more} more its attempt did not record`, count: more });
+    return {
+      step,
+      lines:
+        lines.length === 0
+          ? [{ text: `${head} no findings.`, count: 0 }]
+          : [{ text: head, count: 0 }, ...lines],
+    };
+  });
+}
+
+/** What a cut of the group's findings left out, by step, past the route input's limit. */
+const groupCut = (left: readonly { step: string; count: number }[]): string =>
+  `[cut: past the route input's limit of ${MAX_ROUTE_INPUT_BYTES} bytes, left out: ${left
+    .map(
+      ({ step, count }, at) =>
+        `${count}${at === 0 ? ` finding${count === 1 ? '' : 's'}` : ''} of ${step}`,
+    )
+    .join(', ')}]`;
+
+/**
+ * The other children's findings after the routing step's text `head`, to the route input's limit
+ * (ADR 0349): whole lines in order, then a line naming how many findings of each step it left out.
+ * The head is held first, leaving room for that line, so a cut takes the group's lines, never it.
+ */
+function withGroup(head: string, others: readonly GroupStepFindings[]): string {
+  const sections = groupSections(others);
+  const countOf = (lines: readonly { count: number }[]) =>
+    lines.reduce((sum, { count }) => sum + count, 0);
+  const bytes = (text: string) => Buffer.byteLength(text, 'utf8');
+  const intro = '\n\nThe other steps of its parallel group taste, in the same round:';
+  // The longest line a cut can end with: every finding of every step left out.
+  const all = sections.map(({ step, lines }) => ({ step, count: countOf(lines) }));
+  const room =
+    MAX_ROUTE_INPUT_BYTES - bytes(`\n\n${groupCut(all.filter(({ count }) => count > 0))}`);
+  let text = `${bounded(head, room - bytes(intro), 'route input')}${intro}`;
+  const left: { step: string; count: number }[] = [];
+  for (const { step, lines } of sections) {
+    let shown = 0;
+    let section = '\n';
+    for (const { text: line, count } of lines) {
+      const next = `${section}\n${line}`;
+      if (left.length > 0 || bytes(text + next) > room) break;
+      section = next;
+      shown += count;
+    }
+    if (section !== '\n') text += section;
+    const count = countOf(lines) - shown;
+    if (count > 0) left.push({ step, count });
+  }
+  return left.length === 0 ? text : `${text}\n\n${groupCut(left)}`;
+}
+
 /** The route input of `planned`, with the out doc as it was read, held to its limit (ADR 0128). */
 export function routeInput(planned: PlannedRoute, outDoc?: OutDocRead): PromptInput {
   const doc = (() => {
@@ -1124,10 +1276,14 @@ export function routeInput(planned: PlannedRoute, outDoc?: OutDocRead): PromptIn
       }
     }
   })();
+  const head = `${planned.text}${doc}`;
   return {
     name: 'route',
     source: planned.source,
-    text: bounded(`${planned.text}${doc}`, MAX_ROUTE_INPUT_BYTES, 'route input'),
+    text:
+      planned.group === undefined
+        ? bounded(head, MAX_ROUTE_INPUT_BYTES, 'route input')
+        : withGroup(head, planned.group),
   };
 }
 

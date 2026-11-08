@@ -46,34 +46,51 @@ export interface LensRound {
 
 /**
  * The rounds of `stepId` in `batch`, in the order they started, up to attempt `before` when given:
- * each attempt of it that reviewed (`reviewed`), with the dispositions of the attempt its findings
- * route brought back, or of a retry or an answered attempt that continued that one; a route of
- * another step is never its own.
+ * each attempt of it that reviewed (`reviewed`), with the dispositions of the attempt a findings
+ * route brought back, or of a retry or an answered attempt that continued that one, that are its
+ * own: those that name `stepId`, and those that name no step when the route was `stepId`'s. A
+ * route of another step of its group carries its findings too (ADR 0349).
  */
 export function lensRounds(batch: Batch, stepId: string, before?: number): LensRound[] {
   const rounds: LensRound[] = [];
-  // The round each other step's latest attempt answers, while a retry or an answer continues it.
-  const answering = new Map<string, LensRound>();
-  for (const { stepId: on, attempt } of batch.path ?? []) {
+  // Where on the path each round started, and each other step's latest attempt so far.
+  const startedAt = new Map<LensRound, number>();
+  const latestOf = new Map<string, number>();
+  // The round each other step's latest attempt answers, the step whose route it came back by, and
+  // whether that round tasted since the step's attempt before, while a retry or an answer
+  // continues it.
+  const answering = new Map<string, { round: LensRound; from: string; since: boolean }>();
+  for (const [at, { stepId: on, attempt }] of (batch.path ?? []).entries()) {
     if (on === stepId && attempt === before) break;
     const ran = batch.steps.get(on)?.attempts.get(attempt);
     if (ran === undefined) continue;
     if (on === stepId) {
       if (ran.phase === 'finished' && reviewed(ran.outcome)) {
-        rounds.push({ attempt, ran, dispositions: [] });
+        const round = { attempt, ran, dispositions: [] };
+        rounds.push(round);
+        startedAt.set(round, at);
       }
       continue;
     }
     const { route } = ran;
     const latest = rounds.at(-1);
-    if (route?.from === stepId && route.why === 'findings' && latest !== undefined) {
-      answering.set(on, latest);
+    if (route?.why === 'findings' && latest !== undefined) {
+      const since = (startedAt.get(latest) ?? -1) > (latestOf.get(on) ?? -1);
+      answering.set(on, { round: latest, from: route.from, since });
     } else if (ran.retry !== true && ran.answered !== true) {
       answering.delete(on);
     }
+    latestOf.set(on, at);
     const answered = answering.get(on);
     if (answered !== undefined && ran.phase === 'finished' && ran.outcome.kind === 'succeeded') {
-      answered.dispositions = dispositionsOf(ran.outcome.output);
+      const { round, from, since } = answered;
+      const own = dispositionsOf(ran.outcome.output).filter(
+        (found) => (found.step ?? from) === stepId,
+      );
+      // Another step's route answers only a round of this step that tasted since the brewer it
+      // brought back last ran, one of its group's in that round, and only where it names it
+      // (ADR 0349).
+      if (from === stepId || (since && own.length > 0)) round.dispositions = own;
     }
   }
   return rounds;

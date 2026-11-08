@@ -58,6 +58,7 @@ import {
   type EarlierRound,
   earlierFindingsInput,
   earlierRoundsOf,
+  groupOfStep,
   type InputRead,
   inputsOf,
   keptMergeInput,
@@ -764,6 +765,8 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
       ref,
       (id, attempt) => stepBrewer(id, attempt)?.brewer.output.doc,
       (of) => startMergeOf(state(), of),
+      // The other children of a group's round back (ADR 0349).
+      (id, attempt) => groupOfStep(stepBrewer(id, attempt)),
     );
     if (route !== undefined) {
       const { outDoc } = route;
