@@ -5,7 +5,9 @@
 // simplifies the change (ADR 0166), the checks read the result, four Tasters review the change side
 // by side, through the correctness, acceptance, security and design conformance lenses (ADR 0168,
 // ADR 0197, ADR 0306, ADR 0343), correctness's changes send the batch back to Cellarman (ADR 0264),
-// and the pull request opens with their findings (ADR 0161). The other three advise.
+// and the pull request opens with their findings (ADR 0161). The other three advise. Correctness,
+// acceptance and security run at high effort, and design conformance at the Taster's own medium
+// (ADR 0352).
 {
   "$schema": "../../schemas/recipe.json",
   "name": "nip",
@@ -54,16 +56,17 @@
           "id": "correctness",
           "brewer": "taster",
           "lens": "diff/correctness",
+          "effort": "high",
           "blocking": true,
           "onBlocked": { "findings": { "goto": "implement", "maxRounds": 2 } }
         },
         // Advisory: whether the change builds each item of the order's checklist, and nothing else.
-        { "id": "acceptance", "brewer": "taster", "lens": "diff/acceptance" },
+        { "id": "acceptance", "brewer": "taster", "lens": "diff/acceptance", "effort": "high" },
         // Advisory: untrusted input the change handles, and where it goes (ADR 0306). A Brewery
         // that wants it to block sets "blocking" in its own nip.jsonc.
-        { "id": "security", "brewer": "taster", "lens": "diff/security" },
+        { "id": "security", "brewer": "taster", "lens": "diff/security", "effort": "high" },
         // Advisory: the repository's decisions and documents the change contradicts or leaves stale
-        // (ADR 0343).
+        // (ADR 0343), judged by the rules its lens has it read (ADR 0352).
         { "id": "design-conformance", "brewer": "taster", "lens": "diff/design-conformance" }
       ]
     },

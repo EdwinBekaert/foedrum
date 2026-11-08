@@ -982,6 +982,36 @@ describe('foedrum resume (ADR 0126)', () => {
       );
     });
 
+    it("opens an attempt at its step's own effort, over its brewer's: regression test (ADR 0352)", async () => {
+      const stepped = loadRecipes({
+        recipes: [
+          {
+            path: 'recipes/mash.jsonc',
+            text: recipeText('mash', [{ id: 'innkeep', brewer: 'innkeeper', effort: 'xhigh' }]),
+          },
+          {
+            path: 'recipes/pale.jsonc',
+            text: recipeText('pale', [{ id: 'brew', brewer: 'brewmaster' }]),
+          },
+        ],
+        brewers: [
+          { path: 'brewers/innkeeper.md', text: brewerText('innkeeper', { effort: 'low' }) },
+          { path: 'brewers/brewmaster.md', text: brewerText('brewmaster', { effort: 'max' }) },
+        ],
+      });
+      assert.ok(stepped.valid, stepped.valid ? '' : stepped.problems.join('\n'));
+      const result = await resumeOf('12-1', 'innkeep', {
+        setup: async () =>
+          ({ kind: 'ready', setup: { ...setup, brewers: stepped.brewers } }) as const,
+      });
+      assert.deepEqual(result, { exitCode: 0, stdout: '', stderr: '' });
+      const args = started[0]?.args ?? [];
+      assert.deepEqual(
+        [started.length, args.slice(0, 2), args[args.indexOf('--effort') + 1]],
+        [1, ['--resume', S1], 'xhigh'],
+      );
+    });
+
     it("opens an attempt that recorded no recipe with the brewer of its batch's recipe", async () => {
       // 13-1's innkeep was scheduled before the batch had a recipe, so its attempt names none.
       const ref = { ...innkeep, batchId: '13-1' };

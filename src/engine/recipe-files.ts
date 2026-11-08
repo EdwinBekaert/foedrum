@@ -766,12 +766,10 @@ function brewerLine(step: BrewerStep, group: string | undefined, shelf: Shelf): 
           `it names no brewer "${step.brewer}" that the Brewery's brewers/ or Foedrum's defaults have (ADR 0098)`,
         ];
   }
-  // The step's model is the brewer's on this step: all that reads an attempt's model reads this
-  // brewer (ADR 0321).
-  const found: StepBrewer =
-    step.model === undefined
-      ? shelved
-      : { ...shelved, brewer: { ...shelved.brewer, model: step.model } };
+  // The step's model and effort are the brewer's on this step: all that reads an attempt's model
+  // or effort reads this brewer (ADR 0321, ADR 0352).
+  const { model = shelved.brewer.model, effort = shelved.brewer.effort } = step;
+  const found: StepBrewer = { ...shelved, brewer: { ...shelved.brewer, model, effort } };
   const { brewer } = found;
   const refused = unplannable(brewer);
   if (refused.length > 0) {
