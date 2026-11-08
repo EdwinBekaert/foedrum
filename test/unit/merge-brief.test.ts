@@ -1454,6 +1454,23 @@ describe('the merge brief (ADR 0225)', () => {
       assert.doesNotMatch(await statusText(), /is ready to merge/);
     });
 
+    it('says the brief no longer holds while a re-run of its head fails, and to wait for it (review of #944)', async () => {
+      nip();
+      finished([passed('ci/build')]);
+      await post(effectsOf(fakeHost().host));
+      pending();
+      finished([failed('ci/build')]);
+      const text = await statusText();
+      assert.ok(
+        text.includes(
+          `is not ready to merge yet: its merge brief <${url}#issuecomment-101> no longer holds on \`aaaaaaaa\``,
+        ),
+        text,
+      );
+      assert.ok(text.includes(`Next: wait for <${url}>'s merge brief`), text);
+      assert.doesNotMatch(text, /no merge brief/);
+    });
+
     it('links no brief once a later record is ready and its brief is not posted yet (regression test)', async () => {
       nip();
       finished([passed('ci/build')]);
@@ -1688,9 +1705,9 @@ describe('the merge brief (ADR 0225)', () => {
       pending();
       assert.deepStrictEqual(await both(drafts), []);
       finished([passed('ci/test')]);
-      assert.deepStrictEqual(await both(drafts), ['brief.1', 'brief.1.ready']);
+      assert.deepStrictEqual(await both(drafts), ['brief.1', 'brief.1.ready.1']);
       assert.deepStrictEqual(asked, [`isDraft ${url}`, `markReady ${url}`]);
-      assert.deepStrictEqual(log.state().effects.get(keyOf('brief.1.ready')), { ready: true });
+      assert.deepStrictEqual(log.state().effects.get(keyOf('brief.1.ready.1')), { ready: true });
       assert.deepStrictEqual(await both(drafts), []);
     });
 
@@ -1699,22 +1716,44 @@ describe('the merge brief (ADR 0225)', () => {
       // A repository that cannot have drafts opened it ready (ADR 0167).
       const { drafts, asked } = fakeDrafts(true);
       finished([passed('ci/test')]);
-      assert.deepStrictEqual(await both(drafts), ['brief.1', 'brief.1.ready']);
+      assert.deepStrictEqual(await both(drafts), ['brief.1', 'brief.1.ready.1']);
       assert.deepStrictEqual(asked, [`isDraft ${url}`]);
-      assert.deepStrictEqual(log.state().effects.get(keyOf('brief.1.ready')), { ready: true });
+      assert.deepStrictEqual(log.state().effects.get(keyOf('brief.1.ready.1')), { ready: true });
     });
 
     it('turns it back into a draft once a fix round outdates its brief, and ready again with the next', async () => {
       nip();
       const { drafts, asked } = fakeDrafts();
       finished([passed('ci/test')]);
-      assert.deepStrictEqual(await both(drafts), ['brief.1', 'brief.1.ready']);
+      assert.deepStrictEqual(await both(drafts), ['brief.1', 'brief.1.ready.1']);
       fixRound();
-      assert.deepStrictEqual(await both(drafts), ['brief.1.hidden', 'brief.1.draft']);
-      assert.deepStrictEqual(log.state().effects.get(keyOf('brief.1.draft')), { draft: true });
+      assert.deepStrictEqual(await both(drafts), ['brief.1.hidden', 'brief.1.draft.1']);
+      assert.deepStrictEqual(log.state().effects.get(keyOf('brief.1.draft.1')), { draft: true });
       assert.deepStrictEqual(await both(drafts), []);
       finished([passed('ci/test'), passed('ci/late')], fixed);
-      assert.deepStrictEqual(await both(drafts), ['brief.2', 'brief.2.ready']);
+      assert.deepStrictEqual(await both(drafts), ['brief.2', 'brief.2.ready.1']);
+      assert.deepStrictEqual(asked, [
+        `isDraft ${url}`,
+        `markReady ${url}`,
+        `isDraft ${url}`,
+        `markDraft ${url}`,
+        `isDraft ${url}`,
+        `markReady ${url}`,
+      ]);
+    });
+
+    it('turns it back into a draft while a re-run of the same head fails, and ready again once it passes (review of #944)', async () => {
+      nip();
+      const { drafts, asked } = fakeDrafts();
+      finished([passed('ci/test')]);
+      assert.deepStrictEqual(await both(drafts), ['brief.1', 'brief.1.ready.1']);
+      pending();
+      finished([failed('ci/test')]);
+      assert.deepStrictEqual(await both(drafts), ['brief.1.draft.1']);
+      assert.deepStrictEqual(await both(drafts), []);
+      pending();
+      finished([passed('ci/test')]);
+      assert.deepStrictEqual(await both(drafts), ['brief.1.ready.2']);
       assert.deepStrictEqual(asked, [
         `isDraft ${url}`,
         `markReady ${url}`,
@@ -1729,22 +1768,22 @@ describe('the merge brief (ADR 0225)', () => {
       nip();
       const { drafts, asked, set } = fakeDrafts();
       finished([passed('ci/test')]);
-      assert.deepStrictEqual(await both(drafts), ['brief.1', 'brief.1.ready']);
+      assert.deepStrictEqual(await both(drafts), ['brief.1', 'brief.1.ready.1']);
       fixRound();
       set(true);
-      assert.deepStrictEqual(await both(drafts), ['brief.1.hidden', 'brief.1.draft']);
+      assert.deepStrictEqual(await both(drafts), ['brief.1.hidden', 'brief.1.draft.1']);
       assert.ok(!asked.includes(`markDraft ${url}`));
-      assert.deepStrictEqual(log.state().effects.get(keyOf('brief.1.draft')), { draft: true });
+      assert.deepStrictEqual(log.state().effects.get(keyOf('brief.1.draft.1')), { draft: true });
     });
 
     it('records a repository that cannot have drafts as draftless', async () => {
       nip();
       const { drafts } = fakeDrafts(true);
       finished([passed('ci/test')]);
-      assert.deepStrictEqual(await both(drafts), ['brief.1', 'brief.1.ready']);
+      assert.deepStrictEqual(await both(drafts), ['brief.1', 'brief.1.ready.1']);
       fixRound();
-      assert.deepStrictEqual(await both(drafts), ['brief.1.hidden', 'brief.1.draft']);
-      assert.deepStrictEqual(log.state().effects.get(keyOf('brief.1.draft')), {
+      assert.deepStrictEqual(await both(drafts), ['brief.1.hidden', 'brief.1.draft.1']);
+      assert.deepStrictEqual(log.state().effects.get(keyOf('brief.1.draft.1')), {
         draftless: true,
       });
     });
@@ -1753,7 +1792,7 @@ describe('the merge brief (ADR 0225)', () => {
       nip();
       const { drafts, asked } = fakeDrafts();
       finished([passed('ci/test')]);
-      assert.deepStrictEqual(await both(drafts), ['brief.1', 'brief.1.ready']);
+      assert.deepStrictEqual(await both(drafts), ['brief.1', 'brief.1.ready.1']);
       baseChecked({ branchMoved: 'e'.repeat(40) });
       assert.deepStrictEqual(await both(drafts), ['brief.1.hidden']);
       assert.deepStrictEqual(asked, [`isDraft ${url}`, `markReady ${url}`]);
@@ -1763,10 +1802,10 @@ describe('the merge brief (ADR 0225)', () => {
       nip();
       const { drafts, asked } = fakeDrafts();
       finished([passed('ci/test')]);
-      assert.deepStrictEqual(await both(drafts), ['brief.1', 'brief.1.ready']);
+      assert.deepStrictEqual(await both(drafts), ['brief.1', 'brief.1.ready.1']);
       pending();
       finished([passed('ci/test'), passed('ci/late')]);
-      assert.deepStrictEqual(await both(drafts), ['brief.2', 'brief.2.ready']);
+      assert.deepStrictEqual(await both(drafts), ['brief.2', 'brief.2.ready.1']);
       assert.deepStrictEqual(await both(drafts), ['brief.1.hidden']);
       assert.ok(!asked.includes(`markDraft ${url}`));
     });
