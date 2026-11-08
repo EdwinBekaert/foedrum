@@ -742,10 +742,8 @@ describe('the default Nip', () => {
       'implement',
       'fine',
       'green',
+      // The Tasters that found nothing keep their approval (ADR 0357).
       'correctness',
-      'acceptance',
-      'security',
-      'design-conformance',
       'open-pull-request',
     ]);
   });
@@ -818,11 +816,14 @@ describe('the default Nip', () => {
         },
         tasted,
       );
+      // Correctness every round, and the Taster that had findings; acceptance and security keep
+      // their approval (ADR 0357).
       assert.deepEqual(startedOf(events).slice(4), [
         ...BACK,
         ...ROUND,
         ...BACK,
-        ...ROUND,
+        'correctness',
+        'design-conformance',
         'open-pull-request',
       ]);
     });
@@ -856,9 +857,9 @@ describe('the default Nip', () => {
           fine: [done, done, done],
           green: [done, done, done],
           correctness: [nit('round one'), approves, approves],
-          acceptance: [approves, nit('round two'), approves],
-          security: [approves, approves, approves],
-          'design-conformance': [approves, approves, nit('round three')],
+          acceptance: [nit('a gap'), nit('round two'), nit('round three')],
+          security: [approves],
+          'design-conformance': [approves],
           'open-pull-request': [done],
         },
         tasted,
@@ -870,7 +871,7 @@ describe('the default Nip', () => {
       assert.equal(lane?.kind, 'stuck');
       assert.deepEqual(lane?.kind === 'stuck' ? lane.reason : undefined, {
         kind: 'blocked',
-        stepId: 'design-conformance',
+        stepId: 'acceptance',
         blockerKind: 'findings',
         summary: 'the Taster approves with findings: Done',
         roundsOut: { rounds: 2, open: [finding('round three')], more: 0 },
@@ -885,7 +886,7 @@ describe('the default Nip', () => {
           fine: [done, done, done],
           green: [done, done, done],
           correctness: [nit('one'), nit('two'), nit('three')],
-          acceptance: [approves, approves, nit('a gap')],
+          acceptance: [nit('a gap'), nit('a gap'), nit('a gap')],
           security: [approves, approves, approves],
           'design-conformance': [approves, approves, approves],
           'open-pull-request': [done],

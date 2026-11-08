@@ -3603,3 +3603,218 @@ describe('the Next line of a pull request follows its merge brief (#940)', () =>
     );
   });
 });
+
+describe('renderStatus: a parallel group that ran in part after a round back (ADR 0357)', () => {
+  const approved = (attempt: number, fields: Partial<Attempt> = {}): Attempt =>
+    ({
+      phase: 'finished',
+      attempt,
+      deadlineAt: at,
+      outcome: {
+        kind: 'succeeded',
+        output: { status: 'done', summary: 'Tasted', assumptions: [], verdict: 'approve' },
+      },
+      ...fields,
+    }) as Attempt;
+  const blockedByFindings: Attempt = {
+    phase: 'finished',
+    attempt: 1,
+    deadlineAt: at,
+    outcome: {
+      kind: 'failed',
+      retryable: false,
+      reason: 'blocked (findings): the Taster asks for changes: a leak',
+    },
+  };
+  const routed = { route: { from: 'security', why: 'findings' } } as const;
+  /** Round 1: correctness approved, security sent the batch back; round 2: security alone. */
+  const partial = batch({
+    steps: new Map([
+      step('implement', done(1), { ...done(2), ...routed }),
+      step('correctness', approved(1)),
+      step('security', blockedByFindings, approved(2)),
+    ]),
+    path: [
+      { stepId: 'implement', attempt: 1 },
+      { stepId: 'correctness', attempt: 1 },
+      { stepId: 'security', attempt: 1 },
+      { stepId: 'implement', attempt: 2 },
+      { stepId: 'security', attempt: 2 },
+    ],
+  });
+  const shown = renderStatus(partial, ['implement', 'correctness', 'security']);
+
+  it('shows the round back as a line of the path with only the children that ran: regression test', () => {
+    assert.ok(shown.split('\n').includes('→ `implement #2` ✅ → `security #2` ✅'), shown);
+  });
+
+  it("says a Taster's step that did not run again is from the round it ran in, and only that step", () => {
+    assert.equal(lineOf(shown, 'correctness'), '- ✅ `correctness`, from round 1');
+    assert.equal(lineOf(shown, 'security'), '- ✅ `security`');
+  });
+
+  it("counts a kept Taster's rounds by its reviews, from round 2 after it had findings in round 1: regression test", () => {
+    const routedBy = (from: string) => ({ route: { from, why: 'findings' } }) as const;
+    const blocked = (attempt: number): Attempt => ({ ...blockedByFindings, attempt });
+    const third = batch({
+      steps: new Map([
+        step(
+          'implement',
+          done(1),
+          { ...done(2), ...routedBy('correctness') },
+          {
+            ...done(3),
+            ...routedBy('security'),
+          },
+        ),
+        step('correctness', blocked(1), approved(2)),
+        step('security', blocked(1), blocked(2), approved(3)),
+      ]),
+      path: [
+        { stepId: 'implement', attempt: 1 },
+        { stepId: 'correctness', attempt: 1 },
+        { stepId: 'security', attempt: 1 },
+        { stepId: 'implement', attempt: 2 },
+        { stepId: 'correctness', attempt: 2 },
+        { stepId: 'security', attempt: 2 },
+        { stepId: 'implement', attempt: 3 },
+        { stepId: 'security', attempt: 3 },
+      ],
+    });
+    const text = renderStatus(third, ['implement', 'correctness', 'security']);
+    assert.equal(lineOf(text, 'correctness'), '- ✅ `correctness`, from round 2');
+  });
+
+  it('says nothing of a round after a route back that is not for findings: regression test', () => {
+    const fixing = batch({
+      steps: new Map([
+        step('implement', done(1), {
+          ...running(2),
+          route: {
+            from: 'open-pull-request',
+            why: 'pull_request',
+            pullRequest: pr,
+            head: 'a'.repeat(40),
+          },
+        }),
+        step('correctness', approved(1)),
+      ]),
+      path: [
+        { stepId: 'implement', attempt: 1 },
+        { stepId: 'correctness', attempt: 1 },
+        { stepId: 'implement', attempt: 2 },
+      ],
+    });
+    const text = renderStatus(fixing, ['implement', 'correctness']);
+    assert.equal(lineOf(text, 'correctness'), '- ✅ `correctness`');
+  });
+
+  it("counts a kept Taster's rounds from the batch's latest run from the start (ADR 0357)", () => {
+    const routedBy = (from: string) => ({ route: { from, why: 'findings' } }) as const;
+    const blocked = (attempt: number): Attempt => ({ ...blockedByFindings, attempt });
+    // Run 1 tasted twice; a person's recipe choice ran the recipe again from the fifth attempt,
+    // where correctness approved in its run's round 1 and security's findings sent it back.
+    const again = batch({
+      steps: new Map([
+        step('implement', done(1), { ...done(2), ...routedBy('correctness') }, done(3), {
+          ...done(4),
+          ...routedBy('security'),
+        }),
+        step('correctness', blocked(1), approved(2), approved(3)),
+        step('security', approved(1), blocked(2), approved(3)),
+      ]),
+      path: [
+        { stepId: 'implement', attempt: 1 },
+        { stepId: 'correctness', attempt: 1 },
+        { stepId: 'security', attempt: 1 },
+        { stepId: 'implement', attempt: 2 },
+        { stepId: 'correctness', attempt: 2 },
+        { stepId: 'implement', attempt: 3 },
+        { stepId: 'correctness', attempt: 3 },
+        { stepId: 'security', attempt: 2 },
+        { stepId: 'implement', attempt: 4 },
+        { stepId: 'security', attempt: 3 },
+      ],
+      runFrom: 5,
+    });
+    const text = renderStatus(again, ['implement', 'correctness', 'security']);
+    assert.equal(lineOf(text, 'correctness'), '- ✅ `correctness`, from round 1');
+  });
+
+  it("says nothing of a round for a Taster's approval the path does not hold: regression test", () => {
+    // An older log's path, without the approval, after a round back for findings.
+    const unplaced = batch({
+      steps: new Map([
+        step('implement', done(1), { ...done(2), route: { from: 'security', why: 'findings' } }),
+        step('correctness', approved(1)),
+      ]),
+      path: [
+        { stepId: 'implement', attempt: 1 },
+        { stepId: 'implement', attempt: 2 },
+      ],
+    });
+    const text = renderStatus(unplaced, ['implement', 'correctness']);
+    assert.equal(lineOf(text, 'correctness'), '- ✅ `correctness`');
+  });
+
+  it("says nothing of a round for a Taster's approval from before the batch's latest run (ADR 0357)", () => {
+    // Round 1 sent the batch back for security's findings, then a person's rewind ran it again
+    // from implement, before the group tasted again.
+    const rewound = batch({
+      steps: new Map([
+        step(
+          'implement',
+          done(1),
+          { ...done(2), route: { from: 'security', why: 'findings' } },
+          running(3),
+        ),
+        step('correctness', approved(1)),
+        step('security', blockedByFindings),
+      ]),
+      path: [
+        { stepId: 'implement', attempt: 1 },
+        { stepId: 'correctness', attempt: 1 },
+        { stepId: 'security', attempt: 1 },
+        { stepId: 'implement', attempt: 2 },
+        { stepId: 'implement', attempt: 3 },
+      ],
+      runFrom: 4,
+    });
+    const text = renderStatus(rewound, ['implement', 'correctness', 'security']);
+    assert.equal(lineOf(text, 'correctness'), '- ✅ `correctness`');
+  });
+
+  it("counts a kept Taster's review that is its run's first attempt, after a rewind to it: regression test", () => {
+    const routedBy = (from: string) => ({ route: { from, why: 'findings' } }) as const;
+    const blocked = (attempt: number): Attempt => ({ ...blockedByFindings, attempt });
+    // A rewind to correctness began a run at its fourth attempt; security's findings sent it back.
+    const rewound = batch({
+      steps: new Map([
+        step(
+          'implement',
+          done(1),
+          { ...done(2), ...routedBy('correctness') },
+          {
+            ...done(3),
+            ...routedBy('security'),
+          },
+        ),
+        step('correctness', blocked(1), approved(2)),
+        step('security', approved(1), blocked(2), approved(3)),
+      ]),
+      path: [
+        { stepId: 'implement', attempt: 1 },
+        { stepId: 'correctness', attempt: 1 },
+        { stepId: 'security', attempt: 1 },
+        { stepId: 'implement', attempt: 2 },
+        { stepId: 'correctness', attempt: 2 },
+        { stepId: 'security', attempt: 2 },
+        { stepId: 'implement', attempt: 3 },
+        { stepId: 'security', attempt: 3 },
+      ],
+      runFrom: 4,
+    });
+    const text = renderStatus(rewound, ['implement', 'correctness', 'security']);
+    assert.equal(lineOf(text, 'correctness'), '- ✅ `correctness`, from round 1');
+  });
+});

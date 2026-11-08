@@ -302,9 +302,20 @@ const lastTasters = (steps: Steps): string[] => {
   return group === undefined ? [last] : tasters.filter((id) => steps.recipe?.group(id) === group);
 };
 
-/** Where the last Taster tasted, and the fix rounds since, from the log alone. */
+/**
+ * Where the last Taster tasted, and the fix rounds since, from the log alone: of a group, the child
+ * that tasted latest on the path, since a round back runs only some of them again (ADR 0357).
+ */
 const tastedLine = (steps: Steps, ready: ReadyRecord): string => {
-  const [last] = lastTasters(steps);
+  const onPath = (stepId: string): number => {
+    const step = steps.batch.steps.get(stepId);
+    const latest = step && latestAttempt(step);
+    return latest === undefined ? -1 : placeOnPath(steps.batch, stepId, latest.attempt);
+  };
+  const last = lastTasters(steps).reduce<string | undefined>(
+    (latest, stepId) => (latest === undefined || onPath(stepId) > onPath(latest) ? stepId : latest),
+    undefined,
+  );
   const step = last === undefined ? undefined : steps.batch.steps.get(last);
   const attempt = step && latestAttempt(step);
   if (last === undefined || attempt === undefined) return '- No Taster tasted this change.';

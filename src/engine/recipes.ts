@@ -54,6 +54,11 @@ export interface Recipe {
   /** The parallel group `stepId` is a child of, or `undefined` when it is none's (ADR 0168). */
   group(stepId: string): string | undefined;
   /**
+   * Whether the child `stepId` of a parallel group runs again after every round back along the
+   * group's findings route, whatever it found (`everyRound`, ADR 0357).
+   */
+  everyRound(stepId: string): boolean;
+  /**
    * Whether `stepId` is an interactive brewer step: its attempts run as a person's session, which
    * only a driver with a terminal opens (ADR 0222).
    */

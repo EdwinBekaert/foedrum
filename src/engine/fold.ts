@@ -345,6 +345,12 @@ export interface Batch {
   /** Its attempts in the order they started, across its steps; absent while none has. */
   path?: readonly PathAttempt[];
   /**
+   * How many attempts of its path started before its latest recipe choice or rewind, which ran it
+   * again from a step: a group's round back before it leaves no child out, and a round before it
+   * counts in no kept Taster's round (ADR 0357); absent while none had started then.
+   */
+  runFrom?: number;
+  /**
    * How its open pull requests merged with their base, each check in the order it was recorded
    * (ADR 0198); absent while none was.
    */
@@ -691,6 +697,7 @@ function apply(state: State, event: Event): State {
       // The skips belonged to the run of the recipe before (ADR 0064).
       return updateBatch(state, event.batchId, ({ skipped: _, skips: _past, ...batch }) => ({
         ...batch,
+        ...(batch.path === undefined ? {} : { runFrom: batch.path.length }),
         recipe:
           event.source === 'human'
             ? {
@@ -959,6 +966,8 @@ function apply(state: State, event: Event): State {
           lane: { kind: 'brewing' },
           rewinds: [...batch.rewinds, { toStepId, by, via, shas }],
           taskTree: { kind: 'rewound', shas },
+          // A rewind runs the change again from its step, as a recipe choice does (ADR 0357).
+          ...(batch.path === undefined ? {} : { runFrom: batch.path.length }),
         };
       });
     }

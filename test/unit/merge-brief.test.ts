@@ -70,6 +70,19 @@ const recipes = fakeRecipes({
     maxRounds: 1,
     pullRequests: [],
   }),
+  // Two Tasters side by side whose findings go back to implement, none every round (ADR 0357).
+  parted: fakeRecipe({
+    steps: ['implement', 'taste', OPEN],
+    groups: taste,
+    actions: { [OPEN]: 'openPullRequest' },
+    routes: {
+      correctness: { findings: 'implement' },
+      acceptance: { findings: 'implement' },
+      [OPEN]: { pull_request: 'implement' },
+    },
+    maxRounds: 2,
+    pullRequests: [],
+  }),
   // A blocking Taster with no round left: its findings make the batch Stuck at once.
   strict: fakeRecipe({
     steps: ['implement', 'taste', OPEN],
@@ -682,6 +695,40 @@ describe('the merge brief (ADR 0225)', () => {
       open();
       finished([passed('ci/build')]);
       assert.match(await brief(), /- Red proof: none in the recipe\./);
+    });
+
+    it('says where the Taster that tasted last tasted, the first in the recipe, when the group ran in part: regression test', async () => {
+      order('parted');
+      run('implement');
+      const asked = { severity: 'major', why: 'Misses a case', introduced: true } as const;
+      run(
+        'correctness',
+        { kind: 'blocked', blockerKind: 'findings', summary: 'x', findings: [asked] },
+        { commit: tasted },
+      );
+      run('acceptance', tasting(), { commit: tasted });
+      run('implement');
+      run('correctness', tasting(), { commit: head });
+      open();
+      finished([passed('ci/build')]);
+      assert.match(await brief(), /- Tasted at `aaaaaaaa`, this head\./);
+    });
+
+    it('says where the Taster that tasted last tasted, when the group ran in part (ADR 0357)', async () => {
+      order('parted');
+      run('implement');
+      run('correctness', tasting(), { commit: tasted });
+      const asked = { severity: 'major', why: 'Misses an item', introduced: true } as const;
+      run(
+        'acceptance',
+        { kind: 'blocked', blockerKind: 'findings', summary: 'x', findings: [asked] },
+        { commit: tasted },
+      );
+      run('implement');
+      run('acceptance', tasting(), { commit: head });
+      open();
+      finished([passed('ci/build')]);
+      assert.match(await brief(), /- Tasted at `aaaaaaaa`, this head\./);
     });
 
     it('says where the last Taster tasted, and the fix rounds since', async () => {

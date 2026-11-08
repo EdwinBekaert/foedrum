@@ -326,6 +326,8 @@ interface LineStep {
   passes?: true;
   /** The parallel group it is a child of (ADR 0168). */
   group?: string;
+  /** A child of a group that runs again after every round back for findings (ADR 0357). */
+  everyRound?: true;
   /** A brewer step whose attempts run as a person's session (ADR 0222). */
   interactive?: true;
   /** A brewer step whose answer chooses the batch's recipe (ADR 0232). */
@@ -472,6 +474,11 @@ function untasted(step: BrewerStep, brewer: BrewerFrontmatter): string[] {
         : [
             `step "${id}" has "onFindings", but its brewer "${brewer.name}" is no Taster: only a Taster's findings take that route (ADR 0354)`,
           ]),
+      ...(step.everyRound === true
+        ? [
+            `step "${id}" has "everyRound", but its brewer "${brewer.name}" is no Taster: only a Taster's step in a parallel group with "onFindings" runs again every round; take "everyRound" off (ADR 0357)`,
+          ]
+        : []),
     ];
   }
   if (step.lens === undefined && step.lenses === undefined) {
@@ -490,7 +497,8 @@ function untasted(step: BrewerStep, brewer: BrewerFrontmatter): string[] {
 /**
  * Why the route of a Taster's `step` cannot load (ADR 0354): its findings always go back, along
  * `onFindings` on its parallel group, `grouped`, or on the step when it stands alone, and never by
- * `blocking` or `onBlocked`. A group without a route is refused once, for the group.
+ * `blocking` or `onBlocked`. A group without a route is refused once, for the group. Only a group's
+ * child may say `everyRound` (ADR 0357).
  */
 function unrouted(step: BrewerStep, group: string | undefined): string[] {
   const id = stepId(step);
@@ -514,6 +522,12 @@ function unrouted(step: BrewerStep, group: string | undefined): string[] {
       : [
           `step "${id}" in the parallel group "${group}" has "onFindings": put it on the group, whose children share its rounds (ADR 0354)`,
         ];
+  }
+  // Only a group leaves out a child after a round back (ADR 0357).
+  if (step.everyRound === true) {
+    return [
+      `step "${id}" has "everyRound", but is in no parallel group: a Taster's step on its own runs again after every round back; take "everyRound" off (ADR 0357)`,
+    ];
   }
   return step.onFindings === undefined
     ? [
@@ -640,6 +654,7 @@ function lineRecipe(
     has: (id) => byId.has(id) || groups.has(id),
     children: (id) => children.get(id),
     group: (id) => byId.get(id)?.group,
+    everyRound: (id) => byId.get(id)?.everyRound === true,
     interactive: (id) => byId.get(id)?.interactive === true,
     choosesRecipe: (id) => byId.get(id)?.chooses === true,
     chosen: (option) => steps.find((entry) => entry.chosenBy === option)?.id,
@@ -879,6 +894,7 @@ function brewerLine(
     mayRetry: (attempts) => deliveryRound(attempts).length < brewer.maxAttempts,
     route: findings === undefined ? undefined : { why: 'findings', ...findings },
     ...(group === undefined ? {} : { group }),
+    ...(group !== undefined && step.everyRound === true ? { everyRound: true } : {}),
     ...(step.interactive === true ? { interactive: true } : {}),
     ...(choosing ? { chooses: true as const } : {}),
     ...(step.chosenBy === undefined ? {} : { chosenBy: step.chosenBy }),

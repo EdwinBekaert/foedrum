@@ -434,3 +434,262 @@ describe("a parallel group's findings, every child's along the group's route (AD
     );
   });
 });
+
+describe('a parallel group after a round back for findings, past it and after a recipe choice', () => {
+  const twice: Context = {
+    ...context,
+    recipes: fakeRecipes({
+      flight: fakeRecipe({
+        steps: ['implement', 'tasting', 'polish'],
+        groups: { tasting: ['correctness', 'security'] },
+        routes: { correctness: { findings: 'implement' }, security: { findings: 'implement' } },
+        maxRounds: 2,
+      }),
+    }),
+  };
+  /** Round 1 approved by correctness and sent back by security's findings, implement again. */
+  const sentBack: Event[] = [
+    ...inGroup,
+    finished('correctness', succeeded),
+    finished('security', blockedOutcome),
+    { ...scheduled('implement', 2), route: { from: 'security', why: 'findings' } },
+    started('implement', 2),
+  ];
+
+  it("goes on past the group once the child that ran again approved, the other keeping round 1's approval: regression test", () => {
+    const again: Event[] = [
+      ...sentBack,
+      finished('implement', { kind: 'succeeded', output: null }, 2),
+      scheduled('security', 2),
+      started('security', 2),
+    ];
+    const command = {
+      kind: 'finish',
+      batchId: 'b1',
+      stepId: 'security',
+      attempt: 2,
+      ending: succeeded,
+    } as const;
+    accepts(again, command, [finished('security', succeeded, 2), next('polish')], twice);
+  });
+
+  it("runs the whole group again after a person's recipe choice: regression test", () => {
+    const failed = { kind: 'failed', retryable: false, reason: 'the build broke' } as const;
+    const reason: StuckReason = {
+      kind: 'blocked',
+      stepId: 'implement',
+      blockerKind: 'environment',
+      summary: 'the build broke',
+    };
+    const chosen: Event[] = [
+      ...sentBack,
+      finished('implement', failed, 2),
+      stuckOn(reason, ['retry', 'recipe', 'cancel']),
+      {
+        type: 'batch.recipe_chosen',
+        batchId: 'b1',
+        recipe: 'flight',
+        reason: 'once more',
+        source: 'human',
+        ...by,
+      },
+      { type: 'batch.resumed', batchId: 'b1', ...by, action: 'recipe' },
+      scheduled('implement', 3),
+      started('implement', 3),
+    ];
+    const command = {
+      kind: 'finish',
+      batchId: 'b1',
+      stepId: 'implement',
+      attempt: 3,
+      ending: { kind: 'succeeded', output: null },
+    } as const;
+    accepts(
+      chosen,
+      command,
+      [
+        finished('implement', { kind: 'succeeded', output: null }, 3),
+        next('correctness', 2),
+        next('security', 2),
+      ],
+      twice,
+    );
+  });
+
+  it("runs the whole group again after a person's rewind to a step before it (ADR 0357)", () => {
+    const failed = { kind: 'failed', retryable: false, reason: 'the build broke' } as const;
+    const reason: StuckReason = {
+      kind: 'blocked',
+      stepId: 'implement',
+      blockerKind: 'environment',
+      summary: 'the build broke',
+    };
+    const shas = { 'acme/api': 'a'.repeat(40) };
+    const rewound: Event[] = [
+      ...sentBack,
+      finished('implement', failed, 2),
+      stuckOn(reason, ['retry', 'rewind', 'cancel']),
+      { type: 'batch.rewound', batchId: 'b1', toStepId: 'implement', ...by, shas },
+      scheduled('implement', 3),
+      started('implement', 3),
+    ];
+    const command = {
+      kind: 'finish',
+      batchId: 'b1',
+      stepId: 'implement',
+      attempt: 3,
+      ending: { kind: 'succeeded', output: null },
+    } as const;
+    accepts(
+      rewound,
+      command,
+      [
+        finished('implement', { kind: 'succeeded', output: null }, 3),
+        next('correctness', 2),
+        next('security', 2),
+      ],
+      twice,
+    );
+  });
+
+  it("leaves out a child after a round back from the run a rewind to a child began, its first attempt the run's: regression test", () => {
+    const failed = { kind: 'failed', retryable: false, reason: 'the build broke' } as const;
+    const reason: StuckReason = {
+      kind: 'blocked',
+      stepId: 'implement',
+      blockerKind: 'environment',
+      summary: 'the build broke',
+    };
+    const shas = { 'acme/api': 'a'.repeat(40) };
+    // The rewind runs the group whole, and security's attempt is the first of the new run.
+    const rewound: Event[] = [
+      ...sentBack,
+      finished('implement', failed, 2),
+      stuckOn(reason, ['retry', 'rewind', 'cancel']),
+      { type: 'batch.rewound', batchId: 'b1', toStepId: 'correctness', ...by, shas },
+      scheduled('correctness', 2),
+      scheduled('security', 2),
+      started('security', 2),
+      started('correctness', 2),
+      finished('correctness', succeeded, 2),
+      finished('security', blockedOutcome, 2),
+      { ...scheduled('implement', 3), route: { from: 'security', why: 'findings' } },
+      started('implement', 3),
+    ];
+    const command = {
+      kind: 'finish',
+      batchId: 'b1',
+      stepId: 'implement',
+      attempt: 3,
+      ending: { kind: 'succeeded', output: null },
+    } as const;
+    accepts(
+      rewound,
+      command,
+      [finished('implement', { kind: 'succeeded', output: null }, 3), next('security', 3)],
+      twice,
+    );
+  });
+});
+
+describe('a parallel group after a round back for findings (ADR 0357)', () => {
+  // Both children route back to implement, two rounds in all.
+  const within = (everyRound: readonly string[] = []): Context => ({
+    ...context,
+    recipes: fakeRecipes({
+      flight: fakeRecipe({
+        steps: ['implement', 'tasting', 'polish'],
+        groups: { tasting: ['correctness', 'security'] },
+        routes: { correctness: { findings: 'implement' }, security: { findings: 'implement' } },
+        everyRound,
+        maxRounds: 2,
+      }),
+    }),
+  });
+  const implemented = (attempt: number) =>
+    ({
+      kind: 'finish',
+      batchId: 'b1',
+      stepId: 'implement',
+      attempt,
+      ending: { kind: 'succeeded', output: null },
+    }) as const;
+  /** Round 1 approved by correctness and sent back by security's findings, implement again. */
+  const sentBack: Event[] = [
+    ...inGroup,
+    finished('correctness', succeeded),
+    finished('security', blockedOutcome),
+    { ...scheduled('implement', 2), route: { from: 'security', why: 'findings' } },
+    started('implement', 2),
+  ];
+
+  it('runs again only the child that had findings', () => {
+    accepts(
+      sentBack,
+      implemented(2),
+      [finished('implement', { kind: 'succeeded', output: null }, 2), next('security', 2)],
+      within(),
+    );
+  });
+
+  it('runs a child with everyRound again though it found nothing, and leaves out the others that found nothing', () => {
+    const three: Context = {
+      ...context,
+      recipes: fakeRecipes({
+        flight: fakeRecipe({
+          steps: ['implement', 'tasting', 'polish'],
+          groups: { tasting: ['correctness', 'acceptance', 'security'] },
+          routes: {
+            correctness: { findings: 'implement' },
+            acceptance: { findings: 'implement' },
+            security: { findings: 'implement' },
+          },
+          everyRound: ['correctness'],
+          maxRounds: 2,
+        }),
+      }),
+    };
+    const back: Event[] = [
+      ...inGroup.slice(0, 5),
+      scheduled('correctness'),
+      scheduled('acceptance'),
+      scheduled('security'),
+      started('correctness'),
+      started('acceptance'),
+      started('security'),
+      finished('correctness', succeeded),
+      finished('acceptance', succeeded),
+      finished('security', blockedOutcome),
+      { ...scheduled('implement', 2), route: { from: 'security', why: 'findings' } },
+      started('implement', 2),
+    ];
+    accepts(
+      back,
+      implemented(2),
+      [
+        finished('implement', { kind: 'succeeded', output: null }, 2),
+        next('correctness', 2),
+        next('security', 2),
+      ],
+      three,
+    );
+  });
+
+  it('leaves out a child that approved in an earlier round, in every round after', () => {
+    const third: Event[] = [
+      ...sentBack,
+      finished('implement', { kind: 'succeeded', output: null }, 2),
+      scheduled('security', 2),
+      started('security', 2),
+      finished('security', blockedOutcome, 2),
+      { ...scheduled('implement', 3), route: { from: 'security', why: 'findings' } },
+      started('implement', 3),
+    ];
+    accepts(
+      third,
+      implemented(3),
+      [finished('implement', { kind: 'succeeded', output: null }, 3), next('security', 3)],
+      within(),
+    );
+  });
+});

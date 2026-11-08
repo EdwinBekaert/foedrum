@@ -31,6 +31,8 @@ export interface FakeRecipe {
   merges?: readonly string[];
   /** The children of each step that is a parallel group, by its id (ADR 0168); default none. */
   groups?: Readonly<Record<string, readonly string[]>>;
+  /** The children that run again after every round back for findings (ADR 0357); default none. */
+  everyRound?: readonly string[];
   /** The interactive steps, whose attempts run as a person's session (ADR 0222); default none. */
   interactive?: readonly string[];
   /** The steps whose answer chooses the batch's recipe (ADR 0232); default none. */
@@ -51,6 +53,7 @@ export const fakeRecipe = ({
   pullRequests = ['https://github.com/acme/api/pull/7'],
   merges = [],
   groups = {},
+  everyRound = [],
   interactive = [],
   chooses = [],
   chosen = {},
@@ -80,6 +83,7 @@ export const fakeRecipe = ({
     has: (stepId) => steps.includes(stepId) || groupOf(stepId) !== undefined,
     children: (stepId) => groups[stepId],
     group: groupOf,
+    everyRound: (stepId) => everyRound.includes(stepId),
     interactive: (stepId) => interactive.includes(stepId),
     choosesRecipe: (stepId) => chooses.includes(stepId),
     chosen: (option) => chosen[option],
