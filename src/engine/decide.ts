@@ -1418,7 +1418,7 @@ function blockedChild(
  */
 function keptChildren(batch: Batch, recipe: Recipe, children: readonly string[]): Set<string> {
   const path = batch.path ?? [];
-  const from = batch.recipeFrom ?? 0;
+  const from = batch.runFrom ?? 0;
   const sentBack = children.some((child) => {
     const attempt = blockedChild(batch, recipe, child)?.attempt;
     const at = path.findIndex((ref) => ref.stepId === child && ref.attempt === attempt);

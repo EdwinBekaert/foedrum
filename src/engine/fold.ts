@@ -349,7 +349,7 @@ export interface Batch {
    * from the start: a group's round back before it leaves no child out (ADR 0357); absent while
    * none had when it was chosen.
    */
-  recipeFrom?: number;
+  runFrom?: number;
   /**
    * How its open pull requests merged with their base, each check in the order it was recorded
    * (ADR 0198); absent while none was.
@@ -697,7 +697,7 @@ function apply(state: State, event: Event): State {
       // The skips belonged to the run of the recipe before (ADR 0064).
       return updateBatch(state, event.batchId, ({ skipped: _, skips: _past, ...batch }) => ({
         ...batch,
-        ...(batch.path === undefined ? {} : { recipeFrom: batch.path.length }),
+        ...(batch.path === undefined ? {} : { runFrom: batch.path.length }),
         recipe:
           event.source === 'human'
             ? {
