@@ -2579,4 +2579,35 @@ describe("loadRecipes: a Taster's findings always have a route, onFindings (ADR 
     assert.equal(found.rounds(both, 'correctness', 'findings'), 2);
     assert.equal(found.loopBack(both, 'correctness', 'findings'), undefined);
   });
+
+  it('loads everyRound on a child of a group with onFindings, which runs again every round (ADR 0357)', () => {
+    const always = { ...correctness, everyRound: true };
+    const result = loadRecipes(amber([group({ parallel: [always, security] })]));
+    const found = loaded(result).find('amber');
+    assert.ok(result.valid);
+    assert.equal(found?.everyRound('correctness'), true);
+    assert.equal(found?.everyRound('security'), false);
+  });
+
+  it('loads everyRound false as everyRound left out (ADR 0357)', () => {
+    const never = { ...correctness, everyRound: false };
+    const result = loadRecipes(amber([group({ parallel: [never, security] })]));
+    assert.ok(result.valid);
+    assert.equal(loaded(result).find('amber')?.everyRound('correctness'), false);
+  });
+
+  it("refuses everyRound on a Taster's step on its own, naming the fix (ADR 0357)", () => {
+    const alone = { ...security, onFindings: back, everyRound: true };
+    assert.deepEqual(problemsOf(amber([alone])), [
+      'recipes/amber.jsonc: step "security" has "everyRound", but is in no parallel group: a Taster\'s step on its own runs again after every round back; take "everyRound" off (ADR 0357)',
+    ]);
+  });
+
+  it('refuses everyRound on a brewer that is no Taster, naming the fix (ADR 0357)', () => {
+    const scribe = brewer('scribe');
+    const notes = { id: 'notes', brewer: 'scribe', everyRound: true };
+    assert.deepEqual(problemsOf(amber([notes], [committer, taster, scribe])), [
+      'recipes/amber.jsonc: step "notes" has "everyRound", but its brewer "scribe" is no Taster: only a Taster\'s step in a parallel group with "onFindings" runs again every round; take "everyRound" off (ADR 0357)',
+    ]);
+  });
 });

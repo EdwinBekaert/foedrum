@@ -640,6 +640,9 @@ function lineRecipe(
     has: (id) => byId.has(id) || groups.has(id),
     children: (id) => children.get(id),
     group: (id) => byId.get(id)?.group,
+    everyRound: () => {
+      throw new Error('not implemented');
+    },
     interactive: (id) => byId.get(id)?.interactive === true,
     choosesRecipe: (id) => byId.get(id)?.chooses === true,
     chosen: (option) => steps.find((entry) => entry.chosenBy === option)?.id,

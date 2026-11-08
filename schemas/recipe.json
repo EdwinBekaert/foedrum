@@ -130,6 +130,10 @@
               ],
               "additionalProperties": false
             },
+            "everyRound": {
+              "description": "A Taster's step in a parallel group with onFindings: runs again after every round back, whatever it found; the group's other children run again only when they had findings (ADR 0357)",
+              "type": "boolean"
+            },
             "deadline": {
               "description": "Overrides the brewer's deadline",
               "type": "string",
@@ -525,6 +529,10 @@
                       "maxRounds"
                     ],
                     "additionalProperties": false
+                  },
+                  "everyRound": {
+                    "description": "A Taster's step in a parallel group with onFindings: runs again after every round back, whatever it found; the group's other children run again only when they had findings (ADR 0357)",
+                    "type": "boolean"
                   },
                   "deadline": {
                     "description": "Overrides the brewer's deadline",

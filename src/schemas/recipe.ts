@@ -81,6 +81,12 @@ const BrewerStep = z
     onFindings: Route.optional().describe(
       "A Taster's step on its own: where its findings send the batch back, and how often (ADR 0354)",
     ),
+    everyRound: z
+      .boolean()
+      .optional()
+      .describe(
+        "A Taster's step in a parallel group with onFindings: runs again after every round back, whatever it found; the group's other children run again only when they had findings (ADR 0357)",
+      ),
     deadline: Duration.optional().describe("Overrides the brewer's deadline"),
     model: ModelAlias.optional().describe(
       "Overrides the brewer's model: an alias of models.jsonc; a blind-tasting swap of the brewer still wins (ADR 0321)",

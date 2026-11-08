@@ -137,4 +137,27 @@ describe("the default recipes' Tasters, every finding routed (ADR 0354)", () => 
       }
     });
   }
+
+  it("nip's correctness runs again after every round back, its other Tasters only on findings (ADR 0357)", () => {
+    assert.ok(loaded.valid);
+    const nip = loaded.recipes.find('nip');
+    const children = nip?.children('taste') ?? [];
+    assert.deepEqual(
+      children.filter((child) => nip?.everyRound(child)),
+      ['correctness'],
+    );
+  });
+
+  for (const name of ['mash', 'decoction']) {
+    it(`${name}'s plan lenses run again only on findings, none every round (ADR 0357)`, () => {
+      assert.ok(loaded.valid);
+      const recipe = loaded.recipes.find(name);
+      const children = recipe?.children('taste') ?? [];
+      assert.ok(children.length > 0);
+      assert.deepEqual(
+        children.filter((child) => recipe?.everyRound(child)),
+        [],
+      );
+    });
+  }
 });

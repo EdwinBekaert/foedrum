@@ -3647,4 +3647,9 @@ describe('renderStatus: a parallel group that ran in part after a round back (AD
   it('shows the round back as a line of the path with only the children that ran: regression test', () => {
     assert.ok(shown.split('\n').includes('→ `implement #2` ✅ → `security #2` ✅'), shown);
   });
+
+  it("says a Taster's step that did not run again is from the round it ran in, and only that step", () => {
+    assert.equal(lineOf(shown, 'correctness'), '- ✅ `correctness`, from round 1');
+    assert.equal(lineOf(shown, 'security'), '- ✅ `security`');
+  });
 });

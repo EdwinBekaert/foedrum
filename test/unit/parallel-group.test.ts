@@ -516,3 +516,105 @@ describe('a parallel group after a round back for findings, past it and after a 
     );
   });
 });
+
+describe('a parallel group after a round back for findings (ADR 0357)', () => {
+  // Both children route back to implement, two rounds in all.
+  const within = (everyRound: readonly string[] = []): Context => ({
+    ...context,
+    recipes: fakeRecipes({
+      flight: fakeRecipe({
+        steps: ['implement', 'tasting', 'polish'],
+        groups: { tasting: ['correctness', 'security'] },
+        routes: { correctness: { findings: 'implement' }, security: { findings: 'implement' } },
+        everyRound,
+        maxRounds: 2,
+      }),
+    }),
+  });
+  const implemented = (attempt: number) =>
+    ({
+      kind: 'finish',
+      batchId: 'b1',
+      stepId: 'implement',
+      attempt,
+      ending: { kind: 'succeeded', output: null },
+    }) as const;
+  /** Round 1 approved by correctness and sent back by security's findings, implement again. */
+  const sentBack: Event[] = [
+    ...inGroup,
+    finished('correctness', succeeded),
+    finished('security', blockedOutcome),
+    { ...scheduled('implement', 2), route: { from: 'security', why: 'findings' } },
+    started('implement', 2),
+  ];
+
+  it('runs again only the child that had findings', () => {
+    accepts(
+      sentBack,
+      implemented(2),
+      [finished('implement', { kind: 'succeeded', output: null }, 2), next('security', 2)],
+      within(),
+    );
+  });
+
+  it('runs a child with everyRound again though it found nothing, and leaves out the others that found nothing', () => {
+    const three: Context = {
+      ...context,
+      recipes: fakeRecipes({
+        flight: fakeRecipe({
+          steps: ['implement', 'tasting', 'polish'],
+          groups: { tasting: ['correctness', 'acceptance', 'security'] },
+          routes: {
+            correctness: { findings: 'implement' },
+            acceptance: { findings: 'implement' },
+            security: { findings: 'implement' },
+          },
+          everyRound: ['correctness'],
+          maxRounds: 2,
+        }),
+      }),
+    };
+    const back: Event[] = [
+      ...inGroup.slice(0, 5),
+      scheduled('correctness'),
+      scheduled('acceptance'),
+      scheduled('security'),
+      started('correctness'),
+      started('acceptance'),
+      started('security'),
+      finished('correctness', succeeded),
+      finished('acceptance', succeeded),
+      finished('security', blockedOutcome),
+      { ...scheduled('implement', 2), route: { from: 'security', why: 'findings' } },
+      started('implement', 2),
+    ];
+    accepts(
+      back,
+      implemented(2),
+      [
+        finished('implement', { kind: 'succeeded', output: null }, 2),
+        next('correctness', 2),
+        next('security', 2),
+      ],
+      three,
+    );
+  });
+
+  it('leaves out a child that approved in an earlier round, in every round after', () => {
+    const third: Event[] = [
+      ...sentBack,
+      finished('implement', { kind: 'succeeded', output: null }, 2),
+      scheduled('security', 2),
+      started('security', 2),
+      finished('security', blockedOutcome, 2),
+      { ...scheduled('implement', 3), route: { from: 'security', why: 'findings' } },
+      started('implement', 3),
+    ];
+    accepts(
+      third,
+      implemented(3),
+      [finished('implement', { kind: 'succeeded', output: null }, 3), next('security', 3)],
+      within(),
+    );
+  });
+});

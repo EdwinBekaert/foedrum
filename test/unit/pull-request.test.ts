@@ -1826,3 +1826,50 @@ describe('latestBody (ADR 0227)', () => {
     assert.equal(latestBody(odd, '12-1'), undefined);
   });
 });
+
+describe('the pull request body of a parallel group that ran in part (ADR 0357)', () => {
+  const tasted = (summary: string) => ({ ...outDoc(summary), verdict: 'approve', findings: [] });
+  const blocked: Event = {
+    type: 'step.finished',
+    batchId: '12-1',
+    stepId: 'security',
+    attempt: 1,
+    outcome: {
+      kind: 'failed',
+      retryable: false,
+      reason: 'blocked (findings): the Taster asks for changes: a leak',
+    },
+  };
+  // Round 1: correctness approved and security sent the batch back; round 2: security alone.
+  const events: Event[] = [
+    ordered,
+    chosen,
+    ...ran('implement', 1, outDoc('Implemented')),
+    ...ran('correctness', 1, tasted('Correct')),
+    ...ran('security', 1).slice(0, 2),
+    blocked,
+    {
+      type: 'step.scheduled',
+      batchId: '12-1',
+      stepId: 'implement',
+      attempt: 2,
+      deadlineAt: '2026-10-15T13:00:00.000Z',
+      route: { from: 'security', why: 'findings' },
+    },
+    ...ran('implement', 2, outDoc('Fixed')).slice(1),
+    ...ran('security', 2, tasted('Safe')),
+  ];
+  const batch = fold(events).batches.get('12-1');
+  assert.ok(batch !== undefined);
+  const closes = { repo: 'acme/brewery', issue: 12 };
+  const { body } = pullRequestText({ title: 'T', closes, reports: stepReports(batch) });
+  const lines = body.split('\n');
+
+  it("says a Taster's verdict that did not run again is from the round it ran in, and only that one", () => {
+    const at = lines.indexOf('correctness: Correct');
+    const then = ['correctness: Correct', '  verdict: approve, from round 1'];
+    assert.deepEqual(lines.slice(at, at + 2), then);
+    const last = lines.indexOf('security: Safe');
+    assert.deepEqual(lines.slice(last, last + 2), ['security: Safe', '  verdict: approve']);
+  });
+});
