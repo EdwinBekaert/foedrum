@@ -208,7 +208,7 @@ describe('the tasting room: one lens step per lens, one after another (#26)', ()
   });
 });
 
-describe('a blocking lens step (#26, ADR 0161)', () => {
+describe('a lens step whose findings go back (#26, ADR 0161, ADR 0354)', () => {
   const blocking = withRecipe('stout', [
     { id: 'implement', brewer: 'cellarman' },
     {

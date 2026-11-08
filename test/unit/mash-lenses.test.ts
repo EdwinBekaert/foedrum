@@ -394,7 +394,7 @@ describe('foedrum brew on recipe:mash and recipe:decoction, through the default 
     }
   });
 
-  it('a blocking plan lens in mash sends the plan back to the Brewmaster once, and the Review lists the dismissal', async () => {
+  it('a plan lens in mash sends the plan back to the Brewmaster once, and the Review lists the dismissal', async () => {
     const evidence = 'The order says "with a guide", and subOrders[1].touches holds it';
     const corrected = behave.succeedWith(
       {

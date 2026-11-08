@@ -810,7 +810,7 @@ describe('tasting-compare --real', () => {
         ]);
       });
 
-      it('its recipe blocks nowhere, so every run ends', () => {
+      it('its recipe blocks no Taster on its own, so every run ends after one round', () => {
         for (const step of tasteOf(lensRecipe())) {
           assert.equal(step.blocking, undefined, step.id);
           assert.equal(step.onBlocked, undefined, step.id);
@@ -1561,7 +1561,7 @@ describe('tasting-compare --real: the opus and high setups (ADR 0344)', () => {
       assert.deepEqual(line, commandLine('855-opus-bare'));
     });
 
-    it('the together recipe loads as a Brewery file, blocks nowhere, and opens a pull request', () => {
+    it('the together recipe loads as a Brewery file, tastes one round, and opens a pull request', () => {
       const files = realBreweryFiles('855-opus-together', REAL_TASTERS);
       const brewery = makeTempDir('tasting-compare-real');
       try {
