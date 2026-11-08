@@ -180,22 +180,24 @@ export const openOf = (
     return undefined;
   }
   if (batch.pullRequestEnds?.[url] !== undefined) return undefined;
-  const moved = batch.baseChecks?.some(
-    (check) => check.pullRequest === url && check.branchMoved !== undefined,
-  );
-  if (moved === true) return undefined;
-  // A round that found the branch moved or gone pushed nothing: the pull request is left alone.
+  if (someoneElsePushed(state, batch, url)) return undefined;
   const pushed = latestPush(state, batch.id);
-  if (
-    pushed === undefined ||
-    pushed.empty === true ||
-    pushed.refused !== undefined ||
-    pushed.moved !== undefined ||
-    pushed.gone === true
-  ) {
+  if (pushed === undefined || pushed.empty === true || pushed.refused !== undefined) {
     return undefined;
   }
   return { url, head: pushed.commit, branch: pushed.branch };
+};
+
+/**
+ * Whether someone else pushed to the branch of `url`, the pull request of `batch`: a base check
+ * found it at another commit (ADR 0198), or a round found it moved or gone and pushed nothing.
+ */
+export const someoneElsePushed = (state: State, batch: Batch, url: string): boolean => {
+  const moved = batch.baseChecks?.some(
+    (check) => check.pullRequest === url && check.branchMoved !== undefined,
+  );
+  const pushed = latestPush(state, batch.id);
+  return moved === true || pushed?.moved !== undefined || pushed?.gone === true;
 };
 
 /**

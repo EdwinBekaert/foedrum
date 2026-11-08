@@ -11,7 +11,7 @@ import type { DriverEffects } from './driver.ts';
 import { effectKey } from './effect-key.ts';
 import type { State } from './fold.ts';
 import { briefNow, latestBrief } from './merge-brief.ts';
-import { openOf } from './pull-request.ts';
+import { someoneElsePushed } from './pull-request.ts';
 
 /** The draft state of a pull request on the code host, by its URL. */
 export interface PullRequestDrafts {
@@ -80,7 +80,13 @@ export const readyForReviewEffects = (options: ReadyForReviewEffectsOptions): Dr
           ? []
           : due(markKey(batchId, n, 'ready', ready + 1), latest.pullRequest, 'ready');
       }
-      if (ready > drafted && openOf(state, batch)?.url === latest.pullRequest) {
+      // Whatever the batch's lane: a batch sent back, Stuck or cancelled leaves a brief behind.
+      const { pullRequest } = latest;
+      if (
+        ready > drafted &&
+        batch.pullRequestEnds?.[pullRequest] === undefined &&
+        !someoneElsePushed(state, batch, pullRequest)
+      ) {
         return due(markKey(batchId, n, 'draft', drafted + 1), latest.pullRequest, 'draft');
       }
       return [];
