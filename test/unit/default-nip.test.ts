@@ -24,6 +24,7 @@ import { type Command, decide } from '../../src/engine/decide.ts';
 import { openDriver } from '../../src/engine/driver.ts';
 import { type Batch, fold } from '../../src/engine/fold.ts';
 import { freeCapacity } from '../../src/engine/intake.ts';
+import { lensRounds } from '../../src/engine/lens-rounds.ts';
 import {
   brewLog,
   opensAsDraft,
@@ -1474,6 +1475,7 @@ describe("the default Nip's round back to the Cellarman carries every Taster's f
     const groupOf = (id: string) => groupOfStep(brewers.find('nip', id));
     let told: PromptInput | undefined;
     const earlier = new Map<string, string>();
+    const disposed = new Map<string, readonly unknown[]>();
     const correctnessDoc = tasted([blockingFinding]).doc;
     const { events } = await brewed(
       { correctness: tasted([]).behaviour, acceptance: tasted([]).behaviour },
@@ -1490,6 +1492,7 @@ describe("the default Nip's round back to the Cellarman carries every Taster's f
             (round): round is EarlierRound => !('outDoc' in round),
           );
           earlier.set(ref.stepId, earlierFindingsInput(ref.stepId, rounds).text);
+          disposed.set(ref.stepId, lensRounds(batch, ref.stepId)[0]?.dispositions ?? []);
         }
       },
     );
@@ -1500,10 +1503,9 @@ describe("the default Nip's round back to the Cellarman carries every Taster's f
       text,
       /\nStep acceptance, through diff\/acceptance, advisory:\n- major in src\/status\.ts:40: The order asks for --json; the flag added is --JSON(\n|$)/,
     );
-    assert.match(
-      earlier.get('correctness') ?? '',
-      /src\/wait\.ts:12: waitForMerge polls with no deadline\n {2}fixed/,
-    );
+    // The fake runner keeps no worktree, so correctness's blocked round is read from the events.
+    assert.deepEqual(disposed.get('correctness'), [dispositions[0]]);
+    assert.deepEqual(disposed.get('acceptance'), [dispositions[1]]);
     assert.match(
       earlier.get('acceptance') ?? '',
       /src\/status\.ts:40: [^\n]*--JSON\n {2}dismissed: The order's second sentence asks for --JSON/,

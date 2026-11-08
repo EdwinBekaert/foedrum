@@ -1023,7 +1023,7 @@ describe("routeOf: every finding of a parallel group's round (#938, ADR 0349)", 
     assert.match(
       text,
       new RegExp(
-        `\n[cut: past the route input's limit of ${MAX_ROUTE_INPUT_BYTES} bytes, left out: ${100 - kept.length} findings of acceptance, 3 of design]$`,
+        `\\n\\[cut: past the route input's limit of ${MAX_ROUTE_INPUT_BYTES} bytes, left out: ${100 - kept.length} findings of acceptance, 3 of design\\]$`,
       ),
     );
   });
