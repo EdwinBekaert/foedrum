@@ -813,7 +813,7 @@ export interface PlannedRoute {
   /** The out doc of the attempt that blocked with findings, in its worktree. */
   outDoc?: { path: string; root: string };
   /** The other children of the routing step's parallel group, in the same round (ADR 0349). */
-  group?: { id: string; others: readonly GroupStepFindings[] };
+  group?: readonly GroupStepFindings[];
 }
 
 /**
@@ -908,7 +908,7 @@ function groupRoundOf(
     ...scheduled.filter(({ blocking }) => blocking),
     ...scheduled.filter(({ blocking }) => !blocking),
   ];
-  return others.length === 0 ? undefined : { id: own.group, others };
+  return others.length === 0 ? undefined : others;
 }
 
 /** What a check run or a commit status is called in a route input. */
@@ -1270,7 +1270,7 @@ export function routeInput(planned: PlannedRoute, outDoc?: OutDocRead): PromptIn
     text:
       planned.group === undefined
         ? bounded(head, MAX_ROUTE_INPUT_BYTES, 'route input')
-        : withGroup(head, planned.group.others),
+        : withGroup(head, planned.group),
   };
 }
 
