@@ -28,7 +28,12 @@ const loaded = loadRecipes({
         [
           { id: 'implement', brewer: 'cellarman' },
           { id: 'note', brewer: 'scribe' },
-          { id: 'correctness', brewer: 'taster', lens: 'diff/correctness' },
+          {
+            id: 'correctness',
+            brewer: 'taster',
+            lens: 'diff/correctness',
+            onFindings: { goto: 'implement', maxRounds: 1 },
+          },
           { action: 'openPullRequest' },
         ],
         { testFirst: false },
@@ -362,6 +367,7 @@ describe('createAttemptPlans: house yeast of a step of several lenses together (
                 id: 'correctness',
                 brewer: 'taster',
                 lenses: ['diff/security', 'diff/correctness'],
+                onFindings: { goto: 'implement', maxRounds: 1 },
               },
               { action: 'openPullRequest' },
             ],
@@ -401,7 +407,12 @@ describe('createAttemptPlans: house yeast of the brewers that write the change (
           [
             { id: 'gauge', brewer: 'gauger' },
             { id: 'implement', brewer: 'cellarman' },
-            { id: 'correctness', brewer: 'taster', lens: 'diff/correctness' },
+            {
+              id: 'correctness',
+              brewer: 'taster',
+              lens: 'diff/correctness',
+              onFindings: { goto: 'implement', maxRounds: 1 },
+            },
             { action: 'openPullRequest' },
           ],
           { testFirst: false },

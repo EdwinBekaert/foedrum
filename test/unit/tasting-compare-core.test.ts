@@ -11,6 +11,7 @@ import {
   type Key,
   keyProblems,
   nextRun,
+  ROUND_ONE_END,
   type RunRecord,
   readKey,
   recipeText,
@@ -366,6 +367,17 @@ describe('recordOf', () => {
     assert.equal(recordOf([cancelled], 'together-7').ended, 'cancelled');
   });
 
+  it('reads a run its scripted step ended after the first tasting round as after round 1 (ADR 0354)', () => {
+    const blocked = (summary: string) =>
+      event({
+        type: 'batch.stuck',
+        batchId: '1-1',
+        reason: { kind: 'blocked', stepId: 'implement', blockerKind: 'environment', summary },
+      });
+    assert.equal(recordOf([tasted, blocked(ROUND_ONE_END)], 'together-7').ended, 'after round 1');
+    assert.equal(recordOf([tasted, blocked('No disk left')], 'together-7').ended, 'stuck: blocked');
+  });
+
   it('reads the last end of a batch that was resumed after it was Stuck', () => {
     const stuck = event({
       type: 'batch.stuck',
@@ -380,6 +392,11 @@ describe('recordOf', () => {
 describe('runFailure', () => {
   it('is none for a run on tap whose Tasters all succeeded', () => {
     assert.equal(runFailure(run('together-7', 1, [attempt('taste', [], [])])), undefined);
+  });
+
+  it('is none for a run its scripted step ended after the first tasting round (ADR 0354)', () => {
+    const ended = run('together-7', 1, [attempt('taste', [], [])], { ended: 'after round 1' });
+    assert.equal(runFailure(ended), undefined);
   });
 
   it('names a batch that is not on tap', () => {

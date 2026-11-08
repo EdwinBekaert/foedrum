@@ -60,21 +60,13 @@ const blocks = (id: string, model: string) => ({
   maxRounds: 2,
   model,
 });
-const advises = (id: string, model = 'builder') => ({
-  id,
-  lens: `plan/${id}`,
-  blocking: false,
-  goto: undefined,
-  maxRounds: undefined,
-  model,
-});
 
 describe('the default recipes that plan (ADR 0321)', () => {
-  it('mash tastes its plan through coverage, sizing and naive reader side by side, coverage and sizing blocking', () => {
+  it("mash tastes its plan through coverage, sizing and naive reader side by side, every lens's findings sent back (ADR 0354)", () => {
     assert.deepStrictEqual(lensesOf('mash'), [
       blocks('coverage', 'planner'),
       blocks('sizing', 'builder'),
-      advises('naive-reader'),
+      blocks('naive-reader', 'builder'),
     ]);
     const mash = defaults().recipes.find('mash');
     assert.deepStrictEqual(mash?.steps, ['plan', 'coverage', 'sizing', 'naive-reader', 'lauter']);
@@ -85,11 +77,11 @@ describe('the default recipes that plan (ADR 0321)', () => {
     assert.deepStrictEqual(lensesOf('decoction'), [
       blocks('coverage', 'planner'),
       blocks('sizing', 'builder'),
-      advises('naive-reader'),
-      advises('order-and-overlap'),
-      advises('testability'),
-      advises('recipe-fit'),
-      advises('security', 'planner'),
+      blocks('naive-reader', 'builder'),
+      blocks('order-and-overlap', 'builder'),
+      blocks('testability', 'builder'),
+      blocks('recipe-fit', 'builder'),
+      blocks('security', 'planner'),
     ]);
     const decoction = defaults().recipes.find('decoction');
     assert.equal(decoction?.firstStep, 'plan');
@@ -147,7 +139,12 @@ describe('the default recipes that plan (ADR 0321)', () => {
     const files = readBreweryFiles(join(FOEDRUM_DEFAULTS, 'no-such-brewery'));
     const steps = [
       { id: 'plan', brewer: 'brewmaster' },
-      { id: 'read', brewer: 'taster', lenses: ['plan/naive-reader', 'plan/sizing'] },
+      {
+        id: 'read',
+        brewer: 'taster',
+        lenses: ['plan/naive-reader', 'plan/sizing'],
+        onFindings: { goto: 'plan', maxRounds: 1 },
+      },
     ];
     const text = recipeText('kettle', steps, { testFirst: false });
     const loaded = loadRecipes({
@@ -399,11 +396,6 @@ describe('foedrum brew on recipe:mash and recipe:decoction, through the default 
 
   it('a blocking plan lens in mash sends the plan back to the Brewmaster once, and the Review lists the dismissal', async () => {
     const evidence = 'The order says "with a guide", and subOrders[1].touches holds it';
-    const advisory = {
-      severity: 'minor',
-      why: 'schema: its entry could name the test file',
-      introduced: true,
-    };
     const corrected = behave.succeedWith(
       {
         subOrders: [subOrder('schema'), subOrder('guide')],
@@ -416,10 +408,7 @@ describe('foedrum brew on recipe:mash and recipe:decoction, through the default 
       plan: [planned, corrected],
       coverage: [asksChanges(guide), approves],
       sizing: [approves, approves],
-      'naive-reader': [
-        approves,
-        behave.succeedWith({ verdict: 'approve', findings: [advisory] }, 'One note'),
-      ],
+      'naive-reader': [approves, approves],
     };
     assert.equal(await runBrew(setup, shell(script), request), 3, lines.join('\n'));
     // The whole group runs again on the corrected plan.
@@ -439,7 +428,6 @@ describe('foedrum brew on recipe:mash and recipe:decoction, through the default 
         '',
         `- ${code('coverage')} #1: major, dismissed: ${plain(guide.why)}`,
         `  - why: ${plain(evidence)}`,
-        `- ${code('naive-reader')} #2: minor, advisory: ${plain(advisory.why)}`,
       ].join('\n'),
     );
   });
@@ -463,20 +451,20 @@ describe('foedrum brew on recipe:mash and recipe:decoction, through the default 
     assert.ok(route('plan#3').includes(JSON.stringify(big.why)), route('plan#3'));
   });
 
-  it('coverage and sizing each have two rounds of their own: five plans at most', async () => {
+  it("coverage and sizing share the group's two rounds: three plans at most (ADR 0354)", async () => {
     const script = {
-      plan: [planned, replanned(), replanned(), replanned(), replanned()],
-      coverage: [asksChanges(guide), asksChanges(guide), approves, approves, approves],
-      sizing: [approves, approves, asksChanges(big), asksChanges(big), asksChanges(big)],
-      'naive-reader': [approves, approves, approves, approves, approves],
+      plan: [planned, replanned(), replanned()],
+      coverage: [asksChanges(guide), approves, approves],
+      sizing: [approves, asksChanges(big), asksChanges(big)],
+      'naive-reader': [approves, approves, approves],
     };
     assert.equal(await runBrew(setup, shell(script), request), 3, lines.join('\n'));
-    // Sizing asks a third time on the fifth plan, and its route has no round left.
-    assert.ok(started.includes('plan#5'), started.join(' '));
-    assert.ok(!started.includes('plan#6'), started.join(' '));
+    // Sizing asks again on the third plan, and the group's route has no round left.
+    assert.ok(started.includes('plan#3'), started.join(' '));
+    assert.ok(!started.includes('plan#4'), started.join(' '));
     assert.equal(stuckReason().kind, 'blocked');
     assert.ok(
-      review().includes(`- ${code('sizing')} #5: major, open: ${plain(big.why)}`),
+      review().includes(`- ${code('sizing')} #3: major, open: ${plain(big.why)}`),
       review(),
     );
   });
@@ -622,7 +610,12 @@ describe('foedrum brew on recipe:mash and recipe:decoction, through the default 
     const brewery = readBreweryFiles(dir.path);
     const steps = [
       { id: 'plan', brewer: 'brewmaster' },
-      { id: 'naive', brewer: 'taster', lens: 'plan/naive-reader' },
+      {
+        id: 'naive',
+        brewer: 'taster',
+        lens: 'plan/naive-reader',
+        onFindings: { goto: 'plan', maxRounds: 1 },
+      },
     ];
     const kettle = recipeText('kettle', steps, { testFirst: false });
     const result = serveSetup(
@@ -658,6 +651,7 @@ describe('foedrum brew on recipe:mash and recipe:decoction, through the default 
           parallel: [
             { id: 'naive', brewer: 'taster', lens: 'plan/naive-reader', model: 'nowhere' },
           ],
+          onFindings: { goto: 'plan', maxRounds: 1 },
         },
       ],
       { testFirst: false },

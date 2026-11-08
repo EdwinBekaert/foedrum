@@ -373,8 +373,17 @@ describe('runBrew', () => {
       assert.ok(!screen.events.at(-1)?.startsWith('rewrite: '), screen.events.at(-1));
     });
 
-    /** Two Tasters' lens steps side by side (ADR 0168), on a batch routed to their recipe. */
-    const sideBySide = (): void => {
+    /**
+     * Two Tasters' lens steps side by side (ADR 0168), on a batch routed to their recipe, after a
+     * note their findings would go back to (ADR 0354): the runner it returns ends the note at once
+     * and runs the Tasters with `progress`.
+     */
+    const sideBySide = (progress: AttemptProgress): BrewerRunner => {
+      const scribe = brewer
+        .replace('"name": "cellarman"', '"name": "scribe"')
+        .replace('"produces": "commits"', '"produces": "report"')
+        .replace('"access": "write"', '"access": "read"')
+        .replace('"git": { "commit": true },', '');
       const taster = brewer
         .replace('"name": "cellarman"', '"name": "taster"')
         .replace('"doc": "brew.md", "schema": "outDoc"', '"doc": "taste.md", "schema": "tasting"')
@@ -387,12 +396,14 @@ describe('runBrew', () => {
         description: 'Two lenses side by side.',
         testFirst: false,
         steps: [
+          { id: 'note', brewer: 'scribe' },
           {
             id: 'tasting',
             parallel: [
               { id: 'security', brewer: 'taster', lens: 'plan/security' },
               { id: 'correctness', brewer: 'taster', lens: 'plan/correctness' },
             ],
+            onFindings: { goto: 'note', maxRounds: 1 },
           },
         ],
       });
@@ -407,7 +418,11 @@ describe('runBrew', () => {
           brewery: {
             ...brewery,
             recipes: [...brewery.recipes, { path: 'recipes/tasting.jsonc', text: tasting }],
-            brewers: [...brewery.brewers, { path: 'brewers/taster.md', text: taster }],
+            brewers: [
+              ...brewery.brewers,
+              { path: 'brewers/taster.md', text: taster },
+              { path: 'brewers/scribe.md', text: scribe },
+            ],
             lenses: [
               { path: 'lenses/plan/security.md', text: 'Security.' },
               { path: 'lenses/plan/correctness.md', text: 'Correctness.' },
@@ -430,11 +445,14 @@ describe('runBrew', () => {
           ],
         },
       });
+      return fakeBrewerRunner(({ ref }) =>
+        ref.stepId === 'note' ? behave.succeed('Noted') : behave.hang(progress),
+      );
     };
 
     it('shows the attempts of a parallel group on the one line, joined by " ; ", in the order of the plain lines', async () => {
-      sideBySide();
-      const { screen } = await brewLive({ ...idle, turn: 3 }, { seconds: 5 });
+      const runner = sideBySide({ ...idle, turn: 3 });
+      const { screen } = await brewLive({ ...idle, turn: 3 }, { seconds: 5, runner });
       const times = / \/ (\d+m )?\d+s(?= \/|$| ;)/g;
       const shown = screen.texts().map((text) => text.replace(times, ''));
       assert.ok(shown.includes('security #1 / turn 3 ; correctness #1 / turn 3'), shown.join('\n'));
@@ -445,9 +463,9 @@ describe('runBrew', () => {
     });
 
     it('cuts the line of a group from the end when even the steps and attempts alone do not fit (#873)', async () => {
-      sideBySide();
+      const runner = sideBySide({ ...idle, turn: 3 });
       // Too narrow for both names, and wide enough to tell them from a cut of the whole attempts.
-      const { screen } = await brewLive({ ...idle, turn: 3 }, { seconds: 30, columns: 40 });
+      const { screen } = await brewLive({ ...idle, turn: 3 }, { seconds: 30, columns: 40, runner });
       const group = screen.rewrites().filter((drawn) => drawn.includes('security'));
       assert.ok(group.length > 0, screen.rewrites().join('\n'));
       for (const drawn of group) {
@@ -458,9 +476,9 @@ describe('runBrew', () => {
     });
 
     it('lets the attempts of a group give up their last parts together, before one is cut off (#873)', async () => {
-      sideBySide();
+      const runner = sideBySide({ ...idle, turn: 3 });
       // Wide enough for the steps with their times, too narrow for the turn.
-      const { screen } = await brewLive({ ...idle, turn: 3 }, { seconds: 30, columns: 64 });
+      const { screen } = await brewLive({ ...idle, turn: 3 }, { seconds: 30, columns: 64, runner });
       const group = screen.rewrites().filter((drawn) => drawn.includes('security'));
       assert.ok(group.length > 0, screen.rewrites().join('\n'));
       for (const drawn of group) {

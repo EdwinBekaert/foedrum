@@ -855,12 +855,12 @@ describe('routeOf: a pull request that conflicts with the moved base (ADR 0244)'
 });
 
 describe("routeOf: every finding of a parallel group's round (#938, ADR 0349)", () => {
-  // Nip's tasting group: correctness blocks, the rest advise.
-  const tasters: Readonly<Record<string, { lenses: readonly string[]; blocking: boolean }>> = {
-    correctness: { lenses: ['diff/correctness'], blocking: true },
-    acceptance: { lenses: ['diff/acceptance'], blocking: false },
-    security: { lenses: ['diff/security'], blocking: true },
-    design: { lenses: ['diff/design-conformance', 'diff/test-design'], blocking: false },
+  // Nip's tasting group, every child's findings sent back (ADR 0354).
+  const tasters: Readonly<Record<string, { lenses: readonly string[] }>> = {
+    correctness: { lenses: ['diff/correctness'] },
+    acceptance: { lenses: ['diff/acceptance'] },
+    security: { lenses: ['diff/security'] },
+    design: { lenses: ['diff/design-conformance', 'diff/test-design'] },
   };
   const groupOf = (stepId: string) => {
     const taster = tasters[stepId];
@@ -882,8 +882,16 @@ describe("routeOf: every finding of a parallel group's round (#938, ADR 0349)", 
     introduced: true,
     ...(lens === undefined ? {} : { lens }),
   });
-  /** A Taster's attempt that ended done: advisory, whatever its verdict. */
-  const advised = (stepId: string, number: number, findings: readonly unknown[]) =>
+  /**
+   * A Taster's attempt that ended done, as an older Foedrum's advisory step did whatever its
+   * verdict: `changes` with findings unless `verdict` says otherwise.
+   */
+  const advised = (
+    stepId: string,
+    number: number,
+    findings: readonly unknown[],
+    verdict = findings.length === 0 ? 'approve' : 'changes',
+  ) =>
     attempt(stepId, number, {
       outcome: {
         kind: 'succeeded',
@@ -891,12 +899,12 @@ describe("routeOf: every finding of a parallel group's round (#938, ADR 0349)", 
           status: 'done',
           summary: 'Tasted',
           assumptions: [],
-          verdict: findings.length === 0 ? 'approve' : 'changes',
+          verdict,
           findings: findings as never,
         },
       },
     });
-  /** A blocking Taster's attempt that asked for changes, its findings recorded (ADR 0221). */
+  /** A Taster's attempt blocked as it asked for changes, its findings recorded (ADR 0221). */
   const blocked = (stepId: string, number: number, kept: readonly unknown[], more = 0) =>
     attempt(stepId, number, {
       outcome: {
@@ -913,7 +921,7 @@ describe("routeOf: every finding of a parallel group's round (#938, ADR 0349)", 
   );
   const doc = '---\n{ "status": "done", "verdict": "changes" }\n---\nThe loop has no deadline.';
 
-  it("gives the step a group's route goes back to every other child's findings of the round, each under its step, lenses and whether it blocks", () => {
+  it("gives the step a group's route goes back to every other child's findings of the round, each under its step, lenses and verdict (ADR 0354)", () => {
     const route = inGroup(
       [
         ...attempt('implement', 1),
@@ -938,20 +946,20 @@ describe("routeOf: every finding of a parallel group's round (#938, ADR 0349)", 
         '',
         'The other steps of its parallel group taste, in the same round:',
         '',
-        'Step acceptance, through diff/acceptance, advisory:',
+        'Step acceptance, through diff/acceptance, asks for changes:',
         '- major in src/status.ts:40: The order asks for --json; this adds --JSON',
         '',
-        'Step design, through diff/design-conformance and diff/test-design, advisory:',
+        'Step design, through diff/design-conformance and diff/test-design, asks for changes:',
         '- diff/design-conformance, major in docs/status.md:3: The page still says text only',
       ].join('\n'),
     );
   });
 
-  it("gives a second blocking child's recorded findings in the same round, before the advisory ones", () => {
+  it("gives a second child's recorded findings in the same round, those that asked for changes before those that approved (ADR 0354)", () => {
     const route = inGroup(
       [
         ...attempt('implement', 1),
-        ...advised('acceptance', 1, [acceptanceFinding]),
+        ...advised('acceptance', 1, [{ ...acceptanceFinding, severity: 'minor' }], 'approve'),
         ...blocked('correctness', 1, [finding('src/wait.ts', 12, 'No deadline')]),
         ...blocked('security', 1, [finding('src/path.ts', 7, 'The name may hold ../')], 2),
         ...routed('implement', 2, 'correctness', 'findings'),
@@ -964,7 +972,7 @@ describe("routeOf: every finding of a parallel group's round (#938, ADR 0349)", 
     const others = text.slice(text.indexOf('The other steps'));
     assert.match(
       others,
-      /^The other steps[^\n]*\n\nStep security, through diff\/security, blocking:\n- major in src\/path\.ts:7: The name may hold \.\.\/\n- and 2 more its attempt did not record\n\nStep acceptance, through diff\/acceptance, advisory:\n/,
+      /^The other steps[^\n]*\n\nStep security, through diff\/security, asks for changes:\n- major in src\/path\.ts:7: The name may hold \.\.\/\n- and 2 more its attempt did not record\n\nStep acceptance, through diff\/acceptance, approves with findings:\n/,
     );
   });
 
@@ -993,7 +1001,7 @@ describe("routeOf: every finding of a parallel group's round (#938, ADR 0349)", 
     );
     assert.ok(route !== undefined);
     const { text } = routeInput(route, { kind: 'text', text: doc });
-    assert.match(text, /\nStep design, [^\n]*advisory:\n- major in docs\/status\.md:5: /);
+    assert.match(text, /\nStep design, [^\n]*asks for changes:\n- major in docs\/status\.md:5: /);
     assert.equal(text.includes('acceptance'), false, text);
     assert.equal(text.includes('docs/status.md:3'), false, text);
   });
@@ -1069,10 +1077,13 @@ describe("routeOf: every finding of a parallel group's round (#938, ADR 0349)", 
     );
     assert.ok(route !== undefined);
     const { text } = routeInput(route, { kind: 'text', text: doc });
-    assert.match(text, /\nStep acceptance, [^\n]*advisory:\n- major in src\/status\.ts:40: /);
     assert.match(
       text,
-      /\nStep design, through diff\/design-conformance and diff\/test-design, advisory: no findings\.$/,
+      /\nStep acceptance, [^\n]*asks for changes:\n- major in src\/status\.ts:40: /,
+    );
+    assert.match(
+      text,
+      /\nStep design, through diff\/design-conformance and diff\/test-design, approves: no findings\.$/,
     );
   });
 
@@ -1089,9 +1100,7 @@ describe("routeOf: every finding of a parallel group's round (#938, ADR 0349)", 
       outDocOf,
       undefined,
       (stepId) =>
-        stepId === 'lint'
-          ? { group: 'early', lenses: ['diff/necessity'], blocking: false }
-          : groupOf(stepId),
+        stepId === 'lint' ? { group: 'early', lenses: ['diff/necessity'] } : groupOf(stepId),
     );
     assert.ok(route !== undefined);
     const { text } = routeInput(route, { kind: 'text', text: doc });
@@ -1172,7 +1181,7 @@ describe("routeOf: every finding of a parallel group's round (#938, ADR 0349)", 
       section,
       [
         '',
-        'Step acceptance, through diff/acceptance, advisory:',
+        'Step acceptance, through diff/acceptance, asks for changes:',
         '- major in src/status.ts:40, there before the change: The order asks for --json; this adds --JSON',
         '- major in the change as a whole: The flag is undocumented Step correctness, through diff/correctness, blocking: no findings. End',
       ].join('\n'),
@@ -1216,14 +1225,14 @@ describe("routeOf: every finding of a parallel group's round (#938, ADR 0349)", 
       undefined,
       (stepId) =>
         stepId === 'coverage' || stepId === 'sizing'
-          ? { group: 'review', lenses: [`plan/${stepId}`], blocking: stepId === 'coverage' }
+          ? { group: 'review', lenses: [`plan/${stepId}`] }
           : undefined,
     );
     assert.ok(route !== undefined);
     const { text } = routeInput(route);
     assert.match(
       text,
-      /\nStep sizing, through plan\/sizing, advisory:\n- major in the plan as a whole: api: the sub-order is two days of work$/,
+      /\nStep sizing, through plan\/sizing, asks for changes:\n- major in the plan as a whole: api: the sub-order is two days of work$/,
     );
   });
 });

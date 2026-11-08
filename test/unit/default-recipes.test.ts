@@ -87,7 +87,12 @@ describe('the default plan lens (ADR 0312)', () => {
     const files = readBreweryFiles(join(root, '..', 'no-brewery'));
     const steps = [
       { id: 'plan', brewer: 'brewmaster' },
-      { id: 'naive', brewer: 'taster', lens: 'plan/naive-reader' },
+      {
+        id: 'naive',
+        brewer: 'taster',
+        lens: 'plan/naive-reader',
+        onFindings: { goto: 'plan', maxRounds: 1 },
+      },
     ];
     const kettle = { name: 'kettle', description: 'Plan, then read it.', testFirst: false, steps };
     const loaded = loadRecipes({

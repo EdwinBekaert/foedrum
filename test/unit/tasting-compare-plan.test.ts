@@ -408,6 +408,11 @@ describe('scoring a plan run', () => {
     }
   });
 
+  it('a plan run its scripted Brewmaster ended after the first tasting round did not fail (ADR 0354)', () => {
+    const ended = { ...run('plan-apart-7', 1, []), ended: 'after round 1' };
+    assert.equal(planRunFailure(ended), undefined);
+  });
+
   it('a plan run with a failed Taster attempt failed, though it ended at its plan review', () => {
     const failed = { ...attempt('sizing', ['plan/sizing'], []), failure: 'failed: invalid' };
     assert.equal(planRunFailure(run('plan-apart-7', 1, [failed])), 'sizing: failed: invalid');
@@ -618,7 +623,7 @@ describe('the diff mode beside plan mode', () => {
     );
   });
 
-  it('writes the recipes it wrote before plan mode (regression test)', () => {
+  it("writes the recipes it wrote before plan mode, with the route every Taster's findings take (ADR 0354)", () => {
     assert.equal(
       recipeText('together-nip'),
       `// node scripts/tasting-compare.ts's setup together-nip (ADR 0224).\n${JSON.stringify(
@@ -633,6 +638,7 @@ describe('the diff mode beside plan mode', () => {
               id: 'taste',
               brewer: 'taster',
               lenses: ['diff/correctness', 'diff/acceptance', 'diff/security'],
+              onFindings: { goto: 'implement', maxRounds: 1 },
             },
             { action: 'openPullRequest' },
           ],

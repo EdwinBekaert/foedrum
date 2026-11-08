@@ -962,7 +962,12 @@ describe('lensSource', () => {
           'amber',
           [
             { id: 'implement', brewer: 'gauger' },
-            { id: 'taste', brewer: 'taster', lens: 'diff/security' },
+            {
+              id: 'taste',
+              brewer: 'taster',
+              lens: 'diff/security',
+              onFindings: { goto: 'implement', maxRounds: 1 },
+            },
             { action: 'openPullRequest' },
           ],
           { testFirst: false },
@@ -1011,7 +1016,12 @@ describe('lensSource', () => {
             'amber',
             [
               { id: 'implement', brewer: 'gauger' },
-              { id: 'taste', brewer: 'taster', lenses: ['diff/security', 'diff/unused'] },
+              {
+                id: 'taste',
+                brewer: 'taster',
+                lenses: ['diff/security', 'diff/unused'],
+                onFindings: { goto: 'implement', maxRounds: 1 },
+              },
               { action: 'openPullRequest' },
             ],
             { testFirst: false },

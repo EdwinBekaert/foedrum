@@ -481,7 +481,12 @@ describe('foedrum brew on recipe:mash, with the default Brewmaster (ADR 0234)', 
         'kettle',
         [
           { id: 'plan', brewer: 'brewmaster' },
-          { id: 'naive', brewer: 'taster', lens: 'plan/naive-reader' },
+          {
+            id: 'naive',
+            brewer: 'taster',
+            lens: 'plan/naive-reader',
+            onFindings: { goto: 'plan', maxRounds: 1 },
+          },
         ],
         { testFirst: false },
       );
@@ -518,7 +523,7 @@ describe('foedrum brew on recipe:mash, with the default Brewmaster (ADR 0234)', 
       });
     });
 
-    it('a recipe of plan then a plan/naive-reader taste lists its findings before the plan waits for review', async () => {
+    it('a recipe of plan then a plan/naive-reader taste sends its findings back once, then lists them open (ADR 0354)', async () => {
       const finding = {
         severity: 'major',
         why: 'writer: its entry says "the flag" without naming it, so its brewer cannot build it alone',
@@ -530,7 +535,7 @@ describe('foedrum brew on recipe:mash, with the default Brewmaster (ADR 0234)', 
       );
       const gits: string[] = [];
       const tasting: ServeShell = {
-        ...shell([planned, tasted]),
+        ...shell([planned, tasted, planned, tasted]),
         // The Taster's house yeast is read at the commit it reviews (ADR 0169): the clone has none.
         git: (_cwd, args) => {
           gits.push(args.join(' '));
@@ -540,7 +545,7 @@ describe('foedrum brew on recipe:mash, with the default Brewmaster (ADR 0234)', 
         },
       };
       assert.equal(await runBrew(setup, tasting, request), 3, lines.join('\n'));
-      assert.deepStrictEqual(started, ['plan#1', 'naive#1']);
+      assert.deepStrictEqual(started, ['plan#1', 'naive#1', 'plan#2', 'naive#2']);
       // Its house yeast, and the bases the system map is read at (ADR 0317), and no change: no
       // diff is read for a plan.
       assert.deepStrictEqual(
@@ -555,11 +560,7 @@ describe('foedrum brew on recipe:mash, with the default Brewmaster (ADR 0234)', 
       );
       assert.doesNotMatch(prompts[1] ?? '', /name="change"/);
       const { lane } = log().state().batches.get('12-1') ?? assert.fail('no batch 12-1');
-      assert.deepStrictEqual(lane.kind === 'stuck' ? lane.reason : lane, {
-        kind: 'plan_review',
-        stepId: 'plan',
-        attempt: 1,
-      });
+      assert.equal(lane.kind === 'stuck' ? lane.reason.kind : lane.kind, 'blocked');
       const status = comments().find(({ body }) => body.includes('Foedrum · batch'))?.body ?? '';
       assert.ok(status.includes(finding.why), status);
     });
@@ -578,8 +579,7 @@ describe('foedrum brew on recipe:mash, with the default Brewmaster (ADR 0234)', 
             id: 'naive',
             brewer: 'taster',
             lens: 'plan/naive-reader',
-            blocking: true,
-            onBlocked: { findings: { goto: 'plan', maxRounds: 2 } },
+            onFindings: { goto: 'plan', maxRounds: 2 },
           },
         ],
         { testFirst: false },
@@ -628,17 +628,13 @@ describe('foedrum brew on recipe:mash, with the default Brewmaster (ADR 0234)', 
       why: 'docs: its entry does not say where the guide goes',
       introduced: true,
     };
-    const advisory = {
-      severity: 'minor',
-      why: 'schema: its done-when could name the test file',
-      introduced: true,
-    };
     const blocks = behave.succeedWith(
       { verdict: 'changes', findings: [flag, guide] },
       'Two entries leave a guess',
     );
+    // An approval with no finding: any finding would send the plan back again (ADR 0354).
     const approves = behave.succeedWith(
-      { verdict: 'approve', findings: [advisory] },
+      { verdict: 'approve', findings: [] },
       'Each entry reads alone',
     );
     const evidence = 'The order says "with a guide" and docs/export.md is in its touches';
@@ -748,8 +744,7 @@ describe('foedrum brew on recipe:mash, with the default Brewmaster (ADR 0234)', 
       );
       const shown = planComment() ?? assert.fail(JSON.stringify(comments()));
       const review = shown.slice(shown.indexOf('**Review**'), shown.indexOf('**Gate**')).trim();
-      // The dismissed finding with the evidence the plan named, and the advisory one of the
-      // round that approved; the fixed one is in the plan.
+      // The dismissed finding with the evidence the plan named; the fixed one is in the plan.
       assert.equal(
         review,
         [
@@ -757,7 +752,6 @@ describe('foedrum brew on recipe:mash, with the default Brewmaster (ADR 0234)', 
           '',
           `- ${code('naive')} #1: major, dismissed: ${plain(guide.why)}`,
           `  - why: ${plain(evidence)}`,
-          `- ${code('naive')} #2: minor, advisory: ${plain(advisory.why)}`,
         ].join('\n'),
       );
     });
@@ -825,7 +819,6 @@ describe('foedrum brew on recipe:mash, with the default Brewmaster (ADR 0234)', 
           '',
           `- ${code('naive')} #1: major, pre-existing: ${plain(guide.why)}`,
           `  - why: ${plain(before)}`,
-          `- ${code('naive')} #2: minor, advisory: ${plain(advisory.why)}`,
         ].join('\n'),
       );
     });

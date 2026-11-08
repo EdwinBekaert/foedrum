@@ -231,7 +231,7 @@ describe('the demo brewers', () => {
     ]);
   });
 
-  it("play the tasting loop (ADR 0193): the Cellarman's third attempt fixes correctness's finding and records it fixed, and correctness's second round approves", async () => {
+  it("play the tasting loop (ADR 0193, ADR 0354): the Cellarman's third attempt fixes correctness's finding, dismisses the others with a reason, and every lens's second round approves with none", async () => {
     const messages: string[] = [];
     const { runner } = brewers('finish', {
       git: async (_at, args) => {
@@ -248,25 +248,27 @@ describe('the demo brewers', () => {
     }
     assert.equal(messages.length, 3, messages.join('\n'));
     assert.equal(messages[2], DEMO_SCRIPT.implement?.[2]?.message);
-    assert.deepStrictEqual((fixed as { dispositions?: unknown }).dispositions, [
-      {
-        file: finding?.file,
-        line: finding?.line,
-        disposition: 'fixed',
-        why: 'greet trims the name before it asks whether it is empty',
-      },
-    ]);
+    const dispositions = (fixed as { dispositions?: Record<string, unknown>[] }).dispositions ?? [];
+    assert.deepStrictEqual(dispositions[0], {
+      file: finding?.file,
+      line: finding?.line,
+      disposition: 'fixed',
+      why: 'greet trims the name before it asks whether it is empty',
+    });
     const round2 = await tasted(runner, 'correctness', 2);
     assert.equal(round2.verdict, 'approve');
     assert.deepStrictEqual(round2.findings, []);
-    // The advisory lenses run again in the second round, approve again, and raise their open
-    // findings again, which no disposition settled (ADR 0191).
+    // Every other lens's round 1 finding sent the batch back too, and is dismissed with a reason
+    // at its place (ADR 0191); in the second round each approves with no finding (ADR 0354).
     for (const stepId of ['security', 'test-design', 'design-conformance']) {
-      const round1 = await tasted(runner, stepId, 1);
+      const [found] = (await tasted(runner, stepId, 1)).findings ?? [];
+      const disposed = dispositions.find((each) => each.step === stepId);
+      assert.equal(disposed?.disposition, 'dismissed', stepId);
+      assert.equal(disposed?.file, found?.file, stepId);
+      assert.equal(disposed?.line, found?.line, stepId);
       const again = await tasted(runner, stepId, 2);
       assert.equal(again.verdict, 'approve', stepId);
-      assert.equal(again.findings?.length, 1, `${stepId}: ${JSON.stringify(again.findings)}`);
-      assert.deepStrictEqual(again.findings, round1.findings, stepId);
+      assert.deepStrictEqual(again.findings, [], stepId);
     }
     // The Finer runs after each of the Cellarman's three attempts.
     for (const attempt of [1, 2, 3]) {

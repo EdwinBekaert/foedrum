@@ -40,6 +40,9 @@ export const IMPLEMENT = 'implement';
 /** The step id of a together setup's one Taster, and of the apart setup's group. */
 export const TASTE = 'taste';
 
+/** The summary of the scripted step's turn that ends a run after its first tasting round. */
+export const ROUND_ONE_END = 'tasting-compare ends the run after its first tasting round';
+
 /** A lens step's id in the apart group: the lens's name without its folder. */
 export const stepIdOf = (lens: string): string => lens.slice(lens.indexOf('/') + 1);
 
