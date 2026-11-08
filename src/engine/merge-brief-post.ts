@@ -330,7 +330,13 @@ const dispositionLines = (steps: Steps, told: Told): string[] => {
         const [finding] = at < 0 ? [] : left.splice(at, 1);
         const lens = finding === undefined ? '' : lensFirst(finding);
         const why = found.why === undefined ? '' : `: ${told(found.why, stepId)}`;
-        return `- ${code(stepId)}: ${lens}${found.disposition} at ${told(placeOf(found), stepId)}${why}`;
+        // A pre-existing finding opens a Brewery issue once the pull request merges, one with no
+        // finding at its place none (ADR 0356).
+        const filed =
+          found.disposition === 'pre-existing' && finding !== undefined
+            ? ', filed in the Brewery once this merges'
+            : '';
+        return `- ${code(stepId)}: ${lens}${found.disposition} at ${told(placeOf(found), stepId)}${why}${filed}`;
       });
     }),
   );

@@ -856,6 +856,66 @@ describe('the merge brief (ADR 0225)', () => {
       );
     });
 
+    it('says a pre-existing finding is filed in the Brewery once the pull request merges', async () => {
+      order('lined');
+      run('implement');
+      run('taste', {
+        kind: 'blocked',
+        blockerKind: 'findings',
+        summary: 'Changes asked',
+        findings: [
+          { severity: 'minor', why: 'No jitter', introduced: false, file: 'src/old.ts', line: 9 },
+        ],
+      });
+      run('implement', {
+        kind: 'succeeded',
+        output: {
+          status: 'done',
+          summary: 'Left it',
+          assumptions: [],
+          dispositions: [
+            { file: 'src/old.ts', line: 9, disposition: 'pre-existing', why: 'On main as it was' },
+          ],
+        },
+      });
+      run('taste', tasting(), { commit: head });
+      open();
+      finished([passed('ci/build')]);
+      assert.match(
+        await brief(),
+        /- `taste`: pre-existing at src\/old\.ts:9: On main as it was, filed in the Brewery once this merges\n/,
+      );
+    });
+
+    it('promises no filing for a pre-existing disposition at a place no finding has', async () => {
+      order('lined');
+      run('implement');
+      run('taste', {
+        kind: 'blocked',
+        blockerKind: 'findings',
+        summary: 'Changes asked',
+        findings: [
+          { severity: 'minor', why: 'No jitter', introduced: false, file: 'src/old.ts', line: 9 },
+        ],
+      });
+      run('implement', {
+        kind: 'succeeded',
+        output: {
+          status: 'done',
+          summary: 'Left it',
+          assumptions: [],
+          dispositions: [
+            { file: 'src/old.ts', line: 9, disposition: 'fixed' },
+            { file: 'src/else.ts', line: 2, disposition: 'pre-existing', why: 'Seen on main' },
+          ],
+        },
+      });
+      run('taste', tasting(), { commit: head });
+      open();
+      finished([passed('ci/build')]);
+      assert.match(await brief(), /- `taste`: pre-existing at src\/else\.ts:2: Seen on main\n/);
+    });
+
     it("shows the last Taster's risk left, each child of its group, or none recorded", async () => {
       nip({
         correctness: tasting([], ['Only a run shows the Windows path']),

@@ -672,6 +672,66 @@ describe('runBrew', () => {
         });
       });
 
+      it('a batch of a Brewery issue opens a Brewery issue for its pre-existing finding once it merged (ADR 0356): exit 0', async () => {
+        const deadlineAt = new Date(t0.getTime() + 3_600_000).toISOString();
+        const finding = {
+          file: 'src/old.ts',
+          line: 9,
+          severity: 'minor',
+          why: 'The retry loop sleeps without a jitter',
+          introduced: false,
+        } as const;
+        f.store.withTransaction((tx) => {
+          tx.append({
+            type: 'batch.ordered',
+            batchId: '12-1',
+            order: { issue: 12 },
+            routeBy: deadlineAt,
+          });
+          const taste = { batchId: '12-1', stepId: 'taste', attempt: 1 };
+          tx.append({ type: 'step.scheduled', ...taste, deadlineAt });
+          tx.append({ type: 'step.started', ...taste });
+          const verdict = {
+            status: 'done',
+            summary: 'Tasted',
+            assumptions: [],
+            verdict: 'approve',
+          };
+          const output = { ...verdict, findings: [finding] };
+          tx.append({ type: 'step.finished', ...taste, outcome: { kind: 'succeeded', output } });
+          const fix = { batchId: '12-1', stepId: 'implement', attempt: 1 };
+          const route = { from: 'taste', why: 'findings' } as const;
+          tx.append({ type: 'step.scheduled', ...fix, deadlineAt, route });
+          tx.append({ type: 'step.started', ...fix });
+          const left = { file: 'src/old.ts', line: 9, disposition: 'pre-existing', why: 'On main' };
+          const done = {
+            status: 'done',
+            summary: 'Left it',
+            assumptions: [],
+            dispositions: [left],
+          };
+          tx.append({
+            type: 'step.finished',
+            ...fix,
+            outcome: { kind: 'succeeded', output: done },
+          });
+          tx.append({ type: 'batch.on_tap', batchId: '12-1', pullRequests: [url(90)] });
+        });
+        const host = fakeGitHubApi({
+          login: 'ann',
+          issues: { 'acme/brewery': [{ number: 12, labels: [], author: 'ann', title: 'T' }] },
+          instead: (method, { pathname }) =>
+            method === 'GET' && pathname === '/repos/acme/web/pulls/90'
+              ? { status: 200, body: { state: 'closed', merged: true } }
+              : undefined,
+        });
+        const own = shell(behave.succeed(), { gh: ghOver(host.fetch).exec });
+        assert.equal(await runBrew(f.setup, own, request), 0, f.lines.join('\n'));
+        const opened = host.issue('acme/brewery', 13);
+        assert.equal(opened?.title, 'Pre-existing: minor in src/old.ts:9');
+        assert.deepStrictEqual(opened?.labels, ['foedrum:pre-existing']);
+      });
+
       it('a batch of a Brewery issue whose pull request closed unmerged says its issue stays open: exit 0', async () => {
         f.store.withTransaction((tx) => {
           const routeBy = new Date(t0.getTime() + 3_600_000).toISOString();

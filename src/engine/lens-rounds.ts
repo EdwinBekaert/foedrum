@@ -42,6 +42,8 @@ export interface LensRound {
   attempt: number;
   ran: Extract<Attempt, { phase: 'finished' }>;
   dispositions: readonly Disposition[];
+  /** The step that wrote them, once it did. */
+  by?: string;
 }
 
 /**
@@ -90,7 +92,10 @@ export function lensRounds(batch: Batch, stepId: string, before?: number): LensR
       // Another step's route answers only a round of this step that tasted since the brewer it
       // brought back last ran, one of its group's in that round, and only where it names it
       // (ADR 0349).
-      if (from === stepId || (since && own.length > 0)) round.dispositions = own;
+      if (from === stepId || (since && own.length > 0)) {
+        round.dispositions = own;
+        round.by = on;
+      }
     }
   }
   return rounds;

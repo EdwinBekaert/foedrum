@@ -40,6 +40,7 @@ import { withoutSecrets } from './out-doc-text.ts';
 import { pauseOf, stopAtText } from './pauses.ts';
 import { allSubIssues } from './plan-applied.ts';
 import { checkPassed } from './pr-checks.ts';
+import { type FiledIssue, filedIssues } from './pre-existing-issues.ts';
 import {
   changeText,
   digestOf,
@@ -121,7 +122,7 @@ const shownAsItself = (char: string): string =>
  * escaping, between characters, so no escape is cut in half and the line never grows past
  * `most`.
  */
-const plainWithin = (text: string, most: number): string => {
+export const plainWithin = (text: string, most: number): string => {
   const shown = [...text.replace(/\s+/g, ' ').trim()].map(shownAsItself);
   const whole = shown.join('');
   if (whole.length <= most) return whole;
@@ -1288,6 +1289,8 @@ export const renderStatus = (
   order: number = batch.issue,
   /** How its `Next:` and handover lines name its work, which a batch that is not the latest does by id (ADR 0334). */
   called: string = String(order),
+  /** The Brewery issues its pre-existing findings opened once its pull requests merged (ADR 0356). */
+  filed: readonly FiledIssue[] = [],
 ): string => {
   // Only what can be shown is read, on one line: an out doc of 1 MiB would cost a second a pass.
   const told: Told = (text, stepId, most = longest, cut = (kept) => kept) => {
@@ -1336,6 +1339,14 @@ export const renderStatus = (
   if (tests.length > 0) sections.push(['**Tests**', ...tests]);
   const findings = [...findingLines(batch, stepIds, told), ...survivorLines(batch, stepIds, told)];
   if (findings.length > 0) sections.push(['**Findings**', ...findings]);
+  if (filed.length > 0) {
+    sections.push([
+      '**Filed**',
+      ...filed.map(
+        ({ number, stepId, finding }) => `- #${number}: ${told(findingText(finding), stepId)}`,
+      ),
+    ]);
+  }
   const risksLeft = riskLeftLines(batch, stepIds, told);
   if (risksLeft.length > 0) sections.push(['**Risk left**', ...risksLeft]);
   // How many, never what they say: ADR 0333 lets an earlier login's comment back into an order.
@@ -1442,6 +1453,7 @@ const statusDue = (
     batch.decomposed === true ? subOrderRows(state, batch.issue) : [],
     issue,
     calledAs(state, batch),
+    filedIssues(state, batchId),
   );
   const digest = digestOf(text);
   if (previous?.digest === digest) return undefined;
