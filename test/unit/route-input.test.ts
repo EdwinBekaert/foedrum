@@ -1175,7 +1175,7 @@ describe("routeOf: every finding of a parallel group's round (#938, ADR 0349)", 
         ...attempt('plan', 1),
         ...blocked('coverage', 1, [finding('src/wait.ts', 12, 'No deadline')]),
         ...advised('sizing', 1, [
-          { severity: 'minor', why: 'api: the sub-order is two days of work', introduced: true },
+          { severity: 'major', why: 'api: the sub-order is two days of work', introduced: true },
         ]),
         ...routed('plan', 2, 'coverage', 'findings'),
       ]),
@@ -1191,7 +1191,7 @@ describe("routeOf: every finding of a parallel group's round (#938, ADR 0349)", 
     const { text } = routeInput(route);
     assert.match(
       text,
-      /\nStep sizing, through plan\/sizing, advisory:\n- minor in the plan as a whole: api: the sub-order is two days of work$/,
+      /\nStep sizing, through plan\/sizing, advisory:\n- major in the plan as a whole: api: the sub-order is two days of work$/,
     );
   });
 });
