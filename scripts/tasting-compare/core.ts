@@ -6,6 +6,7 @@
 
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { onFindings } from '../../src/engine/fold.ts';
 import type { Event, Usage } from '../../src/schemas/events.ts';
 import { lensOfFinding, TastingFinding } from '../../src/schemas/out-doc.ts';
 import type { StepOutcome } from '../../src/schemas/step-outcome.ts';
@@ -199,6 +200,8 @@ export interface FinishedAttempt {
   stepId: string;
   attempt: number;
   outcome: StepOutcome;
+  /** A Taster's findings, recorded when they blocked it (ADR 0221, ADR 0354). */
+  findings?: { kept: readonly unknown[]; more: number } | undefined;
   usage?: Usage | undefined;
   receipt?:
     | {
@@ -286,7 +289,7 @@ const attemptsIn = (
   steps: ReadonlyMap<string, readonly string[]>,
 ): TasterAttempt[] => {
   const attempts: TasterAttempt[] = [];
-  for (const { stepId, outcome, usage, receipt } of finished) {
+  for (const { stepId, outcome, usage, receipt, findings: recorded } of finished) {
     const lenses = steps.get(stepId);
     if (lenses === undefined) continue;
     let failure: string | undefined;
@@ -300,9 +303,19 @@ const attemptsIn = (
         }
         break;
       }
-      case 'failed':
-        failure = `failed: ${outcome.reason}`;
+      case 'failed': {
+        // A Taster blocked by its findings reviewed: every finding goes back (ADR 0354), and the
+        // event recorded them, its first ones when there were more.
+        if (!onFindings(outcome)) {
+          failure = `failed: ${outcome.reason}`;
+          break;
+        }
+        const read = findingsOf({ findings: recorded?.kept ?? [] });
+        findings = read.findings;
+        const more = recorded?.more ?? 0;
+        if (more > 0) failure = `blocked by its findings, ${more} of them not recorded`;
         break;
+      }
       case 'needs_input':
       case 'cancelled':
         failure = outcome.kind;
