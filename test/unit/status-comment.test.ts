@@ -3740,4 +3740,20 @@ describe('renderStatus: a parallel group that ran in part after a round back (AD
     const text = renderStatus(again, ['implement', 'correctness', 'security']);
     assert.equal(lineOf(text, 'correctness'), '- ✅ `correctness`, from round 1');
   });
+
+  it("says nothing of a round for a Taster's approval the path does not hold: regression test", () => {
+    // An older log's path, without the approval, after a round back for findings.
+    const unplaced = batch({
+      steps: new Map([
+        step('implement', done(1), { ...done(2), route: { from: 'security', why: 'findings' } }),
+        step('correctness', approved(1)),
+      ]),
+      path: [
+        { stepId: 'implement', attempt: 1 },
+        { stepId: 'implement', attempt: 2 },
+      ],
+    });
+    const text = renderStatus(unplaced, ['implement', 'correctness']);
+    assert.equal(lineOf(text, 'correctness'), '- ✅ `correctness`');
+  });
 });
