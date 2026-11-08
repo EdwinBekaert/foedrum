@@ -111,6 +111,11 @@ class FakeGit {
     if (locked !== undefined) {
       return exit(128, `fatal: cannot lock ref: Unable to create '${locked}': File exists.\n`);
     }
+    // Deleting a ref, packed or not, takes the clone's packed-refs.lock (#941).
+    const packedLock = join(this.commonDir, 'packed-refs.lock');
+    if (command === 'update-ref' && rest.includes('-d') && existsSync(packedLock)) {
+      return exit(1, `error: Unable to create '${packedLock}': File exists.\n`);
+    }
     switch (command) {
       case 'ls-remote':
         return this.remote === undefined
@@ -204,7 +209,7 @@ describe('openStateBranch with a fake git', () => {
   });
 
   const said: string[] = [];
-  const branch = (sleep?: (ms: number) => Promise<void>) =>
+  const branch = (sleep?: (ms: number) => Promise<void>, sharedWithTarget?: boolean) =>
     openStateBranch({
       store,
       git: fake.git,
@@ -212,6 +217,7 @@ describe('openStateBranch with a fake git', () => {
       worktree,
       out: (line) => said.push(line),
       ...(sleep === undefined ? {} : { sleep }),
+      ...(sharedWithTarget === undefined ? {} : { sharedWithTarget }),
     });
   const append = (...events: Event[]): void =>
     store.withTransaction((tx) => {
@@ -1033,7 +1039,6 @@ describe('openStateBranch with a fake git', () => {
       leaveLocks();
       const beside = [
         join(fake.commonDir, 'refs', 'heads', 'foedrum', 'other.lock'),
-        join(fake.commonDir, 'packed-refs.lock'),
         join(fake.gitDir, 'ORIG_HEAD.lock'),
       ];
       for (const path of beside) writeFileSync(path, '');
@@ -1141,13 +1146,96 @@ describe('openStateBranch with a fake git', () => {
       const beside = [
         join(fake.commonDir, 'refs', 'heads', 'foedrum', 'other.lock'),
         join(fake.commonDir, 'refs', 'foedrum', 'other.lock'),
-        join(fake.commonDir, 'packed-refs.lock'),
       ];
       for (const path of beside) writeFileSync(path, '');
 
       assert.deepEqual(await branch().start(), { decision: 'restore' });
 
       for (const path of beside) assert.equal(existsSync(path), true, path);
+    });
+  });
+
+  // #941: a git killed while it deleted a ref, as the signing check does at every start, leaves
+  // packed-refs.lock in the clone's common git folder. Under the writer lock it is stale at once,
+  // unless a local target's attempt worktrees use the same clone (ADR 0351).
+  describe('a stale packed-refs.lock', () => {
+    const packedLock = () => join(fake.commonDir, 'packed-refs.lock');
+    const leave = (): void => {
+      mkdirSync(fake.commonDir, { recursive: true });
+      writeFileSync(packedLock(), '');
+    };
+    const removedLine = () =>
+      `removed a stale packed-refs.lock from the clone's common git folder: ${packedLock()}`;
+    const existing = (): void => {
+      mkdirSync(worktree, { recursive: true });
+      writeFileSync(join(worktree, '.git'), 'gitdir: elsewhere\n');
+    };
+
+    it('is removed at the start, whose signing check then deletes its ref, saying so', async () => {
+      existing();
+      leave();
+
+      assert.deepEqual(await branch().start(), { decision: 'ready' });
+
+      assert.equal(existsSync(packedLock()), false);
+      assert.deepEqual(said, [removedLine()]);
+    });
+
+    it('is removed by a flush that meets it, which then commits and pushes', async () => {
+      const state = branch();
+      await state.start();
+      append(ordered('b1'));
+      leave();
+
+      assert.deepEqual(await state.flush(), { kind: 'pushed', through: 1, commit: sha(100) });
+
+      assert.equal(existsSync(packedLock()), false);
+      assert.deepEqual(said, [removedLine()]);
+    });
+
+    it("says nothing of packed-refs.lock when a shared clone's git fails for another reason", async () => {
+      existing();
+      fake.answer = (args) =>
+        args[0] === 'write-tree' ? exit(128, 'fatal: unable to write new index file\n') : undefined;
+
+      await assert.rejects(
+        branch(undefined, true).start(),
+        (error: Error) =>
+          error.message.includes('unable to write new index file') &&
+          !error.message.includes('Foedrum leaves it'),
+      );
+    });
+
+    it('says nothing of a local target when the clone is not shared and a delete still meets the lock', async () => {
+      existing();
+      fake.answer = (args) =>
+        args[0] === 'update-ref' && args.includes('-d')
+          ? exit(1, `error: Unable to create '${packedLock()}': File exists.\n`)
+          : undefined;
+
+      await assert.rejects(
+        branch().start(),
+        (error: Error) =>
+          error.message.includes(`Unable to create '${packedLock()}'`) &&
+          !error.message.includes('Foedrum leaves it'),
+      );
+    });
+
+    it("is left when a local target's attempt worktrees share the clone: the start stops and says what to do", async () => {
+      existing();
+      leave();
+
+      await assert.rejects(
+        branch(undefined, true).start(),
+        (error: Error) =>
+          error.message.includes(`Unable to create '${packedLock()}'`) &&
+          error.message.includes(
+            `a git that runs there holds it, or a git that was stopped left it: delete ${packedLock()} once no git runs in ${clone}`,
+          ),
+      );
+
+      assert.equal(existsSync(packedLock()), true);
+      assert.deepEqual(said, []);
     });
   });
 

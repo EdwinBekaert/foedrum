@@ -42,6 +42,12 @@ export interface StateBranchOptions {
   out?: (line: string) => void;
   /** Waits between tries for the writer lock at a start; default a timer. */
   sleep?: (ms: number) => Promise<void>;
+  /**
+   * Whether a local target repository's attempt worktrees use the clone too: their fetches and
+   * branch deletes take its packed-refs.lock outside the writer lock, so it is never removed
+   * (ADR 0351). Default false.
+   */
+  sharedWithTarget?: boolean;
 }
 
 export type FlushResult =
@@ -77,6 +83,8 @@ export interface StateBranch {
 export const STATE_BRANCH = 'foedrum/state';
 /** The ref of the signing check's test commit; deleted again right away. */
 const PROBE_REF = 'refs/foedrum/signing-check';
+// Taken by every ref's delete, the signing check's at each start included (#941).
+const PACKED_REFS_LOCK = 'packed-refs.lock';
 /** A signing prompt that nobody answers must not hold up the start for long. */
 const PROBE_TIMEOUT_MS = 10_000;
 const PUSH_TIMEOUT_MS = 120_000;
@@ -107,6 +115,7 @@ export const openStateBranch = (options: StateBranchOptions): StateBranch => {
     branch = STATE_BRANCH,
     out = () => {},
     sleep = (ms) => delay(ms),
+    sharedWithTarget = false,
   } = options;
   const ref = `refs/heads/${branch}`;
   const remoteBranch = `${remote}/${branch}`;
@@ -135,13 +144,26 @@ export const openStateBranch = (options: StateBranchOptions): StateBranch => {
 
   const must = async (cwd: string, args: string[], gitOptions?: GitOptions): Promise<string> => {
     const result = await git(cwd, args, gitOptions);
-    if (result.code !== 0) throw new Error(`git ${args[0]} failed: ${why(result)}`);
+    if (result.code !== 0) {
+      throw new Error(`git ${args[0]} failed: ${why(result)}${leftToTheUser(result.stderr)}`);
+    }
     return result.stdout;
+  };
+  // A packed-refs.lock a start leaves, since a local repository's gits share the clone, is the
+  // user's to delete, and the failure it causes says so (ADR 0351).
+  const leftToTheUser = (stderr: string): string => {
+    // git writes the path its own way (with / on Windows), so the file's name is what is matched.
+    if (!sharedWithTarget || cloneLocks === undefined || !stderr.includes(PACKED_REFS_LOCK)) {
+      return '';
+    }
+    const lock = join(cloneLocks.folder, PACKED_REFS_LOCK);
+    return `. Foedrum leaves it, since the attempt worktrees of a local repository use ${clone} too, outside the state branch's writer lock: a git that runs there holds it, or a git that was stopped left it: delete ${lock} once no git runs in ${clone}`;
   };
   // Every git that writes the worktree runs under the writer lock (ADR 0107), so a lock file
   // of git's found while it is held was left by a git that no longer runs: the index's and
   // HEAD's in the worktree's git folder, and the branch's and the signing check's refs in the
-  // clone's common one (#306, ADR 0115).
+  // clone's common one (#306, ADR 0115), and the clone's packed-refs.lock, which a ref's delete
+  // takes, unless a local repository's attempt worktrees use the clone too (#941, ADR 0351).
   const writerLock = join(dirname(worktree), 'state.lock');
   const takeWriter = async (): Promise<FileLock | undefined> => {
     await mkdir(dirname(worktree), { recursive: true });
@@ -162,7 +184,7 @@ export const openStateBranch = (options: StateBranchOptions): StateBranch => {
   let cloneLocks: GitLocks | undefined;
   const removeCloneLocks = async (): Promise<void> => {
     cloneLocks ??= {
-      names: [`${ref}.lock`, `${PROBE_REF}.lock`],
+      names: [`${ref}.lock`, `${PROBE_REF}.lock`, ...(sharedWithTarget ? [] : [PACKED_REFS_LOCK])],
       folder: (
         await must(clone, ['rev-parse', '--path-format=absolute', '--git-common-dir'])
       ).trim(),
