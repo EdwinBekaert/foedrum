@@ -21,7 +21,6 @@ import {
   PullRequestOutDoc,
   type PullRequestSections,
   placeOf,
-  pullRequestSectionsOf,
   type TastingFinding,
   TastingOutDoc,
   type TastingReport,
@@ -30,6 +29,7 @@ import {
 import { type BatchEffectKey, BodyResult, PushResult } from '../schemas/store.ts';
 import { z } from '../schemas/zod.ts';
 import { repoFolder } from '../workspace/attempt-worktrees.ts';
+import { latestSections } from './earlier-sections.ts';
 import { effectKey, numberedEffects } from './effect-key.ts';
 import type { Attempt, Batch, State, Step } from './fold.ts';
 import type { Handover } from './handover.ts';
@@ -240,7 +240,7 @@ export interface StepReport {
   assumptions: readonly string[];
   /** A Taster's verdict and findings (ADR 0161). */
   tasting?: TastingReport;
-  /** The pull request's sections a `pullRequest` brewer wrote (ADR 0167). */
+  /** The pull request's sections a `pullRequest` brewer wrote in its latest attempt that wrote any (ADR 0167, ADR 0353). */
   sections?: PullRequestSections;
   /** A Finer's changes, or why there was nothing to simplify (ADR 0166). */
   fining?: FiningReport;
@@ -442,7 +442,8 @@ export const stepReports = (batch: Batch): StepReport[] => {
     const { summary, assumptions } = doc.data;
     const leftOpen = blockedByFindings(one?.attempt);
     const tasting = leftOpen ? undefined : tastingOf(output);
-    const sections = pullRequestSectionsOf(output);
+    // A round that wrote no sections leaves those of the latest one that wrote some (ADR 0353).
+    const sections = latestSections(batch, step.id)?.sections;
     const fining = finingOf(output);
     const gauge = gaugeOf(output);
     const toFile = preExistingOf(step);

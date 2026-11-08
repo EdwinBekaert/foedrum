@@ -859,6 +859,24 @@ describe('the default Cellarman', () => {
     assert.match(wrongTest, /out doc's text/);
   });
 
+  it("gives the default Cellarman its earlier attempts' sections, and asks for them back updated for the whole change (#947)", () => {
+    const found = cellarman();
+    assert.ok(found !== undefined, 'nip has no implement step');
+    const earlier = found.brewer.inputs.find(({ from }) => from === 'earlier-sections');
+    assert.ok(earlier !== undefined, JSON.stringify(found.brewer.inputs));
+    const [section = ''] = found.instructions
+      .split(/\n(?=## )/)
+      .filter((part) => part.startsWith("## The pull request's sections"));
+    assert.ok(section.includes(`{${earlier.name}}`), section);
+    assert.match(section, /whole change/);
+  });
+
+  it('raises the version of the default Cellarman, whose prompt changed (#947)', () => {
+    const found = cellarman();
+    assert.ok(found !== undefined, 'nip has no implement step');
+    assert.ok(found.brewer.version > 12, String(found.brewer.version));
+  });
+
   it("the default Cellarman's prompt tells it to read the Gauger's tests before it writes code", () => {
     const found = cellarman();
     assert.ok(found !== undefined, 'nip has no implement step');

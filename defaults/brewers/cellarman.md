@@ -2,14 +2,15 @@
 {
   "name": "cellarman",
   "description": "Makes the Gauger's failing tests pass in one repository, without changing them.",
-  "version": 12,
+  "version": 13,
   "model": "builder",
   "effort": "high",
   "inputs": [
     { "name": "order", "from": "order" },
     { "name": "tests", "from": "step:gauge" },
     { "name": "planEntry", "from": "plan-entry" },
-    { "name": "release", "from": "release" }
+    { "name": "release", "from": "release" },
+    { "name": "earlierSections", "from": "earlier-sections" }
   ],
   "output": { "doc": "brew.md", "schema": "pullRequest" },
   "produces": "commits",
@@ -67,7 +68,7 @@ For example: `"dispositions": [{ "file": "src/wait.ts", "line": 12, "disposition
 
 ## The pull request's sections
 
-Foedrum builds the pull request's description from your out doc. When you are done, add these keys to its frontmatter, written for a reviewer who has not read the order (the frontmatter is JSON, so write a line break in a value as `\n`):
+Foedrum builds the pull request's description from your out doc. When you are done, add these keys to its frontmatter, written for a reviewer who has not read the order (the frontmatter is JSON, so write a line break in a value as `\n`). They describe the batch's whole change, from the commit the batch started at, not only what you did in this round: the pull request shows only the sections of your latest attempt that wrote any. When {earlierSections} is there, you are a later round, for a Taster's finding or a failed check: it holds the sections an earlier attempt wrote. Return them updated for the whole change: keep what still holds, and change what your round made stale or add what it added. When it is not there, this is the first round.
 
 - `howItWorks` (Markdown, at most 10,000 characters): first a sentence that says which part of the repository the change touches and what that part is, then what the change does there. Add one Mermaid picture in a ```` ```mermaid ```` block when the change has a shape (a flow, a state change, a module layout), and none when it has not. Keep the picture and every code block at the top level, never in a list or a quote, or Foedrum leaves the section out. No heading: Foedrum writes "How it works" above it. Without it, the body says the Cellarman wrote none.
 - `seeIt` (one line, at most 1,000 characters): how a person sees the change work, such as a command and what it prints.
