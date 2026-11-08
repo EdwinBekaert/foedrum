@@ -123,10 +123,10 @@ const issueOf = (state: State, batch: Batch, found: PreExisting) => {
     plainWithin(withoutSecrets(text, stepId, isCommit), most);
   const { stepId, attempt, finding, disposition, by } = found;
   const place = withoutSecrets(placeOf(finding), stepId, isCommit).replace(/\s+/g, ' ');
-  const title = `Pre-existing: ${lensFirst(finding)}${finding.severity} in ${place}`.slice(
-    0,
-    longest,
-  );
+  // Cut between characters, never inside one.
+  const title = [...`Pre-existing: ${lensFirst(finding)}${finding.severity} in ${place}`]
+    .slice(0, longest)
+    .join('');
   const where = told(placeOf(finding), stepId, longest);
   const order = breweryIssueOf(state, batch);
   const names = batch.lane.kind === 'on_tap' ? batch.lane.pullRequests : [];
