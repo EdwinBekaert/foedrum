@@ -683,7 +683,8 @@ const nextLines = (
 /**
  * What the person does with each open pull request (ADR 0350): review and merge those whose merge
  * brief is current, which are ready for review; wait for the brief of the one Foedrum follows
- * (`openOf`); and, of one someone else pushed to, merge it without a brief or mark it ready.
+ * (`openOf`); and, of one it follows no more (someone else pushed to it, or its own latest push
+ * pushed nothing), merge it without a brief or mark it ready.
  */
 const pullRequestsNext = (
   urls: readonly string[],
@@ -699,7 +700,7 @@ const pullRequestsNext = (
       ];
     }
     return [
-      `someone else pushed to ${link(url)}: review and merge it without a merge brief, or mark it ready yourself`,
+      `Foedrum follows ${link(url)} no more: review and merge it without a merge brief, or mark it ready yourself`,
     ];
   });
   const merge = briefed.length === 0 ? [] : [`review and merge ${briefed.map(link).join(', ')}`];
