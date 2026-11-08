@@ -155,6 +155,33 @@ describe("nip's Tasters at high effort, without the Taster's read of the rules (
     assert.equal((await planOf('plain', { files, recipe: 'amber' })).call.effort, 'medium');
   });
 
+  it("refuses a step's effort that is not a brewer's effort: regression test", () => {
+    const files = (effort: string): BreweryFiles => ({
+      ...noFiles,
+      recipes: [
+        {
+          path: 'recipes/amber.jsonc',
+          text: recipeText(
+            'amber',
+            [
+              { id: 'implement', brewer: 'cellarman' },
+              { id: 'deep', brewer: 'taster', lens: 'diff/correctness', effort },
+              { action: 'openPullRequest' },
+            ],
+            { testFirst: false },
+          ),
+        },
+      ],
+    });
+    const refused = loadRecipes(files('ultra'));
+    assert.equal(refused.valid, false);
+    assert.match(
+      refused.valid ? '' : refused.problems.join('\n'),
+      /recipes\/amber\.jsonc: .* at steps\[1\]/,
+    );
+    assert.ok(loadRecipes(files('high')).valid);
+  });
+
   it("a blind-tasting swap of the Taster moves its model and keeps a step's own effort", async () => {
     const swapped: ModelsConfig = { ...MODELS, brewers: { taster: 'planner' } };
     const { call } = await planOf('correctness', { models: swapped });
