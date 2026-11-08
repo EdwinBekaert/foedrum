@@ -3397,11 +3397,11 @@ describe('the Next line of a status comment that waits on the person (#777)', ()
     const none = ': review and merge it without a merge brief, or mark it ready yourself';
     assert.equal(
       nextOf(render(batch({ lane }))),
-      `Next: someone else pushed to <${pr}>${none}; someone else pushed to <${other}>${none}.`,
+      `Next: Foedrum follows <${pr}> no more${none}; Foedrum follows <${other}> no more${none}.`,
     );
     // The one that merged is not named; once both ended, nothing waits on the person.
     const merged = batch({ lane, pullRequestEnds: { [pr]: 'merged' } });
-    assert.equal(nextOf(render(merged)), `Next: someone else pushed to <${other}>${none}.`);
+    assert.equal(nextOf(render(merged)), `Next: Foedrum follows <${other}> no more${none}.`);
     const ended = batch({ lane, pullRequestEnds: { [pr]: 'merged', [other]: 'closed' } });
     assert.doesNotMatch(render(ended), /Next:/);
   });
@@ -3570,10 +3570,10 @@ describe('the Next line of a pull request follows its merge brief (#940)', () =>
     assert.equal(nextOf(render(failing, { pullRequest: pr }, followed)), `Next: ${waits(pr)}.`);
   });
 
-  it('says someone else pushed to a pull request Foedrum follows no more', () => {
+  it('says Foedrum follows no more a pull request it does not follow, whatever the reason (review of #944)', () => {
     assert.equal(
       nextOf(render(onTap())),
-      `Next: someone else pushed to <${pr}>: review and merge it without a merge brief, or mark it ready yourself.`,
+      `Next: Foedrum follows <${pr}> no more: review and merge it without a merge brief, or mark it ready yourself.`,
     );
   });
 
@@ -3585,7 +3585,7 @@ describe('the Next line of a pull request follows its merge brief (#940)', () =>
     const several = batch({ lane: { kind: 'on_tap', pullRequests: [third, other, pr] } });
     assert.equal(
       nextOf(render(several, briefOn(pr), { ...followed, url: other })),
-      `Next: review and merge <${pr}>; someone else pushed to <${third}>: review and merge it without a merge brief, or mark it ready yourself; ${waits(other)}.`,
+      `Next: review and merge <${pr}>; Foedrum follows <${third}> no more: review and merge it without a merge brief, or mark it ready yourself; ${waits(other)}.`,
     );
   });
 });
