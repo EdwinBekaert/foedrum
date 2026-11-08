@@ -5,7 +5,9 @@ Date: 2026-11-08 · Status: Accepted · Amends [0066](0066-the-task-tree-continu
 ## Context
 A test-first change updates an existing assertion that the new behaviour changes in its red commit, beside the new tests, so it fails there and passes at green (CLAUDE.md, Tests).
 In a brew the Gauger writes the red commit, and `testsUnchanged` kept only the lines it added ([ADR 0274](0274-the-red-proof-reads-line-coverage-of-the-change-and-a-test-map-not-test-names.md)).
-In 3 of the first 4 self-brews with `nip` (#859, #868, #958), a test that existed before the batch pinned the old behaviour: the Gauger did not update it, green failed on it, and the Cellarman changed it in its own commit, after the code.
+In 3 of the first 4 self-brews with `nip` (#859, #868, #958), a test changed in the Cellarman's commit, after the code.
+In #859 and #958 a test that existed before the batch pinned the old behaviour: the Gauger did not update it, green failed on it, and the Cellarman changed it.
+In #868 the Cellarman added a small test of its own in its implementation commit, as its prompt asks for a changed line no test runs.
 The per-commit red proof of `/brew-review` then read the pull request's history as a test changed after the code, and #958 was closed for it.
 
 Sending such a test back to the Gauger alone does not help: a route back starts its attempt at the task tree, the branch of the latest success ([ADR 0066](0066-the-task-tree-continues-from-the-latest-succeeded-attempt.md)), which holds the Cellarman's code.
@@ -22,8 +24,8 @@ Decided by the maintainer on #861 (2026-11-08).
 - The red proof needs nothing new: an updated older assertion that fails lies in a test file the step changed, which its check 4 asks for.
 
 ### No later brewer changes a test file the base holds
-- `testsUnchanged` (`guardTests`, `src/checks/tests-guard.ts`) also reads, once a guarded attempt succeeded, the attempt's own change, from its start (its start merge when it made one, [ADR 0244](0244-a-conflict-with-the-moved-base-sends-its-batch-back-to-the-fix-step.md)) to its branch.
-- It fails the attempt, retryably, when that change touched a file in a separate test area of the effective map that the batch's base holds (`olderTestFiles`, `src/checks/tests-unchanged.ts`), listed at the base with `ls-tree` in the clone: `the guard testsUnchanged: the attempt changed a test file the batch's base holds, <path>: a test that must change goes back to the Gauger as a finding (ADR 0358)`, with a count when there are more.
+- `testsUnchanged` (`guardTests`, `src/checks/tests-guard.ts`) also reads, once a guarded attempt succeeded, the attempt's own change, from its start to its branch: from its start merge when it made one, and when that merge kept a conflict, from the merge the brewer concluded (the oldest commit after its start with the moved base as a parent, `git rev-list --parents`), so the moved base's own changes are not the attempt's ([ADR 0244](0244-a-conflict-with-the-moved-base-sends-its-batch-back-to-the-fix-step.md)). The brewer's resolution inside the merge commit counts as the merge's.
+- It fails the attempt, retryably, when that change touched a file in a separate test area of the effective map that the batch's base holds (`olderTestFiles`, `src/checks/tests-unchanged.ts`), listed at the base with `ls-tree` in the clone, which is asked only for the changed files in a test area: `the guard testsUnchanged: the attempt changed a test file the batch's base holds, <path>: a test that must change goes back to the Gauger as a finding (ADR 0358)`, with a count when there are more.
 - The base is the one the guard already reads the map at: the base the batch merged, else where its change started.
 - A file only the batch added, a fixture outside the test areas, code and a module whose tests are `inline` change freely, as before: the guard cannot tell an inline test's lines from code, and the test-design lens reads them.
 - A fixture inside a test area that the base holds is refused too: it is an expected value, the Gauger's to change.
@@ -44,6 +46,11 @@ Decided by the maintainer on #861 (2026-11-08).
 ### What it costs
 In `test/unit/driver.test.ts` a test-first recipe walks the path #958 would take now: green fails on an older test, the Cellarman's second attempt ends blocked with findings, the Gauger's second attempt starts at its first success, and the red proof's second attempt is followed by a third Cellarman attempt, at the red proof's tip.
 That is one Cellarman attempt more than #958 took (three against two), besides one more Gauger attempt and one more red proof, and the third writes the code again rather than continuing from the first.
+
+### A Cellarman's own new test
+A Cellarman adds a test of its own when a line it changed runs under no test (the uncovered-line check, ADR 0274), and that test sits in its implementation commit, which the per-commit red proof reads as mixed (#868).
+Decided by the maintainer: a test such a line needs, in a test file the base holds, is a finding for the Gauger, which the guard above enforces and Nip's `onBlocked` route takes there; a test in a test file only the batch added stays allowed, in the Cellarman's commit.
+With one case seen (#868), no engine rule orders it before the code until a brew shows the need.
 
 ### After the pull request opened
 A route back to the Gauger after an open pull request's check sent the batch back (`onPullRequestFail`, [ADR 0219](0219-a-failing-check-on-an-open-pull-request-sends-its-batch-back-to-a-fix-step.md)) starts at the task tree, as before: the pull request's branch already holds the code, and is never pushed without it, so that update lands after the code.
