@@ -3783,4 +3783,38 @@ describe('renderStatus: a parallel group that ran in part after a round back (AD
     const text = renderStatus(rewound, ['implement', 'correctness', 'security']);
     assert.equal(lineOf(text, 'correctness'), '- ✅ `correctness`');
   });
+
+  it("counts a kept Taster's review that is its run's first attempt, after a rewind to it: regression test", () => {
+    const routedBy = (from: string) => ({ route: { from, why: 'findings' } }) as const;
+    const blocked = (attempt: number): Attempt => ({ ...blockedByFindings, attempt });
+    // A rewind to correctness began a run at its fourth attempt; security's findings sent it back.
+    const rewound = batch({
+      steps: new Map([
+        step(
+          'implement',
+          done(1),
+          { ...done(2), ...routedBy('correctness') },
+          {
+            ...done(3),
+            ...routedBy('security'),
+          },
+        ),
+        step('correctness', blocked(1), approved(2)),
+        step('security', approved(1), blocked(2), approved(3)),
+      ]),
+      path: [
+        { stepId: 'implement', attempt: 1 },
+        { stepId: 'correctness', attempt: 1 },
+        { stepId: 'security', attempt: 1 },
+        { stepId: 'implement', attempt: 2 },
+        { stepId: 'correctness', attempt: 2 },
+        { stepId: 'security', attempt: 2 },
+        { stepId: 'implement', attempt: 3 },
+        { stepId: 'security', attempt: 3 },
+      ],
+      runFrom: 4,
+    });
+    const text = renderStatus(rewound, ['implement', 'correctness', 'security']);
+    assert.equal(lineOf(text, 'correctness'), '- ✅ `correctness`, from round 1');
+  });
 });
