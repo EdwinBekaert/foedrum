@@ -8,6 +8,7 @@ import type { AttemptRef } from '../engine/attempt-key.ts';
 import { buildBrewerEnv, type Env } from '../engine/brewer-env.ts';
 import type { AttemptLimits } from '../engine/brewer-runner.ts';
 import type { ChecksInput } from '../engine/check-readings.ts';
+import type { EarlierSectionsInput } from '../engine/earlier-sections.ts';
 import {
   type Attempt,
   attemptBefore,
@@ -368,6 +369,8 @@ export const planLensInputs = (
  * left out when the batch waited on no release (ADR 0291), and the checks input's in `checks`,
  * left out when no check ran on the commit the attempt starts at (ADR 0308). `breweryIssue` is the
  * Brewery issue that is a claimed batch's order, which its order input's source names (ADR 0334).
+ * The earlier-sections input's text is in `earlierSections`, left out when no earlier attempt of
+ * the step wrote any (#947).
  */
 export function inputsOf(
   inputs: BrewerFrontmatter['inputs'],
@@ -383,6 +386,7 @@ export function inputsOf(
   recipeHas: (stepId: string) => boolean = () => true,
   checks?: ChecksInput,
   breweryIssue?: number,
+  earlierSections?: EarlierSectionsInput,
 ): PlannedInput[] {
   // A step the batch skipped, or one its recipe does not have (#774), gives the input nothing.
   const stepLeftOut = (step: string): boolean =>
@@ -395,6 +399,7 @@ export function inputsOf(
     (from === 'plan-entry' && batch.plan === undefined) ||
     (from === 'release' && release === undefined) ||
     (from === 'checks' && checks === undefined) ||
+    (from === 'earlier-sections' && earlierSections === undefined) ||
     (from.startsWith('step:') && stepLeftOut(from.slice('step:'.length)));
   return inputs
     .filter(({ from }) => !skipped(from))
@@ -430,6 +435,10 @@ export function inputsOf(
       if (from === 'checks' && checks !== undefined) {
         const source = { kind: 'checks', commit: checks.commit } as const;
         return { name, source, read: { kind: 'text', text: checks.text } };
+      }
+      if (from === 'earlier-sections' && earlierSections !== undefined) {
+        const source = { kind: 'earlier-sections', attempt: earlierSections.attempt } as const;
+        return { name, source, read: { kind: 'text', text: earlierSections.text } };
       }
       if (from === 'plan') return planInput(name, batch, stepBrewer);
       if (from.startsWith('step:')) {

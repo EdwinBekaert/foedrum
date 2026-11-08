@@ -14,6 +14,7 @@ import type { Env } from '../engine/brewer-env.ts';
 import type { AttemptLimits, AttemptStart } from '../engine/brewer-runner.ts';
 import { checksInput } from '../engine/check-readings.ts';
 import { claimOrderOf } from '../engine/claim-orders.ts';
+import { earlierSectionsInput } from '../engine/earlier-sections.ts';
 import { attemptRecipeOf, type Batch, roundRouteOf, type State } from '../engine/fold.ts';
 import { UNREADABLE_FRONTMATTER, withoutHandover } from '../engine/handover.ts';
 import { planEntryText } from '../engine/plan-comment.ts';
@@ -682,6 +683,11 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
     // The checks that ran on the commit the attempt starts at, when its brewer asks (ADR 0308).
     const asksChecks = found.brewer.inputs.some(({ from }) => from === 'checks');
     const checks = asksChecks ? checksInput(state(), batch, own?.commit) : undefined;
+    // The sections an earlier attempt of this step wrote, when its brewer asks (#947).
+    const asksSections = found.brewer.inputs.some(({ from }) => from === 'earlier-sections');
+    const earlierSections = asksSections
+      ? earlierSectionsInput(batch, ref.stepId, ref.attempt)
+      : undefined;
     // A step a findings route sent back corrects the plan they name, as a chosen step does (ADR 0318),
     // and a fresh retry of it too (ADR 0325).
     const routedStep = batch.steps.get(ref.stepId);
@@ -700,6 +706,7 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
       (id) => brewers.has(recipe, id),
       checks,
       claimOrderOf(state(), batch.id).issue,
+      earlierSections,
     );
     // A step's lenses together share one folder (ADR 0143, ADR 0220).
     const diffLens = stepLenses[0]?.startsWith('diff/') === true;
