@@ -271,33 +271,22 @@ export const wireDriver = async (
   const siblings = siblingEffects({ host: pullRequests, visibility: visibilities.of });
   // A Brewery issue whose batch's pull requests merged, closed with a comment (ADR 0296).
   const closes = breweryCloseEffects({ marks, brewery: setup.brewery });
-  const effects =
-    setup.intake.repositories.length > 0 || claimed
-      ? combineEffects(
-          planIssues,
-          status,
-          planComments,
-          labels,
-          recipeLabels,
-          conflicts,
-          briefs,
-          drafts,
-          siblings,
-          closes,
-          claimEffects({ claimant, marks, claims }),
-        )
-      : combineEffects(
-          planIssues,
-          status,
-          planComments,
-          labels,
-          recipeLabels,
-          conflicts,
-          briefs,
-          drafts,
-          siblings,
-          closes,
-        );
+  // A claim's effects only where a batch can be claimed: one list, so no source is left out of one.
+  const effects = combineEffects(
+    planIssues,
+    status,
+    planComments,
+    labels,
+    recipeLabels,
+    conflicts,
+    briefs,
+    drafts,
+    siblings,
+    closes,
+    ...(setup.intake.repositories.length > 0 || claimed
+      ? [claimEffects({ claimant, marks, claims })]
+      : []),
+  );
   // The login was read at the start, for the status comments (ADR 0072).
   const actions = pullRequestActions({
     brewery: setup.brewery,
