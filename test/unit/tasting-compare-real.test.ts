@@ -2003,7 +2003,7 @@ describe('tasting-compare --real: 867-comments (ADR 0333)', () => {
     ]);
   });
 
-  it('differs from 867-reads only by the comment: the default Taster, the same order and the same files', () => {
+  it('differs from 867-reads only by the comment: the same Taster, the same order and the same files', () => {
     assert.deepEqual(
       realBreweryFiles('867-comments', TASTERS),
       realBreweryFiles('867-reads', TASTERS),
