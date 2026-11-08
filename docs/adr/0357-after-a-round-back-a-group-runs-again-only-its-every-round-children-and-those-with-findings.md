@@ -1,0 +1,34 @@
+# 0357. After a round back, a group runs again only its everyRound children and those with findings
+
+Date: 2026-11-08 · Status: Accepted · Amends [0168](0168-a-parallel-group-runs-its-lens-steps-side-by-side.md) (entering a group after a round back for findings schedules only some of its children) and [0354](0354-every-finding-of-a-taster-goes-back-along-one-on-findings-route.md) (the whole group no longer runs again after the round)
+
+## Context
+Since [ADR 0354](0354-every-finding-of-a-taster-goes-back-along-one-on-findings-route.md) every finding of a Taster sends the batch back, and a round back ran the whole parallel group again, since the tree its children read had changed ([ADR 0168](0168-a-parallel-group-runs-its-lens-steps-side-by-side.md)).
+On #924 one more round of all four of `nip`'s Tasters would have been about 1.6M tokens on top of 2.86M, added up from its receipts.
+A Taster that found nothing in a round has no finding the Cellarman answered, so its next session reads the same change for the same lens plus the fix.
+
+Decided by the maintainer on #926 and #950 (2026-11-08): after a round back for findings, only correctness and the Tasters that had findings in that round run again.
+The engine must know which step always runs again without reading a step's name, and a recipe is a Brewery's own file, so the maintainer chose the field's shape.
+
+## Decision
+- **`everyRound` on the step.** A Taster's step in a parallel group may say `"everyRound": true`: it runs again after every round back along the group's `onFindings`, whatever it found. `false` means the same as leaving it out. The maintainer chose a flag on the step over a field on the group's route (`"again": [...]`): a step says what it does.
+- **Which children run again.** Entering a group after a round back for findings schedules each child with `everyRound`, and each child whose latest attempt did not succeed, which under ADR 0354 means it had findings. A child whose latest attempt succeeded found nothing: it keeps that approval, and the group counts it as ended. A child left out stays left out in every later round, since its latest attempt stays the approval. With no `everyRound` child, only the Tasters with findings run again.
+- **When it applies.** Only on entering the group after its own round back: some child's latest attempt was blocked by findings after the batch's latest recipe choice. A person's recipe choice runs the recipe from its start, and the group whole; the fold keeps how many attempts of the batch's path started before its latest recipe choice (`recipeFrom`). A rewind to a child still runs the whole group ([ADR 0168](0168-a-parallel-group-runs-its-lens-steps-side-by-side.md)), and a retry or an answer of a child still resumes only the children that had not ended. A round back for a failed check on the pull request (`onPullRequestFail`) comes after a group that approved, so it runs the group whole.
+- **Loading refuses** `everyRound: true` on a step whose brewer is no Taster, and on a Taster's step on its own, which runs again after every round back anyway; each line names the fix, take `everyRound` off. A group of Tasters without `onFindings` is refused already (ADR 0354).
+- **Rounds are the group's, as before.** A partial pass is a round like a whole one: the route counts the attempts of its `goto` step any child sent back, two in all in every default recipe.
+- **A kept report says its round.** The status comment's line of a Taster's step whose latest review approved, after which the batch went back for findings with no review of the step since, reads `` - ✅ `acceptance`, from round 1 ``, and its report in the pull request body reads `verdict: approve, from round 1`. Such a child ran in every round until it approved, so the number of its reviews is its group's round. The path shows each round's line with the children that ran in it, as it did.
+- **The merge brief** says where the Taster that tasted last tasted: of a group, the child whose latest attempt is the latest on the path, no longer the first in the recipe's order, which may be one kept from an earlier round.
+- **The Cellarman's next round** reads the other children of the round from the attempts on the path around the one that sent it back ([ADR 0349](0349-a-group-s-round-back-carries-every-finding-of-the-round.md)), so a child that did not run is not listed: it had no finding to answer.
+- **The default recipes.** `nip`'s correctness has `everyRound`. `mash` and `decoction` review plans through plan lenses and have no correctness Taster, so none of their children has it: only their plan lenses with findings run again.
+
+## Consequences
+- A `nip` batch whose design conformance alone had a finding goes back to the Cellarman, then runs correctness and design conformance only; acceptance and security keep their approval from round 1.
+- Risk, not measured: a fix for one lens's finding can break what a kept Taster approved. Correctness reads the whole change again every round in `nip`; in `mash` and `decoction` nothing reads a corrected plan through a lens that approved it, until gate 1's person.
+- A batch in flight when this ships enters its group the new way on its next round back: its log already has the attempts the rule reads.
+- **Migration: none.** The only Brewery has no recipes of its own, so it brews with the defaults, which this change moves. A Brewery recipe with a group of Tasters runs only the children with findings again until one says `everyRound`.
+
+## Alternatives considered
+- **A list on the group's route, `"onFindings": { …, "again": ["correctness"] }`:** proposed, and rejected by the maintainer for a flag on the step.
+- **No field, the engine reading a step named `correctness`:** rejected; the engine never reads a step's name for its behaviour.
+- **The whole group when no child says `everyRound`:** rejected; the maintainer's rule is that a Taster that found nothing does not run again.
+- **Recording the children to leave out on the route's schedule:** rejected; the latest attempt of each child already tells, and the fold's place of the latest recipe choice is the one fact the log did not keep.
