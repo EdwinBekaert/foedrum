@@ -1764,6 +1764,27 @@ describe('the merge brief (ADR 0225)', () => {
       ]);
     });
 
+    it('turns it back into a draft once a failing check sends its batch back, before the fix round pushes (review of #944)', async () => {
+      nip();
+      const { drafts, asked } = fakeDrafts();
+      finished([passed('ci/test')]);
+      assert.deepStrictEqual(await both(drafts), ['brief.1', 'brief.1.ready.1']);
+      pending();
+      finished([passed('ci/test'), failed('ci/late')]);
+      accept({
+        kind: 'fix_pull_request',
+        batchId: 'web-7',
+        pullRequest: url,
+        head,
+        cause: { kind: 'checks' },
+      });
+      assert.equal(batch().lane.kind, 'brewing');
+      assert.deepStrictEqual(await post(readyForReviewEffects({ host: drafts })), [
+        'brief.1.draft.1',
+      ]);
+      assert.deepStrictEqual(asked.slice(2), [`isDraft ${url}`, `markDraft ${url}`]);
+    });
+
     it('records a draft it finds a draft already, without turning it', async () => {
       nip();
       const { drafts, asked, set } = fakeDrafts();
