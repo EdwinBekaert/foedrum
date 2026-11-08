@@ -114,16 +114,17 @@ export function keptRound(batch: Batch, stepId: string): number | undefined {
   const path = batch.path ?? [];
   const placeOf = (attempt: number) =>
     path.findIndex((ref) => ref.stepId === stepId && ref.attempt === attempt);
+  // Only a review of the batch's latest run from a recipe choice or a rewind is kept, and only
+  // that run's rounds count; a review not on the path is none of them.
+  const from = batch.runFrom ?? 0;
   const at = placeOf(last.attempt);
-  if (at < 0) return undefined;
+  if (at < from) return undefined;
   const sentBack = path
     .slice(at + 1)
     .some(
       ({ stepId: on, attempt }) =>
         batch.steps.get(on)?.attempts.get(attempt)?.route?.why === 'findings',
     );
-  // Only the rounds of the batch's latest run from a recipe choice or a rewind count.
-  const from = batch.runFrom ?? 0;
   return sentBack ? rounds.filter(({ attempt }) => placeOf(attempt) >= from).length : undefined;
 }
 
