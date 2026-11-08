@@ -1413,8 +1413,8 @@ function blockedChild(
 /**
  * The `children` of a parallel group the batch does not run again as it enters the group
  * (ADR 0357): after a round back for findings, which a child blocked by them since the batch's
- * latest recipe choice shows, each child without `everyRound` whose latest attempt succeeded and so
- * found nothing; none on any other entry.
+ * latest recipe choice or rewind shows, each child without `everyRound` whose latest attempt
+ * succeeded and so found nothing; none on any other entry.
  */
 function keptChildren(batch: Batch, recipe: Recipe, children: readonly string[]): Set<string> {
   const path = batch.path ?? [];

@@ -104,15 +104,17 @@ export function lensRounds(batch: Batch, stepId: string, before?: number): LensR
 /**
  * The round of the latest review of `stepId`, when it approved and the batch went back for findings
  * after it with no review of the step since: a child of a parallel group that found nothing and
- * did not run again (ADR 0357). Such a child ran in every round until it approved, so its rounds
- * are its group's. `undefined` for a step whose latest review is of the latest round.
+ * did not run again (ADR 0357). Such a child ran in every round of the batch's latest run until it
+ * approved, so its reviews since that run began are its group's rounds. `undefined` for a step whose latest review is of the latest round.
  */
 export function keptRound(batch: Batch, stepId: string): number | undefined {
   const rounds = lensRounds(batch, stepId);
   const last = rounds.at(-1);
   if (last?.ran.outcome.kind !== 'succeeded') return undefined;
   const path = batch.path ?? [];
-  const at = path.findIndex((ref) => ref.stepId === stepId && ref.attempt === last.attempt);
+  const placeOf = (attempt: number) =>
+    path.findIndex((ref) => ref.stepId === stepId && ref.attempt === attempt);
+  const at = placeOf(last.attempt);
   if (at < 0) return undefined;
   const sentBack = path
     .slice(at + 1)
@@ -120,7 +122,9 @@ export function keptRound(batch: Batch, stepId: string): number | undefined {
       ({ stepId: on, attempt }) =>
         batch.steps.get(on)?.attempts.get(attempt)?.route?.why === 'findings',
     );
-  return sentBack ? rounds.length : undefined;
+  // Only the rounds of the batch's latest run from a recipe choice or a rewind count.
+  const from = batch.runFrom ?? 0;
+  return sentBack ? rounds.filter(({ attempt }) => placeOf(attempt) >= from).length : undefined;
 }
 
 /**
