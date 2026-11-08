@@ -2495,7 +2495,9 @@ describe("loadRecipes: a Taster's findings always have a route, onFindings (ADR 
       group({ onFindings: { goto: 'polish', maxRounds: 1 } }),
       { id: 'polish', brewer: 'cellarman' },
     ];
-    assert.match(problemsOf(amber(steps)).join('\n'), /"tasting".*"polish"/);
+    assert.deepEqual(problemsOf(amber(steps)), [
+      'recipes/amber.jsonc: ✖ A route goes back to an earlier step at the same level or in an enclosing loop → at steps[1].onFindings.goto',
+    ]);
   });
 
   it("gives every child of a group the group's route, blocking on its findings", () => {
