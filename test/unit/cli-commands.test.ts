@@ -123,6 +123,7 @@ describe('foedrum: commands that change state', () => {
     brew: async () => assert.fail('no brew here'),
     watch: async () => assert.fail('no watch here'),
     resume: async () => assert.fail('no session to resume'),
+    applyEffects: async () => [],
     init: async () => assert.fail('no init here'),
     env: {},
     ...overrides,
@@ -1178,6 +1179,44 @@ describe('foedrum: commands that change state', () => {
       });
     });
 
+    it("applies the batch's effects once the choice is recorded, and says what they left (ADR 0355)", async () => {
+      const applied: string[] = [];
+      const applyEffects = async (batchId: string) => {
+        applied.push(batchId);
+        return ['effects line'];
+      };
+      assert.deepStrictEqual(
+        await run(['recipe', '22-1', 'stout', 'the plan needs an analysis'], { applyEffects }),
+        ok('#22 brewing: analyze #1 scheduled\neffects line\n'),
+      );
+      assert.deepStrictEqual(applied, ['22-1']);
+    });
+
+    it("applies the effects of an issue's batch chosen by its number (ADR 0355)", async () => {
+      const applied: string[] = [];
+      const applyEffects = async (batchId: string) => {
+        applied.push(batchId);
+        return ['effects line'];
+      };
+      assert.deepStrictEqual(
+        await run(['recipe', '#22', 'stout', 'the plan needs an analysis'], { applyEffects }),
+        ok('#22 brewing: analyze #1 scheduled\neffects line\n'),
+      );
+      assert.deepStrictEqual(applied, ['22-1']);
+    });
+
+    it('applies no effects for a choice it refused (ADR 0355)', async () => {
+      const applyEffects = async () => assert.fail('nothing was chosen');
+      assert.deepStrictEqual(
+        await run(['recipe', '#23', 'stout', 'the plan needs an analysis'], { applyEffects }),
+        refused('recipe', '#23 is brewing; foedrum stop 23 first, then change its recipe'),
+      );
+      assert.deepStrictEqual(
+        await run(['recipe', '22-1', 'porter', 'why not'], { applyEffects }),
+        refused('recipe', 'the Brewery has no recipe porter'),
+      );
+    });
+
     it('refuses an issue whose batch is brewing, naming foedrum stop, and appends nothing', async () => {
       const before = lastId();
       assert.deepStrictEqual(
@@ -1328,6 +1367,7 @@ describe('foedrum stuck', () => {
       brew: async () => assert.fail('no brew here'),
       watch: async () => assert.fail('no watch here'),
       resume: async () => assert.fail('no session to resume'),
+      applyEffects: async () => [],
       init: async () => assert.fail('no init here'),
       env: {},
     });
@@ -1583,6 +1623,7 @@ describe('foedrum brewers', () => {
       brew: async () => assert.fail('no brew here'),
       watch: async () => assert.fail('no watch here'),
       resume: async () => assert.fail('no session to resume'),
+      applyEffects: async () => [],
       init: async () => assert.fail('no init here'),
       env: {},
       ...overrides,
@@ -1697,6 +1738,7 @@ describe('foedrum lenses (ADR 0221)', () => {
       brew: async () => assert.fail('no brew here'),
       watch: async () => assert.fail('no watch here'),
       resume: async () => assert.fail('no session to resume'),
+      applyEffects: async () => [],
       init: async () => assert.fail('no init here'),
       env: {},
       ...overrides,
@@ -1863,6 +1905,7 @@ describe('foedrum order: order an issue again (ADR 0105)', () => {
     brew: async () => assert.fail('no brew here'),
     watch: async () => assert.fail('no watch here'),
     resume: async () => assert.fail('no session to resume'),
+    applyEffects: async () => [],
     init: async () => assert.fail('no init here'),
     env: {},
     ...overrides,

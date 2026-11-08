@@ -416,7 +416,11 @@ describe('npm run demo', () => {
 
   it("step 12's answer is the demo user's, who mashed the order, not the machine's account", () => {
     const mash = part('mash');
-    assert.match(mash, /^ +Recipe \*\*mash\*\*, chosen by ann \(terminal\)$/m);
+    // With the reason the answer recorded (ADR 0355).
+    assert.match(
+      mash,
+      /^ +Recipe \*\*mash\*\*, chosen by ann \(terminal\): the answer at innkeep: mash, /m,
+    );
     assert.match(
       mash,
       /`innkeep`: attempt 1 asked for input, answered by ann \(terminal\): mash$/m,
