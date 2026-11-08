@@ -1193,6 +1193,34 @@ describe('openStateBranch with a fake git', () => {
       assert.deepEqual(said, [removedLine()]);
     });
 
+    it("says nothing of packed-refs.lock when a shared clone's git fails for another reason", async () => {
+      existing();
+      fake.answer = (args) =>
+        args[0] === 'write-tree' ? exit(128, 'fatal: unable to write new index file\n') : undefined;
+
+      await assert.rejects(
+        branch(undefined, true).start(),
+        (error: Error) =>
+          error.message.includes('unable to write new index file') &&
+          !error.message.includes('Foedrum leaves it'),
+      );
+    });
+
+    it('says nothing of a local target when the clone is not shared and a delete still meets the lock', async () => {
+      existing();
+      fake.answer = (args) =>
+        args[0] === 'update-ref' && args.includes('-d')
+          ? exit(1, `error: Unable to create '${packedLock()}': File exists.\n`)
+          : undefined;
+
+      await assert.rejects(
+        branch().start(),
+        (error: Error) =>
+          error.message.includes(`Unable to create '${packedLock()}'`) &&
+          !error.message.includes('Foedrum leaves it'),
+      );
+    });
+
     it("is left when a local target's attempt worktrees share the clone: the start stops and says what to do", async () => {
       existing();
       leave();

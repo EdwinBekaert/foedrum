@@ -14,7 +14,7 @@ import type { ExecProcess } from '../../src/platform/processes.ts';
 import { OutDocFrontmatter } from '../../src/schemas/out-doc.ts';
 import { worktreeClonePath } from '../../src/workspace/attempt-worktrees-git.ts';
 import { fakeGit, suiteFolders } from '../helpers/attempt-worktrees.ts';
-import { clone, local, serveInputs } from '../helpers/serve-brewery.ts';
+import { clone, config, local, serveInputs } from '../helpers/serve-brewery.ts';
 
 describe('serveShell', () => {
   const nextFolder = suiteFolders('serve-shell');
@@ -469,6 +469,26 @@ describe('serveShell', () => {
     assert.ok('error' in started, 'the start stops');
     assert.equal(existsSync(packedLock), true);
     assert.deepStrictEqual(said, []);
+  });
+
+  it("removes packed-refs.lock when only a managed repository borrows the Brewery's checkout (ADR 0351)", async () => {
+    const managed = serveSetup(
+      serveInputs({
+        files: {
+          ...serveInputs().files,
+          config: config({}, { source: 'managed' }),
+          local: local({ workRoot }),
+        },
+      }),
+    );
+
+    const { started, packedLock } = await packedRefsStart(
+      clone,
+      managed.kind === 'ready' ? managed.setup : assert.fail(),
+    );
+
+    assert.deepStrictEqual(started, { result: { decision: 'ready' } });
+    assert.equal(existsSync(packedLock), false);
   });
 
   it('keeps listening for stop signals while serve shuts down, and stops listening after', () => {
