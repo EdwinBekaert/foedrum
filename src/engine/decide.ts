@@ -1425,17 +1425,14 @@ function keptChildren(batch: Batch, recipe: Recipe, children: readonly string[])
     return attempt !== undefined && at >= from;
   });
   if (!sentBack) return new Set();
-  return new Set(
-    children.filter((child) => {
-      const step = batch.steps.get(child);
-      const latest = step && latestAttempt(step);
-      return (
-        !recipe.everyRound(child) &&
-        latest?.phase === 'finished' &&
-        latest.outcome.kind === 'succeeded'
-      );
-    }),
-  );
+  return new Set(children.filter((child) => !recipe.everyRound(child) && succeeded(batch, child)));
+}
+
+/** Whether the latest attempt of `stepId` succeeded. */
+function succeeded(batch: Batch, stepId: string): boolean {
+  const step = batch.steps.get(stepId);
+  const latest = step && latestAttempt(step);
+  return latest?.phase === 'finished' && latest.outcome.kind === 'succeeded';
 }
 
 /**
@@ -1445,10 +1442,7 @@ function keptChildren(batch: Batch, recipe: Recipe, children: readonly string[])
  * the batch Stuck.
  */
 function ended(batch: Batch, recipe: Recipe, stepId: string): boolean {
-  const step = batch.steps.get(stepId);
-  const latest = step && latestAttempt(step);
-  if (latest?.phase === 'finished' && latest.outcome.kind === 'succeeded') return true;
-  return blockedChild(batch, recipe, stepId) !== undefined;
+  return succeeded(batch, stepId) || blockedChild(batch, recipe, stepId) !== undefined;
 }
 
 /**
