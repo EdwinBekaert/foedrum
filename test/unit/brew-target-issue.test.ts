@@ -147,7 +147,7 @@ describe('runBrew', () => {
       assert.ok(!f.lines.some((line) => line.includes('waits for')), f.lines.join('\n'));
     });
 
-    it('orders a claimed issue, opens its Brewery issue and waits there for its recipe label, never routing by the target issue: exit 5 (ADR 0156)', async () => {
+    it('orders a claimed issue, opens its Brewery issue and waits there for its recipe label, naming foedrum recipe, never routing by the target issue: exit 5 (ADR 0156)', async () => {
       const host = github();
       const claimed = shell(behave.succeed(), { gh: ghOver(host.fetch).exec });
       assert.equal(await runBrew(targetSetup(), claimed, target), 5, f.lines.join('\n'));
@@ -161,11 +161,11 @@ describe('runBrew', () => {
       assert.deepStrictEqual(f.started, []);
       assert.equal(
         f.lines.at(-1),
-        `foedrum brew: web#7 waits for a recipe:<name> label on its Brewery issue #${order.number}; label it and brew ${order.number}, or foedrum mash ${order.number}`,
+        `foedrum brew: web#7 waits for a recipe:<name> label on its Brewery issue #${order.number}; label it and brew ${order.number}, choose one with foedrum recipe ${order.number} <recipe> "<reason>", or foedrum mash ${order.number}`,
       );
     });
 
-    it('never routes an Ordered claimed batch whose Brewery issue is not recorded yet by the label of its target issue (ADR 0156)', async () => {
+    it('never routes an Ordered claimed batch whose Brewery issue is not recorded yet by the label of its target issue, and names foedrum recipe (ADR 0156)', async () => {
       const host = github();
       log().issue({ kind: 'order', batchId: 'web-7', order: { issue: 7, repo: 'acme/web' } }, t0);
       const claimed = shell(behave.succeed(), { gh: ghOver(host.fetch).exec });
@@ -176,7 +176,7 @@ describe('runBrew', () => {
       const [order] = host.issues['acme/brewery'] ?? [];
       assert.equal(
         f.lines.at(-1),
-        `foedrum brew: web#7 waits for a recipe:<name> label on its Brewery issue #${order?.number}; label it and brew ${order?.number}, or foedrum mash ${order?.number}`,
+        `foedrum brew: web#7 waits for a recipe:<name> label on its Brewery issue #${order?.number}; label it and brew ${order?.number}, choose one with foedrum recipe ${order?.number} <recipe> "<reason>", or foedrum mash ${order?.number}`,
       );
     });
 

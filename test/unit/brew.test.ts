@@ -760,13 +760,13 @@ describe('runBrew', () => {
     assert.equal(f.lock.held, false);
   });
 
-  it('refuses an issue it cannot route, ordering nothing: exit 5', async () => {
+  it('refuses an issue it cannot route and names foedrum recipe with the issue as typed, ordering nothing: exit 5', async () => {
     const unlabelled = { ...request, target: { issue: 13 } };
     assert.equal(await runBrew(f.setup, shell(behave.succeed()), unlabelled), 5);
     assert.equal(log().state().batches.size, 0);
     assert.equal(
       f.lines.at(-1),
-      'foedrum brew: #13 has no recipe:<name> label; label it with the recipe to brew it with',
+      'foedrum brew: #13 has no recipe:<name> label; label it with the recipe to brew it with, or choose one with foedrum recipe 13 <recipe> "<reason>"',
     );
   });
 
