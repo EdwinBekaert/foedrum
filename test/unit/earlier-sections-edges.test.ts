@@ -42,6 +42,12 @@ describe('earlierSectionsInput edges (#947)', () => {
     assert.equal(earlierSectionsInput(batch, 'never-run', 1), undefined);
   });
 
+  it('puts the how it works under its own heading (regression test)', () => {
+    const batch = batchOf(succeededWith({ howItWorks: 'Something.', beforeAfter: [] }));
+    const text = earlierSectionsInput(batch, 'implement', 2)?.text ?? '';
+    assert.match(text, /^## How it works\n\nSomething\.$/);
+  });
+
   it('gives sections without a how it works their other sections alone', () => {
     const batch = batchOf(
       succeededWith({

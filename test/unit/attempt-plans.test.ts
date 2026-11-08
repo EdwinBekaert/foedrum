@@ -1038,6 +1038,47 @@ describe('createAttemptPlans: plan', () => {
       );
     });
 
+    it('names in the source the attempt whose sections the input holds, not the first nor the one asking (regression test)', async () => {
+      assert.ok(writing.valid, writing.valid ? '' : writing.problems.join('\n'));
+      const third = { ...ref, attempt: 3 };
+      const finishedSecond: Event = {
+        type: 'step.finished',
+        ...second,
+        outcome: {
+          kind: 'succeeded',
+          output: {
+            status: 'done',
+            summary: 'Fixed --json',
+            assumptions: [],
+            howItWorks: 'The second round fixed the flag.',
+            beforeAfter: [],
+          },
+        },
+      };
+      const events: Event[] = [
+        ...fixing,
+        finishedSecond,
+        { type: 'step.scheduled', ...third, deadlineAt: '2026-10-17T13:00:00.000Z' },
+        {
+          type: 'step.started',
+          ...third,
+          session: { id: sessionId, worktree: join('/work', 'brew-3') },
+          worktree: {
+            repo: 'acme/api',
+            path: join('/work', 'brew-3'),
+            branch: 'foedrum/12-1/brew/3',
+            commit: 'e'.repeat(40),
+          },
+        },
+      ];
+      const { plans } = setup(events, {}, undefined, writing.brewers);
+      const { prompt } = await plans.plan({ ...start, ref: third });
+      assert.match(
+        prompt,
+        /source="the pull request's sections that attempt 2 of this step wrote" name="earlierSections">\n(?:(?!<\/untrusted-input)[\s\S])*The second round fixed the flag\./,
+      );
+    });
+
     it('leaves the input out of the first round, which has no earlier sections', async () => {
       assert.ok(writing.valid, writing.valid ? '' : writing.problems.join('\n'));
       const { plans } = setup([...ordered, started], {}, undefined, writing.brewers);
