@@ -3,7 +3,7 @@
 // clone made from GitHub that borrows the local clone's objects). No process starts (ADR 0021).
 
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join, sep } from 'node:path';
 import { beforeEach, describe, it } from 'node:test';
 import { assembleBrewerPrompt } from '../../src/brewers/prompt.ts';
@@ -376,7 +376,7 @@ describe('serveShell', () => {
   });
 
   // #941: a Brewery's clone with a packed-refs.lock that a killed git left, as a start meets it.
-  const packedRefsStart = async (root: string) => {
+  const packedRefsStart = async (root: string, shellSetup: ServeSetup = setup) => {
     const common = join(workRoot, 'brewery-git');
     const packedLock = join(common, 'packed-refs.lock');
     mkdirSync(common, { recursive: true });
@@ -405,7 +405,7 @@ describe('serveShell', () => {
       return undefined;
     });
     const said: string[] = [];
-    const shell = serveShell(setup, {
+    const shell = serveShell(shellSetup, {
       root,
       git,
       out: (line) => said.push(line),
@@ -442,6 +442,31 @@ describe('serveShell', () => {
 
     assert.ok('error' in started, 'the start stops');
     assert.match(String(started.error), /delete .*packed-refs\.lock once no git runs in/);
+    assert.equal(existsSync(packedLock), true);
+    assert.deepStrictEqual(said, []);
+  });
+
+  it("leaves packed-refs.lock when a local repository's clone is a link to the Brewery's checkout (ADR 0351)", async () => {
+    const checkout = join(workRoot, 'brewery');
+    const link = join(workRoot, 'brewery-link');
+    mkdirSync(checkout, { recursive: true });
+    // A junction on Windows, which needs no privilege; a link to a folder elsewhere.
+    symlinkSync(checkout, link, 'junction');
+    const linked = serveSetup(
+      serveInputs({
+        files: {
+          ...serveInputs().files,
+          local: local({ workRoot, clones: { 'acme/web': link } }),
+        },
+      }),
+    );
+
+    const { started, said, packedLock } = await packedRefsStart(
+      checkout,
+      linked.kind === 'ready' ? linked.setup : assert.fail(),
+    );
+
+    assert.ok('error' in started, 'the start stops');
     assert.equal(existsSync(packedLock), true);
     assert.deepStrictEqual(said, []);
   });

@@ -1202,7 +1202,7 @@ describe('openStateBranch with a fake git', () => {
         (error: Error) =>
           error.message.includes(`Unable to create '${packedLock()}'`) &&
           error.message.includes(
-            `delete ${packedLock()} once no git runs in ${clone}: it was left by a git that was stopped`,
+            `a git that runs there holds it, or a git that was stopped left it: delete ${packedLock()} once no git runs in ${clone}`,
           ),
       );
 
