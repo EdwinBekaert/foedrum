@@ -15,12 +15,7 @@ import { type Command, decide } from '../../src/engine/decide.ts';
 import { openDriver } from '../../src/engine/driver.ts';
 import { fold } from '../../src/engine/fold.ts';
 import { freeCapacity } from '../../src/engine/intake.ts';
-import {
-  brewLog,
-  opensAsDraft,
-  pullRequestText,
-  stepReports,
-} from '../../src/engine/pull-request.ts';
+import { brewLog, pullRequestText, stepReports } from '../../src/engine/pull-request.ts';
 import { type LoadedRecipes, loadRecipes } from '../../src/engine/recipe-files.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import { renderStatus } from '../../src/engine/status-comment.ts';
@@ -647,7 +642,7 @@ describe('the default Nip', () => {
         reports.flatMap(({ stepId, tasting }) => (tasting === undefined ? [] : [stepId])),
         ['acceptance', 'security'],
       );
-      assert.equal(opensAsDraft(reports), true);
+      assert.equal(pullRequestText({ title: 'A title', reports }).draft, true);
       const comment = renderStatus(batch);
       assert.match(comment, /`correctness #1` ❌ blocked \(findings\)/);
       assert.match(
@@ -693,7 +688,7 @@ describe('the default Nip', () => {
       log.accept({ kind: 'skip', ...person });
       const batch = log.batch();
       assert.ok(batch !== undefined);
-      assert.equal(opensAsDraft(stepReports(batch)), true);
+      assert.equal(pullRequestText({ title: 'A title', reports: stepReports(batch) }).draft, true);
       const { body } = pullRequestText({ title: 'A title', reports: stepReports(batch) });
       assert.doesNotMatch(body, /every Taster approved/);
       assert.match(body, /`design-conformance` did not run, and a person's skip went past it/);
