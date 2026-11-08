@@ -113,6 +113,7 @@ const setup = ({
   before = {},
   listings = {},
   changed = '',
+  revList = '',
   platform = 'linux',
 }: {
   events?: Event[];
@@ -132,6 +133,8 @@ const setup = ({
   listings?: Readonly<Record<string, Readonly<Record<string, readonly string[]>>>>;
   /** The diff of the attempt's own change: every range but the proven step's (ADR 0358). */
   changed?: string;
+  /** What rev-list lists of the attempt's commits: none, so its change is one stretch (ADR 0358). */
+  revList?: string;
   /** Whose case rule the guard matches the map's globs by. */
   platform?: NodeJS.Platform;
 } = {}) => {
@@ -152,6 +155,7 @@ const setup = ({
           ok(listed.map((path) => `100644 blob ${blobOf(path, at)}\t${path}\0`).join('')),
         );
       }
+      if (args.includes('rev-list')) return Promise.resolve(ok(revList));
       if (args.includes('cat-file')) {
         const found = [
           ...Object.entries(tip).map(([path, lines]) => [blobOf(path), lines] as const),
@@ -700,6 +704,7 @@ describe('guardTests on the test files the base holds (ADR 0358)', () => {
       tip: tips.kept,
       listings: { [moved]: { [older]: ['a'] } },
       changed: changing(older),
+      revList: `${mergedAt} ${implementStart} ${moved}\n`,
     });
     const end = await runner.start({ ref, limits: defaultLimits }).ended;
     assert.equal(end.ending.kind, 'failed');
@@ -836,14 +841,55 @@ describe('guardTests after a start merge that kept a conflict (ADR 0358, ADR 024
   };
   const events = [...ordered, ...gauged, ...implementing, kept];
 
-  it('reads the change after the oldest merge of the moved base the brewer made', async () => {
-    const [newer, oldest] = ['f'.repeat(40), 'e'.repeat(40)];
-    const listed = `${newer} ${'9'.repeat(40)} ${moved}\n${oldest} ${implementStart} ${moved}\n`;
-    const { calls, git } = cloneWith(ok(listed), newer);
+  it('reads each stretch between the merges the brewer made, never a merge of its own', async () => {
+    const [newer, between, oldest] = ['f'.repeat(40), '9'.repeat(40), 'e'.repeat(40)];
+    const listed = `${newer} ${between} ${moved}\n${between} ${oldest}\n${oldest} ${implementStart} ${moved}\n`;
+    const { calls, git } = cloneWith(ok(listed), implementStart);
     const { runner } = setup({ events, git });
     const end = await runner.start({ ref, limits: defaultLimits }).ended;
     assert.equal(end.ending.kind, 'succeeded');
-    assert.ok(calls.includes(`${flags} ${oldest} refs/heads/foedrum/12-1/implement/1 --`));
+    const diffs = calls.filter((call) => call.startsWith(flags) && !call.includes(gaugeStart));
+    assert.deepEqual(diffs, [
+      `${flags} ${oldest} ${between} --`,
+      `${flags} ${newer} refs/heads/foedrum/12-1/implement/1 --`,
+    ]);
+  });
+
+  it('reads the commits the brewer made before a merge, as its own', async () => {
+    const [merge, before] = ['f'.repeat(40), 'e'.repeat(40)];
+    const listed = `${merge} ${before} ${moved}\n${before} ${implementStart}\n`;
+    const { calls, git } = cloneWith(ok(listed), implementStart);
+    const { runner } = setup({ events, git });
+    const end = await runner.start({ ref, limits: defaultLimits }).ended;
+    assert.equal(end.ending.kind, 'failed');
+    assert.ok(calls.includes(`${flags} ${implementStart} ${before} --`));
+  });
+
+  it("reads a resumed attempt's change after the merge it made, which the ledger keeps under it", async () => {
+    const merge = 'f'.repeat(40);
+    const session = { id: 'implement-session', worktree: join(root, 'implement', '1') };
+    const resumed: Event[] = [
+      { type: 'step.scheduled', ...ref, deadlineAt },
+      { type: 'step.started', ...ref, session, worktree: worktree('implement', implementStart) },
+      {
+        type: 'step.finished',
+        ...ref,
+        outcome: { kind: 'failed', retryable: true, reason: 'claude crashed' },
+        claude: { version: '2.1.301', model: 'claude-sonnet-5-5' },
+      },
+      { type: 'step.scheduled', ...ref, attempt: 2, deadlineAt, retry: true },
+      { type: 'step.started', ...ref, attempt: 2, session: { ...session, resumes: session.id } },
+      {
+        type: 'effect.applied',
+        key: effectKey.encode(baseMergeKey({ ...ref, attempt: 2 })),
+        result: { base: moved, merged: merge },
+      },
+    ];
+    const { git } = cloneWith(ok(`${merge} ${implementStart} ${moved}\n`), implementStart);
+    const maps = { [moved]: mapOf('test/**') };
+    const { runner } = setup({ events: [...ordered, ...gauged, ...resumed], git, maps });
+    const end = await runner.start({ ref: { ...ref, attempt: 2 }, limits: defaultLimits }).ended;
+    assert.equal(end.ending.kind, 'succeeded');
   });
 
   it('reads the change from where the attempt started when no commit merged the moved base', async () => {

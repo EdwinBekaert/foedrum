@@ -341,6 +341,8 @@ describe('runServe', () => {
           );
         }
         if (args[0] === 'ls-files') return ok('package.json\0');
+        // The attempt made no merge: its own change is one stretch (ADR 0358).
+        if (args[0] === 'rev-list') return ok('');
         if (args.includes('--diff-filter=D') || args.includes('--name-only')) return ok('');
         const end = args.indexOf('--');
         read.push({ cwd, range: args.slice(end - 2, end).join(' ') });
