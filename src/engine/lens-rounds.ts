@@ -88,8 +88,9 @@ export function lensRounds(batch: Batch, stepId: string, before?: number): LensR
         (found) => (found.step ?? from) === stepId,
       );
       // Another step's route answers only a round of this step that tasted since the brewer it
-      // brought back last ran: one of its group's in that round (ADR 0349).
-      if (from === stepId || since) round.dispositions = own;
+      // brought back last ran, one of its group's in that round, and only where it names it
+      // (ADR 0349).
+      if (from === stepId || (since && own.length > 0)) round.dispositions = own;
     }
   }
   return rounds;
