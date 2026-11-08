@@ -110,4 +110,41 @@ describe("lensRounds: the dispositions of a group's every finding (#938, ADR 034
     const [correctness] = lensRounds(batchOf(events), 'correctness');
     assert.deepEqual(correctness?.dispositions, [fixedDeadline, named]);
   });
+
+  it("leaves a step's round that tasted before the brewer's last attempt with its own dispositions, whatever a later route names", () => {
+    const own = { file: 'src/status.ts', line: 40, disposition: 'fixed' };
+    const blockedBy = (stepId: string) =>
+      attempt(stepId, 1, {
+        kind: 'failed',
+        retryable: false,
+        reason: 'blocked (findings): the Taster asks for changes',
+      });
+    const done = (dispositions: readonly Record<string, string | number>[]) => ({
+      kind: 'succeeded' as const,
+      output: {
+        status: 'done',
+        summary: 'Fixed',
+        assumptions: [],
+        dispositions: [...dispositions],
+      },
+    });
+    const events: Event[] = [
+      ...attempt('implement', 1, { kind: 'succeeded', output: null }),
+      // A Taster of its own before the group, whose route the Cellarman answered.
+      ...attempt('acceptance', 1, tasted([json])),
+      ...attempt('implement', 2, done([own]), { from: 'acceptance', why: 'findings' }),
+      ...blockedBy('correctness'),
+      ...attempt(
+        'implement',
+        3,
+        done([{ ...own, step: 'acceptance', disposition: 'dismissed', why: 'No' }]),
+        {
+          from: 'correctness',
+          why: 'findings',
+        },
+      ),
+    ];
+    const [acceptance] = lensRounds(batchOf(events), 'acceptance');
+    assert.deepEqual(acceptance?.dispositions, [own]);
+  });
 });

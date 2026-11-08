@@ -1146,4 +1146,52 @@ describe("routeOf: every finding of a parallel group's round (#938, ADR 0349)", 
     assert.equal(route.group, undefined);
     assert.equal(routeInput(route).text.includes('The other steps'), false);
   });
+
+  it("counts a cut child's findings its attempt did not record among those it left out", () => {
+    const route = inGroup(
+      [
+        ...attempt('implement', 1),
+        ...blocked('correctness', 1, [finding('src/wait.ts', 12, 'No deadline')]),
+        ...blocked(
+          'security',
+          1,
+          [finding('src/a.ts', 1, 'One'), finding('src/b.ts', 2, 'Two')],
+          52,
+        ),
+        ...routed('implement', 2, 'correctness', 'findings'),
+      ],
+      'implement',
+      2,
+    );
+    assert.ok(route !== undefined);
+    const long = `${doc}\n${'d'.repeat(MAX_ROUTE_INPUT_BYTES)}`;
+    const { text } = routeInput(route, { kind: 'text', text: long });
+    assert.match(text, /, left out: 54 findings of security\]$/);
+  });
+
+  it('says a finding of a plan lens with no file is about the plan as a whole', () => {
+    const route = routeOf(
+      batchOf([
+        ...attempt('plan', 1),
+        ...blocked('coverage', 1, [finding('src/wait.ts', 12, 'No deadline')]),
+        ...advised('sizing', 1, [
+          { severity: 'minor', why: 'api: the sub-order is two days of work', introduced: true },
+        ]),
+        ...routed('plan', 2, 'coverage', 'findings'),
+      ]),
+      { batchId: '12-1', stepId: 'plan', attempt: 2 },
+      outDocOf,
+      undefined,
+      (stepId) =>
+        stepId === 'coverage' || stepId === 'sizing'
+          ? { group: 'review', lenses: [`plan/${stepId}`], blocking: stepId === 'coverage' }
+          : undefined,
+    );
+    assert.ok(route !== undefined);
+    const { text } = routeInput(route);
+    assert.match(
+      text,
+      /\nStep sizing, through plan\/sizing, advisory:\n- minor in the plan as a whole: api: the sub-order is two days of work$/,
+    );
+  });
 });
