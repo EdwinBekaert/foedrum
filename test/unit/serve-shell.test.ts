@@ -4,7 +4,7 @@
 
 import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
-import { basename, dirname, join } from 'node:path';
+import { dirname, join, sep } from 'node:path';
 import { beforeEach, describe, it } from 'node:test';
 import { assembleBrewerPrompt } from '../../src/brewers/prompt.ts';
 import { type ServeRepository, type ServeSetup, serveSetup } from '../../src/cli/serve-config.ts';
@@ -437,9 +437,8 @@ describe('serveShell', () => {
   });
 
   it("leaves packed-refs.lock when the Brewery's checkout is also a local repository's clone, written another way (ADR 0351)", async () => {
-    const { started, said, packedLock } = await packedRefsStart(
-      join(clone, '..', basename(clone), '.'),
-    );
+    // Not built with join, which would normalise it back to the clone's own spelling.
+    const { started, said, packedLock } = await packedRefsStart(`${clone}${sep}`);
 
     assert.ok('error' in started, 'the start stops');
     assert.match(String(started.error), /delete .*packed-refs\.lock once no git runs in/);
