@@ -1826,6 +1826,15 @@ describe('tasting-compare --real: the opus and high setups (ADR 0344)', () => {
       );
     });
 
+    it('a high-together run asks for sonnet: regression test', () => {
+      const ranOn = (model: string) => ({
+        setup: '867-high-together' as const,
+        attempts: [attempt('together', [], { models: [model] })],
+      });
+      assert.equal(modelStop(ranOn('claude-sonnet-5-5')), undefined);
+      assert.match(modelStop(ranOn('claude-opus-5-5')) ?? '', /asks for sonnet/);
+    });
+
     it('--setups high-together names that setup alone, order by order', () => {
       assert.deepEqual(selectRealSetups('high-together'), [
         '855-high-together',
