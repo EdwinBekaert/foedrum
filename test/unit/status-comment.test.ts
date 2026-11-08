@@ -3652,4 +3652,60 @@ describe('renderStatus: a parallel group that ran in part after a round back (AD
     assert.equal(lineOf(shown, 'correctness'), '- ✅ `correctness`, from round 1');
     assert.equal(lineOf(shown, 'security'), '- ✅ `security`');
   });
+
+  it("counts a kept Taster's rounds by its reviews, from round 2 after it had findings in round 1: regression test", () => {
+    const routedBy = (from: string) => ({ route: { from, why: 'findings' } }) as const;
+    const blocked = (attempt: number): Attempt => ({ ...blockedByFindings, attempt });
+    const third = batch({
+      steps: new Map([
+        step(
+          'implement',
+          done(1),
+          { ...done(2), ...routedBy('correctness') },
+          {
+            ...done(3),
+            ...routedBy('security'),
+          },
+        ),
+        step('correctness', blocked(1), approved(2)),
+        step('security', blocked(1), blocked(2), approved(3)),
+      ]),
+      path: [
+        { stepId: 'implement', attempt: 1 },
+        { stepId: 'correctness', attempt: 1 },
+        { stepId: 'security', attempt: 1 },
+        { stepId: 'implement', attempt: 2 },
+        { stepId: 'correctness', attempt: 2 },
+        { stepId: 'security', attempt: 2 },
+        { stepId: 'implement', attempt: 3 },
+        { stepId: 'security', attempt: 3 },
+      ],
+    });
+    const text = renderStatus(third, ['implement', 'correctness', 'security']);
+    assert.equal(lineOf(text, 'correctness'), '- ✅ `correctness`, from round 2');
+  });
+
+  it('says nothing of a round after a route back that is not for findings: regression test', () => {
+    const fixing = batch({
+      steps: new Map([
+        step('implement', done(1), {
+          ...running(2),
+          route: {
+            from: 'open-pull-request',
+            why: 'pull_request',
+            pullRequest: pr,
+            head: 'a'.repeat(40),
+          },
+        }),
+        step('correctness', approved(1)),
+      ]),
+      path: [
+        { stepId: 'implement', attempt: 1 },
+        { stepId: 'correctness', attempt: 1 },
+        { stepId: 'implement', attempt: 2 },
+      ],
+    });
+    const text = renderStatus(fixing, ['implement', 'correctness']);
+    assert.equal(lineOf(text, 'correctness'), '- ✅ `correctness`');
+  });
 });

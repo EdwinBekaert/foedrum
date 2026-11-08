@@ -697,6 +697,23 @@ describe('the merge brief (ADR 0225)', () => {
       assert.match(await brief(), /- Red proof: none in the recipe\./);
     });
 
+    it('says where the Taster that tasted last tasted, the first in the recipe, when the group ran in part: regression test', async () => {
+      order('parted');
+      run('implement');
+      const asked = { severity: 'major', why: 'Misses a case', introduced: true } as const;
+      run(
+        'correctness',
+        { kind: 'blocked', blockerKind: 'findings', summary: 'x', findings: [asked] },
+        { commit: tasted },
+      );
+      run('acceptance', tasting(), { commit: tasted });
+      run('implement');
+      run('correctness', tasting(), { commit: head });
+      open();
+      finished([passed('ci/build')]);
+      assert.match(await brief(), /- Tasted at `aaaaaaaa`, this head\./);
+    });
+
     it('says where the Taster that tasted last tasted, when the group ran in part (ADR 0357)', async () => {
       order('parted');
       run('implement');
