@@ -15,6 +15,7 @@ import {
   sandboxedChecks,
 } from '../platform/check-sandbox.ts';
 import { type AwakeMechanism, awakeCommand, keepAwake } from '../platform/keep-awake.ts';
+import { samePath } from '../platform/paths.ts';
 import {
   type ExecProcess,
   execProcess,
@@ -124,6 +125,11 @@ export const serveShell = (setup: ServeSetup, options: ServeShellOptions): Serve
         clone: root,
         worktree: setup.stateWorktree,
         out: (line) => out(`foedrum ${command}: ${line}`),
+        // A local repository whose clone is the Brewery's checkout deletes refs there outside the
+        // writer lock, so its packed-refs.lock is never stale for certain (ADR 0351).
+        sharedWithTarget: setup.repositories.some(
+          ({ source, clone }) => source === 'local' && clone !== undefined && samePath(clone, root),
+        ),
       }),
     worktrees: async (repository) => {
       const { repo, source, clone } = repository;
