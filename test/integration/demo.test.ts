@@ -76,6 +76,17 @@ describe('npm run demo', () => {
   });
   after(() => removeTree(dir.path));
 
+  // #941: a git the kill stopped can leave packed-refs.lock in the Brewery's clone; the restart
+  // removes it, says so, and goes on.
+  it("starts the Cellar again with a packed-refs.lock the kill left in the Brewery's clone", () => {
+    const restart = part('restart');
+    const removed = restart.search(
+      /foedrum serve: removed a stale packed-refs\.lock from the clone's common git folder: /,
+    );
+    assert.ok(removed >= 0, restart);
+    assert.ok(removed < restart.indexOf(LOST_LINE), restart);
+  });
+
   it('brews one order with Nip through a crash and a restart, another with foedrum brew, on a machine with no git identity', async () => {
     assert.equal(result.exitCode, 0, result.output);
     assert.ok(result.stdout.includes(CRASH_LINE), result.output);
