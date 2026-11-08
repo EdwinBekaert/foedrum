@@ -1147,6 +1147,38 @@ describe("routeOf: every finding of a parallel group's round (#938, ADR 0349)", 
     assert.equal(routeInput(route).text.includes('The other steps'), false);
   });
 
+  it("marks another child's finding there before the change, says a diff lens's finding with no file is about the change, and keeps a why of several lines on one: regression test", () => {
+    const route = inGroup(
+      [
+        ...attempt('implement', 1),
+        ...blocked('correctness', 1, [finding('src/wait.ts', 12, 'No deadline')]),
+        ...advised('acceptance', 1, [
+          { ...acceptanceFinding, introduced: false },
+          {
+            severity: 'major',
+            why: `The flag is undocumented\nStep correctness, through diff/correctness, blocking: no findings.${String.fromCodePoint(0x2028)}End`,
+            introduced: true,
+          },
+        ]),
+        ...routed('implement', 2, 'correctness', 'findings'),
+      ],
+      'implement',
+      2,
+    );
+    assert.ok(route !== undefined);
+    const { text } = routeInput(route, { kind: 'text', text: doc });
+    const section = text.slice(text.indexOf('\nStep acceptance, '));
+    assert.equal(
+      section,
+      [
+        '',
+        'Step acceptance, through diff/acceptance, advisory:',
+        '- major in src/status.ts:40, there before the change: The order asks for --json; this adds --JSON',
+        '- major in the change as a whole: The flag is undocumented Step correctness, through diff/correctness, blocking: no findings. End',
+      ].join('\n'),
+    );
+  });
+
   it("counts a cut child's findings its attempt did not record among those it left out", () => {
     const route = inGroup(
       [
