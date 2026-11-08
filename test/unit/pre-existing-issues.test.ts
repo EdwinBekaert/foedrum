@@ -19,6 +19,7 @@ import {
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import { type StatusComments, statusEffects } from '../../src/engine/status-comment.ts';
 import type { Disposition, TastingFinding } from '../../src/schemas/out-doc.ts';
+import { StatusRevision } from '../../src/schemas/status-comment.ts';
 import { defaultLimits } from '../helpers/brewing.ts';
 import { fakeLock } from '../helpers/fake-lock.ts';
 import { fakeRecipe, fakeRecipes } from '../helpers/fake-recipes.ts';
@@ -507,7 +508,7 @@ describe('preExistingIssueEffects (ADR 0356)', () => {
     const driver = await open(brewery.host, comments);
     await driver.tick();
     const revision = store.findEffect({ batchId: '12-1', effect: 'status.1' });
-    assert.deepStrictEqual((revision?.result as { open?: true }).open, true, 'an open revision');
+    assert.equal(StatusRevision.parse(revision?.result).open, true, 'an open revision');
     assert.equal(brewery.issues.length, 0);
     ended('merged');
     await driver.tick();
