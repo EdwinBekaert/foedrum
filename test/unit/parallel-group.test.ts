@@ -381,6 +381,37 @@ describe("a parallel group's findings, every child's along the group's route (AD
     );
   });
 
+  it("keeps ten open findings of the round's children, counting the rest with each child's own more: regression test", () => {
+    const many = (why: string) => Array.from({ length: 6 }, (_, n) => found(`${why} ${n}`));
+    const cut = (stepId: string, why: string, more: number): Event => ({
+      type: 'step.finished',
+      batchId: 'b1',
+      stepId,
+      attempt: 2,
+      outcome: blockedOutcome,
+      findings: { kept: many(why), more },
+    });
+    const events = [...roundTwo, cut('correctness', 'a nit', 2)];
+    const decision = decide(
+      fold(events),
+      {
+        kind: 'finish',
+        batchId: 'b1',
+        stepId: 'security',
+        attempt: 2,
+        ending: { ...blocked, findings: many('a leak') },
+      },
+      routed,
+    );
+    assert.equal(decision.kind, 'accepted');
+    const stuck = decision.kind === 'accepted' ? decision.events.at(-1) : undefined;
+    assert.ok(stuck?.type === 'batch.stuck' && stuck.reason.kind === 'blocked');
+    const roundsOut = stuck.reason.roundsOut;
+    assert.deepEqual(roundsOut?.open, [...many('a nit'), ...many('a leak').slice(0, 4)]);
+    // Two of the security child's six past the ten, and the two correctness recorded no more of.
+    assert.equal(roundsOut?.more, 4);
+  });
+
   it('makes the batch Stuck once the group ended, with every child of the round open', () => {
     const events = [...roundTwo, recorded('correctness', 'a nit')];
     accepts(

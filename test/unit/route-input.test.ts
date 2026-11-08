@@ -976,6 +976,35 @@ describe("routeOf: every finding of a parallel group's round (#938, ADR 0349)", 
     );
   });
 
+  it('heads a child blocked by an approval with findings by its verdict, after one that asked for changes: regression test', () => {
+    const approving = attempt('acceptance', 1, {
+      outcome: {
+        kind: 'failed',
+        retryable: false,
+        reason: 'blocked (findings): the Taster approves with findings: acceptance',
+      },
+      findings: { kept: [{ ...acceptanceFinding, severity: 'minor' }] as never, more: 0 },
+    });
+    const route = inGroup(
+      [
+        ...attempt('implement', 1),
+        ...blocked('correctness', 1, [finding('src/wait.ts', 12, 'No deadline')]),
+        ...approving,
+        ...blocked('security', 1, [finding('src/path.ts', 7, 'The name may hold ../')]),
+        ...routed('implement', 2, 'correctness', 'findings'),
+      ],
+      'implement',
+      2,
+    );
+    assert.ok(route !== undefined);
+    const { text } = routeInput(route, { kind: 'text', text: doc });
+    const others = text.slice(text.indexOf('The other steps'));
+    assert.match(
+      others,
+      /^The other steps[^\n]*\n\nStep security, through diff\/security, asks for changes:\n- major in src\/path\.ts:7: [^\n]*\n\nStep acceptance, through diff\/acceptance, approves with findings:\n- minor in src\/status\.ts:40: /,
+    );
+  });
+
   it("brings no child's findings from a round before the one that sent the batch back", () => {
     const route = inGroup(
       [

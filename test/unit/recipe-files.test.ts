@@ -2495,6 +2495,16 @@ describe("loadRecipes: a Taster's findings always have a route, onFindings (ADR 
     ]);
   });
 
+  it("refuses a group's onFindings that goes back to another group, which no attempt runs: regression test", () => {
+    const steps = [
+      { id: 'first', parallel: [correctness], onFindings: back },
+      { id: 'second', parallel: [security], onFindings: { goto: 'first', maxRounds: 1 } },
+    ];
+    assert.deepEqual(problemsOf(amber(steps)), [
+      'recipes/amber.jsonc: step "second" routes back to the parallel group "first": route to one of the steps before it (ADR 0168)',
+    ]);
+  });
+
   it("gives every child of a group the group's route, blocking on its findings", () => {
     const result = loadRecipes(amber([group()]));
     const found = loaded(result).find('amber');
