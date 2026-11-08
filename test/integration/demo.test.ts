@@ -435,10 +435,8 @@ describe('npm run demo', () => {
       ),
       mash,
     );
-    assert.ok(
-      mash.includes('`plan #2` ✅ → `coverage #2` ✅ → `sizing #2` ✅ → `naive-reader #2` ✅'),
-      mash,
-    );
+    // Only the naive reader, whose note sent the plan back, reads plan 2 (ADR 0357).
+    assert.ok(mash.includes('`plan #2` ✅ → `naive-reader #2` ✅'), mash);
   });
 
   it("the walkthrough has twelve steps, step 12's heading among them", () => {
