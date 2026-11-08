@@ -378,6 +378,27 @@ describe('recordOf', () => {
     assert.equal(recordOf([tasted, blocked('No disk left')], 'together-7').ended, 'stuck: blocked');
   });
 
+  it("reads a Taster blocked by its findings as an attempt that reviewed, its findings from the event's record (ADR 0354)", () => {
+    const blocked = (more: number) =>
+      event({
+        type: 'step.finished',
+        batchId: '1-1',
+        stepId: 'taste',
+        attempt: 1,
+        outcome: {
+          kind: 'failed',
+          retryable: false,
+          reason: 'blocked (findings): the Taster asks for changes: One finding',
+        },
+        findings: { kept: [finding('src/a.ts', 3)], more },
+      });
+    const [read] = recordOf([blocked(0)], 'together-7').attempts;
+    assert.deepEqual(read?.findings, [finding('src/a.ts', 3)]);
+    assert.equal(read?.failure, undefined);
+    const [cut] = recordOf([blocked(2)], 'together-7').attempts;
+    assert.equal(cut?.failure, 'blocked by its findings, 2 of them not recorded');
+  });
+
   it('reads the last end of a batch that was resumed after it was Stuck', () => {
     const stuck = event({
       type: 'batch.stuck',
