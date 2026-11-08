@@ -588,7 +588,7 @@ export const runBrew = async (
       const names = recipeLabels(on);
       if (names.length === 0) {
         return refuse(
-          `${named} has no recipe:<name> label; label it with the recipe to brew it with`,
+          `${named} has no recipe:<name> label; label it with the recipe to brew it with, or choose one with foedrum recipe ${called(log.state())} <recipe> "<reason>"`,
         );
       }
       if (names.length > 1) {
@@ -682,7 +682,7 @@ export const runBrew = async (
       }
       // The bare number, which every shell passes as it is (cmd.exe keeps quotes).
       return refuse(
-        `${named} waits for a recipe:<name> label on its Brewery issue #${opened}; label it and brew ${opened}, or foedrum mash ${opened}`,
+        `${named} waits for a recipe:<name> label on its Brewery issue #${opened}; label it and brew ${opened}, choose one with foedrum recipe ${opened} <recipe> "<reason>", or foedrum mash ${opened}`,
       );
     }
     if (request.mash === true && batch.recipe === undefined) {
