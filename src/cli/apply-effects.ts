@@ -10,7 +10,7 @@ import { formatNotice, type ServeShell } from './serve.ts';
 import type { ServeSetup } from './serve-config.ts';
 
 /** The batch whose effects go out now, and the owner of the driver that applies them. */
-export interface EffectsRequest {
+interface EffectsRequest {
   batchId: string;
   owner: string;
 }
