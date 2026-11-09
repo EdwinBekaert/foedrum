@@ -24,7 +24,7 @@ Arguments: `$ARGUMENTS`
 
 ## Stage 0: milestone and worktree
 
-1. The argument names the milestone: `M1`, or `m1`. Find it with `gh api repos/{owner}/{repo}/milestones --jq '.[] | [.number, .title, .state] | @tsv'`; its title starts with `M1 —`. If there is none, or more than one, stop and say so. `<m>` is the name in lower case (`m1`).
+1. The argument names the milestone: `M1`, or `m1`. Find it with `gh api repos/{owner}/{repo}/milestones --jq '.[] | [.number, .title, .state] | @tsv'`; its title starts with `M1` followed by anything but a digit (`M1 — First pour`, `M2-The-ladder`). If there is none, or more than one, stop and say so. `<m>` is the name in lower case (`m1`).
 2. `git fetch origin`, then create the worktree `.claude/worktrees/last-call-<m>` on a new branch `docs/last-call-<m>` from `origin/main`, run `npm ci` in it, and work only there. `<sha>` is `git rev-parse HEAD` there: the commit every measurement below is taken at.
 3. Every pull request closes the issue it delivers (CLAUDE.md, Git and pull requests). Look for an open issue titled `Last call for <M>` in the milestone (`gh issue list --milestone "<title>" --state open --search "Last call in:title" --json number,title`). When there is none, ask the user once whether to file it, then `gh issue create --title "Last call for <M>" --milestone "<title>" --body-file .foedrum/tmp/last-call-<m>.md`, with a body written by the file tool that says what the last call checks. `<issue>` is its number, and it must match `^[0-9]+$`.
 4. Create the run's folder, `mkdir -p .foedrum/tmp/<issue>` with the number written out (`.foedrum/tmp/` is git-ignored, so a new worktree has none). A folder left by an earlier run for the same issue is emptied first, so its reports cannot mix with this run's.
