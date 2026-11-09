@@ -3,7 +3,9 @@
 Good automation starts with a sharp breakdown.
 Analysis and decomposition are where a human adds the most value, so Foedrum offers them interactively ([ADR 0014](../../adr/0014-interactive-refinement-plugin.md)):
 
-- A small **Claude Code plugin** provides `/foedrum:refine #<order>`.
+- A small **Claude Code plugin** will provide `/foedrum:refine #<order>`; it is not built yet.
+  Until it is, a person corrects a plan the Brewmaster wrote with `foedrum lauter` and signs it off with `foedrum approve` ([commands](commands.md), [ADR 0286](../../adr/0286-foedrum-lauter-corrects-a-plan-at-gate-1-in-an-interactive-session.md), [ADR 0281](../../adr/0281-foedrum-approve-signs-off-a-plan-by-its-hash-and-puts-the-batch-on-tap.md)).
+  The rest of this page is its design.
   You run it in your own interactive Claude Code session, investigate the order together with Claude — across the registered repositories, read-only — and steer until the path is obvious.
 - When you are satisfied, the plugin writes the result into the Brewery: the analysis as an out doc on the state branch, the sub-orders as sub-issues with dependencies, and a plan per sub-order.
   The breakdown counts as approved; Foedrum starts brewing.

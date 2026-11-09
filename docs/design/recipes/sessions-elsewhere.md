@@ -15,6 +15,7 @@ It was a spike: nothing in Foedrum changed, and Foedrum still promises no resume
 - To go on, a fresh attempt with the same in-docs is ADR 0019's fallback, and what a resume that finds no session does already ([ADR 0117](../../adr/0117-a-retry-resumes-the-session-of-the-attempt-before-it-in-that-attempt-s-worktree.md)).
   It starts at the batch's task tree, a branch in the first machine's clone, so it runs there, or elsewhere once that branch is pushed.
   A `retry` or an `answer` of a brewer with `retryMode: resume` first recreates the session's worktree: when its commit is not in that machine's clone, the attempt starts fresh at once; when it is but the session is not, the run fails once and uses an attempt before the fresh one, or the batch is Stuck as `attempts_exhausted` when none is left (ADR 0117, [ADR 0118](../../adr/0118-retrymode-resume-loads-and-an-answer-resumes-the-session-that-asked.md)); a `rewind` starts fresh at once.
+  The retry of a run that went past `maxTurns` resumes whatever `retryMode` says and never falls back to a fresh attempt: on a machine without its session it fails as not retryable, and a person's `retry` from Stuck then starts fresh ([ADR 0175](../../adr/0175-a-turn-overrun-is-retried-by-resuming-its-session-and-keeps-its-out-doc.md)).
 
 ## Where Claude Code keeps a session
 

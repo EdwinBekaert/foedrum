@@ -28,13 +28,14 @@ flowchart LR
   The status lines name `foedrum brew <issue> --take`, to run in a terminal.
 - A session closed without a valid out doc, or an attempt lost when foedrum died, makes the batch wait for a session again, never a headless retry; with no attempt left the batch is Stuck `attempts_exhausted`.
   An attempt a Stuck abandoned before it started counts against no retry, for every step.
-- An open session has no deadline and no stall limit: the supervisor does not expire a started attempt of an interactive step, and its lease, renewed while foedrum runs, ends it when foedrum dies.
+- The step's deadline, its own or its brewer's, holds until its session opens ([ADR 0222](../../adr/0222-a-recipe-s-brewer-step-may-be-interactive.md)).
+  An open session has no deadline and no stall limit: the supervisor does not expire a started attempt of an interactive step, and its lease, renewed while foedrum runs, ends it when foedrum dies.
   `step.started` records `interactiveSince`, and the status comment says `session open since <time>` on the step's line.
   A `stop` or `cancel` still ends the wait; what the session writes after that is not read.
   A stop that comes before the session opens, while its attempt is planned or set up, ends the attempt `cancelled` and opens no session; so it does for a session `foedrum resume` opens ([ADR 0251](../../adr/0251-foedrum-resume-s-runner-keeps-an-overrun-s-out-doc-and-opens-no-session-after-a-stop.md)).
 - `foedrum resume` of an open interactive attempt is refused at once and takes nothing over: the session cannot be stopped from outside, and it must close with its out doc before the batch goes on ([ADR 0231](../../adr/0231-foedrum-resume-refuses-an-interactive-step-whose-session-is-open.md)).
   Its line names the driver whose session it is, by the attempt's lease (the batch's may be another driver's after a takeover), since when the session is open and until when the lease runs, asks to close it there so it reports, and names `foedrum brew <issue> --take` to open it again; with no live lease of the attempt, it says no driver holds the session, and the batch waits for a session again once that lease lapses.
-- A step with `"chosenBy": "lauter"` runs only when a person chooses it: no step continues to it, and `foedrum lauter <issue>` on a batch Stuck as `plan_review` schedules a fresh attempt of it, taking the batch over as `brew --take` does, so its session opens as this page says ([ADR 0286](../../adr/0286-foedrum-lauter-corrects-a-plan-at-gate-1-in-an-interactive-session.md)).
+- A step with `"chosenBy": "lauter"` runs only when a person chooses it: no step continues to it, and `foedrum lauter <issue>` on a batch Stuck as `plan_review` schedules a fresh attempt of it, taking the batch over as `brew --take` does, so its session opens as this page says ([ADR 0286](../../adr/0286-foedrum-lauter-corrects-a-plan-at-gate-1-in-an-interactive-session.md), [ADR 0329](../../adr/0329-one-number-per-piece-of-work.md)).
   Only an interactive step is chosen, and a recipe has one step per option.
   After it the recipe is done, so the batch waits for a review of its plan; the plan comment says the plan was changed in a session, by whom and when it opened.
   The status comment lists the step only once it has an attempt.
