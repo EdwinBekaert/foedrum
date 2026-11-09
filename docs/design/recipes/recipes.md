@@ -22,23 +22,13 @@ Foedrum's own recipes are checked as `DefaultRecipe`, which also rejects literal
       "onBlocked": { "findings": { "goto": "gauge", "maxRounds": 1 } } },  // "this test is wrong"
     { "id": "green", "check": ["typecheck", "lint", "test"], // gravity reading, no model tokens
       "onFail": { "goto": "implement", "maxRounds": 2 } },
-    { "id": "review", "loop": {                              // review/fix loop
-        "maxRounds": 2,
-        "until": "tasting.verdict == 'approve'",
-        "steps": [
-          { "id": "tasting", "parallel": [                   // approve = no child has a finding
-              { "id": "correctness", "brewer": "taster", "lens": "diff/correctness" },
-              { "id": "security", "brewer": "taster", "lens": "diff/security" },
-              { "id": "test-design", "brewer": "taster", "lens": "diff/test-design" },
-              { "id": "mutants", "brewer": "brett" }         // advisory unless "blocking": true
-          ] },
-          { "id": "fix", "brewer": "cooper", "when": "tasting.verdict != 'approve'" },
-          { "id": "recheck", "check": ["typecheck", "lint", "test"],  // the Cooper's commits are measured too
-            "when": "tasting.verdict != 'approve'",
-            "onFail": { "goto": "fix", "maxRounds": 2 } }
-        ]
-      },
-      "onExhausted": "stuck" },
+    { "id": "taste", "parallel": [                           // Tasters only, side by side
+        { "id": "correctness", "brewer": "taster", "lens": "diff/correctness", "everyRound": true },
+        { "id": "security", "brewer": "taster", "lens": "diff/security" },
+        { "id": "test-design", "brewer": "taster", "lens": "diff/test-design" }
+      ],
+      "onFindings": { "goto": "implement", "maxRounds": 2 } },  // every finding goes back along it
+    { "id": "mutants", "brewer": "brett" },                  // advisory unless "blocking": true
     { "action": "openPullRequest" }
   ]
 }
