@@ -4,6 +4,7 @@
   "scope": {
     "globs": [
       "CLAUDE.md",
+      ".claude/rules/*.md",
       "src/**"
     ]
   },
@@ -13,4 +14,4 @@
   "status": "active"
 }
 ---
-A change that alters a design CLAUDE.md summarises (where a process runs, which sandbox holds it, the flags of a command it lists) updates that CLAUDE.md line in the same change, not only the design page.
+A change that alters a design CLAUDE.md summarises (where a process runs, which sandbox holds it, the flags of a command it lists) updates that line of CLAUDE.md, or of the `.claude/rules/` file it moved to (the commands are in `.claude/rules/cli.md`), in the same change, not only the design page.
