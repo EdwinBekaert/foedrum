@@ -1,6 +1,6 @@
 # 0181. Receipts show no cost
 
-Date: 2026-10-25 · Status: Accepted · Supersedes the cost parts of [0172](0172-an-attempt-s-receipt-from-its-stream.md) (the receipt's `costUsd` and each model's, the estimated cost on each line, the session share, the summed cost) · Amends [0042](0042-the-claude-command-line-and-stream-contract.md) (the runner no longer reads `total_cost_usd`) and [0072](0072-the-status-comment-edits-as-revisions-in-the-ledger.md) (the status comment never shows a cost, where 0072 left it for later)
+Date: 2026-10-25 · Status: Accepted · Supersedes the cost parts of [0172](0172-an-attempt-s-receipt-from-its-stream.md) (the receipt's `costUsd` and each model's, the estimated cost on each line, the session share, the summed cost) · Amends [0042](0042-the-claude-command-line-and-stream-contract.md) (the runner no longer reads `total_cost_usd`) and [0072](0072-the-status-comment-edits-as-revisions-in-the-ledger.md) (the status comment never shows a cost, where 0072 left it for later) · Amended by [0175](0175-a-turn-overrun-is-retried-by-resuming-its-session-and-keeps-its-out-doc.md)
 
 ## Context
 ADR 0172 records claude's `total_cost_usd` on each attempt's receipt as `costUsd`, and each model's `costUSD` under `models`. The status comment's Receipts line shows it as an estimate, a resumed attempt's as its own share of the session or, without the receipt before it, as the session's, and `foedrum status` sums it per batch (#483).

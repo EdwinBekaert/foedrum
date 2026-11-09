@@ -1,6 +1,6 @@
 # 0269. The red proof refuses .NET's assembly and type load failures
 
-Date: 2026-10-30 · Status: Accepted · Amends [0078](0078-the-red-proof-reads-the-test-report-and-testsunchanged-compares-lines.md) (four .NET load failures join the fixed list of load errors)
+Date: 2026-10-30 · Status: Accepted · Amends [0078](0078-the-red-proof-reads-the-test-report-and-testsunchanged-compares-lines.md) (four .NET load failures join the fixed list of load errors) · Amended by [0274](0274-the-red-proof-reads-line-coverage-of-the-change-and-a-test-map-not-test-names.md)
 
 ## Context
 ADR 0078 fixes the list of texts that make a run a load, compile, import or collection error, which the red proof refuses.

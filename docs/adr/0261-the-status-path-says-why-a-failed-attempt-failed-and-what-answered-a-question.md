@@ -1,6 +1,6 @@
 # 0261. The status Path says why a failed attempt failed and what answered a question
 
-Date: 2026-10-30 · Status: Accepted · Amends [0154](0154-lane-labels-on-the-order-s-issue-and-the-status-comment-s-path-line.md) (what follows an attempt's mark on the path line) and [0123](0123-foedrum-brew-drives-one-batch-under-an-owner-of-its-own.md) (what `foedrum brew` prints last on tap without a pull request)
+Date: 2026-10-30 · Status: Accepted · Amends [0154](0154-lane-labels-on-the-order-s-issue-and-the-status-comment-s-path-line.md) (what follows an attempt's mark on the path line) and [0123](0123-foedrum-brew-drives-one-batch-under-an-owner-of-its-own.md) (what `foedrum brew` prints last on tap without a pull request) · Amended by [0272](0272-the-status-comment-names-a-pull-request-once-and-breaks-its-path-per-round.md), [0275](0275-a-finished-plan-waits-stuck-for-its-review-and-every-comment-links-the-doc-it-sums-up.md) and [0307](0307-a-failed-check-step-s-reason-and-the-merged-tree-check-name-the-failing-tests.md)
 
 ## Context
 The status comment's path line marks each attempt as the step list marks it, and nothing more ([ADR 0154](0154-lane-labels-on-the-order-s-issue-and-the-status-comment-s-path-line.md)).

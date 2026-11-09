@@ -1,6 +1,6 @@
 # 0294. `npm run demo -- ladder` walks an order across two repositories
 
-Date: 2026-11-02 · Status: Accepted · Amends [0097](0097-npm-run-demo-is-a-script-on-serve-s-seams-with-the-tests-fakes.md) (a second part on the same seams, with more lives of the Cellar, and merges and a release the shell makes on the fake code host) and [0283](0283-npm-run-demo-mashes-a-third-order-to-a-plan-waiting-for-its-review.md) (a plan approved and brewed past its review, in a part of its own)
+Date: 2026-11-02 · Status: Accepted · Amends [0097](0097-npm-run-demo-is-a-script-on-serve-s-seams-with-the-tests-fakes.md) (a second part on the same seams, with more lives of the Cellar, and merges and a release the shell makes on the fake code host) and [0283](0283-npm-run-demo-mashes-a-third-order-to-a-plan-waiting-for-its-review.md) (a plan approved and brewed past its review, in a part of its own) · Amended by [0305](0305-a-step-input-of-a-step-the-recipe-lacks-is-left-out.md) and [0321](0321-mash-and-decoction-review-a-plan-through-the-plan-lenses-apart.md)
 
 ## Context
 M2's exit test reads: "an order across two repositories, where the second needs a release of the first, ends with two linked pull requests and the version bump; routing is visible and overridable" (ROADMAP.md).

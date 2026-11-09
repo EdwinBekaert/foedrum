@@ -1,6 +1,6 @@
 # 0276. The order a review reads holds its recorded scope decisions
 
-Date: 2026-10-31 · Status: Accepted · Amends [0197](0197-acceptance-ships-as-a-default-diff-lens-and-nip-tastes-through-it-beside-correctness.md) (what `/brew-review`'s `order.md` holds, and the finding for an order with no checklist), [0173](0173-necessity-ships-as-a-default-diff-lens.md) (what necessity counts as proof) and [0094](0094-reviewers-show-their-evidence-and-mark-pre-existing-defects.md) (acceptance leaves a defect in code the change does not touch to its notes)
+Date: 2026-10-31 · Status: Accepted · Amends [0197](0197-acceptance-ships-as-a-default-diff-lens-and-nip-tastes-through-it-beside-correctness.md) (what `/brew-review`'s `order.md` holds, and the finding for an order with no checklist), [0173](0173-necessity-ships-as-a-default-diff-lens.md) (what necessity counts as proof) and [0094](0094-reviewers-show-their-evidence-and-mark-pre-existing-defects.md) (acceptance leaves a defect in code the change does not touch to its notes) · Amended by [0290](0290-a-sub-order-s-brewers-read-its-plan-entry-from-the-parent-s-recorded-plan.md) and [0333](0333-a-brewer-s-order-holds-the-maintainers-comments.md)
 
 ## Context
 `/brew-review` writes `order.md` from the title and body of each issue the pull request closes (ADR 0197).

@@ -1,6 +1,6 @@
 # 0193. `npm run demo` shows a tasting loop
 
-Date: 2026-10-25 · Status: Accepted · Amends [0185](0185-npm-run-demo-tastes-through-a-parallel-group-of-three-lenses.md) (the demo's recipe)
+Date: 2026-10-25 · Status: Accepted · Amends [0185](0185-npm-run-demo-tastes-through-a-parallel-group-of-three-lenses.md) (the demo's recipe) · Amended by [0264](0264-nip-s-correctness-taster-blocks-and-sends-its-findings-back-to-cellarman.md), [0272](0272-the-status-comment-names-a-pull-request-once-and-breaks-its-path-per-round.md) and [0354](0354-every-finding-of-a-taster-goes-back-along-one-on-findings-route.md)
 
 ## Context
 `npm run demo` brews with the demo Brewery's own recipe, `nip-parallel`: three lens steps in a parallel group, all advisory (ADR 0185). No default recipe and nothing in the demo uses a blocking lens step, so nobody can watch a tasting loop: a round that asks for changes, goes back, gets a fix, and passes (#261). ADR 0190, 0191 and 0192 give that loop its rules.

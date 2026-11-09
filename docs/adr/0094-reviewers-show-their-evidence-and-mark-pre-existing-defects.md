@@ -1,6 +1,6 @@
 # 0094. Reviewers show their evidence and mark pre-existing defects
 
-Date: 2026-10-20 · Status: Accepted · Amends [0017](0017-test-first-recipes-and-tasting-lenses.md) (what a lens answers, and how its findings end) and [0022](0022-five-default-lenses.md) (the reporting rules of the five lenses)
+Date: 2026-10-20 · Status: Accepted · Amends [0017](0017-test-first-recipes-and-tasting-lenses.md) (what a lens answers, and how its findings end) and [0022](0022-five-default-lenses.md) (the reporting rules of the five lenses) · Amended by [0143](0143-lenses-in-two-folders-diff-and-plan.md), [0161](0161-lens-steps-run-a-taster-whose-findings-are-advisory-unless-the-step-blocks.md) and [0276](0276-the-order-a-review-reads-holds-its-recorded-scope-decisions.md)
 
 ## Context
 Anthropic's write-up of its own pull-request reviewer ("Solving code review at Anthropic", claude.dev) traced most of a 50-round review to findings about code that had been there since the reviewer's first pass: "about 59% of it was code that had been there since the reviewer's first pass." Its reviewer labels each finding "Important, Nit, or Pre-existing, so a bug the PR didn't introduce doesn't look like the author's fault". Its guidance for review instructions asks for "a file and line as evidence instead of a guess from a name", to "flag the class of bug", and for "a summary that starts with a count", and its reviewer flags "changes that make a line in [CLAUDE.md] out of date".

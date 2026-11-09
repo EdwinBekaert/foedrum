@@ -1,6 +1,6 @@
 # 0326. The live line says what its first time measures
 
-Date: 2026-11-05 · Status: Accepted · Amends [0179](0179-the-live-line-redraws-in-place-and-leads-with-the-batch-s-time.md) (the batch's time on the live line is written with words that say what it measures)
+Date: 2026-11-05 · Status: Accepted · Amends [0179](0179-the-live-line-redraws-in-place-and-leads-with-the-batch-s-time.md) (the batch's time on the live line is written with words that say what it measures) · Amended by [0346](0346-the-live-line-runs-from-a-brew-s-first-second-to-its-last-with-gh-s-moving-mark.md)
 
 ## Context
 ADR 0179 leads `foedrum brew`'s live line with the batch's time as a bare number. In the self-brew trial (#374) a person read `34m 22s` as how long the running step had run, when `gauge #1` had run for 53 seconds. The batch's age includes every earlier stop and wait.

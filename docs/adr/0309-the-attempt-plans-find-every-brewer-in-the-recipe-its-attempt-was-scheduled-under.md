@@ -1,6 +1,6 @@
 # 0309. The attempt plans find every brewer in the recipe its attempt was scheduled under
 
-Date: 2026-11-03 · Status: Accepted · Amends [0059](0059-attempt-plans-from-the-brewer-of-the-step.md) (the shell finds the brewer in the batch's recipe), [0260](0260-an-attempt-s-out-doc-comes-from-the-recipe-it-was-scheduled-under.md) (`limits` and `prepare` in the batch's current recipe), [0265](0265-foedrum-resume-finds-a-finished-attempt-s-brewer-in-the-recipe-it-was-scheduled-under.md) (the same rule, restated), [0305](0305-a-step-input-of-a-step-the-recipe-lacks-is-left-out.md) (both lookups in the batch's recipe)
+Date: 2026-11-03 · Status: Accepted · Amends [0059](0059-attempt-plans-from-the-brewer-of-the-step.md) (the shell finds the brewer in the batch's recipe), [0260](0260-an-attempt-s-out-doc-comes-from-the-recipe-it-was-scheduled-under.md) (`limits` and `prepare` in the batch's current recipe), [0265](0265-foedrum-resume-finds-a-finished-attempt-s-brewer-in-the-recipe-it-was-scheduled-under.md) (the same rule, restated), [0305](0305-a-step-input-of-a-step-the-recipe-lacks-is-left-out.md) (both lookups in the batch's recipe) · Amended by [0310](0310-the-driver-wiring-finds-an-attempt-s-brewer-in-the-recipe-it-was-scheduled-under.md)
 
 ## Context
 Since [ADR 0260](0260-an-attempt-s-out-doc-comes-from-the-recipe-it-was-scheduled-under.md), each attempt records the recipe its batch brewed when it was scheduled, and `attemptRecipeOf` gives it ([ADR 0265](0265-foedrum-resume-finds-a-finished-attempt-s-brewer-in-the-recipe-it-was-scheduled-under.md)).

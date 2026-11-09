@@ -1,6 +1,6 @@
 # 0005. Typed step outcomes via out docs
 
-Date: 2026-10-13 · Status: Accepted
+Date: 2026-10-13 · Status: Accepted · Amended by [0191](0191-the-step-a-findings-route-goes-back-to-records-a-disposition-for-each-finding.md), [0308](0308-a-taster-reads-the-checks-that-ran-on-its-head-and-an-out-doc-claims-only-what-its-session-did.md) and [0340](0340-a-brewer-s-handover-is-kept-as-a-proposal-and-reaches-no-later-prompt.md)
 
 ## Context
 If "done" is inferred from side effects — a process exiting, a commit appearing, a file being written — then an agent that exits cleanly without doing the work, or writes a report in the wrong place, leaves the pipeline in an undefined state. Separate message channels between agents and the orchestrator add wiring and prompt text for little benefit.

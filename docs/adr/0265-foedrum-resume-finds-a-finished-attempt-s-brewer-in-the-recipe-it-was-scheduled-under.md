@@ -1,6 +1,6 @@
 # 0265. `foedrum resume` finds a finished attempt's brewer in the recipe it was scheduled under
 
-Date: 2026-10-30 · Status: Accepted · Amends [0126](0126-foedrum-resume-opens-a-finished-attempt-s-session-in-its-worktree.md) (the recipe the brewer is found in)
+Date: 2026-10-30 · Status: Accepted · Amends [0126](0126-foedrum-resume-opens-a-finished-attempt-s-session-in-its-worktree.md) (the recipe the brewer is found in) · Amended by [0309](0309-the-attempt-plans-find-every-brewer-in-the-recipe-its-attempt-was-scheduled-under.md)
 
 ## Context
 ADR 0126 writes a resumed attempt's settings again "from the brewer of the step in the batch's recipe", so that they hold what the brewer's attempt had.

@@ -1,6 +1,6 @@
 # 0178. A name before a parenthesis declares a test only where no call can stand
 
-Date: 2026-10-24 · Status: Accepted · Amends [0176](0176-a-test-s-name-is-declared-only-where-a-declaration-writes-it.md) (the form of an identifier right before `(`, and its known limit for a free function's call)
+Date: 2026-10-24 · Status: Accepted · Amends [0176](0176-a-test-s-name-is-declared-only-where-a-declaration-writes-it.md) (the form of an identifier right before `(`, and its known limit for a free function's call) · Superseded by [0274](0274-the-red-proof-reads-line-coverage-of-the-change-and-a-test-map-not-test-names.md) · Amended by [0182](0182-a-call-after-a-less-than-or-a-closing-brace-declares-no-test.md)
 
 ## Context
 The red proof finds the tests a step added by looking up each reported name in the lines the step added, in the forms [ADR 0176](0176-a-test-s-name-is-declared-only-where-a-declaration-writes-it.md) lists. One form is an identifier right before `(`, after something that is no letter, digit, underscore or dot (`void adds(`, `def test_adds(`). A call of a free function has the same shape: an older passing test reported as `parser > parse` has the short name `parse`, and a new test's body line `const tree = parse(input);` counts as declaring it. The older test is then taken for one the step added, and the red proof refuses the step: `test "parser > parse" passes before the implementation`. ADR 0176 records this as a known limit (#469, found in the review of #468).

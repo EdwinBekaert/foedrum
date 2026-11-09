@@ -1,6 +1,6 @@
 # Reviewer prompt
 
-Fill in `<role>`, `<checkout>`, `<bundle>` (absolute paths) and, for a lens, `<lens-file>`: `<bundle>/criteria/defaults/lenses/diff/<lens>.md` (`defaults/lenses/<lens>.md` from a base before ADR 0143), or `<bundle>/criteria/defaults/brewers/finer.md` for simplify (`<bundle>/criteria/.claude/skills/brew-review/lenses/simplify.md` from a base before ADR 0166). Pass the text as the whole prompt of a `taster` (every lens) or `brett` subagent. Add nothing else: no summary of the change, no opinion, no conversation context.
+Fill in `<role>`, `<checkout>`, `<bundle>` (absolute paths) and, for a lens, `<lens-file>`: `<bundle>/criteria/defaults/lenses/diff/<lens>.md`, or `<bundle>/criteria/defaults/brewers/finer.md` for simplify. Pass the text as the whole prompt of a `taster` (every lens) or `brett` subagent. Add nothing else: no summary of the change, no opinion, no conversation context.
 
 ---
 

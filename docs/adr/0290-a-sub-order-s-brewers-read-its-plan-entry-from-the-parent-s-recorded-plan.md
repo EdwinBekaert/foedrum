@@ -1,6 +1,6 @@
 # 0290. A sub-order's brewers read its plan entry from the parent's recorded plan
 
-Date: 2026-10-31 · Status: Accepted · Amends [0285](0285-an-approved-plan-becomes-brewery-sub-issues-through-the-ledger.md) (the plan entry a sub-order's batch records is an input of its Gauger and its Taster), [0197](0197-acceptance-ships-as-a-default-diff-lens-and-nip-tastes-through-it-beside-correctness.md) and [0276](0276-the-order-a-review-reads-holds-its-recorded-scope-decisions.md) (the acceptance lens reads a sub-order's plan entry as a scope record beside the order)
+Date: 2026-10-31 · Status: Accepted · Amends [0285](0285-an-approved-plan-becomes-brewery-sub-issues-through-the-ledger.md) (the plan entry a sub-order's batch records is an input of its Gauger and its Taster), [0197](0197-acceptance-ships-as-a-default-diff-lens-and-nip-tastes-through-it-beside-correctness.md) and [0276](0276-the-order-a-review-reads-holds-its-recorded-scope-decisions.md) (the acceptance lens reads a sub-order's plan entry as a scope record beside the order) · Amended by [0322](0322-a-sub-order-s-security-mark-is-the-brewmaster-s-and-reaches-its-plan-entry.md)
 
 ## Context
 Since ADR 0285 a sub-order's batch records the plan entry it was ordered from (`Batch.plan`: the parent batch, its approved plan step and attempt, and the entry's id), but no brewer reads it.

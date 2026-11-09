@@ -1,6 +1,6 @@
 # 0115. No git of the state branch outlives the writer lock, and its ref locks go before the worktree
 
-Date: 2026-10-22 · Status: Accepted · Amends [0111](0111-the-state-branch-s-ref-lock-and-head-lock-are-stale-under-the-writer-lock.md) (when the branch's ref lock is removed, which ref locks are, why no git of the state branch outlives the writer lock, and a flush's check that its commit moved the branch)
+Date: 2026-10-22 · Status: Accepted · Amends [0111](0111-the-state-branch-s-ref-lock-and-head-lock-are-stale-under-the-writer-lock.md) (when the branch's ref lock is removed, which ref locks are, why no git of the state branch outlives the writer lock, and a flush's check that its commit moved the branch) · Amended by [0351](0351-the-clone-s-packed-refs-lock-is-stale-under-the-writer-lock-unless-a-local-target-shares-the-clone.md)
 
 ## Context
 ADR 0111 has a start and a flush of the state branch remove a stale `index.lock`, `HEAD.lock` and `refs/heads/foedrum/state.lock` under the writer lock, with both git folders asked through the state worktree (`git rev-parse` in it). A start removed them after it opened the worktree, since before that there is nothing to ask. Two cases of the same kind were left (#320):

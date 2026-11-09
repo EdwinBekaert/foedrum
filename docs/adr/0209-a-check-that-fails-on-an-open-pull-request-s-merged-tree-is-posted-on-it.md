@@ -1,6 +1,6 @@
 # 0209. A check that fails on an open pull request's merged tree is posted on it
 
-Date: 2026-10-26 · Status: Accepted · Amends [0203](0203-an-open-pull-request-s-checks-run-on-its-merged-tree-when-its-base-moves.md) (a failure on the merged tree is posted on the pull request, not only in the status comment) and [0198](0198-an-open-pull-request-is-merge-tree-checked-when-its-base-moves.md) (the conflict comment's effect posts a second kind of comment)
+Date: 2026-10-26 · Status: Accepted · Amends [0203](0203-an-open-pull-request-s-checks-run-on-its-merged-tree-when-its-base-moves.md) (a failure on the merged tree is posted on the pull request, not only in the status comment) and [0198](0198-an-open-pull-request-is-merge-tree-checked-when-its-base-moves.md) (the conflict comment's effect posts a second kind of comment) · Amended by [0226](0226-a-failing-check-on-the-merged-tree-sends-its-batch-back-to-the-fix-step.md) and [0244](0244-a-conflict-with-the-moved-base-sends-its-batch-back-to-the-fix-step.md)
 
 ## Context
 Since [ADR 0203](0203-an-open-pull-request-s-checks-run-on-its-merged-tree-when-its-base-moves.md) Foedrum runs an open pull request's checks on its merged tree when its base moves, and records the first reading that did not pass on `pull_request.base_checked` (`failed`), or why the checks did not run (`unchecked`).

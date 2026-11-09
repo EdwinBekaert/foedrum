@@ -1,6 +1,6 @@
 # 0331. A Taster on a diff reads the repository's rules as its standard
 
-Date: 2026-11-06 · Status: Accepted · Amends [0042](0042-the-claude-command-line-and-stream-contract.md) (what `context: lean` means for a brewer's reading)
+Date: 2026-11-06 · Status: Accepted · Amends [0042](0042-the-claude-command-line-and-stream-contract.md) (what `context: lean` means for a brewer's reading) · Amended by [0337](0337-a-taster-s-first-call-on-a-diff-reads-the-instruction-file-and-a-long-risk-line-is-cut.md) and [0352](0352-nip-s-correctness-acceptance-and-security-tasters-run-at-high-effort-without-the-rules-read.md)
 
 ## Context
 A brewed Taster starts with no repository rules: `--safe-mode` and `--setting-sources ""` keep `CLAUDE.md` and the rule folders from loading (ADR 0042, [ADR 0046](0046-only-the-runners-settings-the-init-check-and-a-line-by-line-stream.md)).

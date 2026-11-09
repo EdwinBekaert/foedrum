@@ -1,6 +1,6 @@
 # 0210. `foedrum init` writes the `foedrum` command into a user folder on the PATH
 
-Date: 2026-10-26 · Status: Accepted · Amends [0207](0207-foedrum-init-creates-the-brewery-s-repository-labels-the-targets-and-pushes.md) (init offers the `foedrum` command after the push, before doctor)
+Date: 2026-10-26 · Status: Accepted · Amends [0207](0207-foedrum-init-creates-the-brewery-s-repository-labels-the-targets-and-pushes.md) (init offers the `foedrum` command after the push, before doctor) · Amended by [0212](0212-foedrum-init-takes-every-answer-as-an-option-and-foedrum-init-asks-them-in-a-session.md)
 
 ## Context
 Until the package is on npm (M3, [ADR 0016](0016-delivery-npm-cli-and-companion-plugin.md)), `foedrum` is not a command on the PATH: after [ADR 0207](0207-foedrum-init-creates-the-brewery-s-repository-labels-the-targets-and-pushes.md)'s `foedrum init`, the user runs it as `node <checkout>/src/cli/main.ts`. The maintainer settled on #404 (2026-10-25) that init writes a small `foedrum` command, a shim, after asking, into a user folder already on the PATH, listing the folders it found, and says which folder to add when there is none; after M3, `npx foedrum` replaces it. This is #529.

@@ -1,6 +1,6 @@
 # 0194. A recipe has no time budget
 
-Date: 2026-10-25 · Status: Accepted · Amends [0053](0053-recipe-files-reach-the-engine-brewer-steps-in-a-line-first.md) (`budget` goes; `match` stays as it is) and [0168](0168-a-parallel-group-runs-its-lens-steps-side-by-side.md) (a parallel group's time counts against nothing)
+Date: 2026-10-25 · Status: Accepted · Amends [0053](0053-recipe-files-reach-the-engine-brewer-steps-in-a-line-first.md) (`budget` goes; `match` stays as it is) and [0168](0168-a-parallel-group-runs-its-lens-steps-side-by-side.md) (a parallel group's time counts against nothing) · Amended by [0253](0253-a-recipe-s-match-is-refused-at-load.md)
 
 ## Context
 A recipe can hold `budget: { minutes }` (brewers-and-recipes §3), and Nip sets 30 minutes.

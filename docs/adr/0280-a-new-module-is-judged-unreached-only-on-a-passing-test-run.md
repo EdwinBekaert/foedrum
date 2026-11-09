@@ -1,6 +1,6 @@
 # 0280. A new module is judged unreached only on a passing test run
 
-Date: 2026-10-31 · Status: Accepted · Amends [0274](0274-the-red-proof-reads-line-coverage-of-the-change-and-a-test-map-not-test-names.md) (when a module no confirmed line reaches makes the batch Stuck, and a compile error of a reached new module)
+Date: 2026-10-31 · Status: Accepted · Amends [0274](0274-the-red-proof-reads-line-coverage-of-the-change-and-a-test-map-not-test-names.md) (when a module no confirmed line reaches makes the batch Stuck, and a compile error of a reached new module) · Amended by [0298](0298-the-maltster-s-survey-ends-without-a-session-for-a-fresh-map-and-its-check-sends-a-disagreement-back-once.md)
 
 ## Context
 [ADR 0274](0274-the-red-proof-reads-line-coverage-of-the-change-and-a-test-map-not-test-names.md) makes a batch Stuck (`environment`) when a module that only the batch's test map lists writes no report: no confirmed line reaches it.

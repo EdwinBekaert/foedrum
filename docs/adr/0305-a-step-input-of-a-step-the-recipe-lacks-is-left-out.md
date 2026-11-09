@@ -1,6 +1,6 @@
 # 0305. A step: input of a step the recipe lacks is left out
 
-Date: 2026-11-02 · Status: Accepted · Amends [0059](0059-attempt-plans-from-the-brewer-of-the-step.md) (a `step:` input of a step the recipe lacks no longer refuses the plan), [0064](0064-test-first-recipes-when-onblocked-and-a-red-proof-required.md) (it is left out, as a skipped step's is) and [0294](0294-npm-run-demo-ladder-walks-an-order-across-two-repositories.md) (the ladder recipe has no gauge step)
+Date: 2026-11-02 · Status: Accepted · Amends [0059](0059-attempt-plans-from-the-brewer-of-the-step.md) (a `step:` input of a step the recipe lacks no longer refuses the plan), [0064](0064-test-first-recipes-when-onblocked-and-a-red-proof-required.md) (it is left out, as a skipped step's is) and [0294](0294-npm-run-demo-ladder-walks-an-order-across-two-repositories.md) (the ladder recipe has no gauge step) · Amended by [0309](0309-the-attempt-plans-find-every-brewer-in-the-recipe-its-attempt-was-scheduled-under.md)
 
 ## Context
 [ADR 0059](0059-attempt-plans-from-the-brewer-of-the-step.md) reads a `step:<id>` input as the out doc of that step's latest attempt that succeeded: "a step with none refuses the plan".

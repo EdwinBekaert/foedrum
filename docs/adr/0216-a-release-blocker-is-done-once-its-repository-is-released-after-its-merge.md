@@ -1,6 +1,6 @@
 # 0216. A release blocker is done once its repository is released after its merge
 
-Date: 2026-10-26 · Status: Accepted · Amends [0211](0211-the-intake-starts-ready-sub-orders-at-their-order-s-rank-once-their-blockers-merged.md) (a sub-order with a `release` blocker can be ready) and [0013](0013-single-repo-sub-orders-bottles-and-releases.md) (the release signal is a recorded `release.observed` of the blocker's repository, and the wait for it has no batch, outside Conditioning)
+Date: 2026-10-26 · Status: Accepted · Amends [0211](0211-the-intake-starts-ready-sub-orders-at-their-order-s-rank-once-their-blockers-merged.md) (a sub-order with a `release` blocker can be ready) and [0013](0013-single-repo-sub-orders-bottles-and-releases.md) (the release signal is a recorded `release.observed` of the blocker's repository, and the wait for it has no batch, outside Conditioning) · Amended by [0223](0223-the-intake-records-a-release-that-holds-a-waiting-release-blocker-s-merge.md) and [0291](0291-a-release-blocked-sub-order-s-brewers-read-the-release-it-waited-for-as-written.md)
 
 ## Context
 [ADR 0211](0211-the-intake-starts-ready-sub-orders-at-their-order-s-rank-once-their-blockers-merged.md) starts a sub-order once every sub-order it is blocked by has its pull request merged, but a sub-order with a `release` blocker is never ready there.

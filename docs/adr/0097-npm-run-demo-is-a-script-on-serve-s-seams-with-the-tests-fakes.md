@@ -1,6 +1,6 @@
 # 0097. `npm run demo` is a development script on serve's seams, with the tests' fakes
 
-Date: 2026-10-20 · Status: Accepted · Amended by [0139](0139-npm-run-demo-brews-with-nip-and-shows-foedrum-brew-and-foedrum-resume.md)
+Date: 2026-10-20 · Status: Accepted · Amended by [0139](0139-npm-run-demo-brews-with-nip-and-shows-foedrum-brew-and-foedrum-resume.md), [0283](0283-npm-run-demo-mashes-a-third-order-to-a-plan-waiting-for-its-review.md) and [0294](0294-npm-run-demo-ladder-walks-an-order-across-two-repositories.md)
 
 ## Context
 #193 asks for `npm run demo`: a batch taken from Ordered to On tap, through a crash and a restart, in about a minute and on any machine, with no GitHub, no token and no `claude`. It must use the seams the tests use, not a second engine path: the scripted brewer runner of `test/helpers/fake-brewer-runner.ts`, and a fake code host where `foedrum serve` reaches GitHub through gh (ADR 0073). Three things needed deciding: where the demo's code lives, whether it may import `test/helpers/`, and what keeps those fakes out of the program a user installs.

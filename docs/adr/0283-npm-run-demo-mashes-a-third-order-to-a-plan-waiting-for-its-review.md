@@ -1,6 +1,6 @@
 # 0283. `npm run demo` mashes a third order to a plan waiting for its review
 
-Date: 2026-10-31 · Status: Accepted · Amends [0139](0139-npm-run-demo-brews-with-nip-and-shows-foedrum-brew-and-foedrum-resume.md) (the walkthrough's steps and a good run) and [0097](0097-npm-run-demo-is-a-script-on-serve-s-seams-with-the-tests-fakes.md) (the CLI calls the demo makes)
+Date: 2026-10-31 · Status: Accepted · Amends [0139](0139-npm-run-demo-brews-with-nip-and-shows-foedrum-brew-and-foedrum-resume.md) (the walkthrough's steps and a good run) and [0097](0097-npm-run-demo-is-a-script-on-serve-s-seams-with-the-tests-fakes.md) (the CLI calls the demo makes) · Amended by [0294](0294-npm-run-demo-ladder-walks-an-order-across-two-repositories.md) and [0321](0321-mash-and-decoction-review-a-plan-through-the-plan-lenses-apart.md)
 
 ## Context
 `npm run demo` brews a `nip-parallel` order twice, through a crash and from the terminal (ADR 0139, ADR 0185, ADR 0193), and never shows how a person starts work: `foedrum mash`'s Innkeeper's question, `foedrum answer`, and the Brewmaster's plan waiting Stuck for its review (ADR 0232, ADR 0275). The maintainer chose the shape on 2026-10-31 (#663): one new step after `replay`, all scripted and offline, with steps 1 to 11 as they are. ADR 0139's good run counts two batches, and the demo's CLI calls only read the store (ADR 0097).

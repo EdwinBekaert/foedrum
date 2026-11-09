@@ -1,6 +1,6 @@
 # 0190. A later tasting round reviews the change since the round before
 
-Date: 2026-10-25 · Status: Accepted · Amends [0161](0161-lens-steps-run-a-taster-whose-findings-are-advisory-unless-the-step-blocks.md) (what a lens step's later round is given and reviews)
+Date: 2026-10-25 · Status: Accepted · Amends [0161](0161-lens-steps-run-a-taster-whose-findings-are-advisory-unless-the-step-blocks.md) (what a lens step's later round is given and reviews) · Amended by [0196](0196-a-later-tasting-round-follows-any-earlier-round-that-reviewed.md)
 
 ## Context
 A tasting round exists on a lens step with `"blocking": true` and an `onBlocked` route (ADR 0161, ADR 0064): a `changes` verdict blocks the step by findings, the route sends the batch back (to `implement` in a test-first recipe), and the lens step runs again as a fresh Taster attempt. That attempt's `change` input is the whole batch's change, from where the batch's change starts to HEAD (ADR 0161, ADR 0164), as in the first round. The Taster cannot tell what changed since it last looked, so each round reviews everything again and can find new things in code that was there before the first round. Reviewers that re-read the whole change on every pass are what makes a review loop run on (#261).

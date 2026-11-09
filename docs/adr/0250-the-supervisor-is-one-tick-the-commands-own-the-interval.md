@@ -1,6 +1,6 @@
 # 0250. The supervisor is one tick: the commands that run the driver own the interval
 
-Date: 2026-10-28 · Status: Accepted · Amends [0027](0027-supervisor-lost-and-stalled-attempts.md) (the shell runs one tick, not a loop on an interval, and the `StateBranchStopError` stop holds through `tick()`) and [0063](0063-foedrum-serve-its-configuration-and-wiring.md) (serve's step 5: the 5 seconds are serve's own interval, not the supervisor's)
+Date: 2026-10-28 · Status: Accepted · Amends [0027](0027-supervisor-lost-and-stalled-attempts.md) (the shell runs one tick, not a loop on an interval, and the `StateBranchStopError` stop holds through `tick()`) and [0063](0063-foedrum-serve-its-configuration-and-wiring.md) (serve's step 5: the 5 seconds are serve's own interval, not the supervisor's) · Amended by [0327](0327-a-pass-over-one-batch-s-effects-that-throws-stops-no-other-batch.md), [0328](0328-one-batch-s-error-stops-no-other-in-the-supervisor-or-the-drive.md) and [0335](0335-a-batch-that-keeps-failing-is-marked-after-an-hour-and-stuck-when-a-reading-hides-its-deadline.md)
 
 ## Context
 [ADR 0027](0027-supervisor-lost-and-stalled-attempts.md) gave the supervisor's shell (`src/engine/supervisor-loop.ts`) a loop: `run()` ticked on an injected `Timer` every `intervalMs` (default 5 s) until `stop()`, and rejected with a `StateBranchStopError`.

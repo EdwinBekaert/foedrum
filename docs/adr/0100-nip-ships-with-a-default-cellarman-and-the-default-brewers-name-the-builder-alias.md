@@ -1,6 +1,6 @@
 # 0100. Nip ships with a default Cellarman, and the default brewers name the builder alias
 
-Date: 2026-10-21 · Status: Accepted · Amends [0098](0098-foedrum-s-defaults-load-under-the-brewery-s-files-and-a-brewer-input-can-name-a-lens.md) (the first default brewers and recipe)
+Date: 2026-10-21 · Status: Accepted · Amends [0098](0098-foedrum-s-defaults-load-under-the-brewery-s-files-and-a-brewer-input-can-name-a-lens.md) (the first default brewers and recipe) · Amended by [0143](0143-lenses-in-two-folders-diff-and-plan.md), [0153](0153-foedrum-s-defaults-map-their-own-model-aliases.md), [0157](0157-nip-s-green-step-runs-the-typecheck.md), [0161](0161-lens-steps-run-a-taster-whose-findings-are-advisory-unless-the-step-blocks.md), [0166](0166-the-finer-simplifies-a-batch-s-change-before-green.md) and [0234](0234-the-brewmaster-writes-a-plan-on-the-planner-alias-and-mash-runs-it.md)
 
 ## Context
 #218 adds the Gauger (`defaults/brewers/gauger.md`) and Nip (`defaults/recipes/nip.jsonc`), the first default brewer and recipe ([ADR 0017](0017-test-first-recipes-and-tasting-lenses.md)). Nip runs gauge → red proof → Cellarman → checks → `openPullRequest`. Three things follow from ADR 0098 that the issue did not settle:

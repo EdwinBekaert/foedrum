@@ -1,6 +1,6 @@
 # 0224. The default recipes taste apart or together as a seeded comparison measured
 
-Date: 2026-10-27 · Status: Accepted · Amends [0220](0220-a-taster-s-step-can-run-several-lenses-together.md) (the measured choice, which it left to #567) and [0017](0017-test-first-recipes-and-tasting-lenses.md) (its rejection of one broad Taster, now measured)
+Date: 2026-10-27 · Status: Accepted · Amends [0220](0220-a-taster-s-step-can-run-several-lenses-together.md) (the measured choice, which it left to #567) and [0017](0017-test-first-recipes-and-tasting-lenses.md) (its rejection of one broad Taster, now measured) · Amended by [0306](0306-nip-tastes-through-the-security-lens-beside-correctness-and-acceptance.md), [0323](0323-a-seeded-plan-measures-the-plan-lenses-apart-and-together-after-the-merge.md), [0332](0332-tasting-compare-real-re-tastes-brewed-heads-and-writes-blinded-lists.md), [0343](0343-nip-tastes-through-design-conformance-as-a-fourth-advisory-lens.md) and [0354](0354-every-finding-of-a-taster-goes-back-along-one-on-findings-route.md)
 
 ## Context
 A recipe can taste through its lenses apart, one Taster each side by side in a `parallel` group ([ADR 0168](0168-a-parallel-group-runs-its-lens-steps-side-by-side.md)), or together, one Taster whose step names `lenses` ([ADR 0220](0220-a-taster-s-step-can-run-several-lenses-together.md)).

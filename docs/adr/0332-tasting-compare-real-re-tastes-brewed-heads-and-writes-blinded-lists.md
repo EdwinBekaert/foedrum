@@ -1,6 +1,6 @@
 # 0332. tasting-compare --real re-tastes brewed heads and writes blinded lists
 
-Date: 2026-11-06 · Status: Accepted · Amends [0224](0224-the-default-recipes-taste-apart-or-together-as-a-seeded-comparison-measured.md) (the comparison has a mode on real changes, scored by a person) and [0323](0323-a-seeded-plan-measures-the-plan-lenses-apart-and-together-after-the-merge.md) (the mode's seams, which now say how a run builds its target and which recipe it brews)
+Date: 2026-11-06 · Status: Accepted · Amends [0224](0224-the-default-recipes-taste-apart-or-together-as-a-seeded-comparison-measured.md) (the comparison has a mode on real changes, scored by a person) and [0323](0323-a-seeded-plan-measures-the-plan-lenses-apart-and-together-after-the-merge.md) (the mode's seams, which now say how a run builds its target and which recipe it brews) · Amended by [0333](0333-a-brewer-s-order-holds-the-maintainers-comments.md), [0337](0337-a-taster-s-first-call-on-a-diff-reads-the-instruction-file-and-a-long-risk-line-is-cut.md), [0343](0343-nip-tastes-through-design-conformance-as-a-fourth-advisory-lens.md), [0344](0344-tasting-compare-real-measures-a-stronger-model-and-more-effort-apart.md), [0347](0347-tasting-compare-real-measures-tasters-without-the-rules-read-and-three-lenses-together.md) and [0354](0354-every-finding-of-a-taster-goes-back-along-one-on-findings-route.md)
 
 ## Context
 Nothing can say whether a change to the Tasters makes them better, and #876, #877 and #878 all aim to.

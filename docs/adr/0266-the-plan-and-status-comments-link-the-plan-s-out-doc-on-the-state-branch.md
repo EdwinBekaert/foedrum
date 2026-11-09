@@ -1,6 +1,6 @@
 # 0266. The plan and status comments link the plan's out doc on the state branch
 
-Date: 2026-10-30 · Status: Accepted · Amends [0233](0233-a-plan-is-an-out-doc-whose-paths-the-engine-checks-shown-as-one-comment-per-order.md) (the plan comment's text and its cut) and [0072](0072-the-status-comment-edits-as-revisions-in-the-ledger.md) (what the status comment's Assumptions show)
+Date: 2026-10-30 · Status: Accepted · Amends [0233](0233-a-plan-is-an-out-doc-whose-paths-the-engine-checks-shown-as-one-comment-per-order.md) (the plan comment's text and its cut) and [0072](0072-the-status-comment-edits-as-revisions-in-the-ledger.md) (what the status comment's Assumptions show) · Amended by [0275](0275-a-finished-plan-waits-stuck-for-its-review-and-every-comment-links-the-doc-it-sums-up.md) and [0355](0355-a-recipe-choice-and-a-brew-s-start-show-on-the-brewery-issue-at-once.md)
 
 ## Context
 The status comment shows each assumption a brewer wrote cut to one line of about 200 characters, ten per step at most ([ADR 0072](0072-the-status-comment-edits-as-revisions-in-the-ledger.md)); the plan comment shows none, and its cells stop at about 200 characters ([ADR 0233](0233-a-plan-is-an-out-doc-whose-paths-the-engine-checks-shown-as-one-comment-per-order.md)).

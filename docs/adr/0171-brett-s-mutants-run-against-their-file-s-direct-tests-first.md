@@ -1,6 +1,6 @@
 # 0171. Brett's mutants run against their file's direct tests first, and the wide list only when they survive
 
-Date: 2026-10-24 · Status: Accepted · Amends [0040](0040-brett-covers-scripts-and-kills-need-a-failing-test.md) (a baseline per round, and a round-1 survivor runs again in round 2) and [0054](0054-test-runs-below-normal-priority-and-review-runs-scoped-to-the-question.md) (the mutation check's one list of tests becomes two rounds)
+Date: 2026-10-24 · Status: Accepted · Amends [0040](0040-brett-covers-scripts-and-kills-need-a-failing-test.md) (a baseline per round, and a round-1 survivor runs again in round 2) and [0054](0054-test-runs-below-normal-priority-and-review-runs-scoped-to-the-question.md) (the mutation check's one list of tests becomes two rounds) · Amended by [0303](0303-brett-s-mutants-run-only-the-test-files-that-cover-their-line.md)
 
 ## Context
 Stage 4 of /brew-review runs a baseline and then each of Brett's valid mutants, one after the other, over one list of test files: every file in `test/unit/`, `test/property/` and `test/chaos/` that imports a mutated file directly or through one module in between (`scripts/mutant-tests.ts`, ADR 0054).

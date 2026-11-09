@@ -1,6 +1,6 @@
 # 0344. tasting-compare --real measures a stronger model and more effort apart
 
-Date: 2026-11-07 · Status: Accepted · Amends [0332](0332-tasting-compare-real-re-tastes-brewed-heads-and-writes-blinded-lists.md) (two more setups, where a record's model comes from, a run on another model stops the comparison, and `--setups`) and [0337](0337-a-taster-s-first-call-on-a-diff-reads-the-instruction-file-and-a-long-risk-line-is-cut.md) (which setups brew `real-nip`)
+Date: 2026-11-07 · Status: Accepted · Amends [0332](0332-tasting-compare-real-re-tastes-brewed-heads-and-writes-blinded-lists.md) (two more setups, where a record's model comes from, a run on another model stops the comparison, and `--setups`) and [0337](0337-a-taster-s-first-call-on-a-diff-reads-the-instruction-file-and-a-long-risk-line-is-cut.md) (which setups brew `real-nip`) · Amended by [0347](0347-tasting-compare-real-measures-tasters-without-the-rules-read-and-three-lenses-together.md) and [0352](0352-nip-s-correctness-acceptance-and-security-tasters-run-at-high-effort-without-the-rules-read.md)
 
 ## Context
 #879's final comparison ran `nip`'s three Tasters on three real changes, all on Sonnet at medium effort, and `today` and `reads` wrote no finding in 54 Tasters.

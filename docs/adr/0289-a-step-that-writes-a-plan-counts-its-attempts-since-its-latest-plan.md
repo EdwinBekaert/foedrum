@@ -1,6 +1,6 @@
 # 0289. A step that writes a plan counts its attempts since its latest plan
 
-Date: 2026-10-31 · Status: Accepted · Amends [0053](0053-recipe-files-reach-the-engine-brewer-steps-in-a-line-first.md) (not every brewer step counts its attempts over the batch's whole life) and [0286](0286-foedrum-lauter-corrects-a-plan-at-gate-1-in-an-interactive-session.md) (the plan step's retries from `plan_review` count per round too)
+Date: 2026-10-31 · Status: Accepted · Amends [0053](0053-recipe-files-reach-the-engine-brewer-steps-in-a-line-first.md) (not every brewer step counts its attempts over the batch's whole life) and [0286](0286-foedrum-lauter-corrects-a-plan-at-gate-1-in-an-interactive-session.md) (the plan step's retries from `plan_review` count per round too) · Amended by [0321](0321-mash-and-decoction-review-a-plan-through-the-plan-lenses-apart.md), [0324](0324-a-diff-lens-step-counts-its-attempts-since-its-latest-review.md) and [0325](0325-a-step-counts-its-attempts-per-round.md)
 
 ## Context
 Since ADR 0053 a brewer step gets another attempt while it has had fewer than its brewer's `maxAttempts`, counted over the batch's whole life, successes included (`mayRetry`, `src/engine/recipe-files.ts`).

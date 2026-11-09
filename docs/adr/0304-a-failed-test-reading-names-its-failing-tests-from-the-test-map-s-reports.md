@@ -1,6 +1,6 @@
 # 0304. A failed test reading names its failing tests from the test map's reports
 
-Date: 2026-11-02 · Status: Accepted · Amends [0069](0069-check-steps-run-the-repositorys-commands-in-an-attempt-of-their-own.md) (a reading's new field), [0128](0128-an-attempt-a-route-schedules-gets-what-sent-it-back.md) (a failed check in the route input names its failing tests, and says when it printed nothing) and [0203](0203-an-open-pull-request-s-checks-run-on-its-merged-tree-when-its-base-moves.md) (the merged-tree line names the check without its command, then the failing tests)
+Date: 2026-11-02 · Status: Accepted · Amends [0069](0069-check-steps-run-the-repositorys-commands-in-an-attempt-of-their-own.md) (a reading's new field), [0128](0128-an-attempt-a-route-schedules-gets-what-sent-it-back.md) (a failed check in the route input names its failing tests, and says when it printed nothing) and [0203](0203-an-open-pull-request-s-checks-run-on-its-merged-tree-when-its-base-moves.md) (the merged-tree line names the check without its command, then the failing tests) · Amended by [0307](0307-a-failed-check-step-s-reason-and-the-merged-tree-check-name-the-failing-tests.md)
 
 ## Context
 A gravity reading ([ADR 0069](0069-check-steps-run-the-repositorys-commands-in-an-attempt-of-their-own.md)) keeps the end of a check's output, and the lines that quote it say which check failed and how.

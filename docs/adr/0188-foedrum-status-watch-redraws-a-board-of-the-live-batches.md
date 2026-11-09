@@ -1,6 +1,6 @@
 # 0188. `foedrum status --watch` redraws a board of the live batches
 
-Date: 2026-10-25 · Status: Accepted · Amends [0174](0174-foedrum-brew-keeps-a-live-line-on-a-terminal.md) (its terminal rule and text rules also hold for a board of several lines) and [0179](0179-the-live-line-redraws-in-place-and-leads-with-the-batch-s-time.md) (a board redraws in place as the live line does)
+Date: 2026-10-25 · Status: Accepted · Amends [0174](0174-foedrum-brew-keeps-a-live-line-on-a-terminal.md) (its terminal rule and text rules also hold for a board of several lines) and [0179](0179-the-live-line-redraws-in-place-and-leads-with-the-batch-s-time.md) (a board redraws in place as the live line does) · Amended by [0189](0189-the-status-board-outlasts-a-failed-read-and-counts-rewrapped-rows.md) and [0295](0295-foedrum-status-order-shows-planning-tokens-apart-from-brewing-tokens.md)
 
 ## Context
 `foedrum status` prints each batch's row once and exits (ADR 0092, ADR 0172). Following several batches means running it again and again. `foedrum brew` keeps a live line on a terminal for the one batch it drives (ADR 0174), and #442 decided (2026-10-24) that a view of many batches belongs to `status --watch`, not to `serve` (#463).
