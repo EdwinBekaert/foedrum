@@ -766,7 +766,7 @@ describe('runBrew', () => {
     assert.equal(log().state().batches.size, 0);
     assert.equal(
       f.lines.at(-1),
-      'foedrum brew: #13 has no recipe:<name> label; label it with the recipe to brew it with',
+      'foedrum brew: #13 has no recipe:<name> label; label it with the recipe to brew it with, or choose one with foedrum recipe 13 <recipe> "<reason>"',
     );
   });
 
