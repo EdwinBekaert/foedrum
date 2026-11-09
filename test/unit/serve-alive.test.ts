@@ -30,13 +30,18 @@ describe('runServe', () => {
     return { code, stamped };
   };
 
+  // Serve runs the same way each time, so the tests share one run of 40 minutes, made by the first
+  // test that asks, and each reads the minutes it looks at (#960).
+  let run: ReturnType<typeof servedFor> | undefined;
+  const served = () => (run ??= servedFor(40));
+
   describe('once its work is done and it only waits (#873)', () => {
     // The one order is brewed, on tap and cleaned in the first minutes; what comes after is idle.
     const idle = (stamped: readonly { at: number; line: string }[], from: number, to: number) =>
       stamped.filter(({ at }) => at >= from * MINUTE && at < to * MINUTE);
 
     it('prints a line in every ten minutes, so a person can tell it is working, and at most one every half minute, so it does not fill the terminal', async () => {
-      const { code, stamped } = await servedFor(40);
+      const { code, stamped } = await served();
       assert.equal(code, 0, stamped.map(({ line }) => line).join('\n'));
       // A tick comes every 5 s: a line at each would be 120 in ten minutes.
       for (const [from, to] of [
@@ -53,7 +58,7 @@ describe('runServe', () => {
     });
 
     it('says it still runs each 60 s of quiet, to within a tick, and no sooner: regression test', async () => {
-      const { stamped } = await servedFor(12);
+      const { stamped } = await served();
       const times = idle(stamped, 5, 12)
         .filter(({ line }) => line.includes('still running'))
         .map(({ at }) => at);
@@ -65,7 +70,7 @@ describe('runServe', () => {
     });
 
     it('counts its quiet from its last line of any kind: regression test', async () => {
-      const { stamped } = await servedFor(12);
+      const { stamped } = await served();
       const firstAlive = stamped.findIndex(({ line }) => line.includes('still running'));
       assert.ok(firstAlive > 0, stamped.map(({ line }) => line).join('\n'));
       const before = stamped[firstAlive - 1]?.at ?? 0;
@@ -74,7 +79,7 @@ describe('runServe', () => {
     });
 
     it('prints those lines as the rest of its lines: foedrum serve, a colon and the words', async () => {
-      const { stamped } = await servedFor(12);
+      const { stamped } = await served();
       const lines = idle(stamped, 10, 12);
       assert.ok(lines.length > 0, 'it printed lines when idle');
       for (const { line } of lines) assert.match(line, /^foedrum serve: \S/);
@@ -82,7 +87,7 @@ describe('runServe', () => {
   });
 
   it('says it still runs, and not that it brews, while nothing brews', async () => {
-    const { stamped } = await servedFor(12);
+    const { stamped } = await served();
     const alive = stamped.filter(({ at, line }) => at >= 10 * MINUTE && line.includes('still'));
     assert.ok(alive.length > 0, stamped.map(({ line }) => line).join('\n'));
     for (const { line } of alive) {
@@ -91,7 +96,7 @@ describe('runServe', () => {
   });
 
   it('still opens with its brewing line and ends with its stopped line: regression test', async () => {
-    const { code, stamped } = await servedFor(12);
+    const { code, stamped } = await served();
     assert.equal(code, 0);
     const lines = stamped.map(({ line }) => line);
     assert.match(
