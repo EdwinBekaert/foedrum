@@ -18,7 +18,7 @@ render flag, not part of the topic.
 
 Everything in the picture comes from files read in this session.
 
-- Anchor real code with `file:line` the first time it appears: `src/engine/decide.ts:164`. No
+- Anchor real code with `file:line` the first time it appears: `src/engine/decide.ts:352`. No
   anchor means it was not read.
 - Never infer structure from a file name, a test name or an earlier picture.
 - A step you could not verify is left out, or marked `? unverified`.
