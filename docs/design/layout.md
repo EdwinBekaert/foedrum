@@ -11,10 +11,10 @@ src/
   github/       client, auth, intake, projection
   workspace/    git (a non-interactive runner with timeouts) and worktrees
   platform/     OS differences: removal, path comparison, process trees ([cross-platform rules](platform/cross-platform.md))
-  checks/       gravity readings, the red proof, the testsUnchanged guard (ADR 0078)
+  checks/       gravity readings and the setup, the red proof, the testsUnchanged guard, the test map and its survey, the uncovered-line check, Brett's mutant runs (ADR 0274, ADR 0298, ADR 0313)
   evals/        flight, blind tasting, model watcher
   schemas/      zod schemas (source of types, validation and JSON Schema)
-  formats/      JSONC and frontmatter readers (limits for untrusted input: 64 levels, 1 MiB; ADR 0020), TAP, JUnit XML and git diff readers
+  formats/      JSONC, frontmatter and TOML readers (limits for untrusted input: 64 levels, 1 MiB; ADR 0020), TAP, JUnit XML, LCOV and Cobertura readers (ADR 0274), the system map's manifest readers (ADR 0317, ADR 0320), and git diff readers
 schemas/        JSON Schema files generated from src/schemas (npm run schemas)
 defaults/       default brewers, recipes and tasting lenses, and models.jsonc, which maps the aliases the default brewers name and merges by alias under the Brewery's (ADR 0153)
 scripts/        development scripts: the check, the gate, the review's tools, npm run demo (a scratch Brewery brewed with Nip's steps and a parallel group of four lenses whose findings all go back once (ADR 0354), through serve's seams with the tests' fakes, then foedrum lenses, brew, resume and replay, and an order mashed to a plan that waits for its review; and `npm run demo -- ladder`, an order planned across a library and an application, the library released and the application bumped to it, two pull requests that name each other and the order closed; ADR 0097, ADR 0139, ADR 0185, ADR 0193, ADR 0283, ADR 0294); never shipped
