@@ -1,6 +1,6 @@
 # 0153. Foedrum's defaults map their own model aliases
 
-Date: 2026-10-23 · Status: Accepted · Amends [0098](0098-foedrum-s-defaults-load-under-the-brewery-s-files-and-a-brewer-input-can-name-a-lens.md) (the defaults gain a `models.jsonc`, merged by alias), [0100](0100-nip-ships-with-a-default-cellarman-and-the-default-brewers-name-the-builder-alias.md) (who maps the `builder` alias), [0063](0063-foedrum-serve-its-configuration-and-wiring.md) (`models.jsonc` is optional, and the alias check runs on the merged models) and [0059](0059-attempt-plans-from-the-brewer-of-the-step.md) (the plan's model comes from the merged models)
+Date: 2026-10-23 · Status: Accepted · Amends [0098](0098-foedrum-s-defaults-load-under-the-brewery-s-files-and-a-brewer-input-can-name-a-lens.md) (the defaults gain a `models.jsonc`, merged by alias), [0100](0100-nip-ships-with-a-default-cellarman-and-the-default-brewers-name-the-builder-alias.md) (who maps the `builder` alias), [0063](0063-foedrum-serve-its-configuration-and-wiring.md) (`models.jsonc` is optional, and the alias check runs on the merged models) and [0059](0059-attempt-plans-from-the-brewer-of-the-step.md) (the plan's model comes from the merged models) · Amended by [0234](0234-the-brewmaster-writes-a-plan-on-the-planner-alias-and-mash-runs-it.md)
 
 ## Context
 A brewer names a model alias (`builder`), and a Brewery's `models.jsonc` maps each alias to a model id or family (`src/schemas/models.ts`), so blind tasting can swap the model behind a role.

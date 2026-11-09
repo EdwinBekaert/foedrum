@@ -1,6 +1,6 @@
 # 0295. foedrum status <order> shows planning tokens apart from brewing tokens
 
-Date: 2026-10-31 · Status: Accepted · Amends [0159](0159-foedrum-brewers-reports-each-brewer-s-attempts-outcomes-stuck-batches-and-tokens.md) (what counts as planning and brewing, and `status` taking an order) and [0188](0188-foedrum-status-watch-redraws-a-board-of-the-live-batches.md) (`--watch` is refused with an order)
+Date: 2026-10-31 · Status: Accepted · Amends [0159](0159-foedrum-brewers-reports-each-brewer-s-attempts-outcomes-stuck-batches-and-tokens.md) (what counts as planning and brewing, and `status` taking an order) and [0188](0188-foedrum-status-watch-redraws-a-board-of-the-live-batches.md) (`--watch` is refused with an order) · Amended by [0321](0321-mash-and-decoction-review-a-plan-through-the-plan-lenses-apart.md) and [0329](0329-one-number-per-piece-of-work.md)
 
 ## Context
 A mashed order spends tokens before any code is written: the Innkeeper's `mash-in` ([ADR 0232](0232-foedrum-mash-routes-an-issue-to-the-innkeeper-whose-question-the-answer-chooses-the-recipe-by.md)), the Brewmaster's `plan` and its lens steps, and a person's `lauter` session ([ADR 0286](0286-foedrum-lauter-corrects-a-plan-at-gate-1-in-an-interactive-session.md)).

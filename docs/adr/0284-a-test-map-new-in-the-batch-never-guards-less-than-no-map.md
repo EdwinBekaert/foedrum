@@ -1,6 +1,6 @@
 # 0284. A test map new in the batch never guards less than no map
 
-Date: 2026-10-31 · Status: Accepted · Amends [0274](0274-the-red-proof-reads-line-coverage-of-the-change-and-a-test-map-not-test-names.md) (what `testsUnchanged` keeps where only the batch's map lists modules)
+Date: 2026-10-31 · Status: Accepted · Amends [0274](0274-the-red-proof-reads-line-coverage-of-the-change-and-a-test-map-not-test-names.md) (what `testsUnchanged` keeps where only the batch's map lists modules) · Amended by [0297](0297-the-red-proof-reads-a-test-map-only-and-a-test-first-batch-with-none-is-stuck-before-its-first-step.md)
 
 ## Context
 [ADR 0274](0274-the-red-proof-reads-line-coverage-of-the-change-and-a-test-map-not-test-names.md) has `testsUnchanged` keep every line the red step added to a separate test file of the map, and drops the `DECLARATIONS` and `ASSERTIONS` lists that [ADR 0078](0078-the-red-proof-reads-the-test-report-and-testsunchanged-compares-lines.md)'s guard reads.

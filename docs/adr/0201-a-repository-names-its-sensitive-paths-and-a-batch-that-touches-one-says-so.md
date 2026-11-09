@@ -1,6 +1,6 @@
 # 0201. A repository names its sensitive paths, and a batch that touches one says so
 
-Date: 2026-10-26 · Status: Accepted · Amends [0023](0023-language-independent-recipes.md) (a repository's entry may name `sensitivePaths`), [0071](0071-the-openpullrequest-action-two-effects-of-the-batch.md) (the push's ledger result keeps the sensitive files the change touches) and [0072](0072-the-status-comment-edits-as-revisions-in-the-ledger.md) (the status comment names them)
+Date: 2026-10-26 · Status: Accepted · Amends [0023](0023-language-independent-recipes.md) (a repository's entry may name `sensitivePaths`), [0071](0071-the-openpullrequest-action-two-effects-of-the-batch.md) (the push's ledger result keeps the sensitive files the change touches) and [0072](0072-the-status-comment-edits-as-revisions-in-the-ledger.md) (the status comment names them) · Amended by [0274](0274-the-red-proof-reads-line-coverage-of-the-change-and-a-test-map-not-test-names.md)
 
 ## Context
 Foedrum never merges: a person merges every pull request it opens.

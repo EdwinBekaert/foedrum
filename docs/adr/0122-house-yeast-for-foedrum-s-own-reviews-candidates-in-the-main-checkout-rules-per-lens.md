@@ -1,6 +1,6 @@
 # 0122. House yeast for Foedrum's own reviews: candidates in the main checkout, rules per lens within a budget
 
-Date: 2026-10-22 · Status: Accepted · Amends [0018](0018-house-yeast-layers.md) (where Foedrum's own candidates live until the state branch carries them)
+Date: 2026-10-22 · Status: Accepted · Amends [0018](0018-house-yeast-layers.md) (where Foedrum's own candidates live until the state branch carries them) · Amended by [0169](0169-house-yeast-rules-reach-a-batch-s-brewers-by-scope-and-lens.md), [0271](0271-foedrum-s-own-sessions-load-the-house-yeast-rules-as-generated-path-scoped-rule-files.md), [0299](0299-a-structural-rule-becomes-a-biome-gritql-plugin-whose-message-names-the-fix.md) and [0315](0315-a-rule-reviews-keep-recording-after-it-was-proposed-is-a-candidate-for-a-promotion-review.md)
 
 ## Context
 [ADR 0018](0018-house-yeast-layers.md) has Foedrum dogfood the repository layer of house yeast: the review skill for Foedrum's own pull requests proposes rules into `.foedrum/house-yeast/`, in the pull request it reviews. It records a candidate (a lesson seen once) as an event on the state branch, and proposes a rule when the lesson recurs or a human asks. [ADR 0015](0015-house-yeast.md) selects rules by scope within a budget of about 2,000 tokens.

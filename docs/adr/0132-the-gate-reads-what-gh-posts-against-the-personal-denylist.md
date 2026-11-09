@@ -1,6 +1,6 @@
 # 0132. The gate reads what gh posts against the personal denylist
 
-Date: 2026-10-22 · Status: Accepted · Amends [0114](0114-the-gate-blocks-words-on-a-personal-denylist-in-what-leaves-the-machine.md) (what gh sends is scanned now; a `gh api` field from a file and `--input` from a file are read, not blocked)
+Date: 2026-10-22 · Status: Accepted · Amends [0114](0114-the-gate-blocks-words-on-a-personal-denylist-in-what-leaves-the-machine.md) (what gh sends is scanned now; a `gh api` field from a file and `--input` from a file are read, not blocked) · Amended by [0252](0252-the-push-gate-is-a-pre-filter-a-reader-and-a-pure-core-beside-a-thin-hook.md)
 
 ## Context
 [ADR 0114](0114-the-gate-blocks-words-on-a-personal-denylist-in-what-leaves-the-machine.md) gave the local gate a personal denylist and scanned what `git push` sends. It left the other way text leaves the machine for a change of its own (#345): what `gh` posts. Since #48 pull request bodies, comments and issues go out without anyone reading them first, the review skill posts its summary with `gh pr comment --body-file` and files issues with `gh api … --input <draft>` ([ADR 0094](0094-reviewers-show-their-evidence-and-mark-pre-existing-defects.md)), and the repository is public. The gate already reads every `gh` call, also inside other shells ([ADR 0045](0045-the-local-gate-reads-commands-as-the-shells-would.md)), and blocks the `gh api` merges it cannot read ([ADR 0108](0108-the-gate-blocks-merges-through-gh-api.md)).

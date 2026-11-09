@@ -1,6 +1,6 @@
 # 0173. Necessity ships as a default diff lens
 
-Date: 2026-10-24 · Status: Accepted · Amends [0022](0022-five-default-lenses.md) (the list of default lenses)
+Date: 2026-10-24 · Status: Accepted · Amends [0022](0022-five-default-lenses.md) (the list of default lenses) · Amended by [0197](0197-acceptance-ships-as-a-default-diff-lens-and-nip-tastes-through-it-beside-correctness.md) and [0276](0276-the-order-a-review-reads-holds-its-recorded-scope-decisions.md)
 
 ## Context
 [ADR 0022](0022-five-default-lenses.md) ships five default lenses: correctness, security, cross-platform, design conformance and test design.

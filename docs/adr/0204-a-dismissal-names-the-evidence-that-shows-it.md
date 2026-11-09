@@ -1,6 +1,6 @@
 # 0204. A dismissal names the evidence that shows it
 
-Date: 2026-10-26 · Status: Accepted · Amends [0191](0191-the-step-a-findings-route-goes-back-to-records-a-disposition-for-each-finding.md) (what a `dismissed` and a `pre-existing` `why` holds, and when a later round contests one)
+Date: 2026-10-26 · Status: Accepted · Amends [0191](0191-the-step-a-findings-route-goes-back-to-records-a-disposition-for-each-finding.md) (what a `dismissed` and a `pre-existing` `why` holds, and when a later round contests one) · Amended by [0318](0318-a-plan-lens-s-findings-go-back-to-the-plan-step-and-the-plan-comment-lists-the-review-notes-left.md)
 
 ## Context
 A brewer that a findings route brought back records a disposition for each finding (ADR 0191). A `dismissed` one has a `why` that says why it is not a defect, and a `pre-existing` one a `why` that says it was there before the change. A later round reads them and may contest a dismissal once. Nothing asks a `why` to point at anything, so the later round can only weigh one claim against another, and a confident sentence passes as well as a checked one (#521).

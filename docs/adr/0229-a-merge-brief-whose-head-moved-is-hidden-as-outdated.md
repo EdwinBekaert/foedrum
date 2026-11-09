@@ -1,6 +1,6 @@
 # 0229. A merge brief whose head moved is hidden as outdated
 
-Date: 2026-10-27 · Status: Accepted · Amends [0225](0225-a-ready-pull-request-gets-a-merge-brief.md) (an outdated brief is hidden, and the status comment says when none is ready)
+Date: 2026-10-27 · Status: Accepted · Amends [0225](0225-a-ready-pull-request-gets-a-merge-brief.md) (an outdated brief is hidden, and the status comment says when none is ready) · Amended by [0272](0272-the-status-comment-names-a-pull-request-once-and-breaks-its-path-per-round.md) and [0350](0350-a-brewed-pull-request-is-a-draft-until-its-merge-brief-and-the-next-line-follows-the-brief.md)
 
 ## Context
 A merge brief names one head and one record of its checks ([ADR 0225](0225-a-ready-pull-request-gets-a-merge-brief.md)).

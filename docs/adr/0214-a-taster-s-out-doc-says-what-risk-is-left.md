@@ -1,6 +1,6 @@
 # 0214. A Taster's out doc says what risk is left
 
-Date: 2026-10-26 · Status: Accepted · Amends [0161](0161-lens-steps-run-a-taster-whose-findings-are-advisory-unless-the-step-blocks.md) (the Taster's out doc and where its report is shown)
+Date: 2026-10-26 · Status: Accepted · Amends [0161](0161-lens-steps-run-a-taster-whose-findings-are-advisory-unless-the-step-blocks.md) (the Taster's out doc and where its report is shown) · Amended by [0220](0220-a-taster-s-step-can-run-several-lenses-together.md), [0225](0225-a-ready-pull-request-gets-a-merge-brief.md), [0308](0308-a-taster-reads-the-checks-that-ran-on-its-head-and-an-out-doc-claims-only-what-its-session-did.md) and [0337](0337-a-taster-s-first-call-on-a-diff-reads-the-instruction-file-and-a-long-risk-line-is-cut.md)
 
 ## Context
 A Taster's out doc holds its verdict and its findings (ADR 0161). It does not say what risk is left once its review is done, or what it could not verify. The merge brief (#551) is to show that judgement to the person who merges, and the maintainer settled (2026-10-25, #274) that it comes from the last Taster, with no new brewer run: the engine writes every fact from the ledger, and only this judgement is the model's.

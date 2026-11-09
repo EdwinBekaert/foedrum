@@ -1,6 +1,6 @@
 # 0323. A seeded plan measures the plan lenses, apart and together, after the merge
 
-Date: 2026-11-05 · Status: Accepted · Amends [0224](0224-the-default-recipes-taste-apart-or-together-as-a-seeded-comparison-measured.md) (the comparison has a second mode, on a plan), [0321](0321-mash-and-decoction-review-a-plan-through-the-plan-lenses-apart.md) (how #804 measures its apart, and that the exercise #587 asked for runs after the merge) and [0220](0220-a-taster-s-step-can-run-several-lenses-together.md) (the fixed text on a step of plan lenses together)
+Date: 2026-11-05 · Status: Accepted · Amends [0224](0224-the-default-recipes-taste-apart-or-together-as-a-seeded-comparison-measured.md) (the comparison has a second mode, on a plan), [0321](0321-mash-and-decoction-review-a-plan-through-the-plan-lenses-apart.md) (how #804 measures its apart, and that the exercise #587 asked for runs after the merge) and [0220](0220-a-taster-s-step-can-run-several-lenses-together.md) (the fixed text on a step of plan lenses together) · Amended by [0332](0332-tasting-compare-real-re-tastes-brewed-heads-and-writes-blinded-lists.md) and [0354](0354-every-finding-of-a-taster-goes-back-along-one-on-findings-route.md)
 
 ## Context
 ADR 0321 ships seven plan lenses, apart in `mash` and `decoction`, on the numbers ADR 0224 measured for diff lenses.

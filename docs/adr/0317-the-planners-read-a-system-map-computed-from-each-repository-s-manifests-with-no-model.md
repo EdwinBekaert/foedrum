@@ -1,6 +1,6 @@
 # 0317. The planners read a system map computed from each repository's manifests, with no model
 
-Date: 2026-11-03 · Status: Accepted · Amends [0234](0234-the-brewmaster-writes-a-plan-on-the-planner-alias-and-mash-runs-it.md), [0301](0301-a-brewery-order-s-read-only-attempt-reads-every-repository-in-a-checkout-of-each.md) and [0312](0312-a-taster-on-a-plan-lens-step-reads-the-batch-s-latest-plan-and-ties-each-finding-to-a-sub-order.md) (the `repositories` input carries each repository's lines of the system map under its line)
+Date: 2026-11-03 · Status: Accepted · Amends [0234](0234-the-brewmaster-writes-a-plan-on-the-planner-alias-and-mash-runs-it.md), [0301](0301-a-brewery-order-s-read-only-attempt-reads-every-repository-in-a-checkout-of-each.md) and [0312](0312-a-taster-on-a-plan-lens-step-reads-the-batch-s-latest-plan-and-ties-each-finding-to-a-sub-order.md) (the `repositories` input carries each repository's lines of the system map under its line) · Amended by [0320](0320-the-system-map-reads-cargo-and-go-manifests.md)
 
 ## Context
 The Innkeeper, the Brewmaster and the plan Tasters read the Brewery's repositories as one line each: the name and the base (ADR 0234, ADR 0301).

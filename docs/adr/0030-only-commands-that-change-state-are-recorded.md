@@ -1,6 +1,6 @@
 # 0030. Only commands that change state are recorded
 
-Date: 2026-10-15 · Status: Accepted · Amends [0019](0019-interactive-sessions-and-one-command-layer.md) · Amended by [0105](0105-foedrum-order-orders-an-issue-again-as-a-human-command-recorded-on-batch-ordered.md) and [0126](0126-foedrum-resume-opens-a-finished-attempt-s-session-in-its-worktree.md)
+Date: 2026-10-15 · Status: Accepted · Amends [0019](0019-interactive-sessions-and-one-command-layer.md) · Amended by [0105](0105-foedrum-order-orders-an-issue-again-as-a-human-command-recorded-on-batch-ordered.md), [0126](0126-foedrum-resume-opens-a-finished-attempt-s-session-in-its-worktree.md), [0159](0159-foedrum-brewers-reports-each-brewer-s-attempts-outcomes-stuck-batches-and-tokens.md), [0202](0202-pause-and-continue-hold-an-order-or-the-whole-brewery-at-its-next-convenient-point.md), [0205](0205-stop-makes-an-order-s-brewing-batches-stuck-at-once-and-retry-continues-them.md), [0208](0208-orders-are-claimed-in-rank-order-by-arrival-unless-a-person-moved-one-with-foedrum-rank.md) and [0221](0221-foedrum-lenses-reports-each-lens-s-findings-their-ends-and-its-tokens.md)
 
 ## Context
 [ADR 0019](0019-interactive-sessions-and-one-command-layer.md) puts every action behind one typed command and says: "Every command is recorded as an event with **who** issued it and **from where**." The first commands in the registry (#13) are `doctor`, `status` and `replay`, and none of them changes anything: they read the machine or the event store and print.

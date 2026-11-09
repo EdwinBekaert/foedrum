@@ -1,6 +1,6 @@
 # 0241. Each test runs at the stage where it pays: the check runs the test files a change reaches
 
-Date: 2026-10-27 · Status: Accepted · Amends [0134](0134-the-red-proof-runs-once-the-review-drops-its-coverage-delta-and-property-and-chaos-run-on-one-leg-per-pull-request.md) (where the tests run: the stage table below; its legs and run counts stay) and [0089](0089-a-file-over-the-test-budget-is-measured-again-alone.md) (a file run again alone has coverage only when its run had it)
+Date: 2026-10-27 · Status: Accepted · Amends [0134](0134-the-red-proof-runs-once-the-review-drops-its-coverage-delta-and-property-and-chaos-run-on-one-leg-per-pull-request.md) (where the tests run: the stage table below; its legs and run counts stay) and [0089](0089-a-file-over-the-test-budget-is-measured-again-alone.md) (a file run again alone has coverage only when its run had it) · Amended by [0249](0249-the-push-gate-runs-no-tests.md)
 
 ## Context
 `npm run check` ran the typecheck, the linter, all 7,755 unit, property and chaos tests with coverage, the test-layer guard and the dependency guard.

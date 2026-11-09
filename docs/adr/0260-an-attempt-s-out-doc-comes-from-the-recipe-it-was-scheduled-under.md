@@ -1,6 +1,6 @@
 # 0260. An attempt's out doc comes from the recipe it was scheduled under
 
-Date: 2026-10-30 · Status: Accepted · Amends [0081](0081-the-cleanup-ignores-the-steps-own-out-doc.md) (where the out doc's name is found, and the key of `Claims.outDocs`)
+Date: 2026-10-30 · Status: Accepted · Amends [0081](0081-the-cleanup-ignores-the-steps-own-out-doc.md) (where the out doc's name is found, and the key of `Claims.outDocs`) · Amended by [0309](0309-the-attempt-plans-find-every-brewer-in-the-recipe-its-attempt-was-scheduled-under.md)
 
 ## Context
 ADR 0081 lets the cleanup remove a worktree whose only change is its step's untracked out doc.

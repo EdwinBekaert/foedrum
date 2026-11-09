@@ -1,6 +1,6 @@
 # 0330. A Stuck batch's status comment is edited at once, and `foedrum brew` ticks once more before it exits
 
-Date: 2026-11-06 · Status: Accepted · Amends [0072](0072-the-status-comment-edits-as-revisions-in-the-ledger.md) (which revisions are due at once), [0275](0275-a-finished-plan-waits-stuck-for-its-review-and-every-comment-links-the-doc-it-sums-up.md) (the one tick more after a batch sticks is no longer only a plan's) and [0123](0123-foedrum-brew-drives-one-batch-under-an-owner-of-its-own.md) (brew ticks once more before it stops on a Stuck, and a stop in that tick exits 1)
+Date: 2026-11-06 · Status: Accepted · Amends [0072](0072-the-status-comment-edits-as-revisions-in-the-ledger.md) (which revisions are due at once), [0275](0275-a-finished-plan-waits-stuck-for-its-review-and-every-comment-links-the-doc-it-sums-up.md) (the one tick more after a batch sticks is no longer only a plan's) and [0123](0123-foedrum-brew-drives-one-batch-under-an-owner-of-its-own.md) (brew ticks once more before it stops on a Stuck, and a stop in that tick exits 1) · Amended by [0355](0355-a-recipe-choice-and-a-brew-s-start-show-on-the-brewery-issue-at-once.md)
 
 ## Context
 In the self-brew trial (#374, #863), batch `foedrum-855` went Stuck at 17:01:15. Its label became `foedrum:stuck`, while its status comment, last edited at 17:00:35, still read Brewing with `survey` running and had no `Next:` line. It caught up only when the next run started.

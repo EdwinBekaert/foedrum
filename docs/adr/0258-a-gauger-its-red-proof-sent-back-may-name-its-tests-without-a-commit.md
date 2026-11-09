@@ -1,6 +1,6 @@
 # 0258. A Gauger its red proof sent back may name its tests without a commit
 
-Date: 2026-10-30 · Status: Accepted · Amends [0074](0074-git-commit-grants-fixed-git-rules-and-done-needs-a-commit.md) (a `gauge` out doc's `done` that names its tests needs no commit in a round a failed red proof of its step sent back), [0170](0170-the-red-proof-accepts-the-regression-tests-a-gauger-names.md) (the names such a `done` gives are the ones the next red proof reads)
+Date: 2026-10-30 · Status: Accepted · Amends [0074](0074-git-commit-grants-fixed-git-rules-and-done-needs-a-commit.md) (a `gauge` out doc's `done` that names its tests needs no commit in a round a failed red proof of its step sent back), [0170](0170-the-red-proof-accepts-the-regression-tests-a-gauger-names.md) (the names such a `done` gives are the ones the next red proof reads) · Amended by [0274](0274-the-red-proof-reads-line-coverage-of-the-change-and-a-test-map-not-test-names.md) and [0297](0297-the-red-proof-reads-a-test-map-only-and-a-test-first-batch-with-none-is-stuck-before-its-first-step.md)
 
 ## Context
 A `done` of a brewer that produces commits needs a commit after its worktree's start, or its batch goes Stuck on a divergence ([ADR 0074](0074-git-commit-grants-fixed-git-rules-and-done-needs-a-commit.md)); a Finer that says `unchanged` is the one exception ([ADR 0166](0166-the-finer-simplifies-a-batch-s-change-before-green.md)).

@@ -1,6 +1,6 @@
 # 0327. A pass over one batch's effects that throws stops no other batch
 
-Date: 2026-11-05 · Status: Accepted · Amends [0250](0250-the-supervisor-is-one-tick-the-commands-own-the-interval.md) (a throw in the pass over one batch's effects no longer reaches `tick_failed`) and [0225](0225-a-ready-pull-request-gets-a-merge-brief.md) (a merge brief shows nothing of a recipe the batch left)
+Date: 2026-11-05 · Status: Accepted · Amends [0250](0250-the-supervisor-is-one-tick-the-commands-own-the-interval.md) (a throw in the pass over one batch's effects no longer reaches `tick_failed`) and [0225](0225-a-ready-pull-request-gets-a-merge-brief.md) (a merge brief shows nothing of a recipe the batch left) · Amended by [0328](0328-one-batch-s-error-stops-no-other-in-the-supervisor-or-the-drive.md) and [0335](0335-a-batch-that-keeps-failing-is-marked-after-an-hour-and-stuck-when-a-reading-hides-its-deadline.md)
 
 ## Context
 A batch's folded steps keep the attempts of every recipe it brewed, and a recipe throws when asked about a step it lacks.

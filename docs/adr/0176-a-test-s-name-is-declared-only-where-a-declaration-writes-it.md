@@ -1,6 +1,6 @@
 # 0176. A test's name is declared only where a declaration writes it
 
-Date: 2026-10-24 · Status: Accepted · Amends [0078](0078-the-red-proof-reads-the-test-report-and-testsunchanged-compares-lines.md) (which reported tests are the proven step's), [0170](0170-the-red-proof-accepts-the-regression-tests-a-gauger-names.md) (how a regression name is matched)
+Date: 2026-10-24 · Status: Accepted · Amends [0078](0078-the-red-proof-reads-the-test-report-and-testsunchanged-compares-lines.md) (which reported tests are the proven step's), [0170](0170-the-red-proof-accepts-the-regression-tests-a-gauger-names.md) (how a regression name is matched) · Superseded by [0274](0274-the-red-proof-reads-line-coverage-of-the-change-and-a-test-map-not-test-names.md) · Amended by [0178](0178-a-name-before-a-parenthesis-declares-a-test-only-where-no-call-can-stand.md)
 
 ## Context
 The red proof finds the tests the proven step added by looking up each reported test's name in the lines the step added ([ADR 0078](0078-the-red-proof-reads-the-test-report-and-testsunchanged-compares-lines.md)).

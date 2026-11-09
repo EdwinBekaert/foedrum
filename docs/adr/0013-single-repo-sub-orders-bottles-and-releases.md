@@ -1,6 +1,6 @@
 # 0013. Single-repository sub-orders, bottles and release dependencies
 
-Date: 2026-10-13 · Status: Accepted · Amended by [0043](0043-target-repository-issues-as-a-work-queue-claimed-by-a-ref.md)
+Date: 2026-10-13 · Status: Accepted · Amended by [0043](0043-target-repository-issues-as-a-work-queue-claimed-by-a-ref.md), [0211](0211-the-intake-starts-ready-sub-orders-at-their-order-s-rank-once-their-blockers-merged.md), [0216](0216-a-release-blocker-is-done-once-its-repository-is-released-after-its-merge.md), [0223](0223-the-intake-records-a-release-that-holds-a-waiting-release-blocker-s-merge.md), [0291](0291-a-release-blocked-sub-order-s-brewers-read-the-release-it-waited-for-as-written.md) and [0292](0292-the-pull-requests-of-one-order-name-each-other-and-the-merge-order.md)
 
 ## Context
 In enterprise codebases a solution usually changes several repositories, and repositories depend on each other through published libraries: a change in a library must be merged, built and released before the consuming repository can use it. Teams also want control over what goes into a pull request — sometimes one small change, sometimes several together.

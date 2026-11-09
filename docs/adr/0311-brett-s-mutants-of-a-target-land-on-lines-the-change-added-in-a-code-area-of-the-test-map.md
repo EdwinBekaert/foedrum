@@ -1,6 +1,6 @@
 # 0311. Brett's mutants of a target land on lines the change added, in a code area of the test map
 
-Date: 2026-11-03 · Status: Accepted · Amends [0034](0034-brett-mutants-as-structured-line-edits.md) (where a target's mutant may land, and the word rule in any language) and [0040](0040-brett-covers-scripts-and-kills-need-a-failing-test.md) (`src/` and `scripts/` stay the rule of Foedrum's own reviews only)
+Date: 2026-11-03 · Status: Accepted · Amends [0034](0034-brett-mutants-as-structured-line-edits.md) (where a target's mutant may land, and the word rule in any language) and [0040](0040-brett-covers-scripts-and-kills-need-a-failing-test.md) (`src/` and `scripts/` stay the rule of Foedrum's own reviews only) · Amended by [0313](0313-the-engine-runs-brett-s-mutants-in-scratch-trees-against-a-fresh-baseline.md), [0314](0314-a-brett-mutant-that-changes-only-a-comment-changes-nothing.md) and [0341](0341-a-mutant-can-land-inside-a-template-literal.md)
 
 ## Context
 [ADR 0034](0034-brett-mutants-as-structured-line-edits.md) gives a mutant's shape, `{ file, line, original, replacement, description }`, and its validity: a file under `src/`, a line whose text is `original`, and a replacement that adds no identifier or string.

@@ -1,6 +1,6 @@
 # 0006. Brewers never ask questions mid-run
 
-Date: 2026-10-13 · Status: Accepted · Amended by [0118](0118-retrymode-resume-loads-and-an-answer-resumes-the-session-that-asked.md)
+Date: 2026-10-13 · Status: Accepted · Amended by [0118](0118-retrymode-resume-loads-and-an-answer-resumes-the-session-that-asked.md), [0222](0222-a-recipe-s-brewer-step-may-be-interactive.md) and [0232](0232-foedrum-mash-routes-an-issue-to-the-innkeeper-whose-question-the-answer-chooses-the-recipe-by.md)
 
 ## Context
 In a headless session there is nobody to answer an interactive question. With a permission mode that never prompts, an `AskUserQuestion` call is either denied or leaves the session parked, and the orchestrator must detect, queue and resume it — a major source of stuck pipelines.

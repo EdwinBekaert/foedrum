@@ -1,6 +1,6 @@
 # 0205. `stop` makes an order's brewing batches Stuck at once, and `retry` continues them
 
-Date: 2026-10-26 · Status: Accepted · Amends [0202](0202-pause-and-continue-hold-an-order-or-the-whole-brewery-at-its-next-convenient-point.md) (`stop` beside `pause` and `continue`), [0019](0019-interactive-sessions-and-one-command-layer.md) (one more typed command, `stop`), [0025](0025-batch-lifecycle-stuck-reminders-and-rewind.md) (a new Stuck reason, `stopped`) and [0030](0030-only-commands-that-change-state-are-recorded.md) (one more recorded command)
+Date: 2026-10-26 · Status: Accepted · Amends [0202](0202-pause-and-continue-hold-an-order-or-the-whole-brewery-at-its-next-convenient-point.md) (`stop` beside `pause` and `continue`), [0019](0019-interactive-sessions-and-one-command-layer.md) (one more typed command, `stop`), [0025](0025-batch-lifecycle-stuck-reminders-and-rewind.md) (a new Stuck reason, `stopped`) and [0030](0030-only-commands-that-change-state-are-recorded.md) (one more recorded command) · Amended by [0302](0302-a-stopped-attempt-s-end-is-recorded-and-its-retry-resumes-its-session-and-spends-no-attempt.md) and [0329](0329-one-number-per-piece-of-work.md)
 
 ## Context
 `pause` holds an order and lets what runs end at its next convenient point, or at `--by` ([ADR 0202](0202-pause-and-continue-hold-an-order-or-the-whole-brewery-at-its-next-convenient-point.md)).

@@ -1,6 +1,6 @@
 # 0192. A findings route that runs out of rounds goes Stuck with the open findings
 
-Date: 2026-10-25 · Status: Accepted · Amends [0025](0025-batch-lifecycle-stuck-reminders-and-rewind.md) (what a Stuck reason holds and shows) and [0161](0161-lens-steps-run-a-taster-whose-findings-are-advisory-unless-the-step-blocks.md) (the end of a blocking lens step's rounds)
+Date: 2026-10-25 · Status: Accepted · Amends [0025](0025-batch-lifecycle-stuck-reminders-and-rewind.md) (what a Stuck reason holds and shows) and [0161](0161-lens-steps-run-a-taster-whose-findings-are-advisory-unless-the-step-blocks.md) (the end of a blocking lens step's rounds) · Amended by [0220](0220-a-taster-s-step-can-run-several-lenses-together.md), [0221](0221-foedrum-lenses-reports-each-lens-s-findings-their-ends-and-its-tokens.md) and [0354](0354-every-finding-of-a-taster-goes-back-along-one-on-findings-route.md)
 
 ## Context
 When a blocking lens step's findings route has used its `maxRounds`, `decide` makes the batch Stuck as `blocked` by `findings`, with the Taster's one-line summary (`recipe.loopBack`). The status comment and `foedrum stuck` show that summary and the usual options: retry, skip, rewind, cancel. They do not list which findings are still open, and nothing says that a change which keeps failing its review may need planning again or splitting rather than another try (#261). The maintainer chose (2026-10-25) that the batch stays Stuck, as today, rather than opening a draft pull request: a lens that blocks keeps the change from leaving until someone decides.

@@ -1,6 +1,6 @@
 # 0248. A retry is told why the attempt before it failed
 
-Date: 2026-10-28 · Status: Accepted · Amends [0117](0117-a-retry-resumes-the-session-of-the-attempt-before-it-in-that-attempt-s-worktree.md) (a resumed retry gets one input) and [0118](0118-retrymode-resume-loads-and-an-answer-resumes-the-session-that-asked.md) (a resumed retry after an answered round gets it too)
+Date: 2026-10-28 · Status: Accepted · Amends [0117](0117-a-retry-resumes-the-session-of-the-attempt-before-it-in-that-attempt-s-worktree.md) (a resumed retry gets one input) and [0118](0118-retrymode-resume-loads-and-an-answer-resumes-the-session-that-asked.md) (a resumed retry after an answered round gets it too) · Amended by [0338](0338-a-resumed-session-hears-the-comments-made-since-it-last-read-them.md)
 
 ## Context
 A retry of a failed attempt starts fresh, with its brewer's inputs, or resumes the session before it ([ADR 0117](0117-a-retry-resumes-the-session-of-the-attempt-before-it-in-that-attempt-s-worktree.md)).

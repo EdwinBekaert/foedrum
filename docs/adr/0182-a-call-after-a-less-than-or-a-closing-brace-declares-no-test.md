@@ -1,6 +1,6 @@
 # 0182. A call after a less-than or a closing brace declares no test
 
-Date: 2026-10-25 · Status: Accepted · Amends [0178](0178-a-name-before-a-parenthesis-declares-a-test-only-where-no-call-can-stand.md) (two characters join the list of what opens an expression)
+Date: 2026-10-25 · Status: Accepted · Amends [0178](0178-a-name-before-a-parenthesis-declares-a-test-only-where-no-call-can-stand.md) (two characters join the list of what opens an expression) · Superseded by [0274](0274-the-red-proof-reads-line-coverage-of-the-change-and-a-test-map-not-test-names.md)
 
 ## Context
 The red proof counts an identifier right before `(` as a test's declaration only where something stands before it on its line that does not end in an expression's opening ([ADR 0178](0178-a-name-before-a-parenthesis-declares-a-test-only-where-no-call-can-stand.md)).

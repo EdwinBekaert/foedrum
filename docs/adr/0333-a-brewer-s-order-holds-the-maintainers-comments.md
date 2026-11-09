@@ -1,6 +1,6 @@
 # 0333. A brewer's order holds the maintainers' comments
 
-Date: 2026-11-06 · Status: Accepted · Amends [0276](0276-the-order-a-review-reads-holds-its-recorded-scope-decisions.md) (a Brewery's Taster gets the comments now), [0041](0041-untrusted-input-in-per-prompt-nonce-tags.md) (what a comment's `source` says, and that comments enter by association, not by the allow-list), [0052](0052-github-reads-rate-limit-pauses-and-the-polling-interval.md) (a list reads on from a full page that answers 304), [0063](0063-foedrum-serve-its-configuration-and-wiring.md) (what the `order` input is) and [0332](0332-tasting-compare-real-re-tastes-brewed-heads-and-writes-blinded-lists.md) (a third setup of `--real`)
+Date: 2026-11-06 · Status: Accepted · Amends [0276](0276-the-order-a-review-reads-holds-its-recorded-scope-decisions.md) (a Brewery's Taster gets the comments now), [0041](0041-untrusted-input-in-per-prompt-nonce-tags.md) (what a comment's `source` says, and that comments enter by association, not by the allow-list), [0052](0052-github-reads-rate-limit-pauses-and-the-polling-interval.md) (a list reads on from a full page that answers 304), [0063](0063-foedrum-serve-its-configuration-and-wiring.md) (what the `order` input is) and [0332](0332-tasting-compare-real-re-tastes-brewed-heads-and-writes-blinded-lists.md) (a third setup of `--real`) · Amended by [0338](0338-a-resumed-session-hears-the-comments-made-since-it-last-read-them.md)
 
 ## Context
 A brewer's `order` input was the issue's body and nothing else (`githubOrderText`).

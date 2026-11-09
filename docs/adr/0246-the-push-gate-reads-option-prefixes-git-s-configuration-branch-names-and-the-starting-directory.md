@@ -1,6 +1,6 @@
 # 0246. The push gate reads option prefixes, git's configuration, branch names and the directory a push starts in
 
-Date: 2026-10-28 · Status: Accepted · Amends [0045](0045-the-local-gate-reads-commands-as-the-shells-would.md) (push's long options by prefix, `--prune`, git's configuration), [0104](0104-the-gate-checks-the-tree-a-command-pushes.md) (the starting directory) and [0114](0114-the-gate-blocks-words-on-a-personal-denylist-in-what-leaves-the-machine.md) (branch names and refspec destinations)
+Date: 2026-10-28 · Status: Accepted · Amends [0045](0045-the-local-gate-reads-commands-as-the-shells-would.md) (push's long options by prefix, `--prune`, git's configuration), [0104](0104-the-gate-checks-the-tree-a-command-pushes.md) (the starting directory) and [0114](0114-the-gate-blocks-words-on-a-personal-denylist-in-what-leaves-the-machine.md) (branch names and refspec destinations) · Amended by [0256](0256-the-push-gate-reads-git-s-option-values-and-checks-a-push-behind-an-option-it-does-not-know.md)
 
 ## Context
 The audit of `b01300bb` ([ADR 0245](0245-brew-audit-a-read-only-audit-of-the-code-at-every-last-call.md)) and its review found five ways a `git push` gets past what the gate says it blocks (#613):

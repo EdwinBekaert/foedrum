@@ -1,6 +1,6 @@
 # 0018. House yeast in three layers
 
-Date: 2026-10-14 · Status: Accepted · Amends [0015](0015-house-yeast.md) · Amended by [0041](0041-untrusted-input-in-per-prompt-nonce-tags.md) and [0122](0122-house-yeast-for-foedrum-s-own-reviews-candidates-in-the-main-checkout-rules-per-lens.md)
+Date: 2026-10-14 · Status: Accepted · Amends [0015](0015-house-yeast.md) · Amended by [0041](0041-untrusted-input-in-per-prompt-nonce-tags.md), [0122](0122-house-yeast-for-foedrum-s-own-reviews-candidates-in-the-main-checkout-rules-per-lens.md), [0169](0169-house-yeast-rules-reach-a-batch-s-brewers-by-scope-and-lens.md), [0274](0274-the-red-proof-reads-line-coverage-of-the-change-and-a-test-map-not-test-names.md), [0282](0282-a-stale-test-map-sends-back-the-change-that-made-it-and-the-maltster-surveys-a-new-one.md) and [0315](0315-a-rule-reviews-keep-recording-after-it-was-proposed-is-a-candidate-for-a-promotion-review.md)
 
 ## Context
 [ADR 0015](0015-house-yeast.md) keeps all learned rules in the Brewery's `house-yeast/`. Many lessons, however, are about one repository's code ("in `billing/`, amounts are integers in cents"). Stored in the Brewery, such a rule is separated from the code it describes: a refactoring in the repository does not touch it, the repository's owners never review it, and a second team running Foedrum on the same repository does not see it. Other lessons hold for every repository of an organisation, and a few hold everywhere.

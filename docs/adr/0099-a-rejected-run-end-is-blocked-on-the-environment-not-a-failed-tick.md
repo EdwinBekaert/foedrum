@@ -1,6 +1,6 @@
 # 0099. A rejected run end is blocked on the environment, not a failed tick
 
-Date: 2026-10-20 · Status: Accepted · Amends [0028](0028-brewer-runner-outcomes-environment-and-test-first.md)
+Date: 2026-10-20 · Status: Accepted · Amends [0028](0028-brewer-runner-outcomes-environment-and-test-first.md) · Amended by [0328](0328-one-batch-s-error-stops-no-other-in-the-supervisor-or-the-drive.md) and [0335](0335-a-batch-that-keeps-failing-is-marked-after-an-hour-and-stuck-when-a-reading-hides-its-deadline.md)
 
 ## Context
 [ADR 0028](0028-brewer-runner-outcomes-environment-and-test-first.md) makes every attempt end through `settleAttempt`, from the facts the runner gathered, and says what happens when the runner dies with its process: nothing is recorded, nobody renews the lease, and the supervisor loses and retries the attempt ([ADR 0027](0027-supervisor-lost-and-stalled-attempts.md)). It does not say what happens when the runner stays alive but its `ended` promise rejects: the stream reader, the out doc read or the commit count threw instead of turning what it saw into facts.

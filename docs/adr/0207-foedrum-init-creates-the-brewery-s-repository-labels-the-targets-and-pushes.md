@@ -1,6 +1,6 @@
 # 0207. `foedrum init` creates the Brewery's repository, labels the targets and pushes the files
 
-Date: 2026-10-26 · Status: Accepted · Amends [0199](0199-foedrum-init-writes-a-brewery-s-files-in-its-clone.md) (init runs outside a clone too, and ends with the labels and a push)
+Date: 2026-10-26 · Status: Accepted · Amends [0199](0199-foedrum-init-writes-a-brewery-s-files-in-its-clone.md) (init runs outside a clone too, and ends with the labels and a push) · Amended by [0210](0210-foedrum-init-writes-the-foedrum-command-into-a-user-folder-on-the-path.md) and [0212](0212-foedrum-init-takes-every-answer-as-an-option-and-foedrum-init-asks-them-in-a-session.md)
 
 ## Context
 [ADR 0199](0199-foedrum-init-writes-a-brewery-s-files-in-its-clone.md) has `foedrum init` write a Brewery's files in an existing clone and run `foedrum doctor`. The user still creates the repository on GitHub, clones it, creates the intake label ([ADR 0068](0068-the-intake-in-foedrum-serve-brewery-orders-and-routing-by-label.md)) in each target repository, and commits and pushes the files. The maintainer settled the questions and their defaults on #404 (2026-10-25): the Brewery's name defaults to `<login>/foedrum-brewery` and the repository is private by default; the intake label is created in each target repository after asking once per repository, with a description, and a no prints the one gh command to run later. #512 is that part; the `foedrum` shim on the PATH is #529, and `/foedrum:init` is #530.

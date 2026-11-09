@@ -1,6 +1,6 @@
 # 0054. Test runs below normal priority, and review runs scoped to their question
 
-Date: 2026-10-16 · Status: Accepted · Amends [0034](0034-brett-mutants-as-structured-line-edits.md), [0036](0036-test-budget-in-cpu-time.md) and [0040](0040-brett-covers-scripts-and-kills-need-a-failing-test.md) · Amended by [0089](0089-a-file-over-the-test-budget-is-measured-again-alone.md), [0134](0134-the-red-proof-runs-once-the-review-drops-its-coverage-delta-and-property-and-chaos-run-on-one-leg-per-pull-request.md) and [0150](0150-mutant-tests-drops-its-coverage-option.md)
+Date: 2026-10-16 · Status: Accepted · Amends [0034](0034-brett-mutants-as-structured-line-edits.md), [0036](0036-test-budget-in-cpu-time.md) and [0040](0040-brett-covers-scripts-and-kills-need-a-failing-test.md) · Amended by [0089](0089-a-file-over-the-test-budget-is-measured-again-alone.md), [0134](0134-the-red-proof-runs-once-the-review-drops-its-coverage-delta-and-property-and-chaos-run-on-one-leg-per-pull-request.md), [0150](0150-mutant-tests-drops-its-coverage-option.md), [0171](0171-brett-s-mutants-run-against-their-file-s-direct-tests-first.md), [0249](0249-the-push-gate-runs-no-tests.md) and [0303](0303-brett-s-mutants-run-only-the-test-files-that-cover-their-line.md)
 
 ## Context
 On 2026-10-16 four parallel issue sessions each spent 52–65 of 90 minutes waiting on test runs, against 17–25 minutes of model time (#140). The machine was not the limit (18 % CPU on average), the scope of the runs was:

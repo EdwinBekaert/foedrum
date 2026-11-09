@@ -1,6 +1,6 @@
 # 0262. A string literal declares a test only in a file that declares a test at the step's tip
 
-Date: 2026-10-30 · Status: Accepted · Amends [0078](0078-the-red-proof-reads-the-test-report-and-testsunchanged-compares-lines.md) (the step's tests are found by a string literal only in its test files, read at its tip, and `t.Run(` is a declaration), [0176](0176-a-test-s-name-is-declared-only-where-a-declaration-writes-it.md) (the whole-string-literal form counts only in a file that declares a test at the step's tip)
+Date: 2026-10-30 · Status: Accepted · Amends [0078](0078-the-red-proof-reads-the-test-report-and-testsunchanged-compares-lines.md) (the step's tests are found by a string literal only in its test files, read at its tip, and `t.Run(` is a declaration), [0176](0176-a-test-s-name-is-declared-only-where-a-declaration-writes-it.md) (the whole-string-literal form counts only in a file that declares a test at the step's tip) · Superseded by [0274](0274-the-red-proof-reads-line-coverage-of-the-change-and-a-test-map-not-test-names.md)
 
 ## Context
 The red proof finds the tests a step added by looking up each reported leaf name in the lines the step added, in any file of its diff, in the forms [ADR 0176](0176-a-test-s-name-is-declared-only-where-a-declaration-writes-it.md) lists ([ADR 0078](0078-the-red-proof-reads-the-test-report-and-testsunchanged-compares-lines.md)).
