@@ -33,10 +33,7 @@ describe('runServe', () => {
   // Serve runs the same way each time, so the tests share one run of 40 minutes, made by the first
   // test that asks, and each reads the minutes it looks at (#960).
   let run: ReturnType<typeof servedFor> | undefined;
-  const served = () => {
-    run ??= servedFor(40);
-    return run;
-  };
+  const served = () => (run ??= servedFor(40));
 
   describe('once its work is done and it only waits (#873)', () => {
     // The one order is brewed, on tap and cleaned in the first minutes; what comes after is idle.
