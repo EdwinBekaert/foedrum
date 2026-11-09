@@ -14,7 +14,7 @@ The setup command is not a brewer field: it depends on the repository, so it is 
 | Field | Purpose |
 |---|---|
 | `name` | Unique id, referenced by recipes |
-| `description` | When to use this brewer; read by the router and shown in docs |
+| `description` | When to use this brewer; shown in docs, and to be read by a router once one is built ([routing](../intake/routing.md)) |
 | `version` | Bumped on change; changes are evaluated before adoption |
 
 **Prompt**
