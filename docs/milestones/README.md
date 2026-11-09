@@ -7,7 +7,7 @@ has a page here that says what it built, written by its last call.
 
 Closing a milestone starts with `/brew-last-call <milestone>` in Claude Code
 (`.claude/skills/brew-last-call/`): it proposes what to do with the milestone's open issues,
-writes or updates the milestone's page, audits and measures Foedrum's own instruction files, and
+writes or updates the milestone's page, checks the design pages against its ADRs, audits and measures Foedrum's own instruction files, and
 puts every proposed change in one draft pull request. The skill says what the page holds. The milestone closes after that pull request is merged and no open issue blocks its exit
 criterion.
 
