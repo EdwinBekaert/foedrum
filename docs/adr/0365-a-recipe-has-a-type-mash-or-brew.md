@@ -1,6 +1,6 @@
 # 0365. A recipe has a type, mash or brew
 
-Date: 2026-11-10 · Status: Accepted · Amends [0285](0285-an-approved-plan-becomes-brewery-sub-issues-through-the-ledger.md) (a sub-order's recipe is one of type `brew`, not one outside a list of names), [0232](0232-foedrum-mash-routes-an-issue-to-the-innkeeper-whose-question-the-answer-chooses-the-recipe-by.md) and [0234](0234-the-brewmaster-writes-a-plan-on-the-planner-alias-and-mash-runs-it.md) (what the recipes input lists)
+Date: 2026-11-10 · Status: Accepted · Amends [0285](0285-an-approved-plan-becomes-brewery-sub-issues-through-the-ledger.md) (a sub-order's recipe is one of type `brew`, not one outside a list of names), [0232](0232-foedrum-mash-routes-an-issue-to-the-innkeeper-whose-question-the-answer-chooses-the-recipe-by.md) and [0234](0234-the-brewmaster-writes-a-plan-on-the-planner-alias-and-mash-runs-it.md) (what the recipes input lists), [0295](0295-foedrum-status-order-shows-planning-tokens-apart-from-brewing-tokens.md) (what counts as planning: a recipe of type `mash`, not a list of names) and [0321](0321-mash-and-decoction-review-a-plan-through-the-plan-lenses-apart.md) (a plan lens is offered the recipes of type `brew`, and `PLANNING_RECIPES` is gone)
 
 ## Context
 A recipe did not say what kind of work it does.
