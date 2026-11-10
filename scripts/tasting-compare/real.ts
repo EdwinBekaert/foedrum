@@ -37,7 +37,7 @@ export const REAL_ORDERS = [
 /** The commit whose `taster.md` the `today` setup tastes with. */
 export const TODAY_COMMIT = '765cc856';
 /**
- * The Taster every setup but `today` starts from, in the real fixture's folder: the default's text
+ * The Taster every setup but `today`, `nip`, `deep` and `apart7` starts from, in the real fixture's folder: the default's text
  * before ADR 0352, the last that told a diff Taster to read the rules, so each setup means what it
  * meant when it was measured.
  */
@@ -120,7 +120,7 @@ export const orderOf = (setup: RealSetup): (typeof REAL_ORDERS)[number] => {
   return found;
 };
 
-/** The recipe of every setup but `lens` and the together setups. */
+/** The recipe of every setup but `lens`, the together setups, `nip`, `deep` and `apart7`. */
 export const REAL_RECIPE = 'real-nip';
 /** The recipe of the `lens` setup (ADR 0337). */
 const REAL_LENS_RECIPE = 'real-nip-lens';
