@@ -26,7 +26,8 @@ The full recipe has four stages, each added by its own issue: readiness (#373), 
 - **The default Gauger adds a test per survivor.** Its prompt says that when `{route}` lists mutants the tests let survive, it adds a test for each that fails for the missing behaviour and would catch the mutant once the code is written, reading the mutant's line in `{route}`, since its worktree has no code; its `version` is 13.
   `nip` never sends a Brett route, so its runs do not change.
 - **Then one Taster through all seven diff lenses together** ([ADR 0220](0220-a-taster-s-step-can-run-several-lenses-together.md)), the step `taste`, on the `planner` alias, at the Taster's own effort, every finding going back to Cellarman, twice at most in each run ([ADR 0354](0354-every-finding-of-a-taster-goes-back-along-one-on-findings-route.md)), and then the pull request, whose failing checks go back to Cellarman twice at most, as `nip`'s do ([ADR 0219](0219-a-failing-check-on-an-open-pull-request-sends-its-batch-back-to-a-fix-step.md)).
-  One Opus session uses fewer tokens than several: on #879's heads, three lenses together on Opus found the main defect in 3 of 3 runs at 296k tokens per batch on average, against 589k for three Sonnet Tasters apart (3 of 3) and 410k for three together on Sonnet (1 of 3, #936).
+  On #867 it was the only setup measured that found more: 2.0 per run against 1.5 for `nip`'s four Tasters and for seven Sonnet Tasters apart, at about 1.4 times `nip`'s review cost, with Opus at twice Sonnet's price per token (Measured, below).
+  Background: on #879's heads, three lenses together on Opus found the main defect in 3 of 3 runs, as three Sonnet Tasters apart did, and three together on Sonnet in 1 of 3 (#936).
   That was at the Taster's medium effort, so `deep-brew` names no effort.
 - **Brett before the Taster.** A survivor round writes the code again from the red proof's tip, so a Brett step after the Taster would throw away the Taster's fixes in every survivor round.
   Before it, the expensive Opus Taster runs only once the survivors are settled, and it reviews the tests their round added.
@@ -59,7 +60,7 @@ A finding the scorer judged part of a key item counts 0.5.
 Tokens per batch are an estimate until a real `deep-brew` batch runs, which the maintainer does after the merge.
 The eight `nip` batches of the self-brew trial in the maintainer's Brewery used 1.10M to 22.5M tokens each, a median of about 2.4M; the store's 35 Taster attempts averaged about 143k, about 0.57M for `nip`'s four.
 So a `deep-brew` batch with no round back is about 2.4M − 0.57M + 1.10M for its Taster + about 0.2M for Brett ≈ 3.1M; Brett's share is a guess, since no Brett step has run in a Brewery yet, and its test runs spend no tokens.
-On #867 `nip`'s four Tasters measured 1.58M, well above that average, so on such a head `deep-brew`'s tasting uses fewer tokens than `nip`'s.
+On #867 `nip`'s four Tasters measured 1.58M, well above that average, so on such a head `deep-brew`'s tasting uses fewer tokens than `nip`'s, yet costs about 1.4 times as much, its tokens being Opus's.
 
 ## Consequences
 - An order that can reach a lot gets every diff lens and Brett's mutants in the engine, as `/brew-review` gives Foedrum's own pull requests.
@@ -76,6 +77,7 @@ A Brewery with its own Gauger that uses `deep-brew` should add the default Gauge
 ## Alternatives considered
 - **Brett after the Taster.** Each survivor round would throw away the Taster's fixes, since the code is written again from the red proof's tip.
 - **Survivors back to Cellarman.** Cellarman may not change a test file the base holds ([ADR 0358](0358-an-older-test-changes-only-in-the-gauger-s-red-commit.md)), and a test it adds would come after the code in the history.
-- **Seven Tasters apart, or the lenses on Sonnet.** Apart on Sonnet cost twice the tokens of three together on Opus for the same catch; together on Sonnet lost the main defect in 2 of 3 runs (#936).
+- **Seven Tasters apart, on Sonnet** (the `apart7` setup). On #867 it scored as `nip` did (1.5 per run) at the same cost, its test-design Taster missed the test that cannot see the fix in 3 of 3 runs, which `deep` found in 3 of 3, and its three added Tasters opened no file beyond the diff in 8 of their 9 attempts.
+- **The lenses together on Sonnet.** Three together on Sonnet lost the main defect in 2 of 3 runs on #879's heads (#936).
 - **Brett inside the taste group.** A parallel group runs only Tasters ([ADR 0168](0168-a-parallel-group-runs-its-lens-steps-side-by-side.md)).
 - **Choose the recipe by a list of paths or a size rule.** The maintainer chose guidance a model reads and a person confirms (#977).
