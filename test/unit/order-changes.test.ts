@@ -574,6 +574,50 @@ describe('an order whose issue changed after its approval (ADR 0368)', () => {
     assert.deepStrictEqual([next?.phase, next?.retry], ['scheduled', true]);
   });
 
+  it('continue in a parallel group schedules its other children again, so the group can settle', async () => {
+    const route = { kind: 'route', batchId: 'app-9', recipe: 'taste', reason: 'label' } as const;
+    const order = {
+      kind: 'order',
+      batchId: 'app-9',
+      order: { issue: 9, repo: 'acme/app' },
+    } as const;
+    assert.equal(log.issue(order, t0).kind, 'accepted');
+    assert.equal(log.issue({ ...route, source: 'label' }, t0).kind, 'accepted');
+    log.issue({ kind: 'cancel', batchId, ...by }, t0);
+    activity = { ...approved(), edited: [{ by: 'stranger', at: after }] };
+    const { runner, started } = handRunner();
+    const driver = await open(runner);
+    await driver.tick();
+    assert.equal(driver.state().batches.get('app-9')?.lane.kind, 'stuck');
+    const decision = log.issue(
+      {
+        kind: 'answer',
+        batchId: 'app-9',
+        ...by,
+        answers: [{ q: ORDER_CHANGED_QUESTION, answer: 'continue' }],
+      },
+      t0,
+    );
+    assert.equal(decision.kind, 'accepted');
+    await driver.tick();
+    assert.deepStrictEqual(started.map(({ stepId }) => stepId).sort(), ['look', 'smell']);
+  });
+
+  it("a check step's attempt starts without reading the issue", async () => {
+    activity = { ...approved(), edited: [{ by: 'stranger', at: after }] };
+    const { runner, started } = handRunner();
+    await (await open(runner, { brews: () => false })).tick();
+    assert.deepStrictEqual(started, [{ batchId, stepId: 'plan', attempt: 1 }]);
+    assert.deepStrictEqual(reads, []);
+  });
+
+  it('a change in the same second as the approving label asks', async () => {
+    activity = { ...approved(), edited: [{ by: 'stranger', at: labelled }] };
+    const { runner, started } = handRunner();
+    const { changes } = await askedAbout(await open(runner), started);
+    assert.deepStrictEqual(changes, [{ what: 'body', by: 'stranger', at: labelled }]);
+  });
+
   it('refuses any answer but continue or stop, another question, and a second answer, appending nothing', async () => {
     activity = { ...approved(), edited: [{ by: 'stranger', at: after }] };
     const { runner } = handRunner();

@@ -110,6 +110,22 @@ describe('githubOrderActivity', () => {
     ]);
   });
 
+  it('counts the time of the latest edit as an edit by nobody known when no edit of the history has it', async () => {
+    const { activity } = activityWith([
+      { status: 200, body: [] },
+      edits(
+        [{ editedAt: '2026-11-10T09:00:00Z', editor: { login: 'ada' } }],
+        false,
+        '2026-11-10T14:00:00Z',
+      ),
+      { status: 200, body: [] },
+    ]);
+    assert.deepStrictEqual((await activity('acme/web', 7)).edited, [
+      { by: 'ada', at: '2026-11-10T09:00:00Z' },
+      { by: undefined, at: '2026-11-10T14:00:00Z' },
+    ]);
+  });
+
   it('counts the latest edit as by nobody known when the issue has more edits than one page', async () => {
     const { activity } = activityWith([
       { status: 200, body: [] },
