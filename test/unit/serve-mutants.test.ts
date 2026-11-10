@@ -31,6 +31,7 @@ const t0 = new Date('2026-11-03T12:00:00.000Z');
 // The cellarman brews, Brett proposes mutants of its change, and the pull request opens.
 const tasting = JSON.stringify({
   name: 'tasting',
+  type: 'brew',
   description: 'Brews an order, then has Brett mutate its change.',
   steps: [
     { id: 'brew', brewer: 'cellarman' },
@@ -284,6 +285,7 @@ describe('runServe: a Brett step (ADR 0313)', () => {
     // Brett blocks, and its findings go back to brew once; its second round proposes none.
     const blocking = JSON.stringify({
       name: 'tasting',
+      type: 'brew',
       description: 'Brews an order, then has a blocking Brett mutate its change.',
       steps: [
         { id: 'brew', brewer: 'cellarman' },

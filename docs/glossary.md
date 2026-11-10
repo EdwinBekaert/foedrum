@@ -19,7 +19,7 @@ Foedrum borrows its vocabulary from Belgian brewing. A *foeder* is the large oak
 | **Triage source** | Issues in target repositories configured for triage, read by Infection check and turned into Brewery orders |
 | **Rewind** | Continuing a batch from an earlier step; branches reset to that step's commits |
 | **Brewer** | A reusable agent role: prompt, in-docs, out doc, model, effort, tools, permissions, budget, guards |
-| **Recipe** | A pipeline: brewers, checks and actions in order, with loops |
+| **Recipe** | A pipeline: brewers, checks and actions in order, with loops. Its `type` says what kind of work it does: `mash` chooses a recipe or makes a plan and builds nothing (Mash-in, Mash, Decoction); `brew` builds (Nip); a sub-order runs a `brew` recipe ([ADR 0365](adr/0365-a-recipe-has-a-type-mash-or-brew.md)) |
 | **Batch** | One execution of a recipe for one order |
 | **Task tree** | Where a batch's work is: the branch its latest attempt that succeeded committed on (its own worktree's, or for a resumed attempt that of the worktree it ran in), or its latest rewind's commit, else the repository's base; each new worktree starts there, and a resumed attempt runs in the worktree of the session it continues (ADR 0066, ADR 0117) |
 | **Step** | One position in a recipe |

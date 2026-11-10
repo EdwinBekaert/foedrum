@@ -2,6 +2,7 @@
 {
   "$schema": "../../../schemas/recipe.json",
   "name": "half-pint",
+  "type": "brew",
   "description": "Small feature in one repository",
   "testFirst": true,
   "steps": [

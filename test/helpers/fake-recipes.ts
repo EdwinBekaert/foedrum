@@ -8,9 +8,12 @@ import type {
   RouteWhy,
   Stall,
 } from '../../src/engine/recipes.ts';
+import type { RecipeType } from '../../src/schemas/recipe.ts';
 
 export interface FakeRecipe {
   steps: readonly string[];
+  /** What kind of work it does (ADR 0365); default brew. */
+  type?: RecipeType;
   /** The stall limit of every step; default none. */
   stall?: Stall;
   /** Attempts per step before the batch is Stuck; default 2. */
@@ -47,6 +50,7 @@ export const hour = 3_600_000;
 
 export const fakeRecipe = ({
   steps,
+  type = 'brew',
   stall,
   maxAttempts = 2,
   skips = {},
@@ -81,6 +85,7 @@ export const fakeRecipe = ({
       .filter(({ route }) => route?.why === why).length;
   };
   return {
+    type,
     firstStep,
     steps: steps.flatMap((stepId) => groups[stepId] ?? [stepId]),
     has: (stepId) => steps.includes(stepId) || groupOf(stepId) !== undefined,

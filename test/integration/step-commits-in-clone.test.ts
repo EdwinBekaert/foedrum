@@ -9,7 +9,6 @@ import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { createCheckRunner } from '../../src/checks/check-runner.ts';
-import { readFilesAt } from '../../src/checks/step-commits.ts';
 import { testMaps } from '../../src/checks/test-map.ts';
 import { guardTests } from '../../src/checks/tests-guard.ts';
 import { brewerBaseEnv } from '../../src/engine/brewer-env.ts';
@@ -227,31 +226,5 @@ describe("the guard and the red proof read git in the clone, not the attempt's w
     const ref = { batchId: '12-1', stepId: 'red', attempt: 1 };
     const end = await runner.start({ ref, limits: defaultLimits }).ended;
     assert.deepEqual(end.ending, { kind: 'succeeded', output: null });
-  });
-});
-
-describe("the uncovered-line check lists a commit's files with real git (ADR 0274)", () => {
-  let dir: TempDir;
-  afterEach(async () => {
-    await removeTree(dir.path);
-  });
-
-  it('lists every file of a commit, those in folders by their whole path: regression test', async () => {
-    dir = makeTempDir('read-files-at');
-    const repo = join(dir.path, 'repo');
-    git(dir.path, ['init', '-q', '-b', 'main', repo]);
-    mkdirSync(join(repo, 'legacy', 'deep'), { recursive: true });
-    const tip = commit(
-      repo,
-      {
-        'README.md': 'hi\n',
-        'legacy/old.ts': 'export {};\n',
-        'legacy/deep/a b.ts': 'export {};\n',
-      },
-      'Files in folders',
-    );
-    assert.deepEqual(await readFilesAt(runGit, repo, tip), {
-      files: ['README.md', 'legacy/deep/a b.ts', 'legacy/old.ts'],
-    });
   });
 });

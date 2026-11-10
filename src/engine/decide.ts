@@ -442,8 +442,9 @@ function run(draft: Draft, command: Command): Event[] {
     case 'route': {
       requireLane(draft.batch(command.batchId), 'route', ['ordered', 'conditioning']);
       const { batchId, recipe, reason, source } = command;
-      draft.push({ type: 'batch.recipe_chosen', batchId, recipe, reason, source });
-      enter(draft, batchId, find(draft, recipe).firstStep);
+      const { type: recipeType, firstStep } = find(draft, recipe);
+      draft.push({ type: 'batch.recipe_chosen', batchId, recipe, recipeType, reason, source });
+      enter(draft, batchId, firstStep);
       break;
     }
     case 'recipe': {
@@ -451,11 +452,12 @@ function run(draft: Draft, command: Command): Event[] {
       const batch = draft.batch(batchId);
       requireLane(batch, 'recipe', ['ordered', 'conditioning', 'stuck']);
       requireOffer(batch, 'recipe');
-      const { firstStep } = find(draft, recipe);
+      const { type: recipeType, firstStep } = find(draft, recipe);
       draft.push({
         type: 'batch.recipe_chosen',
         batchId,
         recipe,
+        recipeType,
         reason,
         source: 'human',
         by,
@@ -1232,13 +1234,14 @@ function chooseRecipe(
       `step ${stepId} chooses the recipe: answer one of the options: ${options.join(', ')}`,
     );
   }
-  const { firstStep } = find(draft, recipe);
+  const { type: recipeType, firstStep } = find(draft, recipe);
   const taken = recipe === recommended ? 'as suggested' : `not the suggested ${recommended}`;
   draft.push({ type: 'input.received', batchId, stepId, by, via, answers: [...answers] });
   draft.push({
     type: 'batch.recipe_chosen',
     batchId,
     recipe,
+    recipeType,
     reason: `the answer at ${stepId}: ${recipe}, ${taken}`,
     source: 'human',
     by,

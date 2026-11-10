@@ -12,6 +12,7 @@
 {
   "$schema": "../../schemas/recipe.json",
   "name": "nip",
+  "type": "brew",
   "description": "Quick fix in one repository, test-first",
   "steps": [
     // Without a session when the base's map is fresh, or the Brewery keeps it (ADR 0298).
@@ -48,8 +49,8 @@
       "onFail": { "goto": "implement", "maxRounds": 1 }
     },
     // Every finding of every Taster goes back to Cellarman once all four ended, fixed or dismissed
-    // there with a reason, through the Finer and green again: two rounds in all, then the batch is
-    // Stuck with the findings still open (ADR 0192, ADR 0354). A round back runs correctness and
+    // there with a reason, through the Finer and green again: two rounds in each run, then the
+    // batch is Stuck with the findings still open (ADR 0192, ADR 0354, ADR 0369). A round back runs correctness and
     // the Tasters that had findings again; one that found nothing keeps its approval (ADR 0357).
     {
       "id": "taste",

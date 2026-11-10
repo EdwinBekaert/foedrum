@@ -143,6 +143,7 @@ export const ladderRecipeText = (): string =>
   `// The Cellarman, then the pull request: the ladder shows an order's path, not its checks.\n${json(
     {
       name: LADDER_RECIPE,
+      type: 'brew',
       description: 'One change, then its pull request, with no checks',
       testFirst: false,
       steps: [{ id: 'implement', brewer: 'cellarman' }, { action: 'openPullRequest' }],

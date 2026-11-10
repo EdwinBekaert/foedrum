@@ -10,6 +10,14 @@
       "type": "string",
       "pattern": "^(?!(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\\.|$))[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$"
     },
+    "type": {
+      "type": "string",
+      "enum": [
+        "mash",
+        "brew"
+      ],
+      "description": "mash: chooses a recipe or makes a plan, and builds nothing; brew: builds. A sub-order runs a brew recipe (ADR 0365)"
+    },
     "description": {
       "type": "string",
       "pattern": "\\S"
@@ -40,6 +48,7 @@
   },
   "required": [
     "name",
+    "type",
     "description",
     "steps"
   ],

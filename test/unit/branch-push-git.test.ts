@@ -744,6 +744,29 @@ describe('openBranchPush: secretScan (ADR 0079)', () => {
     }
   });
 
+  it('refuses a binary file, which it cannot read, as git 2.56 prints its patch (regression test)', async () => {
+    // Captured from git's log of the patches of a commit that adds a six-byte logo.png.
+    const binary = `\0${TIP}\n\ndiff --git a/logo.png b/logo.png\nnew file mode 100644\nindex 0000000..0df5c99\nBinary files /dev/null and b/logo.png differ\n`;
+    const { git } = recordingGit((args) => {
+      if (args.includes('--format=raw')) return ok(plainHeaders);
+      if (args[0] === 'rev-list') return ok('');
+      return ok(args.includes('--patch') ? binary : `\0${TIP}\nClean\n`);
+    });
+    assert.deepEqual(await openBranchPush({ git, clone }).secretScan(BASE, TIP), [
+      { commit: TIP, place: 'logo.png', kind: 'binary file' },
+    ]);
+  });
+
+  it("reads with the runner's own output limit, 4 MiB, past which it refuses (regression test)", async () => {
+    const { git, calls } = recordingGit(answers);
+    await openBranchPush({ git, clone }).secretScan(BASE, TIP);
+    // No limit of the scan's own: the runner kills git at its default (ADR 0035).
+    assert.deepEqual(
+      calls.map(({ options }) => options?.maxOutputBytes),
+      [undefined, undefined, undefined, undefined, undefined],
+    );
+  });
+
   it('refuses commits it cannot read whole: more than 4 MiB of messages or changes', async () => {
     for (const large of ['messages', 'patches']) {
       const { git } = recordingGit((args) => {

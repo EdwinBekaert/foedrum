@@ -167,7 +167,10 @@ describe('createAttemptPlans: plan', () => {
     const { plans } = setup(undefined, {}, undefined, choosing.brewers);
     const { prompt } = await plans.plan(start);
     // In the order the loader read them, each with its own description.
-    assert.match(prompt, /name="recipes">\n- stout: The stout\.\n- ale: The ale\.\n\n<\//);
+    assert.match(
+      prompt,
+      /name="recipes">\n- stout \(brew\): The stout\.\n- ale \(brew\): The ale\.\n\n<\//,
+    );
     const { schema } = plans.limits(ref).outDoc;
     const asking = (options: string[]) => ({
       status: 'needs_input',

@@ -112,6 +112,13 @@
               "type": "string",
               "pattern": "\\S"
             },
+            "recipeType": {
+              "type": "string",
+              "enum": [
+                "mash",
+                "brew"
+              ]
+            },
             "reason": {
               "type": "string",
               "pattern": "\\S"
@@ -147,6 +154,13 @@
             "recipe": {
               "type": "string",
               "pattern": "\\S"
+            },
+            "recipeType": {
+              "type": "string",
+              "enum": [
+                "mash",
+                "brew"
+              ]
             },
             "reason": {
               "type": "string",

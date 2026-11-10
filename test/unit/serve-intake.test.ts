@@ -278,6 +278,7 @@ describe('runServe', () => {
       for (const batchId of ['12-1', 'web-7']) {
         assert.deepStrictEqual(state().batches.get(batchId)?.recipe, {
           name: 'stout',
+          type: 'brew',
           reason: 'the label recipe:stout',
           source: 'label',
         });

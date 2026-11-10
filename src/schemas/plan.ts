@@ -36,9 +36,6 @@ export const Touch = z.strictObject({
 });
 export type Touch = z.infer<typeof Touch>;
 
-/** The recipes that plan, which a sub-order may not name (ADR 0285). */
-export const PLANNING_RECIPES: readonly string[] = ['mash', 'mash-in', 'decoction'];
-
 /** A sub-order of the plan waits for another's code or for its release, as `Dependency` does. */
 export const PlanDependency = z.strictObject({ on: PlanId, kind: Dependency.shape.kind });
 export type PlanDependency = z.infer<typeof PlanDependency>;
@@ -77,14 +74,6 @@ export const PlannedSubOrder = z
         code: 'custom',
         message: 'A sub-order with a securityMark keeps test-first on: not testFirst false',
         path: ['testFirst'],
-      });
-    }
-    // A sub-order builds: one that needs planning again is marked not ready instead (ADR 0285).
-    if (PLANNING_RECIPES.includes(subOrder.recipe)) {
-      ctx.addIssue({
-        code: 'custom',
-        message: `A sub-order brews, so its recipe may not plan again: not ${PLANNING_RECIPES.join(' or ')}`,
-        path: ['recipe'],
       });
     }
     if (!subOrder.ready && subOrder.refinement === undefined) {
@@ -163,6 +152,26 @@ export const PlanOutDoc = outDocFrontmatter({
   }
 });
 export type PlanOutDoc = z.infer<typeof PlanOutDoc>;
+
+/**
+ * The out doc of a plan attempt whose sub-orders may run with `recipes`, the Brewery's recipes of
+ * type `brew`: a sub-order builds, and one that needs planning again is marked not ready instead
+ * (ADR 0285, ADR 0365).
+ */
+export const planOutDocOf = (recipes: readonly string[]): z.ZodType<PlanOutDoc> =>
+  PlanOutDoc.superRefine((doc, ctx) => {
+    (doc.subOrders ?? []).forEach(({ recipe }, at) => {
+      if (recipes.includes(recipe)) return;
+      ctx.addIssue({
+        code: 'custom',
+        message:
+          recipes.length === 0
+            ? `A sub-order builds, and the Brewery has no recipe of type brew: it has no ${recipe} to run`
+            : `A sub-order builds, so its recipe is one of the Brewery's recipes of type brew, ${recipes.join(', ')}: not ${recipe}`,
+        path: ['subOrders', at, 'recipe'],
+      });
+    });
+  });
 
 /** What a plan's out doc holds once it is done. */
 export interface PlanReport {

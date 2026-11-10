@@ -10,7 +10,7 @@ import { attemptKey } from '../../src/engine/attempt-key.ts';
 import type { AttemptEnd, AttemptStart, BrewerRunner } from '../../src/engine/brewer-runner.ts';
 import type { Git } from '../../src/workspace/git.ts';
 import { NIP_SCRIPT, type Scripted, scriptedNip } from '../../test/helpers/nip-fixture.ts';
-import { IDENTITY, type Life, MASH_ORDER, RECIPE, TARGET } from './core.ts';
+import { FIX_MESSAGE, IDENTITY, type Life, MASH_ORDER, RECIPE, TARGET } from './core.ts';
 
 export interface DemoBrewersOptions {
   /** The attempt's plan, serve's own: its worktree and its prompt. */
@@ -71,7 +71,7 @@ const FIX_SPACES: Scripted = {
     'greet.mjs':
       "export function greet(name) {\n  return 'Hello, ' + (name.trim() === '' ? 'stranger' : name) + '!';\n}\n",
   },
-  message: 'Greet a visitor whose name is only spaces as a stranger',
+  message: FIX_MESSAGE,
   summary: 'greet greets a name of only spaces as a stranger, as the correctness lens asked.',
   // Every finding of round 1 sent the batch back, each answered here (ADR 0191, ADR 0354).
   dispositions: [

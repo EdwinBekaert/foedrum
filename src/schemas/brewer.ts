@@ -15,7 +15,8 @@ const Count = z.int().positive();
 const Identifier = z.string().regex(/^[a-z][A-Za-z0-9]*$/, 'Must be a camelCase name');
 
 // `repositories`: the Brewery's repositories and their bases, which the engine fills (ADR 0234);
-// `recipes`: the Brewery's recipes but those that choose one, which the engine fills (ADR 0232);
+// `recipes`: which the engine fills, on a step that chooses the recipe with the Brewery's recipes
+// but those that choose one (ADR 0232), on any other with those of type `brew` (ADR 0365);
 // `plan`: the batch's latest plan, on a step a person's choice schedules (ADR 0286);
 // `plan-entry`: a sub-order's entry of the approved plan it was ordered from (ADR 0290).
 // `release`: the releases a sub-order waited for, each tag as written (ADR 0291).

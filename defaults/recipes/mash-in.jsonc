@@ -5,6 +5,7 @@
 {
   "$schema": "../../schemas/recipe.json",
   "name": "mash-in",
+  "type": "mash",
   "description": "Suggest a recipe for an order and ask which one brews it",
   "steps": [{ "id": "innkeep", "brewer": "innkeeper", "chooses": "recipe" }]
 }

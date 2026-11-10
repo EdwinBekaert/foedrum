@@ -10,6 +10,7 @@ import {
   TastingFinding,
 } from './out-doc.ts';
 import { CheckName, RelativePath } from './primitives.ts';
+import { RecipeType } from './recipe.ts';
 import { NonEmpty, Question, StepOutcome } from './step-outcome.ts';
 import { CommitSha, EffectKeyText, MAX_CONFLICTS } from './store.ts';
 import { SystemMapEntry } from './system-map.ts';
@@ -728,6 +729,10 @@ const chosen = {
   type: z.literal('batch.recipe_chosen'),
   batchId: BatchId,
   recipe: NonEmpty,
+  // What kind of work the recipe did when it was chosen (ADR 0365), so a later change of its file
+  // does not change what its attempts were; absent on events from before types, and an older
+  // Foedrum cannot read it.
+  recipeType: RecipeType.optional(),
   reason: NonEmpty,
 };
 const recipeChosen = z.discriminatedUnion('source', [

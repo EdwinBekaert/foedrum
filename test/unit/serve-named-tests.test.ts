@@ -26,6 +26,7 @@ const t0 = new Date('2026-11-06T12:00:00.000Z');
 
 const recipe = JSON.stringify({
   name: 'gauged',
+  type: 'brew',
   description: 'Proves its tests red, brews, and reads its tests again.',
   steps: [
     { id: 'gauge', brewer: 'gauger' },

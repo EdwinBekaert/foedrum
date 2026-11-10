@@ -67,7 +67,7 @@ describe('mash-in and the Innkeeper (ADR 0232)', () => {
 });
 
 describe("mash's Brewmaster and the Brewery's recipes (ADR 0234, ADR 0232)", () => {
-  it('is given the recipes a sub-order may run with, those that choose a recipe left out', () => {
+  it('is given the recipes a sub-order may run with, those of type brew (ADR 0365)', () => {
     const loaded = loadRecipes(readBreweryFiles(join(root, '..', 'no-brewery')));
     assert.ok(loaded.valid, loaded.valid ? '' : loaded.problems.join('\n'));
     const step = loaded.brewers.find('mash', 'plan');
@@ -77,7 +77,7 @@ describe("mash's Brewmaster and the Brewery's recipes (ADR 0234, ADR 0232)", () 
     );
     assert.deepEqual(
       step?.choices?.map(({ name }) => name),
-      ['decoction', 'mash', 'nip'],
+      ['nip'],
     );
   });
 });
@@ -94,7 +94,13 @@ describe('the default plan lens (ADR 0312)', () => {
         onFindings: { goto: 'plan', maxRounds: 1 },
       },
     ];
-    const kettle = { name: 'kettle', description: 'Plan, then read it.', testFirst: false, steps };
+    const kettle = {
+      name: 'kettle',
+      type: 'mash',
+      description: 'Plan, then read it.',
+      testFirst: false,
+      steps,
+    };
     const loaded = loadRecipes({
       ...files,
       recipes: [{ path: 'recipes/kettle.jsonc', text: JSON.stringify(kettle) }],

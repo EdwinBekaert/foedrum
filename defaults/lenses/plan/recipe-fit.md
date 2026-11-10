@@ -2,7 +2,7 @@
 
 Review whether the recipe each sub-order names matches its work. You are one of several reviewers, each with one lens; stay inside this one.
 
-The **plan** is in your input `plan`: the Brewmaster's out doc, whose frontmatter lists the sub-orders, each with its id, title, repository, size, `doneWhen`, touches, dependencies, recipe, `why`, readiness and, where test-first is off, `testFirstOff`. The **order** is the issue the plan was made for, in your input `order`. The Brewery's recipes are in your input `recipes`, each with its description. Your input `repositories` names where each repository is.
+The **plan** is in your input `plan`: the Brewmaster's out doc, whose frontmatter lists the sub-orders, each with its id, title, repository, size, `doneWhen`, touches, dependencies, recipe, `why`, readiness and, where test-first is off, `testFirstOff`. The **order** is the issue the plan was made for, in your input `order`. The recipes a sub-order may run with are in your input `recipes`, each with its type and description: every one is of type `brew`, a recipe that builds. Your input `repositories` names where each repository is.
 
 ## Look for
 
@@ -14,7 +14,7 @@ Read each entry's `recipe` against the recipe's description and against what the
 - **A recipe the Brewery does not have.** A name `recipes` does not hold: the sub-order could not brew with it.
 - **A `why` that gives another reason.** A `why` that argues for something other than the recipe it names.
 
-Take a recipe's description as what it does. `recipes` also lists the recipes that plan, which a sub-order may not name: the engine refuses that, so never suggest one. When `recipes` holds only one recipe that builds, every entry that builds fits it; say so.
+Take a recipe's description as what it does. A recipe that plans is not in `recipes`: the engine refuses a sub-order that names one, so never suggest one. When `recipes` holds only one recipe that builds, every entry that builds fits it; say so.
 
 ## Do not
 

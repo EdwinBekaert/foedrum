@@ -52,7 +52,7 @@ import {
   tastingOf,
   tastingOutDocOf,
 } from '../schemas/out-doc.ts';
-import { PLAN, PlanOutDoc } from '../schemas/plan.ts';
+import { PLAN, planOutDocOf } from '../schemas/plan.ts';
 import { parseRule } from '../schemas/primitives.ts';
 import { RECIPE_CHOICE, recipeChoiceOutDocOf } from '../schemas/recipe-choice.ts';
 import type { KeptFile, MergeResult } from '../schemas/store.ts';
@@ -133,7 +133,8 @@ export interface PlanFacts {
  * out doc is read with its findings and verdict, and on a `blocking` step, one with a findings route,
  * any finding blocks it by findings (ADR 0161, ADR 0354). Each finding that names a lens names one of the step's `lenses`,
  * and on a step of several together each finding names one (ADR 0220). A recipe choice's question
- * offers only the step's `choices` (ADR 0232).
+ * offers only the step's `choices` (ADR 0232), and a plan's sub-orders run only with them, the
+ * recipes of type `brew` (ADR 0365).
  */
 export function attemptLimits(
   brewer: BrewerFrontmatter,
@@ -160,7 +161,7 @@ export function attemptLimits(
           : name === GAUGE
             ? GaugeOutDoc
             : name === PLAN
-              ? PlanOutDoc
+              ? planOutDocOf(choices)
               : name === RECIPE_CHOICE
                 ? recipeChoiceOutDocOf(choices)
                 : name === SURVEY
@@ -334,13 +335,15 @@ const planInput = (
   throw new Error(`the input "${name}" needs the batch's plan, which it has none of yet`);
 };
 
-/** The recipes input `name`: one line per recipe, its name and description (ADR 0232). */
+/** The recipes input `name`: one line per recipe, its name, type and description (ADR 0232, ADR 0365). */
 const recipesInput = (name: string, choices: readonly RecipeChoice[]): PlannedInput => ({
   name,
   source: { kind: 'recipes' },
   read: {
     kind: 'text',
-    text: choices.map((choice) => `- ${choice.name}: ${choice.description}\n`).join(''),
+    text: choices
+      .map((choice) => `- ${choice.name} (${choice.type}): ${choice.description}\n`)
+      .join(''),
   },
 });
 
@@ -367,7 +370,8 @@ export const planLensInputs = (
  * `attempt` of it was scheduled under, the attempt whose out doc an input reads (ADR 0309); without
  * one, in the planned attempt's. A lens input's text is in `lenses`, the lenses
  * the loader found for the brewer (ADR 0098); a repositories input's in `brewery` (ADR 0234), and
- * the recipes input's in `choices`, the Brewery's recipes but those that choose one (ADR 0232), and
+ * the recipes input's in `choices`, the Brewery's recipes but those that choose one (ADR 0232), or
+ * on a step that does not choose the recipe those of type `brew` (ADR 0365), and
  * a sub-order's plan entry input's in `planEntry` (ADR 0290), and the release input's in `release`,
  * left out when the batch waited on no release (ADR 0291), and the checks input's in `checks`,
  * left out when no check ran on the commit the attempt starts at (ADR 0308). `breweryIssue` is the

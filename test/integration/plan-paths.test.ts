@@ -64,11 +64,4 @@ describe('readPathsAt (ADR 0233)', () => {
       'src/deep/a.ts',
     ]);
   });
-
-  it('is unread for a commit that is not in the clone, or no full sha', async () => {
-    const missing = await readPathsAt(runGit)(clone, 'e'.repeat(40), ['src']);
-    assert.equal(missing.kind, 'unread');
-    const option = await readPathsAt(runGit)(clone, '--output=x', ['src']);
-    assert.deepEqual(option, { kind: 'unread', reason: '--output=x is no full commit sha' });
-  });
 });

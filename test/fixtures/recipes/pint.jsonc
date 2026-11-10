@@ -2,6 +2,7 @@
 {
   "$schema": "../../../schemas/recipe.json",
   "name": "pint",
+  "type": "brew",
   "description": "Medium feature in one repository, with plan approval",
   "steps": [
     { "id": "context", "brewer": "maltster" },

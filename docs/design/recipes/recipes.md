@@ -8,6 +8,7 @@ Foedrum's own recipes are checked as `DefaultRecipe`, which also rejects literal
 {
   "$schema": "../.foedrum/schemas/recipe.json",          // for editors; `foedrum init` writes none yet
   "name": "half-pint",
+  "type": "brew",                                            // mash plans or chooses, brew builds (ADR 0365)
   "description": "Small feature in one repository",
   "testFirst": true,                                         // default for recipes that write code
   "concurrency": 2,                                          // at most 2 of its batches at once; none by default (ADR 0217)
@@ -43,6 +44,7 @@ Check steps: [check steps](../checks/check-steps.md).
 A failed check follows the step's `onFail` route, at most `maxRounds` times, then makes the batch Stuck; the attempt a route schedules, `onFail`, `onBlocked`, `onFindings` or `onPullRequestFail`, and a fresh retry or answer of it ([ADR 0325](../../adr/0325-a-step-counts-its-attempts-per-round.md)), gets one more tagged input, `route`: the failed checks with their tails and failing tests ([check steps](../checks/check-steps.md)), the reason and out doc of the attempt that blocked, or the checks that failed on the pull request's head with their links and, for an Actions job, the end of its log around its first error, or the check that failed on its merged tree with its tail ([ADR 0226](../../adr/0226-a-failing-check-on-the-merged-tree-sends-its-batch-back-to-the-fix-step.md)), or the files its kept start merge left unmerged, with their status ([ADR 0244](../../adr/0244-a-conflict-with-the-moved-base-sends-its-batch-back-to-the-fix-step.md)), from that round only and at most 64 KiB ([ADR 0128](../../adr/0128-an-attempt-a-route-schedules-gets-what-sent-it-back.md), [ADR 0219](../../adr/0219-a-failing-check-on-an-open-pull-request-sends-its-batch-back-to-a-fix-step.md), [ADR 0228](../../adr/0228-a-failed-actions-job-s-log-goes-with-the-batch-back-to-its-fix-step.md)); a check the repository maps to `null` is skipped.
 
 A `when` may read the recipe's settings (`recipe.testFirst`) but not yet another step's result, and an `onBlocked` or `onFindings` route counts its rounds from the attempts it scheduled, a group's from those any of its children sent back ([ADR 0064](../../adr/0064-test-first-recipes-when-onblocked-and-a-red-proof-required.md), [ADR 0354](../../adr/0354-every-finding-of-a-taster-goes-back-along-one-on-findings-route.md)).
+An `onBlocked`, `onFindings` or `onFail` route counts only the attempts of the batch's latest run, since its latest recipe choice or rewind, numbered from the first attempt the `goto` step got in that run (`runStarts`), so each run of the recipe gets its own `maxRounds`; an `onPullRequestFail` route counts over the batch's life, since its rounds are the one pull request's ([ADR 0369](../../adr/0369-a-recipe-s-routes-count-their-rounds-per-run-an-open-pull-request-s-over-the-batch-s-life.md)).
 A recipe that resolves to test-first (`resolveRecipe`) needs a red proof whose `of` is its first writing step, with no other writing step before it but a survey whose brewer names `testMapOnly` ([ADR 0298](../../adr/0298-the-maltster-s-survey-ends-without-a-session-for-a-fresh-map-and-its-check-sends-a-disagreement-back-once.md)); otherwise it is refused with a line that names the fix, or `testFirst: false`.
 Other step kinds are refused by name until the engine runs them.
 
@@ -60,7 +62,14 @@ A batch whose step left its recipe file goes Stuck on a divergence when that ste
 A step has exactly one of these kind fields.
 ADR 0019's `session` step is gone: the schema refuses it with a line that names `"interactive": true` on a brewer step ([ADR 0222](../../adr/0222-a-recipe-s-brewer-step-may-be-interactive.md)).
 
-**Recipe fields:** `name`, `description`, `steps`, and `testFirst` (default `true` for recipes that write code, decided when the recipe is loaded for a batch, since it depends on the brewers the recipe uses: unset, it is `true` when any brewer the recipe names produces `commits`, else `false` (`resolveRecipe`, [ADR 0028](../../adr/0028-brewer-runner-outcomes-environment-and-test-first.md)); a router, not built yet ([routing](../intake/routing.md)), is to switch it off for documentation-only or pure refactoring orders and record why in the status comment).
+**Recipe fields:** `name`, `type`, `description`, `steps`, and `testFirst` (default `true` for recipes that write code, decided when the recipe is loaded for a batch, since it depends on the brewers the recipe uses: unset, it is `true` when any brewer the recipe names produces `commits`, else `false` (`resolveRecipe`, [ADR 0028](../../adr/0028-brewer-runner-outcomes-environment-and-test-first.md)); a router, not built yet ([routing](../intake/routing.md)), is to switch it off for documentation-only or pure refactoring orders and record why in the status comment).
+Every recipe has a `type`, which says what kind of work it does ([ADR 0365](../../adr/0365-a-recipe-has-a-type-mash-or-brew.md)):
+`mash` chooses a recipe or makes a plan and builds nothing, and `brew` builds.
+The load refuses a recipe without one, with a line that names its file and says to add `"type": "mash"` or `"type": "brew"`.
+A type arrives with the first recipe that uses it: no other type exists yet.
+A type catches the wrong kind of recipe, not the wrong size.
+The Innkeeper is offered every recipe but those that choose one, each with its type; a plan's Brewmaster and its plan lenses are offered the `brew` ones only, and a sub-order may name only one of those.
+`foedrum status <order>` counts the tokens of a `mash` recipe's attempts as planning, by the type its `batch.recipe_chosen` event recorded; an event from before types counts `mash`, `mash-in` and `decoction` as planning, as it did.
 A recipe has no time budget: the load refuses a `budget` field with a line that says it is gone, since each step's deadline, stall limit and attempts already bound a batch ([ADR 0194](../../adr/0194-a-recipe-has-no-time-budget.md)).
 A recipe does not choose the orders it runs: the load refuses a `match` field with a line that says an order is routed by its `recipe:<name>` label or by `foedrum mash` ([routing](../intake/routing.md), [ADR 0253](../../adr/0253-a-recipe-s-match-is-refused-at-load.md)).
 

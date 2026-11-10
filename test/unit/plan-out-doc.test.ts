@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { readOutDoc } from '../../src/schemas/out-doc.ts';
-import { PlanOutDoc, planOf } from '../../src/schemas/plan.ts';
+import { PlanOutDoc, planOf, planOutDocOf } from '../../src/schemas/plan.ts';
 
 const outDoc = (frontmatter: unknown): string =>
   `---\n${JSON.stringify(frontmatter, null, 2)}\n---\n# Plan\n`;
@@ -29,8 +29,11 @@ const done = (subOrders: unknown[], more: Record<string, unknown> = {}) => ({
 });
 
 /** Why the out doc is invalid, or undefined when it reads. */
-const refused = (frontmatter: unknown): string | undefined => {
-  const read = readOutDoc(outDoc(frontmatter), PlanOutDoc);
+const refused = (
+  frontmatter: unknown,
+  schema: Parameters<typeof readOutDoc>[1] = PlanOutDoc,
+): string | undefined => {
+  const read = readOutDoc(outDoc(frontmatter), schema);
   return read.valid ? undefined : read.reason;
 };
 
@@ -217,19 +220,24 @@ describe('PlanOutDoc (ADR 0233)', () => {
     });
   }
 
-  it('refuses a sub-order whose recipe is decoction, which plans too (ADR 0321)', () => {
+  it('refuses a sub-order whose recipe is not of type brew, naming its recipe and the ones it may name (ADR 0285, ADR 0365)', () => {
     const plan = done([subOrder('api'), subOrder('ui', { recipe: 'decoction' })]);
-    assert.match(refused(plan) ?? '', /may not plan again[\s\S]*subOrders\[1\]\.recipe/);
+    assert.match(
+      refused(plan, planOutDocOf(['tdd', 'nip'])) ?? '',
+      /recipes of type brew, tdd, nip: not decoction[\s\S]*subOrders\[1\]\.recipe/,
+    );
   });
 
-  it('refuses a sub-order whose recipe is mash or mash-in, naming its recipe, and takes one named like them (ADR 0285)', () => {
-    for (const recipe of ['mash', 'mash-in']) {
-      const plan = done([subOrder('api'), subOrder('ui', { recipe })]);
-      assert.match(refused(plan) ?? '', /may not plan again[\s\S]*subOrders\[1\]\.recipe/);
-    }
-    for (const recipe of ['mash-tun', 'premash', 'mashed']) {
-      assert.equal(refused(done([subOrder('api', { recipe })])), undefined);
-    }
+  it('refuses every sub-order when the Brewery has no recipe of type brew (ADR 0365)', () => {
+    assert.match(
+      refused(done([subOrder('api')]), planOutDocOf([])) ?? '',
+      /no recipe of type brew: it has no tdd to run[\s\S]*subOrders\[0\]\.recipe/,
+    );
+  });
+
+  it('takes a sub-order whose recipe is of type brew, and reads a stored plan of any recipe (ADR 0365)', () => {
+    assert.equal(refused(done([subOrder('api')]), planOutDocOf(['tdd'])), undefined);
+    assert.equal(refused(done([subOrder('api', { recipe: 'mash' })])), undefined);
   });
 
   it('takes testFirst false and ready false with their reasons, a chain, and 100 sub-orders', () => {
