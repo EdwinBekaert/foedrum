@@ -37,6 +37,17 @@ export interface TargetIssue {
   author: string;
   /** When it was created on GitHub: its arrival in the intake's queue (ADR 0208). */
   created: string;
+  /**
+   * Each adding of a label, oldest first, from the issue's events (ADR 0359): read only for an
+   * issue that passes every other check, and absent until then.
+   */
+  labelsAdded?: readonly LabelAdded[];
+}
+
+/** A label added to an issue: who added it, undefined when that can't be told (a deleted account). */
+export interface LabelAdded {
+  label: string;
+  by: string | undefined;
 }
 
 /** The Brewery that claims: its repository (`owner/name`) and its token's GitHub login. */
@@ -50,7 +61,10 @@ export interface CandidateOptions {
   claimant: Claimant;
   /** The issues of this repository that have a batch in this Brewery, in any lane. */
   brewed: ReadonlySet<number>;
-  /** The Brewery's allow-listed users: only an issue one of them opened can become an order. */
+  /**
+   * The Brewery's `users`: only an issue whose filter labels one of them added last can become an
+   * order, whoever opened it (ADR 0359).
+   */
   authors: readonly string[];
 }
 
@@ -63,8 +77,14 @@ export const passesFilter = (issue: TargetIssue, filter: IntakeFilter): boolean 
   filter.labels.every((wanted) => issue.labels.some((label) => same(label, wanted))) &&
   (filter.milestone === undefined || issue.milestone === filter.milestone);
 
-/** Whether the intake may claim `issue`: open, filtered in, unassigned or ours, never brewed. */
-export const isCandidate = (issue: TargetIssue, options: CandidateOptions): boolean => {
+/**
+ * Whether `issue` passes every check of `isCandidate` but who added its labels, the one that needs
+ * its events: open, filtered in, unassigned or ours, never brewed.
+ */
+export const mayBeCandidate = (
+  issue: TargetIssue,
+  options: Omit<CandidateOptions, 'authors'>,
+): boolean => {
   const { filter, claimant, brewed } = options;
   return (
     issue.state === 'open' &&
@@ -72,11 +92,40 @@ export const isCandidate = (issue: TargetIssue, options: CandidateOptions): bool
     passesFilter(issue, filter) &&
     // An issue assigned to a person is that person's; this Brewery's own user is its person.
     issue.assignees.every((assignee) => same(assignee, claimant.login)) &&
-    // A target repository may be open to anyone; only allow-listed users order work.
-    options.authors.some((author) => same(author, issue.author)) &&
     !brewed.has(issue.number)
   );
 };
+
+/**
+ * Why the filter's labels of `issue` do not make it an order (ADR 0359): each label whose latest
+ * adding is not by one of `users`, a deleted account's never counting, and no reading as nobody's.
+ * Undefined when every one is.
+ */
+export const unapprovedLabels = (
+  issue: TargetIssue,
+  filter: IntakeFilter,
+  users: readonly string[],
+): string | undefined => {
+  const added = issue.labelsAdded ?? [];
+  const reasons = filter.labels.flatMap((label) => {
+    const latest = added.findLast((each) => same(each.label, label));
+    if (latest === undefined) return [`nobody in users added the label ${label}`];
+    const { by } = latest;
+    if (by === undefined) return [`the label ${label} was last added by a deleted account`];
+    if (users.some((user) => same(user, by))) return [];
+    return [`the label ${label} was last added by ${by}, who is not in users`];
+  });
+  return reasons.length === 0 ? undefined : reasons.join('; ');
+};
+
+/**
+ * Whether the intake may claim `issue`: it may be one, and someone in `users` added each of its
+ * filter's labels last (ADR 0359). A target repository may be open to anyone, and so may the
+ * labelling of its issues; who opened one counts for nothing.
+ */
+export const isCandidate = (issue: TargetIssue, options: CandidateOptions): boolean =>
+  mayBeCandidate(issue, options) &&
+  unapprovedLabels(issue, options.filter, options.authors) === undefined;
 
 /** The code host side of a claim: the claim ref of an issue in a target repository. */
 export interface ClaimHost {

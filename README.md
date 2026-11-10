@@ -34,7 +34,7 @@ Create an empty repository for the Brewery on GitHub (private, say `<you>/foedru
 foedrum init
 ```
 
-It asks the Brewery's name and its target repositories, reads each target's default branch and, for a Node repository, its checks from `package.json` through gh's own login, and writes `foedrum.jsonc`, `models.jsonc`, `.gitignore` and `.claude/settings.json`, each checked against its schema. It asks before it changes a file that is already there, then runs `foedrum doctor`. Commit and push the files, and create the label `foedrum:brew` in each target repository: the Cellar claims its issues with that label, and brews each once its Brewery issue has a `recipe:<name>` label ([ADR 0156](docs/adr/0156-a-claimed-order-is-routed-by-its-brewery-issue-s-recipe-label.md)).
+It asks the Brewery's name and its target repositories, reads each target's default branch and, for a Node repository, its checks from `package.json` through gh's own login, and writes `foedrum.jsonc`, `models.jsonc`, `.gitignore` and `.claude/settings.json`, each checked against its schema. It asks before it changes a file that is already there, then runs `foedrum doctor`. Commit and push the files, and create the label `foedrum:brew` in each target repository: the Cellar claims an issue once someone in the Brewery's `users` added that label to it, whoever opened it, so a team adds its colleagues to `users` in `foedrum.jsonc` ([ADR 0359](docs/adr/0359-the-intake-takes-an-issue-only-when-someone-in-users-added-its-labels.md)), and brews each once its Brewery issue has a `recipe:<name>` label ([ADR 0156](docs/adr/0156-a-claimed-order-is-routed-by-its-brewery-issue-s-recipe-label.md)).
 
 ## Install the plugin
 

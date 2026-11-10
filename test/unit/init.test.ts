@@ -571,6 +571,8 @@ describe('foedrum init (ADR 0199)', () => {
 });
 
 const LABEL_DESCRIPTION = 'Foedrum brews an issue with this label into a pull request';
+const USERS_LABEL_LINE =
+  "An issue is brewed once someone in foedrum.jsonc's users adds foedrum:brew to it, whoever opened it; a team adds its colleagues to users";
 const FILES = ['foedrum.jsonc', 'models.jsonc', '.gitignore', '.claude/settings.json'];
 /** What `git status --porcelain -z` prints for the four files, new. */
 const ALL_NEW = `${FILES.map((file) => `?? ${file}`).join('\0')}\0`;
@@ -698,6 +700,21 @@ describe('foedrum init outside a clone, the labels and the push (ADR 0207)', () 
       ),
       lines.join('\n'),
     );
+  });
+
+  it('says that an issue is brewed once someone in users adds the label, whoever opened it (ADR 0359)', async () => {
+    const { lines } = await init(['', 'acme/web', '', '']);
+    const said = lines.indexOf(USERS_LABEL_LINE);
+    assert.ok(said > lines.indexOf('acme/web has the label foedrum:brew'), lines.join('\n'));
+  });
+
+  it('says nothing of who labels to a Brewery with no target repository', async () => {
+    const { lines } = await init(['', '']);
+    assert.ok(
+      lines.some((line) => line.startsWith('Written: ')),
+      lines.join('\n'),
+    );
+    assert.ok(!lines.includes(USERS_LABEL_LINE), lines.join('\n'));
   });
 
   it('leaves a label that is there alone, without asking', async () => {

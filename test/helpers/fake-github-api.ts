@@ -285,7 +285,7 @@ export const fakeGitHubApi = (options: FakeGitHubApiOptions): FakeGitHubApi => {
       return onLinks(method, repo, found, what, body);
     }
     const [, number, what = '', label] =
-      /^issues\/(\d+)(?:\/(assignees|labels|comments)(?:\/(.+))?)?$/.exec(rest) ?? [];
+      /^issues\/(\d+)(?:\/(assignees|labels|comments|events)(?:\/(.+))?)?$/.exec(rest) ?? [];
     const found = issue(repo, Number(number));
     // A pull request is an issue to GitHub's comments, as to its numbers.
     const pull = pulls.some(
@@ -324,6 +324,17 @@ export const fakeGitHubApi = (options: FakeGitHubApiOptions): FakeGitHubApi => {
       state?: 'open' | 'closed';
     };
     if (method === 'GET' && what === '') return json(200, asIssue(found));
+    if (method === 'GET' && what === 'events') {
+      // Each label added by whoever opened the issue (ADR 0359).
+      const actor = { login: found.author };
+      const events = found.labels.map((name, index) => ({
+        id: index + 1,
+        event: 'labeled',
+        actor,
+        label: { name },
+      }));
+      return json(200, events);
+    }
     if (method === 'PATCH' && what === '') {
       if (fields.state !== undefined) found.state = fields.state;
       return json(200, asIssue(found));

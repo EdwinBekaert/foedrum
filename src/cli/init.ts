@@ -588,6 +588,12 @@ export const runInit = async (ports: InitPorts, given: InitAnswers = {}): Promis
     say(`Written: ${written.length === 0 ? 'none' : written.join(', ')}`);
 
     for (const repo of targets) await intakeLabel(ports, confirm, labelled, repo);
+    // Who labels counts, not who opens: a team's colleagues go in users (ADR 0359).
+    if (targets.length > 0) {
+      say(
+        `An issue is brewed once someone in foedrum.jsonc's users adds ${INTAKE_LABEL} to it, whoever opened it; a team adds its colleagues to users`,
+      );
+    }
     pushFailed = !(await commitAndPush(
       ports,
       confirm,

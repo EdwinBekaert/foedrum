@@ -15,6 +15,7 @@ import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import { seededRandom } from '../helpers/event-sequences.ts';
 import { fakeGitHub } from '../helpers/fake-github.ts';
 import { fakeRecipe, fakeRecipes } from '../helpers/fake-recipes.ts';
+import { addedByAuthor } from '../helpers/labels-added.ts';
 import { forEachSeedAsync } from '../helpers/property.ts';
 
 const brewery = 'alice/brewery';
@@ -129,16 +130,21 @@ it('a pass orders and routes within every limit, and every entry within them whi
       const free = random.int(7);
       const limits: Limits = { openOrders: 1 + random.int(5), recipe: (name) => concurrency[name] };
 
-      // The queue the pass walks, in its rank order.
+      // The queue the pass walks, in its rank order, with the addings it reads (ADR 0359).
       const before = log.state();
+      const read = targets.map((each) => ({
+        ...each,
+        labelsAdded: each.labels.map((label) => ({ label, by: each.author })),
+      }));
       const queue = intakeQueue(
         before,
-        { brewery: listed, repositories: [{ repository, issues: targets }] },
+        { brewery: listed, repositories: [{ repository, issues: read }] },
         { authors: ['alice'], claimant },
       );
       const tracker: TargetTracker = {
         issues: async (repo) => (repo === brewery ? listed : targets),
         pullRequest: async () => 'open',
+        labelsAdded: addedByAuthor(() => targets),
       };
       const github = fakeGitHub();
       const intake = createIntake({

@@ -32,8 +32,9 @@ import {
   intakeRepositories,
   type Listing,
   type QueuedIssue,
+  withLabelsAdded,
 } from '../engine/intake.ts';
-import { type ClaimHost, claimIssue } from '../engine/issue-claims.ts';
+import { type ClaimHost, claimIssue, same, unapprovedLabels } from '../engine/issue-claims.ts';
 import {
   DEFAULT_OPEN_ORDERS,
   type Limits,
@@ -471,8 +472,10 @@ const orderStatus = async (target: OrderTarget, context: CliContext): Promise<Cl
 
 /**
  * The intake's queue as a pass would read it now, in rank order (ADR 0208): the Brewery's open
- * issues and every intake repository's, through gh's login; or what could not be read. `placed`,
- * the order being ranked, is in it while sub-orders of it are left, ready or not (ADR 0211).
+ * issues and every intake repository's, through gh's login, with who added each candidate's labels
+ * (ADR 0359); or what could not be read. `placed`, the order being ranked, is in it while
+ * sub-orders of it are left, ready or not (ADR 0211). `why`: why an order is not in it. `unread`:
+ * why the labels of an order could not be read; the queue leaves it out, as a pass does.
  */
 const readQueue = async (
   config: BreweryConfig,
@@ -480,7 +483,14 @@ const readQueue = async (
   state: State,
   context: CliContext,
   placed: OrderRef,
-): Promise<QueuedIssue[] | { refused: string }> => {
+): Promise<
+  | {
+      queue: QueuedIssue[];
+      why: (order: OrderRef) => string;
+      unread: (order: OrderRef) => string | undefined;
+    }
+  | { refused: string }
+> => {
   const { tracker, login } = context.queue(config);
   const read = async <T>(what: string, reading: () => Promise<T>): Promise<T> => {
     try {
@@ -493,17 +503,57 @@ const readQueue = async (
   try {
     const claimant = { brewery, login: await read('the login gh uses', () => login()) };
     const own = await read(`listing ${brewery}`, () => tracker.issues(brewery));
-    const repositories: Listing[] = [];
+    const listings: Listing[] = [];
     for (const repository of intakeRepositories(config)) {
       const { repo, filter } = repository;
       const issues = await read(`listing ${repo}`, () => tracker.issues(repo, filter));
-      repositories.push({ repository, issues });
+      listings.push({ repository, issues });
     }
+    // By `<repo>#<n>`: rank names a target issue by its alias, so its repository is foedrum.jsonc's,
+    // as the listing's is.
+    const failures = new Map<string, string>();
+    const failed = (issue: string, error: unknown): void => {
+      failures.set(issue, messageOf(error));
+    };
+    const repositories = await withLabelsAdded(state, listings, { claimant, tracker, failed });
     const authors = config.users ?? [];
-    return intakeQueue(state, { brewery: own, repositories }, { authors, claimant }, placed);
+    const queue = intakeQueue(state, { brewery: own, repositories }, { authors, claimant }, placed);
+    return {
+      queue,
+      why: (order) => notQueued(repositories, authors, order),
+      unread: ({ repo, issue }) =>
+        repo === undefined ? undefined : failures.get(`${repo}#${issue}`),
+    };
   } catch (error) {
     return { refused: messageOf(error) };
   }
+};
+
+/**
+ * Why `order` is not in the queue read from `repositories`: who added the labels of a target issue
+ * that passes every other check (ADR 0359), or what else keeps an issue out.
+ */
+const notQueued = (
+  repositories: readonly Listing[],
+  users: readonly string[],
+  order: OrderRef,
+): string => {
+  const { repo } = order;
+  const listing = repositories.find(
+    ({ repository }) => repo !== undefined && same(repository.repo, repo),
+  );
+  // Only an issue that passes every other check has its addings read.
+  const read = listing?.issues.find(
+    ({ number, labelsAdded }) => number === order.issue && labelsAdded !== undefined,
+  );
+  const why =
+    listing === undefined || read === undefined
+      ? undefined
+      : unapprovedLabels(read, listing.repository.filter, users);
+  return (
+    why ??
+    'closed, filtered out, assigned to someone else or, for a Brewery issue, not opened by someone in users'
+  );
 };
 
 /** How `rank` shows an order's rank, or that it has none. */
@@ -1154,14 +1204,16 @@ export const commands: readonly RegisteredCommand[] = [
         if ('refused' in order) return failed('rank', order.refused);
         const refusal = rankRefusal(log.state(), order);
         if (refusal !== undefined) return failed('rank', refusal);
-        const queue = await readQueue(config, brewery, log.state(), context, order);
-        if ('refused' in queue) return failed('rank', queue.refused);
+        const read = await readQueue(config, brewery, log.state(), context, order);
+        if ('refused' in read) return failed('rank', read.refused);
+        const { queue } = read;
+        const unread = read.unread(order);
+        if (unread !== undefined) {
+          return failed('rank', `cannot read who labelled ${name}: ${unread}`);
+        }
         const before = placeIn(queue, order);
         if (before === undefined) {
-          return failed(
-            'rank',
-            `${name} is not in the intake's queue: closed, filtered out, assigned to someone else or not opened by an allow-listed user`,
-          );
+          return failed('rank', `${name} is not in the intake's queue: ${read.why(order)}`);
         }
         const { ranks } = log.state();
         if (place === undefined) {

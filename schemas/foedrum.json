@@ -17,7 +17,7 @@
       "format": "uri"
     },
     "users": {
-      "description": "The GitHub users who may order work: only their issues become orders",
+      "description": "The GitHub users who may order work: a Brewery issue one of them opened, or a target repository's issue whose intake labels one of them added; a team adds its colleagues here",
       "type": "array",
       "items": {
         "type": "string",

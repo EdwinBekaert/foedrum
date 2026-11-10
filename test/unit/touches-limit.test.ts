@@ -20,6 +20,7 @@ import { SubOrderRef } from '../../src/schemas/events.ts';
 import { fakeGitHub } from '../helpers/fake-github.ts';
 import { createdOf } from '../helpers/fake-github-api.ts';
 import { fakeRecipe, fakeRecipes } from '../helpers/fake-recipes.ts';
+import { addedByAuthor } from '../helpers/labels-added.ts';
 
 const brewery = 'alice/brewery';
 const web = 'acme/web';
@@ -78,6 +79,7 @@ describe('two ready sub-orders whose touches overlap (#566)', () => {
           )
         : [],
     pullRequest: async () => 'open',
+    labelsAdded: addedByAuthor(() => []),
   });
   const intake = (
     numbers: readonly number[],

@@ -183,7 +183,9 @@ export const BreweryConfig = z
     users: z
       .array(GitHubLogin)
       .optional()
-      .describe('The GitHub users who may order work: only their issues become orders'),
+      .describe(
+        "The GitHub users who may order work: a Brewery issue one of them opened, or a target repository's issue whose intake labels one of them added; a team adds its colleagues here",
+      ),
     concurrency: z
       .int()
       .min(1)

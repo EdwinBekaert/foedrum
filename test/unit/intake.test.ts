@@ -17,13 +17,19 @@ import {
   intakeRepositories,
   type TargetTracker,
 } from '../../src/engine/intake.ts';
-import type { Claimant, PullRequestState, TargetIssue } from '../../src/engine/issue-claims.ts';
+import type {
+  Claimant,
+  LabelAdded,
+  PullRequestState,
+  TargetIssue,
+} from '../../src/engine/issue-claims.ts';
 import { pullRequestKey, pushKey } from '../../src/engine/pull-request.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import { BreweryConfig } from '../../src/schemas/brewery-config.ts';
 import { type FakeGitHub, fakeGitHub } from '../helpers/fake-github.ts';
 import { createdOf } from '../helpers/fake-github-api.ts';
 import { fakeRecipe, fakeRecipes } from '../helpers/fake-recipes.ts';
+import { addedByAuthor } from '../helpers/labels-added.ts';
 import {
   checksFinished,
   firstHead,
@@ -67,12 +73,18 @@ const issue = (number: number, fields: Partial<TargetIssue> = {}): TargetIssue =
 const record = (brewery: string, number: number): string =>
   JSON.stringify({ brewery, issue: number, claimedAt: now.toISOString() });
 
-/** A tracker with the open issues of each repository and the state of each pull request. */
+/**
+ * A tracker with the open issues of each repository, the state of each pull request, and the
+ * labels added to an issue (`<repo>#<n>`, an Error failing the read; each label by its author
+ * otherwise).
+ */
 const fakeTracker = (
   issues: Record<string, TargetIssue[]>,
   pullRequests: Record<string, PullRequestState> = {},
+  added: Record<string, LabelAdded[] | Error> = {},
 ) => {
   const asked: string[] = [];
+  const byAuthor = addedByAuthor((repo) => issues[repo]);
   const tracker: TargetTracker = {
     issues: async (repo) => {
       asked.push(`issues ${repo}`);
@@ -85,6 +97,12 @@ const fakeTracker = (
       const state = pullRequests[url];
       if (state === undefined) throw new Error(`502 reading ${url}`);
       return state;
+    },
+    labelsAdded: async (repo, number) => {
+      asked.push(`labels ${repo}#${number}`);
+      const given = added[`${repo}#${number}`];
+      if (given instanceof Error) throw given;
+      return given ?? byAuthor(repo, number);
     },
   };
   return { tracker, asked, pullRequests };
@@ -236,6 +254,7 @@ describe('createIntake', () => {
           return repo === web ? [issue(7)] : [];
         },
         pullRequest: async () => 'open',
+        labelsAdded: addedByAuthor((repo) => (repo === web ? [issue(7)] : [])),
       };
       return { tracker, signals };
     };
@@ -339,6 +358,190 @@ describe('createIntake', () => {
     );
     assert.equal(notices[0]?.kind, 'failed');
     assert.match(notices[0]?.kind === 'failed' ? String(notices[0].error) : '', /502 listing/);
+  });
+
+  describe('who added the intake labels (ADR 0359)', () => {
+    const added = (...adders: [label: string, by: string | undefined][]): LabelAdded[] =>
+      adders.map(([label, by]) => ({ label, by }));
+    const ordered = () => [...log.state().batches.keys()];
+
+    it('an issue opened by a stranger and labelled by a user is taken', async () => {
+      const { tracker } = fakeTracker(
+        { [web]: [issue(7, { author: 'mallory' })], [api]: [] },
+        {},
+        { [`${web}#7`]: added(['foedrum', 'bob']) },
+      );
+      await intake(tracker).poll();
+      assert.deepStrictEqual(ordered(), ['web-7']);
+    });
+
+    it('an issue opened by a user and labelled by someone else is not taken', async () => {
+      // web#8, alice's and labelled by her, shows that the pass ordered what it could.
+      const { tracker } = fakeTracker(
+        { [web]: [issue(7), issue(8)], [api]: [] },
+        {},
+        { [`${web}#7`]: added(['foedrum', 'mallory']) },
+      );
+      await intake(tracker).poll();
+      assert.deepStrictEqual(ordered(), ['web-8']);
+    });
+
+    it('a label a user removed and a stranger added again is not taken', async () => {
+      // web#8 the other way round: its latest adding is a user's.
+      const { tracker } = fakeTracker(
+        { [web]: [issue(7), issue(8, { author: 'mallory' })], [api]: [] },
+        {},
+        {
+          [`${web}#7`]: added(['foedrum', 'alice'], ['foedrum', 'mallory']),
+          [`${web}#8`]: added(['foedrum', 'mallory'], ['FOEDRUM', 'alice']),
+        },
+      );
+      await intake(tracker).poll();
+      assert.deepStrictEqual(ordered(), ['web-8']);
+    });
+
+    it('an issue with two intake labels needs both set by users', async () => {
+      const labels = ['foedrum', 'backend'];
+      const { tracker } = fakeTracker(
+        { [web]: [issue(7, { labels }), issue(8, { labels })], [api]: [] },
+        {},
+        {
+          [`${web}#7`]: added(['foedrum', 'alice'], ['backend', 'mallory']),
+          [`${web}#8`]: added(['backend', 'bob'], ['foedrum', 'alice']),
+        },
+      );
+      const both = [{ repo: web, alias: 'web', filter: { labels } }];
+      await intake(tracker, { repositories: both }).poll();
+      assert.deepStrictEqual(ordered(), ['web-8']);
+    });
+
+    it("a read of an issue's events that fails takes nothing", async () => {
+      const failure = new Error('502 reading the events');
+      const { tracker } = fakeTracker(
+        { [web]: [issue(7), issue(8)], [api]: [] },
+        {},
+        { [`${web}#7`]: failure },
+      );
+      const twice = intake(tracker);
+      await twice.poll();
+      await twice.poll();
+      assert.deepStrictEqual(ordered(), ['web-8']);
+      // Said once, not at every pass.
+      assert.deepStrictEqual(
+        notices.filter(({ kind }) => kind === 'failed'),
+        [{ kind: 'failed', what: `reading who labelled ${web}#7`, error: failure }],
+      );
+    });
+
+    it('says a failed read again once a read of that issue succeeded in between', async () => {
+      const failure = new Error('502 reading the events');
+      // The read that succeeds names mallory, so no pass claims web#7 and each reads it again.
+      const { tracker } = fakeTracker({ [web]: [issue(7)], [api]: [] });
+      const answers: (LabelAdded[] | Error)[] = [
+        failure,
+        [{ label: 'foedrum', by: 'mallory' }],
+        failure,
+      ];
+      tracker.labelsAdded = async () => {
+        const answer = answers.shift() ?? [];
+        if (answer instanceof Error) throw answer;
+        return answer;
+      };
+      const thrice = intake(tracker);
+      for (let pass = 0; pass < 3; pass++) await thrice.poll();
+      assert.equal(notices.filter(({ kind }) => kind === 'failed').length, 2);
+      assert.deepStrictEqual(answers, []);
+    });
+
+    it("says a failed read once per issue, whatever another issue's reads do", async () => {
+      const failure = new Error('502 reading the events');
+      // web#8's good read names mallory, so it stays a candidate and is read at every pass.
+      const { tracker } = fakeTracker(
+        { [web]: [issue(7), issue(8)], [api]: [] },
+        {},
+        { [`${web}#7`]: failure, [`${web}#8`]: [{ label: 'foedrum', by: 'mallory' }] },
+      );
+      const twice = intake(tracker);
+      await twice.poll();
+      await twice.poll();
+      assert.equal(notices.filter(({ kind }) => kind === 'failed').length, 1);
+    });
+
+    it('never takes the addings a listing carries as read', async () => {
+      const listed = issue(7, { labelsAdded: [{ label: 'foedrum', by: 'alice' }] });
+      const { tracker } = fakeTracker(
+        { [web]: [listed], [api]: [] },
+        {},
+        { [`${web}#7`]: new Error('502 reading the events') },
+      );
+      await intake(tracker).poll();
+      assert.deepStrictEqual(ordered(), []);
+    });
+
+    it("a label whose adder can't be told, as a deleted account's, does not count", async () => {
+      const { tracker } = fakeTracker(
+        { [web]: [issue(7), issue(8)], [api]: [] },
+        {},
+        { [`${web}#7`]: added(['foedrum', 'alice'], ['foedrum', undefined]) },
+      );
+      await intake(tracker).poll();
+      assert.deepStrictEqual(ordered(), ['web-8']);
+    });
+
+    it('reads the events only of an issue that passes every other check', async () => {
+      accept({ kind: 'order', batchId: 'web-5', order: { issue: 5, repo: web } });
+      const { tracker, asked } = fakeTracker({
+        [web]: [
+          issue(1, { state: 'closed' }),
+          issue(2, { pullRequest: true }),
+          issue(3, { labels: ['bug'] }),
+          issue(4, { assignees: ['bob'] }),
+          issue(5),
+          issue(7),
+        ],
+        [api]: [],
+      });
+      await intake(tracker).poll();
+      assert.deepStrictEqual(
+        asked.filter((call) => call.startsWith('labels')),
+        [`labels ${web}#7`],
+      );
+      assert.deepStrictEqual(ordered(), ['web-5', 'web-7']);
+    });
+
+    it('says once of an issue whose labels nobody in users added who did', async () => {
+      const labels = ['foedrum', 'backend'];
+      const { tracker } = fakeTracker(
+        { [web]: [issue(7, { labels }), issue(8, { labels })] },
+        {},
+        {
+          [`${web}#7`]: added(['backend', 'alice'], ['foedrum', 'mallory']),
+          [`${web}#8`]: added(['backend', undefined]),
+        },
+      );
+      const both = [{ repo: web, alias: 'web', filter: { labels } }];
+      const twice = intake(tracker, { repositories: both });
+      await twice.poll();
+      await twice.poll();
+      assert.deepStrictEqual(
+        notices.filter(({ kind }) => kind === 'unapproved'),
+        [
+          {
+            kind: 'unapproved',
+            repo: web,
+            issue: 7,
+            reason: 'the label foedrum was last added by mallory, who is not in users',
+          },
+          {
+            kind: 'unapproved',
+            repo: web,
+            issue: 8,
+            reason:
+              'nobody in users added the label foedrum; the label backend was last added by a deleted account',
+          },
+        ],
+      );
+    });
   });
 
   describe('the end of a pull request', () => {
@@ -978,6 +1181,7 @@ describe('createIntake', () => {
           return [labelled(12)];
         },
         pullRequest: async () => 'open',
+        labelsAdded: addedByAuthor(() => []),
       };
       await breweryIntake(tracker, { deadlineMs: 1 }).poll();
       release();
@@ -1010,6 +1214,7 @@ describe('createIntake', () => {
           return [];
         },
         pullRequest: async () => 'open',
+        labelsAdded: addedByAuthor(() => []),
       };
       await breweryIntake(tracker).poll();
       assert.deepStrictEqual(calls[0], [brewery, undefined, true]);

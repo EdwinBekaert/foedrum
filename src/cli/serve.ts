@@ -213,6 +213,8 @@ export const formatIntakeNotice = (notice: IntakeNotice): string => {
       return `batch ${notice.batchId} is not routed: ${notice.reason}`;
     case 'held':
       return `${notice.repo}#${notice.issue} waits: ${notice.reason}`;
+    case 'unapproved':
+      return `${notice.repo}#${notice.issue} is not taken: ${notice.reason}`;
     case 'released':
       return `recorded the release ${notice.version} of ${notice.repo}`;
     case 'taken':
