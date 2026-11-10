@@ -214,7 +214,7 @@ export const formatIntakeNotice = (notice: IntakeNotice): string => {
     case 'held':
       return `${notice.repo}#${notice.issue} waits: ${notice.reason}`;
     case 'unapproved':
-      throw new Error('not implemented');
+      return `${notice.repo}#${notice.issue} is not taken: ${notice.reason}`;
     case 'released':
       return `recorded the release ${notice.version} of ${notice.repo}`;
     case 'taken':

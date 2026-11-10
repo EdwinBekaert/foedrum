@@ -5,7 +5,7 @@
 import type { TargetTracker } from '../engine/intake.ts';
 import type { PullRequestState, TargetIssue } from '../engine/issue-claims.ts';
 import { pullRequestOf } from '../schemas/events.ts';
-import { GitHubListedIssue, GitHubPullRequest } from '../schemas/github.ts';
+import { GitHubIssueEvent, GitHubListedIssue, GitHubPullRequest } from '../schemas/github.ts';
 import { assigneeLogins, checked, labelNames, refused, repoPath } from './answers.ts';
 import { type GitHubReads, pageSize } from './reads.ts';
 
@@ -53,7 +53,21 @@ export const githubTargetTracker = (reads: GitHubReads): TargetTracker => ({
     if (pull.merged === true || (pull.merged_at ?? null) !== null) return 'merged';
     return pull.state;
   },
-  labelsAdded: async () => {
-    throw new Error('not implemented');
+  labelsAdded: async (repo, issue, signal) => {
+    const what = `the events of ${repo}#${issue}`;
+    // An event has no body anyone writes, so a page of 100 stays far under the answer limit, and
+    // most issues take one conditional read (ADR 0359).
+    const path = `/repos/${repoPath(repo)}/issues/${issue}/events?per_page=100`;
+    const events = (await reads.pages(path, what, signal)).map((item) =>
+      checked(GitHubIssueEvent, item, what),
+    );
+    // Sorted by id, which GitHub gives in the order the events happened, whatever the pages say.
+    return events
+      .sort((one, other) => one.id - other.id)
+      .flatMap(({ event, actor, label }) => {
+        if (event !== 'labeled') return [];
+        if (label === undefined) throw new Error(`${what} has a labeled event without its label`);
+        return [{ label: label.name, by: actor?.login }];
+      });
   },
 });

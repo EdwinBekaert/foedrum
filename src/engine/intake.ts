@@ -9,8 +9,10 @@
 // - walks one queue, in rank order (ADR 0208) and only up to the Brewery's free capacity: the
 //   Brewery's own issues that carry a `recipe:<name>` label, which it orders as `<issue>-1`, the
 //   ready sub-orders of its orders, which it orders as `<issue>-1` under their order's batch
-//   (ADR 0211), and the candidates of each repository with an intake filter, which it claims and
-//   orders as `<alias>-<issue>`, each Ordered until it is routed by its deadline (ADR 0032),
+//   (ADR 0211), and the candidates of each repository with an intake filter, whose filter labels
+//   someone in `users` added last, read from the events of each issue that passes every other
+//   check (ADR 0359), which it claims and orders as `<alias>-<issue>`, each Ordered until it is
+//   routed by its deadline (ADR 0032),
 //   skipping what a recipe's `concurrency` or the open-order limit holds (ADR 0217);
 // - routes every Ordered batch whose Brewery issue it read by that issue's one `recipe:<name>`
 //   label, whoever ordered it: this pass, a pass killed before it routed, or a retry. A claimed
@@ -35,9 +37,11 @@ import {
   type IntakeFilter,
   isCandidate,
   type LabelAdded,
+  mayBeCandidate,
   type PullRequestState,
   same,
   type TargetIssue,
+  unapprovedLabels,
 } from './issue-claims.ts';
 import { holdText, type Limits, routeHold, startTally } from './limits.ts';
 import { NEEDS_REFINEMENT, SUB_ORDER } from './plan-issues.ts';
@@ -106,7 +110,10 @@ export interface IntakeOptions {
   tracker: TargetTracker;
   claims: ClaimHost;
   claimant: Claimant;
-  /** The Brewery's allow-listed users (architecture §10). */
+  /**
+   * The Brewery's `users` (architecture §10): who opens a Brewery order (ADR 0068), and who adds a
+   * target issue's intake labels (ADR 0359).
+   */
   authors: readonly string[];
   /** In the order the Brewery's config names them, which breaks a tie of arrival (ADR 0208). */
   repositories: readonly IntakeRepository[];
@@ -234,6 +241,60 @@ const subOrdersQueued = (state: State, listed: readonly TargetIssue[]): QueuedIs
   });
 };
 
+/** The issues of `repo` with a batch in this Brewery, in any lane. */
+const brewedIn = (state: State, repo: string): Set<number> =>
+  new Set(
+    [...state.batches.values()]
+      .filter((batch) => batch.repo !== undefined && same(batch.repo, repo))
+      .map((batch) => batch.issue),
+  );
+
+/** What a pass or `foedrum rank` reads the labels added to its issues with (ADR 0359). */
+export interface LabelReads {
+  claimant: Claimant;
+  tracker: Pick<TargetTracker, 'labelsAdded'>;
+  /** A read of `<repo>#<n>` that failed: its issue is left without its addings, so no candidate. */
+  failed: (issue: string, error: unknown) => void;
+}
+
+/**
+ * `listings` with the labels added to each issue that passes every other check of `isCandidate`,
+ * one read of its events each (ADR 0359): only those, since the read costs a request. An issue
+ * whose read fails is left as it was listed, which no check takes as approved.
+ */
+export const withLabelsAdded = async (
+  state: State,
+  listings: readonly Listing[],
+  reads: LabelReads,
+  signal?: AbortSignal,
+): Promise<Listing[]> => {
+  const read: Listing[] = [];
+  for (const { repository, issues } of listings) {
+    const { repo, filter } = repository;
+    const options = { filter, claimant: reads.claimant, brewed: brewedIn(state, repo) };
+    const found: TargetIssue[] = [];
+    for (const issue of issues) {
+      // What was listed carries no addings: only this read gives them.
+      const { labelsAdded: _, ...listed } = issue;
+      if (signal?.aborted === true || !mayBeCandidate(listed, options)) {
+        found.push(listed);
+        continue;
+      }
+      try {
+        found.push({
+          ...listed,
+          labelsAdded: await reads.tracker.labelsAdded(repo, issue.number, signal),
+        });
+      } catch (error) {
+        reads.failed(`${repo}#${issue.number}`, error);
+        found.push(listed);
+      }
+    }
+    read.push({ repository, issues: found });
+  }
+  return read;
+};
+
 /**
  * The queue of one pass in rank order (ADR 0208): the Brewery's issues the intake would order, the
  * ready sub-orders of its orders (ADR 0211) and the target issues it would claim, of
@@ -260,11 +321,7 @@ export const intakeQueue = (
   }
   listed.repositories.forEach(({ repository, issues }, index) => {
     const { repo, filter } = repository;
-    const brewed = new Set(
-      [...state.batches.values()]
-        .filter((batch) => batch.repo !== undefined && same(batch.repo, repo))
-        .map((batch) => batch.issue),
-    );
+    const brewed = brewedIn(state, repo);
     for (const found of issues) {
       if (!isCandidate(found, { filter, claimant, brewed, authors })) continue;
       const order = { issue: found.number, repo };
@@ -382,9 +439,24 @@ export const createIntake = (options: IntakeOptions): Intake => {
         listings.push({ repository, issues: [] });
       }
     }
+    const read = await withLabelsAdded(
+      log.state(),
+      listings,
+      { claimant, tracker, failed: unreadOnce },
+      signal,
+    );
+    for (const { repository, issues } of read) {
+      for (const found of issues) {
+        if (found.labelsAdded === undefined) continue;
+        unread.delete(`${repository.repo}#${found.number}`);
+        const reason = unapprovedLabels(found, repository.filter, authors);
+        if (reason !== undefined)
+          unapprovedOnce({ repo: repository.repo, issue: found.number, reason });
+      }
+    }
     const queue = intakeQueue(
       log.state(),
-      { brewery: breweryIssues, repositories: listings },
+      { brewery: breweryIssues, repositories: read },
       { authors, claimant },
     );
     const failed = new Set<IntakeRepository>();
@@ -469,6 +541,23 @@ export const createIntake = (options: IntakeOptions): Intake => {
     if (holding.has(key)) return;
     holding.add(key);
     report({ kind: 'held', ...held });
+  };
+
+  // The issues reported as nobody in users labelled, with the reason: each once (ADR 0359).
+  const unapproved = new Set<string>();
+  const unapprovedOnce = (skipped: { repo: string; issue: number; reason: string }): void => {
+    const key = `${skipped.repo}#${skipped.issue}\n${skipped.reason}`;
+    if (unapproved.has(key)) return;
+    unapproved.add(key);
+    report({ kind: 'unapproved', ...skipped });
+  };
+
+  // The issues whose events a read failed on, until one reads them: each said once (ADR 0359).
+  const unread = new Set<string>();
+  const unreadOnce = (issue: string, error: unknown): void => {
+    if (unread.has(issue)) return;
+    unread.add(issue);
+    report({ kind: 'failed', what: `reading who labelled ${issue}`, error });
   };
 
   // The batches reported as not routable, with the reason: each once, not at every poll.

@@ -119,7 +119,10 @@ const breweryTestMap = (
 
 /** What the intake in serve's loop orders, and how often it polls (ADR 0068). */
 export interface ServeIntake {
-  /** The allow-listed GitHub logins: only an issue one of them opened is ordered. */
+  /**
+   * The Brewery's `users`: a Brewery issue one of them opened is ordered, and a target issue whose
+   * intake labels one of them added last is claimed (ADR 0359).
+   */
   users: readonly string[];
   /** How many batches may be Ordered or Brewing at once: `concurrency`. */
   capacity: number;

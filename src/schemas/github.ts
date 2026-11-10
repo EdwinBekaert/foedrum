@@ -57,6 +57,17 @@ export const GitHubListedIssue = GitHubIssue.extend({
   created_at: z.iso.datetime({ offset: true }),
 });
 
+/**
+ * One item of `GET /repos/{owner}/{repo}/issues/{n}/events`: what the intake reads of it (ADR
+ * 0359). A `labeled` event names its label; its actor is null for an account deleted since.
+ */
+export const GitHubIssueEvent = z.object({
+  id: z.number().int().positive(),
+  event: z.string(),
+  actor: Account.nullable().optional(),
+  label: z.object({ name: z.string() }).optional(),
+});
+
 /** `GET /repos/{owner}/{repo}/pulls/{n}`. */
 export const GitHubPullRequest = z.object({
   state: z.enum(['open', 'closed']),
