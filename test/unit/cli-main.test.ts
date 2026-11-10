@@ -34,12 +34,14 @@ const startsNothing: ExecProcess = async (file) => {
 // The PATH lookup, with every tool at a made-up path and gh at MADE_UP_GH.
 const madeUpPath = (name: string): string => (name === 'gh' ? MADE_UP_GH : `/made-up/bin/${name}`);
 
-const foedrumIn = (cwd: string, args: string[]) =>
-  cliFromCheckout(args, cwd, {
-    exec: cannedGhLogin(startsNothing),
-    resolve: madeUpPath,
-    denylist: noDenylist,
-  });
+// What every command here runs with: canned gh over a runner that starts nothing, made-up tools.
+const startingNothing = {
+  exec: cannedGhLogin(startsNothing),
+  resolve: madeUpPath,
+  denylist: noDenylist,
+};
+
+const foedrumIn = (cwd: string, args: string[]) => cliFromCheckout(args, cwd, startingNothing);
 
 describe('foedrum doctor and serve through cliFromCheckout', () => {
   let dir: TempDir;
@@ -57,11 +59,7 @@ describe('foedrum doctor and serve through cliFromCheckout', () => {
       files.push(file);
       return canned(file, execArgs, options);
     };
-    await cliFromCheckout(args, dir.path, {
-      exec,
-      resolve: madeUpPath,
-      denylist: noDenylist,
-    });
+    await cliFromCheckout(args, dir.path, { ...startingNothing, exec });
     return files;
   };
 
@@ -174,9 +172,7 @@ describe('foedrum status and replay on store files', () => {
     // A name no machine's account has, as npm run demo gives its own user (#663).
     const user = 'demo-user-663';
     const { exitCode, stdout, stderr } = await cliFromCheckout(['cancel', '12-1'], brewery.path, {
-      exec: cannedGhLogin(startsNothing),
-      resolve: madeUpPath,
-      denylist: noDenylist,
+      ...startingNothing,
       user: () => user,
     });
     assert.equal(stderr, '');
@@ -258,9 +254,7 @@ describe('foedrum status --watch through cliFromCheckout (ADR 0188)', () => {
       if (text.includes('12-1')) process.emit('SIGBREAK', 'SIGBREAK');
     });
     const result = await cliFromCheckout(['status', '--watch'], brewery.path, {
-      exec: cannedGhLogin(startsNothing),
-      resolve: madeUpPath,
-      denylist: noDenylist,
+      ...startingNothing,
       board: { stream, env: { TERM: 'xterm' } },
     });
     assert.deepEqual(result, { exitCode: 0, stdout: '', stderr: '' });
@@ -275,9 +269,7 @@ describe('foedrum status --watch through cliFromCheckout (ADR 0188)', () => {
       if (text === 'No live batches.') process.emit('SIGBREAK', 'SIGBREAK');
     });
     const result = await cliFromCheckout(['status', '--watch'], brewery.path, {
-      exec: cannedGhLogin(startsNothing),
-      resolve: madeUpPath,
-      denylist: noDenylist,
+      ...startingNothing,
       board: { stream, env: { TERM: 'xterm' } },
     });
     assert.deepEqual(result, { exitCode: 0, stdout: '', stderr: '' });
@@ -288,9 +280,7 @@ describe('foedrum status --watch through cliFromCheckout (ADR 0188)', () => {
   it('refuses off a terminal in one line with exit code 1, and creates no store', async () => {
     const { stream, writes } = ttyStream(false);
     const result = await cliFromCheckout(['status', '--watch'], brewery.path, {
-      exec: cannedGhLogin(startsNothing),
-      resolve: madeUpPath,
-      denylist: noDenylist,
+      ...startingNothing,
       board: { stream, env: { TERM: 'xterm' } },
     });
     assert.deepEqual(result, {
