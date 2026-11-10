@@ -218,24 +218,26 @@ interface Steps {
 const ofRecipe = (recipe: Recipe | undefined, stepId: string): boolean =>
   recipe?.has(stepId) !== false && recipe?.children(stepId) === undefined;
 
-/**
- * `batch` with only the attempts scheduled under its current recipe (`attemptRecipeOf`): an
- * earlier recipe's step of the same id is another step (ADR 0327), and a step left with none is
- * left out.
- */
-const ofCurrentRecipe = (state: State, batch: Batch): Batch => {
-  const name = batch.recipe?.name;
+/** `batch` with only the attempts `keep` takes, and a step left with none left out. */
+const keeping = (batch: Batch, keep: (stepId: string, attempt: number) => boolean): Batch => {
   const steps = new Map<string, Step>();
   for (const step of batch.steps.values()) {
-    const attempts = new Map(
-      [...step.attempts].filter(
-        ([attempt]) =>
-          attemptRecipeOf(state, { batchId: batch.id, stepId: step.id, attempt }) === name,
-      ),
-    );
+    const attempts = new Map([...step.attempts].filter(([attempt]) => keep(step.id, attempt)));
     if (attempts.size > 0) steps.set(step.id, { ...step, attempts });
   }
   return { ...batch, steps };
+};
+
+/**
+ * `batch` with only the attempts scheduled under its current recipe (`attemptRecipeOf`): an
+ * earlier recipe's step of the same id is another step (ADR 0327).
+ */
+const ofCurrentRecipe = (state: State, batch: Batch): Batch => {
+  const name = batch.recipe?.name;
+  return keeping(
+    batch,
+    (stepId, attempt) => attemptRecipeOf(state, { batchId: batch.id, stepId, attempt }) === name,
+  );
 };
 
 /** The `when` that was false for `stepId`, or its group's, when the batch skipped it (ADR 0064). */
@@ -449,8 +451,8 @@ const briefRest = (
     );
   const name = batch.recipe?.name;
   const recipe = name === undefined ? undefined : recipes.find(name);
-  // A merge brief is about this head: an earlier recipe's attempts stay in the status comment,
-  // also of a step id the current recipe shares (ADR 0327).
+  // A merge brief is about this head: what a step's latest attempt says reads only the current
+  // recipe's attempts, also of a step id an earlier recipe shares (ADR 0327).
   const current = ofCurrentRecipe(state, batch);
   const ran = [...current.steps.keys()].filter((stepId) => ofRecipe(recipe, stepId));
   const steps: Steps = {
@@ -458,11 +460,18 @@ const briefRest = (
     recipe,
     ids: [...new Set([...(recipe?.steps ?? []), ...ran])],
   };
+  // A recipe choice keeps the task tree, so the commits of every run the batch brewed are on this
+  // head: the rounds that fixed them and the map a survey committed read the whole batch (ADR 0363).
+  const onHead: Steps = {
+    batch,
+    recipe,
+    ids: [...new Set([...steps.ids, ...(batch.path ?? []).map(({ stepId }) => stepId)])],
+  };
   const proof = name === undefined ? undefined : redProof(name);
   const head = code(shortSha(ready.head));
   const sensitive = latestPush(state, batch.id)?.sensitive;
   const findings = [
-    ...dispositionLines(steps, told),
+    ...dispositionLines(onHead, told),
     ...openLines(steps, told),
     ...skippedOpenLines(steps, told),
   ];
@@ -487,7 +496,7 @@ const briefRest = (
       ...notRunLines(steps, proof),
       tastedLine(steps, ready),
       ...(sensitive === undefined ? [] : [`- ${sensitiveLine(sensitive)}.`]),
-      ...surveyLines(steps),
+      ...surveyLines(onHead),
     ],
     ['**Findings**', ...(findings.length === 0 ? ['No finding was recorded.'] : findings)],
     ['**Risk left**', ...(risks.length === 0 ? ['None recorded.'] : risks)],
@@ -499,21 +508,25 @@ const briefRest = (
 };
 
 /**
- * Why the pull request changes the test map (ADR 0282, ADR 0298): one line for each survey that
- * proposed a map, new or refreshed, from its first proposal, since a survey its check sent back
- * reads its own proposal as stale, with the stale paths the Maltster named, which are model text.
+ * Why the pull request changes the test map (ADR 0282, ADR 0298): one line for each repository a
+ * survey proposed a map of, new or refreshed, from its first proposal on the batch's path of every
+ * recipe it brewed (ADR 0363), since a survey its check sent back reads its own proposal as stale,
+ * with the stale paths the Maltster named, which are model text.
  */
-const surveyLines = ({ batch, ids }: Steps): string[] =>
-  ids.flatMap((stepId) => {
-    const proposals = [...(batch.steps.get(stepId)?.attempts.values() ?? [])].flatMap((attempt) => {
-      if (attempt.phase !== 'finished' || attempt.outcome.kind !== 'succeeded') return [];
-      const survey = surveyOf(attempt.outcome.output);
-      const repo = attempt.worktree?.repo;
-      return survey === undefined || repo === undefined ? [] : [{ survey, repo }];
-    });
+const surveyLines = ({ batch, ids }: Steps): string[] => {
+  const proposals = (batch.path ?? []).flatMap(({ stepId, attempt: n }) => {
+    const attempt = ids.includes(stepId) ? batch.steps.get(stepId)?.attempts.get(n) : undefined;
+    if (attempt?.phase !== 'finished' || attempt.outcome.kind !== 'succeeded') return [];
+    const survey = surveyOf(attempt.outcome.output);
+    const repo = attempt.worktree?.repo;
+    return survey === undefined || repo === undefined ? [] : [{ survey, repo }];
+  });
+  // GitHub names are case-insensitive.
+  const repos = [...new Set(proposals.map(({ repo }) => repo.toLowerCase()))];
+  return repos.flatMap((key) => {
+    const ofRepo = proposals.filter(({ repo }) => repo.toLowerCase() === key);
     const first =
-      proposals.find(({ survey }) => survey.map === 'new' || survey.map === 'stale') ??
-      proposals[0];
+      ofRepo.find(({ survey }) => survey.map === 'new' || survey.map === 'stale') ?? ofRepo[0];
     if (first === undefined) return [];
     const { survey, repo } = first;
     switch (survey.map) {
@@ -532,6 +545,7 @@ const surveyLines = ({ batch, ids }: Steps): string[] =>
       }
     }
   });
+};
 
 /** The brief's title line: the pull request's title, which anyone who can edit it wrote. */
 const titleLine = (title: string, head: string): string =>

@@ -67,6 +67,14 @@ const loaded = loadRecipes({
     ]),
     building('built-first', [{ id: 'implement', brewer: 'cellarman' }, ask, open]),
     building('plain-taste', [first, { id: 'taste', ...earlierTaster }, ask, open]),
+    // plain-taste with a second round back, which a run after the first can still take, since a
+    // route counts its rounds over the batch's life.
+    building('twice-taste', [
+      first,
+      { id: 'taste', ...earlierTaster, onFindings: { goto: 'plan', maxRounds: 2 } },
+      ask,
+      open,
+    ]),
     building('group-taste', [
       { id: 'implement', brewer: 'cellarman' },
       {
@@ -361,7 +369,9 @@ describe('the merge brief of a batch mashed to a building recipe (#867)', () => 
     assert.doesNotMatch(body, /old-taster/);
   });
 
-  it("leaves out what an earlier recipe's survey proposed", async () => {
+  // An earlier recipe's commits stay on the head, since a recipe choice keeps the task tree, so the
+  // map its survey committed is still in the pull request (ADR 0363).
+  it("lists the map an earlier recipe's survey committed on this head (#972)", async () => {
     const body = await briefAfterMove(() =>
       run(
         'old-taster',
@@ -369,8 +379,39 @@ describe('the merge brief of a batch mashed to a building recipe (#867)', () => 
         { commit: head },
       ),
     );
-    assert.match(body, /\*\*Evidence on /);
-    assert.doesNotMatch(body, /The test map of/);
+    assert.match(body, /- The test map of acme\/web is new: the Maltster proposed it\./);
+  });
+
+  it("lists the fix rounds an earlier recipe's Taster sent back (#972)", async () => {
+    movedOff(
+      'reviewed',
+      () => {
+        run('plan', done);
+        run('old-taster', {
+          kind: 'blocked',
+          blockerKind: 'findings',
+          summary: 'A change is asked',
+          findings: [{ ...heldBack, line: 3 }],
+        });
+        run('plan', {
+          kind: 'succeeded',
+          output: {
+            status: 'done',
+            summary: 'Fixed',
+            assumptions: [],
+            dispositions: [{ file: 'plan.md', line: 3, disposition: 'fixed' }],
+          },
+        });
+        run('old-taster', tasted('the plan may be too big'));
+      },
+      'tasted',
+    );
+    run('implement', done);
+    run('new-taster', tasted('the cut was not run'), { commit: head });
+    opened();
+    const body = await briefBody();
+    assert.match(body, /- `old-taster`: fixed at plan\.md:3/);
+    assert.doesNotMatch(body, /the plan may be too big/);
   });
 
   it("leaves out the named tests an earlier recipe's run reported under no name (ADR 0342)", async () => {
@@ -527,7 +568,7 @@ describe('the merge brief of a batch mashed to a building recipe (#867)', () => 
     assert.match(body, /\*\*Findings\*\*\nNo finding was recorded\./);
   });
 
-  it("leaves out the map an earlier recipe's attempt of a step proposed when the current recipe's said fresh (#871)", async () => {
+  it("lists the map an earlier recipe's attempt of a step committed, though the current recipe's said fresh (#972)", async () => {
     const surveyed = (map: string): Ending => ({
       kind: 'succeeded',
       output: { status: 'done', summary: 'P', map },
@@ -540,11 +581,10 @@ describe('the merge brief of a batch mashed to a building recipe (#867)', () => 
     run('implement', surveyed('fresh'), { commit: head });
     opened();
     const body = await briefBody();
-    assert.match(body, /\*\*Evidence on /);
-    assert.doesNotMatch(body, /The test map of/);
+    assert.match(body, /- The test map of acme\/web is new: the Maltster proposed it\./);
   });
 
-  it("lists the dispositions of the current recipe's rounds of a step, never an earlier recipe's of its id (#871)", async () => {
+  it("lists the dispositions of an earlier recipe's rounds of a step beside the current recipe's (#972)", async () => {
     const blockedAt = (file: string): Ending => ({
       kind: 'blocked',
       blockerKind: 'findings',
@@ -576,8 +616,135 @@ describe('the merge brief of a batch mashed to a building recipe (#867)', () => 
     run('taste', tasted('the cut was not run'), { commit: head });
     opened();
     const body = await briefBody();
-    assert.match(body, /- `taste`: fixed at src\/a\.ts:3/);
-    assert.doesNotMatch(body, /plan\.md/);
+    assert.match(body, /- `taste`: fixed at plan\.md:3\n- `taste`: fixed at src\/a\.ts:3/);
+  });
+
+  const blockedAt = (file: string): Ending => ({
+    kind: 'blocked',
+    blockerKind: 'findings',
+    summary: 'A change is asked',
+    findings: [{ ...heldBack, file, line: 3 }],
+  });
+  const fixedAt = (file: string): Ending => ({
+    kind: 'succeeded',
+    output: {
+      status: 'done',
+      summary: 'Fixed',
+      assumptions: [],
+      dispositions: [{ file, line: 3, disposition: 'fixed' }],
+    },
+  });
+  const surveyed = (map: string): Ending => ({
+    kind: 'succeeded',
+    output: { status: 'done', summary: 'P', map },
+  });
+  const choose = (recipe: string): void =>
+    accept({
+      kind: 'recipe',
+      batchId,
+      recipe,
+      reason: 'a person chose',
+      by: 'ann',
+      via: 'terminal',
+    });
+  /**
+   * A run of twice-taste from its plan: the plan ends with `planned`, its Taster sends a finding at
+   * `file` back once and approves at `commit`, and `ask` asks, so the batch waits Stuck.
+   */
+  const twiceTasteRun = (file: string, commit: string, planned: Ending = done): void => {
+    run('plan', planned, { commit });
+    run('taste', blockedAt(file));
+    run('plan', fixedAt(file));
+    run('taste', tasted('the plan may be too big'), { commit });
+    run('ask', { kind: 'needs_input', questions: [which] });
+    assert.equal(log.state().batches.get(batchId)?.lane.kind, 'stuck');
+  };
+  /** twice-taste's run 1, when-taste's implement Stuck on a question, and twice-taste again. */
+  const backToTwiceTaste = (planned: Ending = done): void => {
+    accept({ kind: 'order', batchId, order: { issue: 7 } });
+    accept({ kind: 'route', batchId, recipe: 'twice-taste', reason: 'label', source: 'label' });
+    twiceTasteRun('first.md', earlierCommit, planned);
+    choose('when-taste');
+    run('implement', { kind: 'needs_input', questions: [which] });
+    choose('twice-taste');
+  };
+
+  it('lists the rounds and the map of an earlier run of a recipe the batch returned to: regression test', async () => {
+    backToTwiceTaste(surveyed('new'));
+    run('plan', done);
+    run('taste', blockedAt('second.md'));
+    run('plan', fixedAt('second.md'));
+    run('taste', tasted('the cut was not run'), { commit: head });
+    run('ask', done);
+    opened();
+    const body = await briefBody();
+    assert.match(body, /- `taste`: fixed at first\.md:3\n- `taste`: fixed at second\.md:3/);
+    assert.match(body, /- The test map of acme\/web is new: the Maltster proposed it\./);
+  });
+
+  it("lists the current recipe's rounds before an earlier recipe's: regression test", async () => {
+    movedOff(
+      'reviewed',
+      () => {
+        run('plan', done);
+        run('old-taster', blockedAt('plan.md'));
+        run('plan', fixedAt('plan.md'));
+        run('old-taster', tasted('the plan may be too big'));
+      },
+      'tasted',
+    );
+    run('implement', done);
+    run('new-taster', blockedAt('src/a.ts'));
+    run('implement', fixedAt('src/a.ts'));
+    run('new-taster', tasted('the cut was not run'), { commit: head });
+    opened();
+    const body = await briefBody();
+    assert.match(
+      body,
+      /- `new-taster`: fixed at src\/a\.ts:3\n- `old-taster`: fixed at plan\.md:3/,
+    );
+  });
+
+  it('says once what the surveys of two recipes proposed for one repository, from the first (#972)', async () => {
+    movedOff(
+      'reviewed',
+      () => {
+        run('plan', surveyed('new'), { commit: earlierCommit });
+        run('old-taster', tasted('the plan may be too big'));
+      },
+      'tasted',
+    );
+    run(
+      'implement',
+      {
+        kind: 'succeeded',
+        output: { status: 'done', summary: 'P', map: 'stale', stale: ['src/b'] },
+      },
+      { commit: head },
+    );
+    run('new-taster', tasted('the cut was not run'), { commit: head });
+    opened();
+    const body = await briefBody();
+    assert.match(body, /- The test map of acme\/web is new: the Maltster proposed it\./);
+    assert.doesNotMatch(body, /was stale/);
+  });
+
+  it('says once that a repository whose first survey found its map fresh has a new one: regression test', async () => {
+    movedOff(
+      'reviewed',
+      () => {
+        run('plan', surveyed('fresh'), { commit: earlierCommit });
+        run('old-taster', tasted('the plan may be too big'));
+      },
+      'tasted',
+    );
+    run('implement', surveyed('new'), { commit: head });
+    run('new-taster', tasted('the cut was not run'), { commit: head });
+    opened();
+    const body = await briefBody();
+    assert.deepStrictEqual(body.match(/The test map of [^\n]*/g), [
+      'The test map of acme/web is new: the Maltster proposed it.',
+    ]);
   });
 
   it("finds the merged-check step of a batch mashed to nip, in nip's own steps: regression test", () => {
