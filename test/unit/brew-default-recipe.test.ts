@@ -166,6 +166,29 @@ describe('runBrew on an issue with no recipe label (ADR 0370)', () => {
     assert.deepStrictEqual(f.started, ['innkeep#1']);
   });
 
+  it("a claimed issue's recipe label, which brew does not read, is named with the command that chooses a recipe when the default runs", async () => {
+    f.api = fakeGitHubApi({
+      login: 'ann',
+      issues: {
+        'acme/web': [
+          { number: 7, labels: ['foedrum', 'recipe:stout'], author: 'ann', title: 'Dark' },
+        ],
+      },
+    });
+    const claimed = ready({ config: config({}, web) });
+    const asks = shell(behave.needInput([which(1)]));
+    const fresh = { ...request, target: { alias: 'web', issue: 7 } };
+    assert.equal(await runBrew(claimed, asks, fresh), 4, f.lines.join('\n'));
+    // The label would choose nothing now: the batch is routed to the default below it.
+    assert.ok(
+      f.lines.includes(
+        'foedrum brew: web#7 carries recipe:stout, which Foedrum does not read; foedrum recipe 1 <recipe> "<reason>" chooses another recipe',
+      ),
+      f.lines.join('\n'),
+    );
+    assert.ok(!f.lines.some((line) => line.includes('label #1')), f.lines.join('\n'));
+  });
+
   it('an issue with two recipe labels, or a label naming a recipe the Brewery lacks, is still refused: regression test', async () => {
     const lines: [number, string][] = [
       [14, 'foedrum brew: #14 carries recipe:stout and recipe:porter; give it one recipe label'],
