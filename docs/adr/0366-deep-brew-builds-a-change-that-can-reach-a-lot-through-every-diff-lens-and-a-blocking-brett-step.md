@@ -1,6 +1,6 @@
 # 0366. Deep-brew builds a change that can reach a lot, through every diff lens and a blocking Brett step
 
-Date: 2026-11-10 · Status: Accepted · Amends [0319](0319-brett-s-survivors-are-listed-where-findings-are-and-a-blocking-brett-step-sends-them-back.md) (a default recipe runs Brett, blocking, its survivors sent back to the Gauger), [0224](0224-the-default-recipes-taste-apart-or-together-as-a-seeded-comparison-measured.md) (a default recipe tastes its lenses together), [0358](0358-an-older-test-changes-only-in-the-gauger-s-red-commit.md) (the Gauger a Brett step sends back adds a test per survivor) , [0352](0352-nip-s-correctness-acceptance-and-security-tasters-run-at-high-effort-without-the-rules-read.md) (two setups of `tasting-compare --real` taste with the default Taster, not the pinned one), [0347](0347-tasting-compare-real-measures-tasters-without-the-rules-read-and-three-lenses-together.md) (two more setups of `tasting-compare --real`) and [0344](0344-tasting-compare-real-measures-a-stronger-model-and-more-effort-apart.md) (`--orders` beside `--setups`)
+Date: 2026-11-10 · Status: Accepted · Amends [0319](0319-brett-s-survivors-are-listed-where-findings-are-and-a-blocking-brett-step-sends-them-back.md) (a default recipe runs Brett, blocking, its survivors sent back to the Gauger), [0224](0224-the-default-recipes-taste-apart-or-together-as-a-seeded-comparison-measured.md) (a default recipe tastes its lenses together), [0358](0358-an-older-test-changes-only-in-the-gauger-s-red-commit.md) (the Gauger a Brett step sends back adds a test per survivor), [0352](0352-nip-s-correctness-acceptance-and-security-tasters-run-at-high-effort-without-the-rules-read.md) (three setups of `tasting-compare --real` taste with the default Taster, not the pinned one), [0347](0347-tasting-compare-real-measures-tasters-without-the-rules-read-and-three-lenses-together.md) (three more setups of `tasting-compare --real`) and [0344](0344-tasting-compare-real-measures-a-stronger-model-and-more-effort-apart.md) (`--orders` beside `--setups`)
 
 ## Context
 Foedrum ships one recipe that builds, `nip`, so every change is built and reviewed by it, however much it can reach.
@@ -31,14 +31,34 @@ The full recipe has four stages, each added by its own issue: readiness (#373), 
   Before it, the expensive Opus Taster runs only once the survivors are settled, and it reviews the tests their round added.
   A Taster's fix round followed by a new survivor still writes the code once more: a Taster's round back runs Brett again, and a survivor then sends the batch to the Gauger, at most twice in all.
 - **`tasting-compare --real` measures it** ([ADR 0332](0332-tasting-compare-real-re-tastes-brewed-heads-and-writes-blinded-lists.md)).
-  Its `deep` setup tastes as `deep-brew` ships its Taster and its `nip` setup as `nip` ships its four, each with the default Taster and models.jsonc, not the pinned Taster that reads the rules ([ADR 0352](0352-nip-s-correctness-acceptance-and-security-tasters-run-at-high-effort-without-the-rules-read.md)): they measure what the defaults run today, and a test holds each to its recipe file.
+  Its `deep` setup tastes as `deep-brew` ships its Taster, its `nip` setup as `nip` ships its four, and its `apart7` setup as `nip` ships its four with test design, cross-platform and necessity as three more Sonnet Tasters beside them at the Taster's own effort, each with the default Taster and models.jsonc, not the pinned Taster that reads the rules ([ADR 0352](0352-nip-s-correctness-acceptance-and-security-tasters-run-at-high-effort-without-the-rules-read.md)): they measure what the defaults run today, and a test holds each to its recipe file.
   `--orders <numbers>` runs only the setups `--setups` names of those orders.
   The order is #867 at `nip`'s head on #868, `f4fb4585`, already the comparison's third order: the pull request opened at 20:23 after that commit, and the first `/brew-review` summary names it as the head it reviewed, before the review's first fix.
   Its key is the four findings above, kept out of the repository; the lists are scored blind.
 
 ## Measured
-- Whether it finds more: _to be filled from `--real --setups deep,nip --orders 867 --runs 3`._
-- Tokens per batch: _to be filled_. Until a real `deep-brew` batch runs, which the maintainer does after the merge, the number is an estimate: `nip`'s batch tokens without its Tasters, plus the `deep` setup's measured Taster, plus Brett's.
+Measured on 2026-11-10 with `--real --orders 867 --runs 3`, one tasting round per run, the lists scored blind against a key that stays out of the repository: `/brew-review`'s findings on #868 at `f4fb4585`.
+Its three majors are K1, a filter that reads a value outside its guard, K2, a pass over the batches that is not isolated, and K3, a new failure with no decision record and nothing that decides how the batch ends; K4 to K10 are minors, among them K8, a test that looks only for the old failure and cannot see the fix.
+A finding the scorer judged part of a key item counts 0.5.
+
+| Setup | Tasters | Score per run | Mean | Tokens per run | Mean |
+|---|---|---|---|---|---|
+| `nip` | four on Sonnet, as `nip` ships them | 1.5, 1.5, 1.5 | 1.5 | 1,509k, 1,605k, 1,620k | 1,578k |
+| `apart7` | `nip`'s four and test design, cross-platform and necessity apart, on Sonnet | 1.5, 1.0, 2.0 | 1.5 | 1,416k, 1,804k, 1,522k | 1,581k |
+| `deep` | one on Opus through all seven lenses, as `deep-brew` ships it | 2.0, 2.0, 2.0 | 2.0 | 943k, 1,307k, 1,036k | 1,095k |
+
+- Every setup found K1 in 3 of 3 runs.
+- `deep` alone found K8, in 3 of 3; `nip` found part of K3 in 3 of 3 (the missing record, not the batch's end), `apart7` in 2 of 3, and `deep` in none.
+- No run found K2 whole: `apart7` found part of it in 1 of 3. No run found K4 to K7, K9 or K10, and no run wrote a false finding.
+- `apart7`'s three more Tasters opened no file beyond the diff in 8 of their 9 attempts, ending in 2 to 5 turns, and wrote 1 finding in all: tasted apart on Sonnet, the extra lenses added almost nothing and cost almost nothing.
+- Cost: with Opus at twice Sonnet's price per token, `deep`'s 1,095k Opus tokens cost about 1.4 times `nip`'s 1,578k Sonnet tokens per tasting round.
+- The `nip` that brewed #867 on 2026-11-05, with three Tasters, approved it with no finding.
+- It is one head and three runs per setup: a difference of one run is within what a repeat could change. The maintainer chose `deep` on these numbers.
+
+Tokens per batch are an estimate until a real `deep-brew` batch runs, which the maintainer does after the merge.
+The eight `nip` batches of the self-brew trial in the maintainer's Brewery used 1.10M to 22.5M tokens each, a median of about 2.4M; the store's 35 Taster attempts averaged about 143k, about 0.57M for `nip`'s four.
+So a `deep-brew` batch with no round back is about 2.4M − 0.57M + 1.10M for its Taster + about 0.2M for Brett ≈ 3.1M; Brett's share is a guess, since no Brett step has run in a Brewery yet, and its test runs spend no tokens.
+On #867 `nip`'s four Tasters measured 1.58M, well above that average, so on such a head `deep-brew`'s tasting uses fewer tokens than `nip`'s.
 
 ## Consequences
 - An order that can reach a lot gets every diff lens and Brett's mutants in the engine, as `/brew-review` gives Foedrum's own pull requests.
