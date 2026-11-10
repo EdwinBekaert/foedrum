@@ -1,6 +1,7 @@
-// The intake's reads of GitHub (ADR 0050, ADR 0052): the open issues of a target repository and how
-// a pull request of a batch stands, both through conditional reads, so a poll that finds nothing
-// new costs no rate limit. Everything it reads is untrusted input, checked field by field.
+// The intake's reads of GitHub (ADR 0050, ADR 0052): the open issues of a target repository, how a
+// pull request of a batch stands and who added an issue's labels (ADR 0359), all through
+// conditional reads, so a poll that finds nothing new costs no rate limit. Everything it reads is
+// untrusted input, checked field by field.
 
 import type { TargetTracker } from '../engine/intake.ts';
 import type { PullRequestState, TargetIssue } from '../engine/issue-claims.ts';
@@ -19,7 +20,7 @@ const targetIssue = (body: unknown, what: string): TargetIssue => {
     labels: labelNames(issue.labels),
     milestone: issue.milestone?.title,
     assignees: assigneeLogins(issue.assignees),
-    // A deleted account is nobody, so never an allow-listed author.
+    // A deleted account is nobody, so it never opened a Brewery order (ADR 0068).
     author: issue.user?.login ?? '',
     created: new Date(issue.created_at).toISOString(),
   };
