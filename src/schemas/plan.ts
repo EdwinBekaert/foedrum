@@ -164,6 +164,14 @@ export const PlanOutDoc = outDocFrontmatter({
 });
 export type PlanOutDoc = z.infer<typeof PlanOutDoc>;
 
+/**
+ * The out doc of a plan attempt whose sub-orders may run with `recipes`, the Brewery's recipes of
+ * type `brew` (ADR 0365).
+ */
+export const planOutDocOf = (_recipes: readonly string[]): z.ZodType<PlanOutDoc> => {
+  throw new Error('not implemented');
+};
+
 /** What a plan's out doc holds once it is done. */
 export interface PlanReport {
   subOrders: readonly PlannedSubOrder[];

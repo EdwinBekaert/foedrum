@@ -2,6 +2,7 @@
 {
   "$schema": "../../../schemas/recipe.json",
   "name": "nip",
+  "type": "brew",
   "description": "Quick fix in one repository",
   "steps": [
     { "id": "gauge", "brewer": "gauger", "when": "recipe.testFirst" },

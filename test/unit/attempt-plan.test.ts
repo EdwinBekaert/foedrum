@@ -241,7 +241,8 @@ describe("attemptLimits: a plan's sub-orders (ADR 0233)", () => {
         deniedTools: [],
         turns: 3,
       },
-      attemptLimits(planner),
+      // The plan step is offered the Brewery's recipes of type brew (ADR 0365).
+      attemptLimits(planner, undefined, false, undefined, ['tdd']),
     );
 
   it('fails a done plan without its sub-orders retryably, naming the field', () => {
@@ -275,7 +276,7 @@ describe("attemptLimits: a plan's sub-orders (ADR 0233)", () => {
         deniedTools: [],
         turns: 3,
       },
-      attemptLimits(by),
+      attemptLimits(by, undefined, false, undefined, ['tdd']),
     );
   /** How a done plan of one sub-order with `assumptions` ends, its body `body`. */
   const written = (body: string, assumptions: string[] = ['Port 8080 is free.']) =>

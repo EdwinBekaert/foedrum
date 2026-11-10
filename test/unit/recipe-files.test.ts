@@ -2309,7 +2309,7 @@ describe('loadRecipes: a step whose answer chooses the recipe (ADR 0232)', () =>
     assert.equal(result.recipes.find('mash-in')?.choosesRecipe('innkeep'), true);
     assert.equal(result.recipes.find('pale')?.choosesRecipe('plan'), false);
     assert.deepEqual(result.brewers.find('mash-in', 'innkeep')?.choices, [
-      { name: 'pale', description: 'The pale.' },
+      { name: 'pale', type: 'brew', description: 'The pale.' },
     ]);
   });
 

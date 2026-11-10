@@ -29,4 +29,4 @@ export const recipeText = (
   steps: readonly unknown[],
   fields: Record<string, unknown> = {},
 ): string =>
-  `// The ${name} recipe.\n${JSON.stringify({ name, description: `The ${name}.`, steps, ...fields }, null, 2)}\n`;
+  `// The ${name} recipe.\n${JSON.stringify({ name, type: 'brew', description: `The ${name}.`, steps, ...fields }, null, 2)}\n`;

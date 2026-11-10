@@ -12,6 +12,7 @@ import {
   type CheckRef,
   type ChosenBy,
   Recipe as RecipeFile,
+  type RecipeType,
   readExpression,
   type Step,
   stepBrewerName,
@@ -50,6 +51,7 @@ export interface BreweryFiles extends FilesByKind {
 /** A recipe a step that chooses the recipe may offer: its name and description (ADR 0232). */
 export interface RecipeChoice {
   name: string;
+  type?: RecipeType;
   description: string;
 }
 
