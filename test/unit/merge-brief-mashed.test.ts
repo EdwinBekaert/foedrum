@@ -682,6 +682,29 @@ describe('the merge brief of a batch mashed to a building recipe (#867)', () => 
     assert.match(body, /- The test map of acme\/web is new: the Maltster proposed it\./);
   });
 
+  it("lists the current recipe's rounds before an earlier recipe's: regression test", async () => {
+    movedOff(
+      'reviewed',
+      () => {
+        run('plan', done);
+        run('old-taster', blockedAt('plan.md'));
+        run('plan', fixedAt('plan.md'));
+        run('old-taster', tasted('the plan may be too big'));
+      },
+      'tasted',
+    );
+    run('implement', done);
+    run('new-taster', blockedAt('src/a.ts'));
+    run('implement', fixedAt('src/a.ts'));
+    run('new-taster', tasted('the cut was not run'), { commit: head });
+    opened();
+    const body = await briefBody();
+    assert.match(
+      body,
+      /- `new-taster`: fixed at src\/a\.ts:3\n- `old-taster`: fixed at plan\.md:3/,
+    );
+  });
+
   it("finds the merged-check step of a batch mashed to nip, in nip's own steps: regression test", () => {
     mashed('nip');
     const found = log.state().batches.get(batchId);
