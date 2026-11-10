@@ -927,6 +927,33 @@ describe('foedrum status <order> (ADR 0295)', () => {
     );
   });
 
+  it('status counts an attempt of decoction whose choice recorded no type, from before types, as planning (ADR 0365): regression test', async () => {
+    const older: Event[] = [
+      ordered(11),
+      chosen('11-1', 'decoction'),
+      ...attempt('11-1', 'plan', 1, [100, 20, 1000, 0]),
+    ];
+    const result = await run(['status', '11'], { openStore: () => storeWith(older) });
+    assert.match(
+      result.stdout,
+      /\nplanning: 1,120 tokens \(100 input, 20 output, 1,000 cache read, 0 cache write\)\nbrewing: none reported\n$/,
+    );
+  });
+
+  it("status counts an attempt with no recipe of its own by its batch's recorded type (ADR 0365): regression test", async () => {
+    // The attempt was scheduled before any choice, so only its batch's type, mash, says it planned.
+    const unrouted: Event[] = [
+      ordered(11),
+      ...attempt('11-1', 'plan', 1, [100, 20, 1000, 0]),
+      typed('11-1', 'wort', 'mash'),
+    ];
+    const result = await run(['status', '11'], { openStore: () => storeWith(unrouted) });
+    assert.match(
+      result.stdout,
+      /\nplanning: 1,120 tokens \(100 input, 20 output, 1,000 cache read, 0 cache write\)\nbrewing: none reported\n$/,
+    );
+  });
+
   // acme/app#11, claimed under the alias app, beside the Brewery's own #11, mashed into #21.
   const appConfig = () =>
     BreweryConfig.parse({
