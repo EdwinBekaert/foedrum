@@ -705,6 +705,30 @@ describe('the merge brief of a batch mashed to a building recipe (#867)', () => 
     );
   });
 
+  it('says once what the surveys of two recipes proposed for one repository, from the first (#972)', async () => {
+    movedOff(
+      'reviewed',
+      () => {
+        run('plan', surveyed('new'), { commit: earlierCommit });
+        run('old-taster', tasted('the plan may be too big'));
+      },
+      'tasted',
+    );
+    run(
+      'implement',
+      {
+        kind: 'succeeded',
+        output: { status: 'done', summary: 'P', map: 'stale', stale: ['src/b'] },
+      },
+      { commit: head },
+    );
+    run('new-taster', tasted('the cut was not run'), { commit: head });
+    opened();
+    const body = await briefBody();
+    assert.match(body, /- The test map of acme\/web is new: the Maltster proposed it\./);
+    assert.doesNotMatch(body, /was stale/);
+  });
+
   it("finds the merged-check step of a batch mashed to nip, in nip's own steps: regression test", () => {
     mashed('nip');
     const found = log.state().batches.get(batchId);
