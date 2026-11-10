@@ -24,6 +24,7 @@ import {
 import { RECIPE_CHOICE } from '../schemas/recipe-choice.ts';
 import type { StepOutcome } from '../schemas/step-outcome.ts';
 import { type Attempt, type Batch, onFindings } from './fold.ts';
+import { MASH_IN } from './recipe-label.ts';
 import type { Recipe, RecipeAction, Recipes, RouteWhy, Stall } from './recipes.ts';
 import { resolveRecipe } from './resolve-recipe.ts';
 
@@ -1378,4 +1379,23 @@ export function loadRecipes(breweryFiles: BreweryFiles): LoadedRecipes {
 /** The one line doctor and a refused command give for `problems`. */
 export function invalidRecipes(problems: readonly string[]): string {
   return `${INVALID_RECIPES}: ${problems.join('; ')}`;
+}
+
+/**
+ * Why foedrum.jsonc's `defaultRecipe` cannot be the recipe `foedrum brew` runs for an issue with
+ * no recipe label (ADR 0370), as doctor's problem, or undefined: it names no recipe of the
+ * Brewery, or one that is not of type `mash`, which would build an issue nobody chose a recipe
+ * for. Left out, the default is mash-in, whose type and choices brew checks when it runs, since a
+ * Brewery whose own mash-in builds may still serve labelled issues.
+ */
+export function defaultRecipeProblem(
+  defaultRecipe: string | undefined,
+  recipes: Recipes,
+): { what: string; fix: string } | undefined {
+  if (defaultRecipe === undefined) return undefined;
+  const fix = `name a recipe of type mash, or leave it out for ${MASH_IN}`;
+  const named = `foedrum.jsonc's defaultRecipe names ${defaultRecipe}`;
+  const found = recipes.find(defaultRecipe);
+  if (found === undefined) return { what: `${named}, which is no recipe of this Brewery`, fix };
+  return found.type === 'mash' ? undefined : { what: `${named}, of type ${found.type}`, fix };
 }
