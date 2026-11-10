@@ -261,9 +261,9 @@ const MACHINE_CONFIG = /\bGH_CONFIG_DIR\s*:\s*(?:process\.env\b|undefined\b)/;
 const MAIN_PROGRAM = /^(?:main\.ts|(?:.*[/\\])?cli[/\\]+main\.ts)$/;
 
 const GH_SPAWN =
-  'starts gh, which answers with whatever login the machine has: give the call a configuration of the test’s own (GH_CONFIG_DIR in its env, as fake-github-over-gh.ts does), or answer gh from captured output (canned-gh-login.ts, ADR 0086)';
+  'starts gh, which answers with whatever login the machine has: give the call a configuration of the test’s own (GH_CONFIG_DIR in its env, as fake-github-over-gh.ts does), or answer gh from captured output (test/helpers/canned-gh.ts, ADR 0086, ADR 0362)';
 const NO_RUNNER = (name: string) =>
-  `calls ${name} without an injected runner, so it can start the real gh: pass { exec, resolve }, such as cannedGhLogin() and resolveWithMadeUpGh (ADR 0086)`;
+  `calls ${name} without an injected runner, so it can start the real gh: pass { exec, resolve }, such as cannedGhLogin(execProcess) and resolveWithMadeUpGh (ADR 0086, ADR 0362)`;
 const MAIN =
   'runs src/cli/main.ts, the real program, whose real runner can start the real gh: call cliFromCheckout with an injected runner instead (ADR 0086)';
 const STALE_GH =

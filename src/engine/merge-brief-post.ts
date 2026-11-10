@@ -23,11 +23,13 @@ import { effectKey } from './effect-key.ts';
 import type { EffectTarget } from './effects.ts';
 import {
   type Attempt,
+  attemptRecipeOf,
   type Batch,
   baseChecksOn,
   latestAttempt,
   onFindings,
   type State,
+  type Step,
 } from './fold.ts';
 import { lensRounds, roundFindings } from './lens-rounds.ts';
 import {
@@ -215,6 +217,26 @@ interface Steps {
  */
 const ofRecipe = (recipe: Recipe | undefined, stepId: string): boolean =>
   recipe?.has(stepId) !== false && recipe?.children(stepId) === undefined;
+
+/**
+ * `batch` with only the attempts scheduled under its current recipe (`attemptRecipeOf`): an
+ * earlier recipe's step of the same id is another step (ADR 0327), and a step left with none is
+ * left out.
+ */
+const ofCurrentRecipe = (state: State, batch: Batch): Batch => {
+  const name = batch.recipe?.name;
+  const steps = new Map<string, Step>();
+  for (const step of batch.steps.values()) {
+    const attempts = new Map(
+      [...step.attempts].filter(
+        ([attempt]) =>
+          attemptRecipeOf(state, { batchId: batch.id, stepId: step.id, attempt }) === name,
+      ),
+    );
+    if (attempts.size > 0) steps.set(step.id, { ...step, attempts });
+  }
+  return { ...batch, steps };
+};
 
 /** The `when` that was false for `stepId`, or its group's, when the batch skipped it (ADR 0064). */
 const skippedBy = ({ batch, recipe }: Steps, stepId: string): { when?: string } | undefined => {
@@ -427,9 +449,15 @@ const briefRest = (
     );
   const name = batch.recipe?.name;
   const recipe = name === undefined ? undefined : recipes.find(name);
-  // A merge brief is about this head: an earlier recipe's steps stay in the status comment (ADR 0327).
-  const ran = [...batch.steps.keys()].filter((stepId) => ofRecipe(recipe, stepId));
-  const steps: Steps = { batch, recipe, ids: [...new Set([...(recipe?.steps ?? []), ...ran])] };
+  // A merge brief is about this head: an earlier recipe's attempts stay in the status comment,
+  // also of a step id the current recipe shares (ADR 0327).
+  const current = ofCurrentRecipe(state, batch);
+  const ran = [...current.steps.keys()].filter((stepId) => ofRecipe(recipe, stepId));
+  const steps: Steps = {
+    batch: current,
+    recipe,
+    ids: [...new Set([...(recipe?.steps ?? []), ...ran])],
+  };
   const proof = name === undefined ? undefined : redProof(name);
   const head = code(shortSha(ready.head));
   const sensitive = latestPush(state, batch.id)?.sensitive;

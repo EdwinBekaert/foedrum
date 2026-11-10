@@ -917,6 +917,59 @@ describe('planEffects (ADR 0233)', () => {
     });
   });
 
+  /** A revision an older Foedrum recorded for `batchId`, whose text an upgrade has since changed. */
+  const olderText = (n: number, batchId: string): void =>
+    issue({
+      kind: 'record',
+      event: {
+        type: 'effect.applied',
+        key: effectKey.encode({ batchId, effect: `plan.${n}` }),
+        result: { comment: 1, digest: digest('older') },
+      },
+    });
+
+  it("makes no revision due for an earlier batch's plan when the plan comment's text changes and a later batch of the order has a plan (#825)", async () => {
+    order();
+    step('plan', planned(three));
+    step('replan', planned(three));
+    const driver = await open();
+    await driver.applyEffects();
+    olderText(2, '7-1');
+    order('7-2');
+    step('plan', planned(second), '7-2');
+    await driver.applyEffects();
+    assert.notEqual(revision(1, '7-2'), undefined);
+    await driver.applyEffects();
+    assert.equal(revision(3), undefined);
+    assert.equal(only().body, `${renderPlan('7-2', 'plan', second)}\n\n${marker(1, '7-2')}`);
+  });
+
+  it("keeps a revision due for an earlier batch's plan when the plan comment's text changes and the later batch has no plan yet: regression test (#825)", async () => {
+    order();
+    step('plan', planned(three));
+    step('replan', planned(three));
+    const driver = await open();
+    await driver.applyEffects();
+    olderText(2, '7-1');
+    order('7-2');
+    await driver.applyEffects();
+    assert.equal(only().body, `${renderPlan('7-1', 'replan', three)}\n\n${marker(3)}`);
+  });
+
+  it("keeps a revision due for the order's latest batch when the plan comment's text changes: regression test (#825)", async () => {
+    order();
+    step('plan', planned(three));
+    step('replan', planned(three));
+    const driver = await open();
+    await driver.applyEffects();
+    order('7-2');
+    step('plan', planned(second), '7-2');
+    await driver.applyEffects();
+    olderText(2, '7-2');
+    await driver.applyEffects();
+    assert.equal(only().body, `${renderPlan('7-2', 'plan', second)}\n\n${marker(3, '7-2')}`);
+  });
+
   it("names the comment its batch's plan revision made: regression test (#656)", async () => {
     issue({ kind: 'order', batchId: '8-1', order: { issue: 8 } });
     issue({ kind: 'route', batchId: '8-1', recipe: 'mash', reason: 'label', source: 'label' });

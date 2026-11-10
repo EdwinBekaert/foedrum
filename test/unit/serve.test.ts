@@ -437,7 +437,7 @@ describe('runServe', () => {
    * Brews 12-1 through mash-in (ADR 0232): the Innkeeper's question was answered with porter, so
    * the batch's steps hold the Innkeeper's attempt beside porter's, which has no such step (#867).
    * With `mash` false the order is routed to porter directly. Every check on its pull request's
-   * head passed; serve ticks until the merge brief is posted.
+   * head passed; serve ticks until the merge brief is posted, and once more.
    */
   const brewMashed = async (mash = true, readyToo = false) => {
     const porter = JSON.stringify({
@@ -539,6 +539,7 @@ describe('runServe', () => {
         comments.filter(({ body }) => body.includes('brief.1')).map(({ body }) => body),
       );
     let waits = 0;
+    let doneAt: number | undefined;
     const code = await runServe(
       f.setup,
       shell({
@@ -546,7 +547,9 @@ describe('runServe', () => {
         wait: async () => {
           waits++;
           const done = readyToo ? github.pulls[0]?.draft === false : briefComments().length > 0;
-          if (done || waits > 40) f.controller.abort();
+          // One tick more once it is done, which reads the batch with its brief recorded (#871).
+          if (done) doneAt ??= waits;
+          if ((doneAt !== undefined && waits > doneAt) || waits > 40) f.controller.abort();
         },
         git: async () => {
           throw new Error('no red proof or guarded step runs here');

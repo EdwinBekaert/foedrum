@@ -38,10 +38,12 @@ import { effectKey } from '../../src/engine/effect-key.ts';
 import type { EventStore } from '../../src/engine/event-store.ts';
 import { fold } from '../../src/engine/fold.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
+import { execProcess } from '../../src/platform/processes.ts';
 import { removeTree } from '../../src/platform/remove.ts';
 import type { Event } from '../../src/schemas/events.ts';
 import { surveyOf } from '../../src/schemas/out-doc.ts';
 import { type Git, runGit } from '../../src/workspace/git.ts';
+import { cannedGhLogin, resolveWithMadeUpGh } from '../helpers/canned-gh.ts';
 import { ghOver } from '../helpers/fake-gh.ts';
 import { fakeGitHubApi } from '../helpers/fake-github-api.ts';
 import { hangGuardMs } from '../helpers/load.ts';
@@ -55,7 +57,6 @@ import {
 } from '../helpers/nip-fixture.ts';
 import { realClaude } from '../helpers/real-claude.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
-import { cannedGhLogin, resolveWithMadeUpGh } from './canned-gh-login.ts';
 import { type FakeMessagesApi, startFakeMessagesApi, type ToolCall } from './fake-messages-api.ts';
 
 /** serve ticks every 100 ms instead of every 5 s. */
@@ -472,7 +473,7 @@ describe('the Nip recipe end to end with the real claude', {
     // started (ADR 0073); the fake code host is GitHub here, so gh's login is no problem.
     const { tools, isolation, problems } = diagnose(
       await gatherDoctorFacts({
-        exec: cannedGhLogin(),
+        exec: cannedGhLogin(execProcess),
         resolve: resolveWithMadeUpGh,
         platform: process.platform,
         kernelRelease: release(),
