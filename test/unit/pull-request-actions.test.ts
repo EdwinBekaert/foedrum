@@ -324,8 +324,8 @@ describe('pullRequestActions: the pull request', () => {
     assert.doesNotMatch(body, /^Closes /m);
   });
 
-  it('the pull request says the test-first steps were skipped and why (ADR 0371)', async () => {
-    const { actions, requests } = actionsWith();
+  /** Batch 1-1 planned the order with the entry `api`, test-first off for `reason`; 12-1 brews it. */
+  const subOrderOff = (reason: string): Event[] => {
     const entry = {
       id: 'api',
       title: 'Reword the help',
@@ -337,11 +337,10 @@ describe('pullRequestActions: the pull request', () => {
       recipe: 'ale',
       why: 'one repository',
       testFirst: false,
-      testFirstOff: 'it only rewords the help',
+      testFirstOff: reason,
       ready: true,
     };
-    // Batch 1-1 planned the order with the entry `api`, test-first off; 12-1 brews it.
-    const planned: Event[] = [
+    return [
       {
         type: 'batch.ordered',
         batchId: '1-1',
@@ -375,9 +374,13 @@ describe('pullRequestActions: the pull request', () => {
         plan: { batchId: '1-1', stepId: 'plan', attempt: 1, entry: 'api' },
       },
     ];
+  };
+  /** The body batch 12-1 opens with after `planned`, its recipe skipping `skips`. */
+  const openedAfter = async (planned: Event[], skips: string[]): Promise<string> => {
+    const { actions, requests } = actionsWith();
     const [chosen, ...rest] = brewed;
     assert.ok(chosen);
-    const skipped = ['gauge', 'red'].map(
+    const skipped = skips.map(
       (stepId): Event => ({
         type: 'step.skipped',
         batchId: '12-1',
@@ -387,10 +390,35 @@ describe('pullRequestActions: the pull request', () => {
     );
     keysOf(fold([...planned, chosen, ...skipped, ...rest, ...opening]), actions);
     await actions.target.apply(open);
-    const body = requests[0]?.request.body ?? '';
+    return requests[0]?.request.body ?? '';
+  };
+
+  it('the pull request says the test-first steps were skipped and why (ADR 0371)', async () => {
+    const body = await openedAfter(subOrderOff('it only rewords the help'), ['gauge', 'red']);
     const line =
       'Test-first was off, as the approved plan says: it only rewords the help. Not run: `gauge`, `red`.';
     assert.ok(body.split('\n').includes(line), body);
+  });
+
+  it("writes the plan's reason on one line, linking nothing and leaving out what looks like a secret: regression test", async () => {
+    // The plan's schema keeps the reason to one line; a tab is blank space that stays on it.
+    const linking = await openedAfter(subOrderOff('it fixes #12\tfor @someone'), ['gauge']);
+    const [line, ...more] = linking.split('\n').filter((each) => each.startsWith('Test-first'));
+    assert.deepStrictEqual(more, []);
+    // No closing keyword and no mention, as in the rest of the body (ADR 0184).
+    assert.equal(
+      line,
+      'Test-first was off, as the approved plan says: it #12 for someone. Not run: `gauge`.',
+    );
+    assert.doesNotMatch(linking, /fixes #12|@someone|\t/);
+    // Built at run time, so no scanner takes this file for one that holds a token.
+    const token = ['ghp', 'A1b2'.repeat(9)].join('_');
+    const secret = await openedAfter(subOrderOff(`it keeps ${token}`), ['gauge']);
+    assert.ok(!secret.includes(token));
+    assert.match(
+      secret,
+      /Test-first was off, as the approved plan says: \[left out: a text of step plan that looks like a secret\]\./,
+    );
   });
 
   it('says nothing of test-first for a batch that is no sub-order, its own recipe skipping the steps: regression test', async () => {

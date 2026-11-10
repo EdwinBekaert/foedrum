@@ -63,16 +63,36 @@ const planned = (plan: unknown): Event[] => [
   },
 ];
 
-/** Batch 12-1, ordered from the plan's entry `entry`, or as an order of its own without one. */
-const ordered = (entry?: string): Event => ({
+/**
+ * Batch 12-1, ordered from the plan's entry `entry` of plan attempt `attempt`, or as an order of
+ * its own without one.
+ */
+const ordered = (entry?: string, attempt = 1): Event => ({
   type: 'batch.ordered',
   batchId: '12-1',
   order: { issue: 12 },
   routeBy: at,
   ...(entry === undefined
     ? {}
-    : { parentBatchId: '7-1', plan: { batchId: '7-1', stepId: 'plan', attempt: 1, entry } }),
+    : { parentBatchId: '7-1', plan: { batchId: '7-1', stepId: 'plan', attempt, entry } }),
 });
+
+/** Attempt 2 of batch 7-1's plan step, scheduled, and when `plan` is given, done with it. */
+const plannedAgain = (plan?: unknown): Event[] => [
+  { type: 'step.scheduled', batchId: '7-1', stepId: 'plan', attempt: 2, deadlineAt: at },
+  ...(plan === undefined
+    ? []
+    : [
+        { type: 'step.started', batchId: '7-1', stepId: 'plan', attempt: 2 } as const,
+        {
+          type: 'step.finished',
+          batchId: '7-1',
+          stepId: 'plan',
+          attempt: 2,
+          outcome: { kind: 'succeeded', output: JSON.parse(JSON.stringify(plan)) },
+        } as const,
+      ]),
+];
 
 const context = (): Context => {
   const loaded = loadRecipes(readBreweryFiles(join(FOEDRUM_DEFAULTS, 'no-such-brewery')));
@@ -128,6 +148,41 @@ describe("a plan entry's testFirst false is what its sub-order's batch does (ADR
   it("a sub-order without the field runs its recipe's test-first: regression test", () => {
     const { steps } = routed([...planned(done(subOrder('help'))), ordered('help')]);
     assert.deepStrictEqual(steps, ['step.scheduled survey']);
+  });
+
+  it('reads the entry its batch was ordered from, in a plan that mixes test-first on and off: regression test', () => {
+    const off = subOrder('help', { testFirst: false, testFirstOff: reason });
+    const skips = [
+      ...testFirstSteps.map((stepId) => `step.skipped ${stepId}`),
+      'step.scheduled implement',
+    ];
+    // The entry turned off first, then second, so neither the first entry nor the first off one
+    // stands in for the one the batch names.
+    for (const plan of [done(off, subOrder('other')), done(subOrder('other'), off)]) {
+      assert.deepStrictEqual(routed([...planned(plan), ordered('other')]).steps, [
+        'step.scheduled survey',
+      ]);
+      assert.deepStrictEqual(routed([...planned(plan), ordered('help')]).steps, skips);
+    }
+  });
+
+  it('reads the entry from the plan attempt its batch was ordered from, once it succeeded: regression test', () => {
+    const on = done(subOrder('help'));
+    const off = done(subOrder('help', { testFirst: false, testFirstOff: reason }));
+    const steps = (events: Event[]) => routed(events).steps[0];
+    assert.equal(
+      steps([...planned(on), ...plannedAgain(off), ordered('help', 2)]),
+      'step.skipped survey',
+    );
+    assert.equal(
+      steps([...planned(off), ...plannedAgain(on), ordered('help', 2)]),
+      'step.scheduled survey',
+    );
+    // Attempt 2 has not ended: it wrote no plan to read, whatever attempt 1 said.
+    assert.equal(
+      steps([...planned(off), ...plannedAgain(), ordered('help', 2)]),
+      'step.scheduled survey',
+    );
   });
 
   it("an order that is no sub-order runs its recipe's test-first, unchanged: regression test", () => {
