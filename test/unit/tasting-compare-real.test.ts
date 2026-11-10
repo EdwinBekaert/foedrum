@@ -899,6 +899,51 @@ describe('tasting-compare --real', () => {
         assert.ok(at('security') >= 0, list);
         assert.ok(at('security') < at('design-conformance'), list);
       });
+
+      // An apart7 run and a deep run list their Tasters in one order, deep-brew's lenses', so the
+      // order of a list says nothing of its setup (ADR 0366).
+      const DEEP_ORDER = [
+        'correctness',
+        'acceptance',
+        'security',
+        'design-conformance',
+        'test-design',
+        'necessity',
+        'cross-platform',
+      ];
+      const headings = (list: string) =>
+        [...list.matchAll(/^### ([a-z-]+) \(/gm)].map(([, step]) => step);
+
+      it("a list shows an apart7 run's Tasters in deep-brew's lens order, whatever order they finished in: regression test", () => {
+        const run: RealRecord = {
+          ...record('855-apart7', 1, 'x'),
+          attempts: [
+            'necessity',
+            'security',
+            'test-design',
+            'correctness',
+            'cross-platform',
+            'acceptance',
+            'design-conformance',
+          ].map((step) => attempt(step, [finding(`a finding of ${step}`)])),
+        };
+        assert.deepEqual(headings(blinded([run], 'a seed').lists[855] ?? ''), DEEP_ORDER);
+      });
+
+      it("a list shows a deep run's lenses in the same order: regression test", () => {
+        const lenses = [...DEEP_ORDER].reverse().map((step) => `diff/${step}`);
+        const run: RealRecord = {
+          ...record('855-deep', 1, 'x'),
+          attempts: [
+            attempt(
+              'deep',
+              lenses.map((lens) => ({ ...finding(`a finding through ${lens}`), lens })),
+              { lenses },
+            ),
+          ],
+        };
+        assert.deepEqual(headings(blinded([run], 'a seed').lists[855] ?? ''), DEEP_ORDER);
+      });
     });
   });
 
