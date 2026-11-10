@@ -130,7 +130,7 @@ describe('the default recipes that plan (ADR 0321)', () => {
     const loaded = defaults();
     assert.deepStrictEqual(
       loaded.brewers.find('mash', 'sizing')?.choices?.map(({ name }) => name),
-      ['nip'],
+      ['deep-brew', 'nip'],
     );
     assert.equal(loaded.brewers.find('nip', 'correctness')?.choices, undefined);
   });

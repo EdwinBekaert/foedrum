@@ -51,7 +51,7 @@ describe('mash-in and the Innkeeper (ADR 0232)', () => {
     );
     assert.deepEqual(
       step?.choices?.map(({ name }) => name),
-      ['decoction', 'mash', 'nip'],
+      ['decoction', 'deep-brew', 'mash', 'nip'],
     );
   });
 
@@ -77,7 +77,7 @@ describe("mash's Brewmaster and the Brewery's recipes (ADR 0234, ADR 0232)", () 
     );
     assert.deepEqual(
       step?.choices?.map(({ name }) => name),
-      ['nip'],
+      ['deep-brew', 'nip'],
     );
   });
 });
