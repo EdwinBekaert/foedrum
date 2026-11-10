@@ -16,11 +16,11 @@ const wrap = (code: string) =>
   spawnSync(process.execPath, [script, '-e', code], { cwd: root, encoding: 'utf8' });
 
 describe('with-checkout-tmp command', () => {
-  it('runs node with os.tmpdir() in .foedrum/tmp/tests/ and removes that folder', () => {
+  it('runs node with os.tmpdir() in .foedrum/tmp/tests/, removes that folder and exits with its exit code', () => {
     const result = wrap(
-      "require('node:fs').writeFileSync(require('node:path').join(require('node:os').tmpdir(), 'f'), 'x'); console.log(require('node:os').tmpdir())",
+      "require('node:fs').writeFileSync(require('node:path').join(require('node:os').tmpdir(), 'f'), 'x'); console.log(require('node:os').tmpdir()); process.exitCode = 5",
     );
-    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.status, 5, result.stderr);
     const dir = result.stdout.trim();
     assert.ok(dir.startsWith(join(root, '.foedrum', 'tmp', 'tests', 'tmpdir-')), dir);
     assert.equal(existsSync(dir), false, `${dir} was left behind`);
