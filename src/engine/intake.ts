@@ -451,7 +451,7 @@ export const createIntake = (options: IntakeOptions): Intake => {
         unread.delete(`${repository.repo}#${found.number}`);
         const reason = unapprovedLabels(found, repository.filter, authors);
         if (reason !== undefined)
-          unapprovedOnce({ repo: repository.repo, issue: found.number, reason });
+          sayOnce({ kind: 'unapproved', repo: repository.repo, issue: found.number, reason });
       }
     }
     const queue = intakeQueue(
@@ -471,7 +471,8 @@ export const createIntake = (options: IntakeOptions): Intake => {
       if (repository !== undefined && failed.has(repository)) continue;
       const hold = tally.hold(entry);
       if (hold !== undefined) {
-        heldOnce({
+        sayOnce({
+          kind: 'held',
           repo: repository?.repo ?? brewery ?? '',
           issue: subOrder?.issue ?? order.issue,
           reason: holdText(hold),
@@ -534,22 +535,14 @@ export const createIntake = (options: IntakeOptions): Intake => {
     return ordered;
   };
 
-  // The issues reported as held, with the reason: each once, not at every poll (ADR 0217).
-  const holding = new Set<string>();
-  const heldOnce = (held: { repo: string; issue: number; reason: string }): void => {
-    const key = `${held.repo}#${held.issue}\n${held.reason}`;
-    if (holding.has(key)) return;
-    holding.add(key);
-    report({ kind: 'held', ...held });
-  };
-
-  // The issues reported as nobody in users labelled, with the reason: each once (ADR 0359).
-  const unapproved = new Set<string>();
-  const unapprovedOnce = (skipped: { repo: string; issue: number; reason: string }): void => {
-    const key = `${skipped.repo}#${skipped.issue}\n${skipped.reason}`;
-    if (unapproved.has(key)) return;
-    unapproved.add(key);
-    report({ kind: 'unapproved', ...skipped });
+  // The issues reported as held (ADR 0217) or as nobody in users labelled (ADR 0359), with the
+  // reason: each once, not at every poll.
+  const said = new Set<string>();
+  const sayOnce = (notice: Extract<IntakeNotice, { kind: 'held' | 'unapproved' }>): void => {
+    const key = `${notice.kind}\n${notice.repo}#${notice.issue}\n${notice.reason}`;
+    if (said.has(key)) return;
+    said.add(key);
+    report(notice);
   };
 
   // The issues whose events a read failed on, until one reads them: each said once (ADR 0359).
