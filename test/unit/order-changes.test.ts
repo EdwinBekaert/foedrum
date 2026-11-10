@@ -666,6 +666,29 @@ describe('an order whose issue changed after its approval (ADR 0368)', () => {
     ]);
   });
 
+  it('a batch that goes Stuck at one child of a group reads its issue once, and is not set aside', async () => {
+    const order = {
+      kind: 'order',
+      batchId: 'app-9',
+      order: { issue: 9, repo: 'acme/app' },
+    } as const;
+    const route = { kind: 'route', batchId: 'app-9', recipe: 'taste', reason: 'label' } as const;
+    assert.equal(log.issue(order, t0).kind, 'accepted');
+    assert.equal(log.issue({ ...route, source: 'label' }, t0).kind, 'accepted');
+    log.issue({ kind: 'cancel', batchId, ...by }, t0);
+    activity = { ...approved(), edited: [{ by: 'stranger', at: after }] };
+    const notices: string[] = [];
+    const { runner } = handRunner();
+    const driver = await open(runner, { report: (notice) => notices.push(notice.kind) });
+    await driver.tick();
+    assert.equal(driver.state().batches.get('app-9')?.lane.kind, 'stuck');
+    assert.deepStrictEqual(reads, ['acme/app#9']);
+    assert.deepStrictEqual(
+      notices.filter((kind) => kind === 'refused'),
+      [],
+    );
+  });
+
   it('a label approval later than the last continue approves up to the label', async () => {
     activity = { ...approved(), labelled: [], comments: [] };
     const { runner, started } = handRunner();
