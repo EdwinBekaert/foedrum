@@ -2,6 +2,7 @@
 // Brewery has one, so the plan's rename entry names this one, and its readme entry fits it.
 {
   "name": "prose",
+  "type": "brew",
   "description": "A page of prose and no code: writes it and opens the pull request, with no test and no lens",
   "testFirst": false,
   "steps": [

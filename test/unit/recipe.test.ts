@@ -16,6 +16,7 @@ const fixtures = join(import.meta.dirname, '..', 'fixtures', 'recipes');
 
 const recipe = (steps: unknown[], fields: Record<string, unknown> = {}) => ({
   name: 'test-recipe',
+  type: 'brew',
   description: 'A recipe for tests',
   steps,
   ...fields,

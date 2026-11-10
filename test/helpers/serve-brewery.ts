@@ -34,6 +34,7 @@ export const models = (alias = 'quick') =>
 // the commits go into a pull request (ADR 0084).
 export const recipe = JSON.stringify({
   name: 'stout',
+  type: 'brew',
   description: 'Brews an order in one step and opens its pull request.',
   steps: [{ id: 'brew', brewer: 'cellarman' }, { action: 'openPullRequest' }],
   testFirst: false,
@@ -42,6 +43,7 @@ export const recipe = JSON.stringify({
 // the batch back to the cellarman once (ADR 0069).
 export const porter = JSON.stringify({
   name: 'porter',
+  type: 'brew',
   description: 'Brews an order and reads its tests.',
   steps: [
     { id: 'brew', brewer: 'cellarman' },

@@ -69,6 +69,8 @@ const context: Context = {
     nip: fakeRecipe({ steps: ['patch'], pullRequests: [pullRequest] }),
     // Its one step's answer chooses the recipe (ADR 0232).
     'mash-in': fakeRecipe({ steps: ['innkeep'], chooses: ['innkeep'] }),
+    // A recipe that plans: its choice records the type mash (ADR 0365).
+    wort: fakeRecipe({ type: 'mash', steps: ['plan'], pullRequests: [] }),
   }),
 };
 const by = { by: 'octocat', via: 'comment' } as const;
@@ -324,6 +326,7 @@ describe('decide order and unrouted: a routing deadline (ADR 0032)', () => {
         type: 'batch.recipe_chosen',
         batchId: 'b1',
         recipe: 'pint',
+        recipeType: 'brew',
         reason: 'r',
         source: 'human',
         ...by,
@@ -353,6 +356,7 @@ describe('decide route: ordered or conditioning → brewing', () => {
       type: 'batch.recipe_chosen',
       batchId: 'b1',
       recipe: 'pint',
+      recipeType: 'brew',
       reason: 'small',
       source: 'router',
     },
@@ -365,6 +369,13 @@ describe('decide route: ordered or conditioning → brewing', () => {
 
   it('ends Conditioning', () => {
     accepts(lanes.conditioning, route, routed);
+  });
+
+  it('records the type of the recipe it chooses, mash for one that plans (ADR 0365): regression test', () => {
+    accepts(lanes.ordered, { ...route, recipe: 'wort' }, [
+      { ...routed[0], recipe: 'wort', recipeType: 'mash' } as Event,
+      next('plan'),
+    ]);
   });
 
   it('refuses a recipe the Brewery does not have', () => {
@@ -1167,6 +1178,7 @@ describe('decide answer: the answer to a step that chooses the recipe (ADR 0232)
     type: 'batch.recipe_chosen',
     batchId: 'b1',
     recipe,
+    recipeType: 'brew',
     reason,
     source: 'human',
     ...by,
@@ -1193,6 +1205,35 @@ describe('decide answer: the answer to a step that chooses the recipe (ADR 0232)
       ]);
     });
   }
+
+  it('records the type of the recipe the answer chooses, mash for one that plans (ADR 0365): regression test', () => {
+    const plans = { ...which, options: ['nip', 'wort'], recommended: 'wort' };
+    const asked: Event[] = [
+      ...brewing('innkeep', 1, 'mash-in'),
+      stuckEvent({ kind: 'needs_input', stepId: 'innkeep', questions: [plans] }),
+    ];
+    const command: Command = {
+      kind: 'answer',
+      batchId: 'b1',
+      ...by,
+      answers: [{ q: plans.q, answer: 'wort' }],
+    };
+    accepts(asked, command, [
+      {
+        type: 'input.received',
+        batchId: 'b1',
+        stepId: 'innkeep',
+        ...by,
+        answers: [{ q: plans.q, answer: 'wort' }],
+      },
+      {
+        ...chose('wort', 'the answer at innkeep: wort, as suggested'),
+        recipeType: 'mash',
+      } as Event,
+      { type: 'batch.resumed', batchId: 'b1', ...by, action: 'answer' },
+      next('plan'),
+    ]);
+  });
 
   it('refuses an answer that is none of the options, naming them, so the batch still asks', () => {
     refuses(asking, answer('stout'), /answer one of the options: nip, pint/);
@@ -1223,6 +1264,7 @@ describe('decide recipe: a human chooses the recipe', () => {
     type: 'batch.recipe_chosen',
     batchId: 'b1',
     recipe: 'nip',
+    recipeType: 'brew',
     reason: 'one file',
     source: 'human',
     by: 'octocat',
@@ -2103,6 +2145,7 @@ describe('decide: an onBlocked route of a recipe file (ADR 0064)', () => {
     type: 'batch.recipe_chosen',
     batchId: 'b1',
     recipe: 'pale',
+    recipeType: 'brew',
     reason: 'small',
     source: 'router',
   };
@@ -2392,6 +2435,7 @@ describe('decide: a when that is false skips its step (ADR 0064)', () => {
     type: 'batch.recipe_chosen',
     batchId: 'b1',
     recipe,
+    recipeType: 'brew',
     reason: 'small',
     source: 'router',
   });
@@ -2462,6 +2506,7 @@ describe('decide: a when that is false skips its step (ADR 0064)', () => {
           type: 'batch.recipe_chosen',
           batchId: 'b1',
           recipe: 'pale',
+          recipeType: 'brew',
           reason: 'again',
           source: 'human',
           ...by,

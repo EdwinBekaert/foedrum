@@ -2,6 +2,7 @@
 {
   "$schema": "../../../schemas/recipe.json",
   "name": "growler",
+  "type": "brew",
   "description": "Large feature, split into sub-orders",
   "testFirst": false, // the sub-orders' own recipes write the tests
   "steps": [

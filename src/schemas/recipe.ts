@@ -331,9 +331,26 @@ function misplaced(kind: Reference['kind'], from: Place, to: Place): string | un
   }
 }
 
+/**
+ * What kind of work a recipe does (ADR 0365): `mash` chooses a recipe or makes a plan and builds
+ * nothing, `brew` builds. A type arrives with the first recipe that uses it.
+ */
+export const RecipeType = z.enum(['mash', 'brew']);
+export type RecipeType = z.infer<typeof RecipeType>;
+
 const RecipeFields = z.strictObject({
   $schema: z.string().optional().describe('The JSON Schema of this file, for editors'),
   name: PathSafeId,
+  type: z
+    .enum(RecipeType.options, {
+      error: (issue) =>
+        issue.input === undefined
+          ? 'a recipe needs a "type": add "type": "mash" when it chooses a recipe or makes a plan and builds nothing, or "type": "brew" when it builds (ADR 0365)'
+          : 'Must be "mash", for a recipe that chooses a recipe or makes a plan and builds nothing, or "brew", for one that builds (ADR 0365)',
+    })
+    .describe(
+      'mash: chooses a recipe or makes a plan, and builds nothing; brew: builds. A sub-order runs a brew recipe (ADR 0365)',
+    ),
   description: NonEmpty,
   // Gone (ADR 0194, ADR 0253): refused by name, so a recipe that still has one says why.
   match: z

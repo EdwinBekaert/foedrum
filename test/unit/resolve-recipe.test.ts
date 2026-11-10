@@ -16,6 +16,7 @@ const brewers: Brewers = (name) =>
 const recipe = (steps: unknown[], testFirst?: boolean) =>
   Recipe.parse({
     name: 'test-recipe',
+    type: 'brew',
     description: 'A recipe for tests',
     steps,
     ...(testFirst === undefined ? {} : { testFirst }),

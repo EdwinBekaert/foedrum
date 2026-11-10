@@ -888,6 +888,72 @@ describe('foedrum status <order> (ADR 0295)', () => {
     );
   });
 
+  // A choice that recorded its recipe's type (ADR 0365).
+  const typed = (batchId: string, recipe: string, recipeType: 'mash' | 'brew'): Event => ({
+    type: 'batch.recipe_chosen',
+    batchId,
+    recipe,
+    recipeType,
+    reason: `label recipe:${recipe}`,
+    source: 'label',
+  });
+
+  it("status counts a Brewery's own recipe of type mash, under a new name, as planning (ADR 0365)", async () => {
+    // wort plans under a name no list knows; the batch then brews with nip.
+    const planned: Event[] = [
+      ordered(11),
+      typed('11-1', 'wort', 'mash'),
+      ...attempt('11-1', 'plan', 1, [100, 20, 1000, 0]),
+      typed('11-1', 'nip', 'brew'),
+      ...attempt('11-1', 'build', 1, [1000, 200, 5000, 100]),
+    ];
+    const result = await run(['status', '11'], { openStore: () => storeWith(planned) });
+    assert.match(
+      result.stdout,
+      /\nplanning: 1,120 tokens \(100 input, 20 output, 1,000 cache read, 0 cache write\)\nbrewing: 6,300 tokens \(1,000 input, 200 output, 5,000 cache read, 100 cache write\)\n$/,
+    );
+  });
+
+  it('status counts a recipe its choice recorded as of type brew as brewing, though it is named mash (ADR 0365)', async () => {
+    const built: Event[] = [
+      ordered(11),
+      typed('11-1', 'mash', 'brew'),
+      ...attempt('11-1', 'build', 1, [1000, 200, 5000, 100]),
+    ];
+    const result = await run(['status', '11'], { openStore: () => storeWith(built) });
+    assert.match(
+      result.stdout,
+      /\nplanning: none reported\nbrewing: 6,300 tokens \(1,000 input, 200 output, 5,000 cache read, 100 cache write\)\n$/,
+    );
+  });
+
+  it('status counts an attempt of decoction whose choice recorded no type, from before types, as planning (ADR 0365): regression test', async () => {
+    const older: Event[] = [
+      ordered(11),
+      chosen('11-1', 'decoction'),
+      ...attempt('11-1', 'plan', 1, [100, 20, 1000, 0]),
+    ];
+    const result = await run(['status', '11'], { openStore: () => storeWith(older) });
+    assert.match(
+      result.stdout,
+      /\nplanning: 1,120 tokens \(100 input, 20 output, 1,000 cache read, 0 cache write\)\nbrewing: none reported\n$/,
+    );
+  });
+
+  it("status counts an attempt with no recipe of its own by its batch's recorded type (ADR 0365): regression test", async () => {
+    // The attempt was scheduled before any choice, so only its batch's type, mash, says it planned.
+    const unrouted: Event[] = [
+      ordered(11),
+      ...attempt('11-1', 'plan', 1, [100, 20, 1000, 0]),
+      typed('11-1', 'wort', 'mash'),
+    ];
+    const result = await run(['status', '11'], { openStore: () => storeWith(unrouted) });
+    assert.match(
+      result.stdout,
+      /\nplanning: 1,120 tokens \(100 input, 20 output, 1,000 cache read, 0 cache write\)\nbrewing: none reported\n$/,
+    );
+  });
+
   // acme/app#11, claimed under the alias app, beside the Brewery's own #11, mashed into #21.
   const appConfig = () =>
     BreweryConfig.parse({

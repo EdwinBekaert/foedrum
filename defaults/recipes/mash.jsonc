@@ -9,6 +9,7 @@
 {
   "$schema": "../../schemas/recipe.json",
   "name": "mash",
+  "type": "mash",
   "description": "Plan an order as sub-orders through three lenses, shown on its issue; nothing is built",
   // It commits nothing, so there is no test to write first.
   "testFirst": false,

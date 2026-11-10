@@ -167,6 +167,7 @@ export const realRecipeText = (setup: RealSetup): string => {
   const { description, taste } = RECIPES[name] ?? { description: '', taste: {} };
   const recipe = {
     name,
+    type: 'brew',
     description,
     testFirst: false,
     steps: [

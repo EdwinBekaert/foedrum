@@ -29,6 +29,7 @@ const fails = behave.fail(true);
 /** A recipe of a Cellarman and a Brett whose survivors send it back once; no default has one. */
 const kettle = JSON.stringify({
   name: 'kettle',
+  type: 'brew',
   description: 'Brews an order, then has a blocking Brett mutate its change.',
   steps: [
     { id: 'implement', brewer: 'cellarman' },
