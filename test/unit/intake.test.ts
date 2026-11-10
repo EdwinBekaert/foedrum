@@ -433,6 +433,37 @@ describe('createIntake', () => {
       );
     });
 
+    it('says a failed read again once a read of that issue succeeded in between', async () => {
+      const failure = new Error('502 reading the events');
+      // The read that succeeds names mallory, so no pass claims web#7 and each reads it again.
+      const { tracker } = fakeTracker({ [web]: [issue(7)], [api]: [] });
+      const answers: (LabelAdded[] | Error)[] = [
+        failure,
+        [{ label: 'foedrum', by: 'mallory' }],
+        failure,
+      ];
+      tracker.labelsAdded = async () => {
+        const answer = answers.shift() ?? [];
+        if (answer instanceof Error) throw answer;
+        return answer;
+      };
+      const thrice = intake(tracker);
+      for (let pass = 0; pass < 3; pass++) await thrice.poll();
+      assert.equal(notices.filter(({ kind }) => kind === 'failed').length, 2);
+      assert.deepStrictEqual(answers, []);
+    });
+
+    it('never takes the addings a listing carries as read', async () => {
+      const listed = issue(7, { labelsAdded: [{ label: 'foedrum', by: 'alice' }] });
+      const { tracker } = fakeTracker(
+        { [web]: [listed], [api]: [] },
+        {},
+        { [`${web}#7`]: new Error('502 reading the events') },
+      );
+      await intake(tracker).poll();
+      assert.deepStrictEqual(ordered(), []);
+    });
+
     it("a label whose adder can't be told, as a deleted account's, does not count", async () => {
       const { tracker } = fakeTracker(
         { [web]: [issue(7), issue(8)], [api]: [] },
