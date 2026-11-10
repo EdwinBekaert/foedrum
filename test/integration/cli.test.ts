@@ -15,24 +15,24 @@ import type { TerminalStream } from '../../src/cli/live-terminal.ts';
 import { effectKey } from '../../src/engine/effect-key.ts';
 import { INVALID_RECIPES } from '../../src/engine/recipe-files.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
-import type { ExecProcess } from '../../src/platform/processes.ts';
+import { type ExecProcess, execProcess } from '../../src/platform/processes.ts';
 import { removeTree } from '../../src/platform/remove.ts';
 import { brewerText, recipeText } from '../helpers/brewery-files.ts';
-import { flagValue, ghOver } from '../helpers/fake-gh.ts';
-import { fakeGitHubApi } from '../helpers/fake-github-api.ts';
-import { config } from '../helpers/serve-brewery.ts';
-import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 import {
   cannedGhLogin,
   doctorHere,
   MADE_UP_GH,
   noDenylist,
   resolveWithMadeUpGh,
-} from './canned-gh-login.ts';
+} from '../helpers/canned-gh.ts';
+import { flagValue, ghOver } from '../helpers/fake-gh.ts';
+import { fakeGitHubApi } from '../helpers/fake-github-api.ts';
+import { config } from '../helpers/serve-brewery.ts';
+import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 
 const foedrumIn = (cwd: string, args: string[]) =>
   cliFromCheckout(args, cwd, {
-    exec: cannedGhLogin(),
+    exec: cannedGhLogin(execProcess),
     resolve: resolveWithMadeUpGh,
     denylist: noDenylist,
   });
@@ -48,7 +48,7 @@ describe('foedrum doctor and serve through cliFromCheckout', () => {
   // through the runner and the PATH lookup the test gave, never the real ones (ADR 0086).
   const started = async (args: string[]): Promise<string[]> => {
     const files: string[] = [];
-    const canned = cannedGhLogin();
+    const canned = cannedGhLogin(execProcess);
     const exec: ExecProcess = (file, execArgs, options) => {
       files.push(file);
       return canned(file, execArgs, options);
@@ -170,7 +170,7 @@ describe('foedrum status and replay on store files', () => {
     // A name no machine's account has, as npm run demo gives its own user (#663).
     const user = 'demo-user-663';
     const { exitCode, stdout, stderr } = await cliFromCheckout(['cancel', '12-1'], brewery.path, {
-      exec: cannedGhLogin(),
+      exec: cannedGhLogin(execProcess),
       resolve: resolveWithMadeUpGh,
       denylist: noDenylist,
       user: () => user,
@@ -328,7 +328,7 @@ describe('foedrum status --watch through cliFromCheckout (ADR 0188)', () => {
       if (text.includes('12-1')) process.emit('SIGBREAK', 'SIGBREAK');
     });
     const result = await cliFromCheckout(['status', '--watch'], brewery.path, {
-      exec: cannedGhLogin(),
+      exec: cannedGhLogin(execProcess),
       resolve: resolveWithMadeUpGh,
       denylist: noDenylist,
       board: { stream, env: { TERM: 'xterm' } },
@@ -345,7 +345,7 @@ describe('foedrum status --watch through cliFromCheckout (ADR 0188)', () => {
       if (text === 'No live batches.') process.emit('SIGBREAK', 'SIGBREAK');
     });
     const result = await cliFromCheckout(['status', '--watch'], brewery.path, {
-      exec: cannedGhLogin(),
+      exec: cannedGhLogin(execProcess),
       resolve: resolveWithMadeUpGh,
       denylist: noDenylist,
       board: { stream, env: { TERM: 'xterm' } },
@@ -358,7 +358,7 @@ describe('foedrum status --watch through cliFromCheckout (ADR 0188)', () => {
   it('refuses off a terminal in one line with exit code 1, and creates no store', async () => {
     const { stream, writes } = ttyStream(false);
     const result = await cliFromCheckout(['status', '--watch'], brewery.path, {
-      exec: cannedGhLogin(),
+      exec: cannedGhLogin(execProcess),
       resolve: resolveWithMadeUpGh,
       denylist: noDenylist,
       board: { stream, env: { TERM: 'xterm' } },
@@ -466,7 +466,7 @@ describe("foedrum with the Brewery's recipe files (ADR 0053)", () => {
     assert.equal(reader.lastEventId(), 3);
     reader.close();
     // doctor's own shell, with a canned answer for gh's login check (ADR 0073).
-    const doctor = await doctorHere(brewery.path);
+    const doctor = await doctorHere(brewery.path, cannedGhLogin(execProcess));
     assert.equal(doctor.exitCode, 1);
     assert.ok(
       doctor.stdout.split('\n').includes(`  ${line.replace(': ', ' (required): ')}`),

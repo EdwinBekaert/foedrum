@@ -19,14 +19,6 @@ import { removeTree } from '../../src/platform/remove.ts';
 import { BrewerFrontmatter } from '../../src/schemas/brewer.ts';
 import { readDoc } from '../../src/schemas/read.ts';
 import {
-  cuedTimers,
-  descheduled,
-  hangGuardMs,
-  hangGuardTimers,
-  waitUntil,
-} from '../helpers/load.ts';
-import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
-import {
   CANNED_GH_VERSION,
   doctorHere,
   GH_LOGGED_IN_ANSWER,
@@ -34,7 +26,15 @@ import {
   GH_VERSION_ANSWER,
   MADE_UP_CONFIG,
   MADE_UP_HOST,
-} from './canned-gh-login.ts';
+} from '../helpers/canned-gh.ts';
+import {
+  cuedTimers,
+  descheduled,
+  hangGuardMs,
+  hangGuardTimers,
+  waitUntil,
+} from '../helpers/load.ts';
+import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 import { type CapturedAnswer, stubPath, writeStubTools } from './stub-tools.ts';
 
 const realGit = resolveExecutable('git') ?? '';
@@ -96,7 +96,7 @@ const KEEP_AWAKE_LINE =
     : `Keep awake: none (no ${process.platform === 'darwin' ? 'caffeinate' : 'systemd-inhibit'} on PATH); the machine may sleep while an attempt runs (ADR 0195)`;
 // What each tool prints for its version, in its own format, with the versions of the captures in
 // test/unit (doctor.test.ts, doctor-facts.test.ts and cli.test.ts's report); gh's come from
-// canned-gh-login.ts. The real tools' output is no longer read here (ADR 0075).
+// test/helpers/canned-gh.ts. The real tools' output is no longer read here (ADR 0075).
 const answers = (started: string): Record<string, CapturedAnswer> => ({
   'npm --version': { stdout: '11.6.2\n' },
   'gh --version': { stdout: GH_VERSION_ANSWER },
