@@ -130,13 +130,16 @@ const offered = (setup: ServeSetup, recipe: string, stepId: string) =>
 
 /**
  * Why the Brewery's default recipe cannot brew an issue with no recipe label (ADR 0370), or
- * undefined: the Brewery has no recipe of its name, or its first step asks which recipe brews the
- * issue and has fewer than the two options a question needs (ADR 0006, ADR 0232).
+ * undefined: the Brewery has no recipe of its name, one that builds (a left-out default, whose
+ * mash-in the Brewery replaced, which no configuration check sees), or its first step asks which
+ * recipe brews the issue and has fewer than the two options a question needs (ADR 0006, ADR 0232).
  */
 const defaultRefusal = (setup: ServeSetup): string | undefined => {
   const name = setup.defaultRecipe;
   const recipe = setup.recipes.find(name);
   if (recipe === undefined) return `the Brewery has no recipe ${name} to brew it with by default`;
+  if (recipe.type !== 'mash')
+    return `the Brewery's default recipe ${name} is of type ${recipe.type}`;
   if (!recipe.choosesRecipe(recipe.firstStep)) return undefined;
   const choices = offered(setup, name, recipe.firstStep);
   if (choices.length >= 2) return undefined;

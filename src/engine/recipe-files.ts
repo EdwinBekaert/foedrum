@@ -1385,7 +1385,8 @@ export function invalidRecipes(problems: readonly string[]): string {
  * Why foedrum.jsonc's `defaultRecipe` cannot be the recipe `foedrum brew` runs for an issue with
  * no recipe label (ADR 0370), as doctor's problem, or undefined: it names no recipe of the
  * Brewery, or one that is not of type `mash`, which would build an issue nobody chose a recipe
- * for. Left out, the default is mash-in, which brew checks when it runs.
+ * for. Left out, the default is mash-in, whose type and choices brew checks when it runs, since a
+ * Brewery whose own mash-in builds may still serve labelled issues.
  */
 export function defaultRecipeProblem(
   defaultRecipe: string | undefined,
