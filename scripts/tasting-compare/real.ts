@@ -55,7 +55,8 @@ type Profile =
   | 'opus-together'
   | 'high-together'
   | 'nip'
-  | 'deep';
+  | 'deep'
+  | 'apart7';
 const PROFILES: readonly Profile[] = [
   'today',
   'reads',
@@ -329,6 +330,8 @@ const SHIPPED: ReadonlySet<Profile | 'comments'> = new Set(['nip', 'deep']);
  */
 const tasterOf = (profile: Profile | 'comments', tasters: Tasters): string => {
   switch (profile) {
+    case 'apart7':
+      throw new Error('not implemented');
     case 'nip':
     case 'deep':
       throw new Error(`the ${profile} setup tastes with the default Taster, not a text of its own`);
