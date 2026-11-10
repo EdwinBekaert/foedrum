@@ -638,6 +638,19 @@ describe('the merge brief of a batch mashed to a building recipe (#867)', () => 
     choose('twice-taste');
   };
 
+  it('lists the rounds and the map of an earlier run of a recipe the batch returned to: regression test', async () => {
+    backToTwiceTaste(surveyed('new'));
+    run('plan', done);
+    run('taste', blockedAt('second.md'));
+    run('plan', fixedAt('second.md'));
+    run('taste', tasted('the cut was not run'), { commit: head });
+    run('ask', done);
+    opened();
+    const body = await briefBody();
+    assert.match(body, /- `taste`: fixed at first\.md:3\n- `taste`: fixed at second\.md:3/);
+    assert.match(body, /- The test map of acme\/web is new: the Maltster proposed it\./);
+  });
+
   it("finds the merged-check step of a batch mashed to nip, in nip's own steps: regression test", () => {
     mashed('nip');
     const found = log.state().batches.get(batchId);
