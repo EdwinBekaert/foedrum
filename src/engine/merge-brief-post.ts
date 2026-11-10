@@ -508,21 +508,25 @@ const briefRest = (
 };
 
 /**
- * Why the pull request changes the test map (ADR 0282, ADR 0298): one line for each survey that
- * proposed a map, new or refreshed, from its first proposal, since a survey its check sent back
- * reads its own proposal as stale, with the stale paths the Maltster named, which are model text.
+ * Why the pull request changes the test map (ADR 0282, ADR 0298): one line for each repository a
+ * survey proposed a map of, new or refreshed, from its first proposal on the batch's path of every
+ * recipe it brewed (ADR 0363), since a survey its check sent back reads its own proposal as stale,
+ * with the stale paths the Maltster named, which are model text.
  */
-const surveyLines = ({ batch, ids }: Steps): string[] =>
-  ids.flatMap((stepId) => {
-    const proposals = [...(batch.steps.get(stepId)?.attempts.values() ?? [])].flatMap((attempt) => {
-      if (attempt.phase !== 'finished' || attempt.outcome.kind !== 'succeeded') return [];
-      const survey = surveyOf(attempt.outcome.output);
-      const repo = attempt.worktree?.repo;
-      return survey === undefined || repo === undefined ? [] : [{ survey, repo }];
-    });
+const surveyLines = ({ batch, ids }: Steps): string[] => {
+  const proposals = (batch.path ?? []).flatMap(({ stepId, attempt: n }) => {
+    const attempt = ids.includes(stepId) ? batch.steps.get(stepId)?.attempts.get(n) : undefined;
+    if (attempt?.phase !== 'finished' || attempt.outcome.kind !== 'succeeded') return [];
+    const survey = surveyOf(attempt.outcome.output);
+    const repo = attempt.worktree?.repo;
+    return survey === undefined || repo === undefined ? [] : [{ survey, repo }];
+  });
+  // GitHub names are case-insensitive.
+  const repos = [...new Set(proposals.map(({ repo }) => repo.toLowerCase()))];
+  return repos.flatMap((key) => {
+    const ofRepo = proposals.filter(({ repo }) => repo.toLowerCase() === key);
     const first =
-      proposals.find(({ survey }) => survey.map === 'new' || survey.map === 'stale') ??
-      proposals[0];
+      ofRepo.find(({ survey }) => survey.map === 'new' || survey.map === 'stale') ?? ofRepo[0];
     if (first === undefined) return [];
     const { survey, repo } = first;
     switch (survey.map) {
@@ -541,6 +545,7 @@ const surveyLines = ({ batch, ids }: Steps): string[] =>
       }
     }
   });
+};
 
 /** The brief's title line: the pull request's title, which anyone who can edit it wrote. */
 const titleLine = (title: string, head: string): string =>
