@@ -11,6 +11,7 @@ import {
   CRASH_LINE,
   type DemoRun,
   DIAGNOSIS,
+  FIX_MESSAGE,
   gitConfig,
   gitEnvOf,
   lifeEndOf,
@@ -228,6 +229,7 @@ describe('problemsOf', () => {
     mash: { exitCode: 4, output: mashed },
     plan: { exitCode: 3, output: planned },
     pulls: [pull, pull],
+    brewTip: FIX_MESSAGE,
     comments: new Map([
       [ORDER.number, comment],
       [BREW_ORDER.number, comment],
@@ -274,6 +276,13 @@ describe('problemsOf', () => {
     assert.match(problemsOf(run({ brew: stuck })).join('\n'), /did not put #2 on tap/);
     const failed = { exitCode: 1, output: `${BREW_ON_TAP_LINE}: https://example.test/pull/3\n` };
     assert.match(problemsOf(run({ brew: failed })).join('\n'), /did not put #2 on tap/);
+  });
+
+  it("says when the second order's bottle branch does not end at the Cellarman's third fix (ADR 0367)", () => {
+    const problems = problemsOf(run({ brewTip: 'Greet a stranger when no name is given' }));
+    assert.deepStrictEqual(problems, [
+      `the bottle branch of #2 ends at "Greet a stranger when no name is given", not at the Cellarman's third fix "${FIX_MESSAGE}"`,
+    ]);
   });
 
   it('says when foedrum status or replay failed, with what it said', () => {
