@@ -666,6 +666,20 @@ describe('an order whose issue changed after its approval (ADR 0368)', () => {
     ]);
   });
 
+  it('a label approval later than the last continue approves up to the label', async () => {
+    activity = { ...approved(), labelled: [], comments: [] };
+    const { runner, started } = handRunner();
+    const driver = await open(runner);
+    assert.equal((await askedAbout(driver, started)).upTo, before);
+    assert.equal(answer('continue'), 'accepted');
+    // Someone in users labels it at 10:00, after a stranger's edit at 09:30.
+    activity = { ...activity, edited: [{ by: 'stranger', at: '2026-11-10T09:30:00Z' }] };
+    activity = { ...activity, labelled: approved().labelled };
+    await driver.tick();
+    assert.equal(started.length, 1);
+    assert.equal(lane(driver)?.kind, 'brewing');
+  });
+
   it('refuses any answer but continue or stop, another question, and a second answer, appending nothing', async () => {
     activity = { ...approved(), edited: [{ by: 'stranger', at: after }] };
     const { runner } = handRunner();

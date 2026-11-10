@@ -161,6 +161,13 @@ describe('githubOrderActivity', () => {
     });
   });
 
+  it('fails on a labeled event without its label', async () => {
+    const { activity } = activityWith([{ status: 200, body: [event(1, { event: 'labeled' })] }]);
+    await assert.rejects(activity('acme/web', 7), {
+      message: 'the events of acme/web#7 has a labeled event without its label',
+    });
+  });
+
   it('fails on a comment without the time it last changed', async () => {
     const { updated_at: _, ...untimed } = comment;
     const { activity } = activityWith([
