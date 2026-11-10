@@ -38,7 +38,7 @@ const LENS_STEPS = [
  * steps, correctness, acceptance, security and design conformance (ADR 0197, ADR 0306, ADR 0343),
  * swapped for the demo's own four, correctness, security, test design and design conformance, whose
  * findings go back to implement once (ADR 0193, ADR 0354), where Nip's go back twice at most. After the group, an advisory Brett step mutates the change: a parallel group
- * runs only Tasters (ADR 0168), and no default recipe runs Brett yet (ADR 0319).
+ * runs only Tasters (ADR 0168), and the demo's Brett is advisory, where Deep-brew's blocks (ADR 0319, ADR 0366).
  */
 export const recipeText = (): string =>
   `// Nip's steps, tasted through four lenses side by side (ADR 0168), their findings sent back once (ADR 0354), then mutated by Brett (ADR 0319).\n${JSON.stringify(
@@ -295,6 +295,7 @@ export const lifeEndOf = (events: readonly { event: Event }[]): LifeEnd | undefi
       case 'batch.recovered':
       case 'usage.window_closed':
       case 'usage.window_opened':
+      case 'order.approved':
         break;
       default:
         event satisfies never;

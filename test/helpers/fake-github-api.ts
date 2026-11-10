@@ -19,6 +19,8 @@ export interface FakeApiIssue {
   subIssues?: number[];
   /** The numbers of the issues it is blocked by. */
   blockedBy?: number[];
+  /** Each edit of its body, which GraphQL's `userContentEdits` lists, newest first (ADR 0368). */
+  edited?: { by: string; at: string }[];
 }
 
 /** The REST id the fake gives an issue that names none: never its number, as on GitHub. */
@@ -43,6 +45,8 @@ export interface FakeApiComment {
   association?: string;
   /** When it was made; by default a minute after 2026-10-01 per comment id. */
   created?: string;
+  /** When it last changed; by default when it was made. */
+  updated?: string;
 }
 
 /** The node id GraphQL names a pull request the fake opened by (ADR 0350). */
@@ -138,12 +142,13 @@ export const fakeGitHubApi = (options: FakeGitHubApiOptions): FakeGitHubApi => {
   const messages = new Map<string, string>();
   const comments = new Map<string, FakeApiComment[]>();
   // A comment as GitHub answers it: Foedrum posts with gh's login, so its own read as `OWNER`.
-  const asComment = ({ id, author, body, association, created }: FakeApiComment) => ({
+  const asComment = ({ id, author, body, association, created, updated }: FakeApiComment) => ({
     id,
     user: { login: author },
     body,
     author_association: association ?? (author === login ? 'OWNER' : 'NONE'),
     created_at: created ?? createdOf(id),
+    updated_at: updated ?? created ?? createdOf(id),
   });
   const labels = new Map<string, Set<string>>();
   // The releases of each repository, in the order made, each with the merges made before it.
@@ -201,6 +206,18 @@ export const fakeGitHubApi = (options: FakeGitHubApiOptions): FakeGitHubApi => {
   // release reader's newest tag by its commit's date.
   const graphql = (body: unknown): Response => {
     const { query, variables } = body as { query: string; variables: Record<string, unknown> };
+    // The edits of an issue's body (ADR 0368).
+    if (query.includes('userContentEdits')) {
+      const found = repoIssues(`${variables.owner}/${variables.name}`).find(
+        (each) => each.number === variables.number,
+      );
+      const nodes = [...(found?.edited ?? [])]
+        .reverse()
+        .map(({ by, at }) => ({ editedAt: at, editor: { login: by } }));
+      const lastEditedAt = nodes[0]?.editedAt ?? null;
+      const userContentEdits = { pageInfo: { hasNextPage: false }, nodes };
+      return json(200, { data: { repository: { issue: { lastEditedAt, userContentEdits } } } });
+    }
     if (query.includes('refs(refPrefix: "refs/tags/"')) {
       const tag = newest(releasesOf(`${variables.owner}/${variables.name}`));
       const nodes = tag === undefined ? [] : [{ name: tag.tag, target: { committedDate: tag.at } }];
@@ -332,6 +349,7 @@ export const fakeGitHubApi = (options: FakeGitHubApiOptions): FakeGitHubApi => {
         event: 'labeled',
         actor,
         label: { name },
+        created_at: found.created ?? createdOf(found.number),
       }));
       return json(200, events);
     }

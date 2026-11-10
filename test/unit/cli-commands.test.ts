@@ -1101,6 +1101,34 @@ describe('foedrum: commands that change state', () => {
       });
     });
 
+    it('answers continue to a batch whose issue changed since its approval (ADR 0368)', async () => {
+      const batchId = 'app-31';
+      const log = createCommandLog({ store, recipes });
+      for (const command of [
+        { kind: 'order', batchId, order: { issue: 31, repo: 'acme/app' } },
+        { kind: 'route', batchId, recipe: 'pint', reason: 'label', source: 'label' },
+        {
+          kind: 'order_changed',
+          batchId,
+          stepId: 'plan',
+          attempt: 1,
+          changes: [{ what: 'body', by: 'mallory', at: '2026-11-10T11:00:00Z' }],
+          more: 0,
+          upTo: '2026-11-10T11:00:00Z',
+        },
+      ] satisfies Parameters<typeof log.issue>[0][]) {
+        assert.equal(log.issue(command, t0).kind, 'accepted', JSON.stringify(command));
+      }
+      assert.equal((await run(['answer', batchId, 'continue'])).exitCode, 0);
+      assert.deepStrictEqual(appended(3)[0], {
+        type: 'order.approved',
+        batchId,
+        upTo: '2026-11-10T11:00:00Z',
+        by: 'ada',
+        via: 'terminal',
+      });
+    });
+
     it('refuses too few or too many answers, appending nothing', async () => {
       const before = lastId();
       const reason = '#21 asked 2 questions; give one answer to each, in order';

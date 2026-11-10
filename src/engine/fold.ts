@@ -334,6 +334,10 @@ export interface Batch {
   decomposed?: true;
   /** When it was ordered (ADR 0179); absent for an order that did not record it. */
   orderedAt?: string;
+  /** Who ordered it by hand (ADR 0105), which approves its issue as it was then (ADR 0368). */
+  orderedBy?: string;
+  /** Up to when a person's "continue" approved its claimed issue (ADR 0368); absent before one. */
+  approvedUpTo?: string;
   /** What chose the recipe; a human's choice also records who issued it and from where. */
   recipe?: { name: string; reason: string; type?: RecipeType } & (
     | { source: 'label' | 'router' }
@@ -676,7 +680,7 @@ class Rejection extends Error {}
 function apply(state: State, event: Event): State {
   switch (event.type) {
     case 'batch.ordered': {
-      const { batchId, order, parentBatchId, plan, routeBy, at } = event;
+      const { batchId, order, parentBatchId, plan, routeBy, at, by } = event;
       if (state.batches.has(batchId)) throw reject(`batch ${batchId} was already ordered`);
       if (parentBatchId !== undefined) batchOf(state, parentBatchId);
       const { repo } = order;
@@ -693,6 +697,7 @@ function apply(state: State, event: Event): State {
         ...(plan === undefined ? {} : { plan }),
         ...offOf(state, plan),
         ...(at === undefined ? {} : { orderedAt: at }),
+        ...(by === undefined ? {} : { orderedBy: by }),
         lane: { kind: 'ordered', routeBy },
         steps: new Map(),
         rewinds: [],
@@ -1196,6 +1201,8 @@ function apply(state: State, event: Event): State {
         ? updateBatch(applied, key.batchId, (ended) => ({ ...ended, endShown: true }))
         : applied;
     }
+    case 'order.approved':
+      return updateBatch(state, event.batchId, (batch) => ({ ...batch, approvedUpTo: event.upTo }));
     default:
       return unreachable(event);
   }

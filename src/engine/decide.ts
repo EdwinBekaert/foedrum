@@ -68,6 +68,7 @@ import {
   unendedPullRequests,
 } from './fold.ts';
 import { same } from './issue-claims.ts';
+import { ORDER_CHANGED_QUESTION, type OrderChanges } from './order-changes.ts';
 import { orderOfBatch, pauseOf } from './pauses.ts';
 import { latestPlan } from './plan-comment.ts';
 import { openedPullRequest } from './pull-request.ts';
@@ -234,6 +235,8 @@ export type EngineCommand =
    * waits for a person to run it (ADR 0222).
    */
   | { kind: 'await_session'; batchId: string; stepId: string; attempt: number }
+  /** A claimed order's issue changed since its approval, before `attempt` read it (ADR 0368). */
+  | ({ kind: 'order_changed'; batchId: string; stepId: string; attempt: number } & OrderChanges)
   /** The supervisor found the closed usage window's reopen due (ADR 0206). */
   | { kind: 'reopen' }
   /**
@@ -322,6 +325,9 @@ export function stuckOptions(reason: StuckReason): StuckOption[] {
     // No step yet to skip, answer or rewind to: route it again, choose a recipe, or cancel it.
     case 'routing':
       return ['retry', 'recipe', 'cancel'];
+    // The one question: continue with the issue as it is, or stop (ADR 0368).
+    case 'order_changed':
+      return ['answer', 'cancel'];
     default: {
       const unhandled: never = reason;
       throw new Error(`Unhandled stuck reason ${JSON.stringify(unhandled)}`);
@@ -505,6 +511,9 @@ function run(draft: Draft, command: Command): Event[] {
       break;
     case 'await_session':
       awaitSession(draft, command);
+      break;
+    case 'order_changed':
+      orderChanged(draft, command);
       break;
     case 'mark_failing': {
       const { batchId, pass, summary, since, reading } = command;
@@ -1082,6 +1091,60 @@ function awaitSession(draft: Draft, command: Extract<Command, { kind: 'await_ses
   stick(draft, batchId, { kind: 'waiting_for_session', stepId });
 }
 
+/**
+ * Parks the scheduled attempt of a claimed order whose issue changed since its approval, before it
+ * starts, with the question to the engineer (ADR 0368).
+ */
+function orderChanged(draft: Draft, command: Extract<Command, { kind: 'order_changed' }>): void {
+  const { batchId, stepId, attempt, changes, more, upTo } = command;
+  const batch = requireLane(draft.batch(batchId), 'order_changed', ['brewing']);
+  const step = batch.steps.get(stepId);
+  const name = attemptName(batch, stepId, attempt);
+  if (step === undefined || latestAttempt(step)?.attempt !== attempt) {
+    throw new Refusal(`${name} is not the latest of its step`);
+  }
+  if (running(batch, stepId, attempt).phase !== 'scheduled')
+    throw new Refusal(`${name} has started`);
+  stick(draft, batchId, { kind: 'order_changed', stepId, changes: [...changes], more, upTo });
+}
+
+/**
+ * The engineer's answer to a batch whose issue changed (ADR 0368): `continue` approves the issue up
+ * to the changes it was shown and schedules the step's attempt as it was scheduled, never as an
+ * answer a brewer reads; `stop` ends the batch as a cancel does.
+ */
+function continueOrStop(
+  draft: Draft,
+  { batchId, by, via, answers }: Extract<Command, { kind: 'answer' }>,
+  { stepId, upTo }: Extract<StuckReason, { kind: 'order_changed' }>,
+): void {
+  const [only, ...rest] = answers;
+  if (only?.q !== ORDER_CHANGED_QUESTION || rest.length > 0) {
+    throw new Refusal(`batch ${batchId} asks one question: ${ORDER_CHANGED_QUESTION}`);
+  }
+  switch (only.answer) {
+    case 'continue': {
+      const step = draft.batch(batchId).steps.get(stepId);
+      const asked = step === undefined ? undefined : latestAttempt(step);
+      draft.push({ type: 'order.approved', batchId, upTo, by, via });
+      draft.push({ type: 'batch.resumed', batchId, by, via, action: 'answer' });
+      schedule(draft, batchId, stepId, {
+        ...(asked?.route === undefined ? {} : { route: asked.route }),
+        ...(asked?.retry === undefined ? {} : { retry: asked.retry }),
+        ...(asked?.answered === undefined ? {} : { answered: asked.answered }),
+      });
+      // The group's other children, abandoned with it, run again (ADR 0168).
+      resumeGroup(draft, batchId, stepId);
+      return;
+    }
+    case 'stop':
+      draft.push({ type: 'batch.cancelled', batchId, by, via });
+      return;
+    default:
+      throw new Refusal(`answer continue or stop, not "${only.answer}"`);
+  }
+}
+
 /** The next reminder of a Conditioning or Stuck batch, once the current one is due (ADR 0025). */
 function remind(draft: Draft, batchId: string): void {
   const batch = draft.batch(batchId);
@@ -1123,6 +1186,10 @@ function remind(draft: Draft, batchId: string): void {
 function answer(draft: Draft, command: Extract<Command, { kind: 'answer' }>): void {
   const { batchId, by, via, answers } = command;
   const { reason } = stuckLane(draft.batch(batchId), 'answer');
+  if (reason.kind === 'order_changed') {
+    continueOrStop(draft, command, reason);
+    return;
+  }
   if (reason.kind !== 'needs_input') {
     throw new Refusal(`batch ${batchId} is not waiting for answers`);
   }

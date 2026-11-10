@@ -85,15 +85,21 @@ describe('what a step is offered, by type (ADR 0365)', () => {
     const offered = loaded.brewers
       .find('mash-in', 'innkeep')
       ?.choices?.map(({ name, type }) => `${name} ${type}`);
-    assert.deepEqual(offered, ['wort mash', 'decoction mash', 'mash mash', 'nip brew']);
+    assert.deepEqual(offered, [
+      'wort mash',
+      'decoction mash',
+      'deep-brew brew',
+      'mash mash',
+      'nip brew',
+    ]);
   });
 
   it('offers the Brewmaster and a plan lens step only the recipes of type brew', () => {
     const loaded = valid(loadRecipes({ ...defaults(), recipes: [wort] }));
     const names = (recipe: string, step: string) =>
       loaded.brewers.find(recipe, step)?.choices?.map(({ name }) => name);
-    assert.deepEqual(names('wort', 'plan'), ['nip']);
-    assert.deepEqual(names('decoction', 'recipe-fit'), ['nip']);
+    assert.deepEqual(names('wort', 'plan'), ['deep-brew', 'nip']);
+    assert.deepEqual(names('decoction', 'recipe-fit'), ['deep-brew', 'nip']);
   });
 
   it('offers a plan brewer without a recipes input the recipes of type brew, which its sub-orders run with', () => {
@@ -110,7 +116,7 @@ describe('what a step is offered, by type (ADR 0365)', () => {
     assert.ok(!step?.brewer.inputs.some(({ from }) => from === 'recipes'));
     assert.deepEqual(
       step?.choices?.map(({ name }) => name),
-      ['nip'],
+      ['deep-brew', 'nip'],
     );
   });
 });
@@ -155,7 +161,7 @@ describe("a plan's sub-orders run with recipes of type brew (ADR 0365)", () => {
     assert.ok(ending.kind === 'failed' && ending.retryable, JSON.stringify(ending));
     assert.match(
       ending.reason,
-      /^the out doc plan\.md is invalid: .*recipes of type brew, nip: not wort[\s\S]*subOrders\[0\]\.recipe/,
+      /^the out doc plan\.md is invalid: .*recipes of type brew, deep-brew, nip: not wort[\s\S]*subOrders\[0\]\.recipe/,
     );
   });
 

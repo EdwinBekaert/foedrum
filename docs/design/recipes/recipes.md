@@ -7,9 +7,9 @@ Foedrum's own recipes are checked as `DefaultRecipe`, which also rejects literal
 ```jsonc
 {
   "$schema": "../.foedrum/schemas/recipe.json",          // for editors; `foedrum init` writes none yet
-  "name": "half-pint",
+  "name": "house-ale",
   "type": "brew",                                            // mash plans or chooses, brew builds (ADR 0365)
-  "description": "Small feature in one repository",
+  "description": "A feature in one repository, planned first",
   "testFirst": true,                                         // default for recipes that write code
   "concurrency": 2,                                          // at most 2 of its batches at once; none by default (ADR 0217)
   "steps": [
@@ -106,4 +106,4 @@ An input that names a check, an action or a group of the recipe is a mistake in 
 
 **Test-first in bug-fix recipes.** The Microbiologist's reproducing test is the failing test: its step has `"id": "triage"`, the red proof uses `"of": "triage"`, and no Gauger step is needed.
 
-**Escalation:** a brewer may set `"escalate": "<recipe>"` in its out doc; the batch re-routes (for example Half-pint → Growler).
+**Escalation:** a brewer may set `"escalate": "<recipe>"` in its out doc; the batch re-routes (for example Nip → Deep-brew).

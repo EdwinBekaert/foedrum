@@ -30,10 +30,11 @@ import {
 import type { DriverLock } from '../engine/driver-lock.ts';
 import { combineEffects } from '../engine/effects.ts';
 import type { EventStore } from '../engine/event-store.ts';
-import type { Claimant, ClaimHost } from '../engine/issue-claims.ts';
+import { type Claimant, type ClaimHost, same } from '../engine/issue-claims.ts';
 import { keepOutDocs } from '../engine/kept-out-docs.ts';
 import { laneLabelEffects } from '../engine/lane-labels.ts';
 import { mergeBriefEffects } from '../engine/merge-brief-post.ts';
+import { createOrderCheck } from '../engine/order-changes.ts';
 import { planCommentOf, planEffects } from '../engine/plan-comment.ts';
 import { planIssueEffects } from '../engine/plan-issues.ts';
 import { preExistingIssueEffects } from '../engine/pre-existing-issues.ts';
@@ -50,6 +51,7 @@ import { githubClaimHost } from '../github/claims.ts';
 import { createGitHubClient, type GitHubClient } from '../github/client.ts';
 import { githubLogin } from '../github/login.ts';
 import { githubIssueMarks } from '../github/marks.ts';
+import { githubOrderActivity } from '../github/order-activity.ts';
 import { githubOrderComments, githubOrderText, githubOrderTitle } from '../github/order-text.ts';
 import { githubPullRequestDrafts, githubPullRequests } from '../github/pull-requests.ts';
 import { createGitHubReads, type GitHubReads } from '../github/reads.ts';
@@ -514,6 +516,14 @@ export const wireDriver = async (
     alsoCleans: [attemptSettingsCleaner(setup.workRoot)],
     effects,
     actions,
+    // Before each attempt of a claimed order, what changed on its issue since someone in users
+    // approved it: anything asks the engineer (ADR 0368).
+    orderCheck: createOrderCheck({
+      activity: githubOrderActivity(reads, client),
+      users: setup.intake.users,
+      login,
+      filterOf: (repo) => setup.intake.repositories.find((each) => same(each.repo, repo))?.filter,
+    }),
     report,
     ...(doing === undefined ? {} : { doing }),
   });
