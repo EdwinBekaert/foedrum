@@ -76,6 +76,26 @@ const loaded = loadRecipes({
       },
       open,
     ]),
+    // Recipes that share plain-taste's step id `taste` with another meaning (#871).
+    building('when-taste', [
+      { id: 'implement', brewer: 'cellarman' },
+      {
+        ...diffTaster('taste'),
+        when: 'recipe.testFirst',
+        onFindings: { goto: 'implement', maxRounds: 1 },
+      },
+      open,
+    ]),
+    building('plain-built', [
+      { id: 'implement', brewer: 'cellarman' },
+      { id: 'taste', brewer: 'cellarman' },
+      open,
+    ]),
+    building('retaste', [
+      { id: 'implement', brewer: 'cellarman' },
+      { ...diffTaster('taste'), onFindings: { goto: 'implement', maxRounds: 1 } },
+      open,
+    ]),
   ],
 });
 if (!loaded.valid) throw new Error(loaded.problems.join('\n'));
@@ -421,6 +441,143 @@ describe('the merge brief of a batch mashed to a building recipe (#867)', () => 
     assert.doesNotMatch(body, /`taste`/);
     assert.doesNotMatch(body, /the plan may be too big/);
     assert.match(body, /- `one`: the first risk\n- `two`: the second risk/);
+  });
+
+  const earlierCommit = 'c'.repeat(40);
+  /** plain-taste's plan and its Taster `taste`, which ends with `ending`, at an earlier commit. */
+  const tastedUnderPlainTaste = (ending: Ending) => (): void => {
+    run('plan', done);
+    run('taste', ending, { commit: earlierCommit });
+  };
+
+  it("never shows the risk or the tasting of an earlier recipe's Taster whose id a skipped step of the current recipe shares (#871)", async () => {
+    movedOff('plain-taste', tastedUnderPlainTaste(tasted('the plan may be too big')), 'when-taste');
+    run('implement', done);
+    opened();
+    const body = await briefBody();
+    assert.match(body, /- `taste`: not run: its when "recipe\.testFirst" was false\./);
+    assert.doesNotMatch(body, /the plan may be too big/);
+    assert.doesNotMatch(body, /Tasted at/);
+    assert.match(body, /- No Taster tasted this change\./);
+  });
+
+  it("never reads a plain step of the current recipe as a Taster because an earlier recipe's step of its id was one (#871)", async () => {
+    movedOff(
+      'plain-taste',
+      tastedUnderPlainTaste(tasted('the plan may be too big')),
+      'plain-built',
+    );
+    run('implement', done);
+    run('taste', done, { commit: head });
+    opened();
+    const body = await briefBody();
+    assert.doesNotMatch(body, /Tasted at/);
+    assert.match(body, /- No Taster tasted this change\./);
+  });
+
+  it("never says a skip left open an earlier recipe's Taster whose id a skipped step of the current recipe shares (#871)", async () => {
+    const blocked: Ending = {
+      kind: 'blocked',
+      blockerKind: 'findings',
+      summary: 'A change is asked',
+      findings: [heldBack],
+    };
+    accept({ kind: 'order', batchId, order: { issue: 7 } });
+    accept({ kind: 'route', batchId, recipe: 'plain-taste', reason: 'label', source: 'label' });
+    // Its one round back to the plan, then Stuck with the finding open (ADR 0192, ADR 0354).
+    run('plan', done);
+    run('taste', blocked);
+    run('plan', done);
+    run('taste', blocked);
+    assert.equal(log.state().batches.get(batchId)?.lane.kind, 'stuck');
+    accept({
+      kind: 'recipe',
+      batchId,
+      recipe: 'when-taste',
+      reason: 'a person chose',
+      by: 'ann',
+      via: 'terminal',
+    });
+    run('implement', done);
+    opened();
+    const body = await briefBody();
+    assert.match(body, /- `taste`: not run: its when "recipe\.testFirst" was false\./);
+    assert.doesNotMatch(body, /left open by a skip/);
+    assert.doesNotMatch(body, /Breaks the plan/);
+  });
+
+  it("leaves out the findings an earlier recipe's Taster left open under an id a skipped step of the current recipe shares (#871)", async () => {
+    movedOff(
+      'plain-taste',
+      tastedUnderPlainTaste({
+        kind: 'succeeded',
+        output: {
+          status: 'done',
+          summary: 'Tasted',
+          assumptions: [],
+          verdict: 'approve',
+          findings: [{ ...heldBack, severity: 'minor' }],
+        },
+      }),
+      'when-taste',
+    );
+    run('implement', done);
+    opened();
+    const body = await briefBody();
+    assert.match(body, /\*\*Findings\*\*\nNo finding was recorded\./);
+  });
+
+  it("leaves out the map an earlier recipe's attempt of a step proposed when the current recipe's said fresh (#871)", async () => {
+    const surveyed = (map: string): Ending => ({
+      kind: 'succeeded',
+      output: { status: 'done', summary: 'P', map },
+    });
+    movedOff(
+      'built-first',
+      () => run('implement', surveyed('new'), { commit: earlierCommit }),
+      'porter',
+    );
+    run('implement', surveyed('fresh'), { commit: head });
+    opened();
+    const body = await briefBody();
+    assert.match(body, /\*\*Evidence on /);
+    assert.doesNotMatch(body, /The test map of/);
+  });
+
+  it("lists the dispositions of the current recipe's rounds of a step, never an earlier recipe's of its id (#871)", async () => {
+    const blockedAt = (file: string): Ending => ({
+      kind: 'blocked',
+      blockerKind: 'findings',
+      summary: 'A change is asked',
+      findings: [{ ...heldBack, file, line: 3 }],
+    });
+    const fixed = (file: string): Ending => ({
+      kind: 'succeeded',
+      output: {
+        status: 'done',
+        summary: 'Fixed',
+        assumptions: [],
+        dispositions: [{ file, line: 3, disposition: 'fixed' }],
+      },
+    });
+    movedOff(
+      'plain-taste',
+      () => {
+        run('plan', done);
+        run('taste', blockedAt('plan.md'));
+        run('plan', fixed('plan.md'));
+        run('taste', tasted('the plan may be too big'));
+      },
+      'retaste',
+    );
+    run('implement', done);
+    run('taste', blockedAt('src/a.ts'));
+    run('implement', fixed('src/a.ts'));
+    run('taste', tasted('the cut was not run'), { commit: head });
+    opened();
+    const body = await briefBody();
+    assert.match(body, /- `taste`: fixed at src\/a\.ts:3/);
+    assert.doesNotMatch(body, /plan\.md/);
   });
 
   it("finds the merged-check step of a batch mashed to nip, in nip's own steps: regression test", () => {
