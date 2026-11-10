@@ -158,4 +158,8 @@ describe("a plan's sub-orders run with recipes of type brew (ADR 0365)", () => {
       /^the out doc plan\.md is invalid: .*recipes of type brew, nip: not wort[\s\S]*subOrders\[0\]\.recipe/,
     );
   });
+
+  it('takes a sub-order that names a recipe of type brew (regression test)', () => {
+    assert.equal(planned('wort', 'nip').kind, 'succeeded');
+  });
 });
