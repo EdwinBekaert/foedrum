@@ -66,6 +66,15 @@ const done: Ending = {
   kind: 'succeeded',
   output: { status: 'done', summary: 'Done', assumptions: [] },
 };
+const blocked: Ending = {
+  kind: 'blocked',
+  blockerKind: 'findings',
+  summary: 'The plan skips a step',
+  findings: [
+    { severity: 'major', why: 'A step is missing', introduced: true, file: 'plan.md', line: 3 },
+  ],
+};
+const failedCheck: Ending = { kind: 'failed', retryable: false, reason: 'test failed' };
 const failing: HeadCheck = {
   name: 'ci/build',
   kind: 'check_run',
@@ -104,8 +113,71 @@ describe("a route's rounds per run of the recipe (ADR 0369)", () => {
     accept({ kind: 'order', batchId, order: { issue: 7 } });
     accept({ kind: 'route', batchId, recipe, reason: 'label', source: 'label' });
   };
+  const choose = (recipe: string): void =>
+    accept({ kind: 'recipe', batchId, recipe, reason: 'a person chose', ...by });
   const rewind = (toStepId: string): void =>
     accept({ kind: 'rewind', batchId, toStepId, shas: { 'acme/web': 'd'.repeat(40) }, ...by });
+  /** tasted's plan, then its Taster blocking on findings each time it runs, as often as `times`. */
+  const tastedRun = (times: number): void => {
+    run('plan', done);
+    for (let round = 1; round < times; round++) {
+      run('taste', blocked);
+      assert.equal(latest('plan')?.phase, 'scheduled', 'the findings sent the plan back');
+      run('plan', done);
+    }
+    run('taste', blocked);
+  };
+  const stuckRounds = (): number | undefined => {
+    const now = lane();
+    assert.equal(now?.kind, 'stuck', JSON.stringify(now));
+    return now?.kind === 'stuck' && now.reason.kind === 'blocked'
+      ? now.reason.roundsOut?.rounds
+      : undefined;
+  };
+
+  it('a batch whose run used its round back, run again from Stuck by a recipe choice, gets a round back in its next run', () => {
+    routed('tasted');
+    tastedRun(2);
+    assert.equal(stuckRounds(), 1);
+    choose('tasted');
+    run('plan', done);
+    run('taste', blocked);
+    assert.equal(lane()?.kind, 'brewing');
+    assert.equal(latest('plan')?.phase, 'scheduled');
+    assert.deepStrictEqual(latest('plan')?.route, { from: 'taste', why: 'findings' });
+  });
+
+  it("a rewind gives the route its rounds again from the rewind's point", () => {
+    routed('tasted');
+    tastedRun(2);
+    rewind('plan');
+    run('plan', done);
+    run('taste', blocked);
+    assert.equal(lane()?.kind, 'brewing');
+    assert.deepStrictEqual(latest('plan')?.route, { from: 'taste', why: 'findings' });
+  });
+
+  it('rounds used in the current run still count toward maxRounds', () => {
+    routed('tasted');
+    tastedRun(2);
+    choose('tasted');
+    tastedRun(2);
+    assert.equal(stuckRounds(), 1);
+  });
+
+  it('an onFail route gets its round back after a rewind', () => {
+    routed('checked');
+    run('implement', done);
+    run('green', failedCheck);
+    run('implement', done);
+    run('green', failedCheck);
+    assert.equal(lane()?.kind, 'stuck');
+    rewind('implement');
+    run('implement', done);
+    run('green', failedCheck);
+    assert.equal(lane()?.kind, 'brewing');
+    assert.deepStrictEqual(latest('implement')?.route, { from: 'green', why: 'failed' });
+  });
 
   describe('an onPullRequestFail route', () => {
     const ledger = (key: Parameters<typeof effectKey.encode>[0], result: unknown): void =>
