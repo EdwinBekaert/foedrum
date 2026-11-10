@@ -453,6 +453,20 @@ describe('createIntake', () => {
       assert.deepStrictEqual(answers, []);
     });
 
+    it("says a failed read once per issue, whatever another issue's reads do", async () => {
+      const failure = new Error('502 reading the events');
+      // web#8's good read names mallory, so it stays a candidate and is read at every pass.
+      const { tracker } = fakeTracker(
+        { [web]: [issue(7), issue(8)], [api]: [] },
+        {},
+        { [`${web}#7`]: failure, [`${web}#8`]: [{ label: 'foedrum', by: 'mallory' }] },
+      );
+      const twice = intake(tracker);
+      await twice.poll();
+      await twice.poll();
+      assert.equal(notices.filter(({ kind }) => kind === 'failed').length, 1);
+    });
+
     it('never takes the addings a listing carries as read', async () => {
       const listed = issue(7, { labelsAdded: [{ label: 'foedrum', by: 'alice' }] });
       const { tracker } = fakeTracker(

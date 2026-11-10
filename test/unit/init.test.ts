@@ -708,6 +708,15 @@ describe('foedrum init outside a clone, the labels and the push (ADR 0207)', () 
     assert.ok(said > lines.indexOf('acme/web has the label foedrum:brew'), lines.join('\n'));
   });
 
+  it('says nothing of who labels to a Brewery with no target repository', async () => {
+    const { lines } = await init(['', '']);
+    assert.ok(
+      lines.some((line) => line.startsWith('Written: ')),
+      lines.join('\n'),
+    );
+    assert.ok(!lines.includes(USERS_LABEL_LINE), lines.join('\n'));
+  });
+
   it('leaves a label that is there alone, without asking', async () => {
     const { questions, events, lines } = await init(['', 'acme/web', '', '']);
     assert.ok(events.includes('has acme/web foedrum:brew'), events.join('\n'));
