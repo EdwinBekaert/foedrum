@@ -218,24 +218,26 @@ interface Steps {
 const ofRecipe = (recipe: Recipe | undefined, stepId: string): boolean =>
   recipe?.has(stepId) !== false && recipe?.children(stepId) === undefined;
 
-/**
- * `batch` with only the attempts scheduled under its current recipe (`attemptRecipeOf`): an
- * earlier recipe's step of the same id is another step (ADR 0327), and a step left with none is
- * left out.
- */
-const ofCurrentRecipe = (state: State, batch: Batch): Batch => {
-  const name = batch.recipe?.name;
+/** `batch` with only the attempts `keep` takes, and a step left with none left out. */
+const keeping = (batch: Batch, keep: (stepId: string, attempt: number) => boolean): Batch => {
   const steps = new Map<string, Step>();
   for (const step of batch.steps.values()) {
-    const attempts = new Map(
-      [...step.attempts].filter(
-        ([attempt]) =>
-          attemptRecipeOf(state, { batchId: batch.id, stepId: step.id, attempt }) === name,
-      ),
-    );
+    const attempts = new Map([...step.attempts].filter(([attempt]) => keep(step.id, attempt)));
     if (attempts.size > 0) steps.set(step.id, { ...step, attempts });
   }
   return { ...batch, steps };
+};
+
+/**
+ * `batch` with only the attempts scheduled under its current recipe (`attemptRecipeOf`): an
+ * earlier recipe's step of the same id is another step (ADR 0327).
+ */
+const ofCurrentRecipe = (state: State, batch: Batch): Batch => {
+  const name = batch.recipe?.name;
+  return keeping(
+    batch,
+    (stepId, attempt) => attemptRecipeOf(state, { batchId: batch.id, stepId, attempt }) === name,
+  );
 };
 
 /**
@@ -245,13 +247,9 @@ const ofCurrentRecipe = (state: State, batch: Batch): Batch => {
  */
 const ofLatestRun = (batch: Batch): Batch => {
   const path = (batch.path ?? []).slice(batch.recipeFrom ?? 0);
-  const steps = new Map<string, Step>();
-  for (const step of batch.steps.values()) {
-    const ran = new Set(path.filter(({ stepId }) => stepId === step.id).map((at) => at.attempt));
-    const attempts = new Map([...step.attempts].filter(([attempt]) => ran.has(attempt)));
-    if (attempts.size > 0) steps.set(step.id, { ...step, attempts });
-  }
-  return { ...batch, steps, path };
+  const ran = (stepId: string, attempt: number): boolean =>
+    path.some((at) => at.stepId === stepId && at.attempt === attempt);
+  return { ...keeping(batch, ran), path };
 };
 
 /** The `when` that was false for `stepId`, or its group's, when the batch skipped it (ADR 0064). */
