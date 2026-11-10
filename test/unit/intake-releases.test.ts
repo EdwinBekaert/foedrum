@@ -20,6 +20,7 @@ import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import { type Event, MAX_RELEASE_NOTES_LENGTH } from '../../src/schemas/events.ts';
 import { fakeGitHub } from '../helpers/fake-github.ts';
 import { fakeRecipe, fakeRecipes } from '../helpers/fake-recipes.ts';
+import { addedByAuthor } from '../helpers/labels-added.ts';
 
 const brewery = 'alice/brewery';
 const lib = 'acme/lib-core';
@@ -93,6 +94,7 @@ const issue = (number: number): TargetIssue => ({
 const tracker: TargetTracker = {
   issues: async (repo) => (repo === brewery ? [1, 2, 3, 4, 5].map(issue) : []),
   pullRequest: async () => 'open',
+  labelsAdded: addedByAuthor(() => []),
 };
 
 /**

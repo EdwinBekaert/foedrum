@@ -19,6 +19,7 @@ import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import { type FakeGitHub, fakeGitHub } from '../helpers/fake-github.ts';
 import { createdOf } from '../helpers/fake-github-api.ts';
 import { fakeRecipe, fakeRecipes } from '../helpers/fake-recipes.ts';
+import { addedByAuthor } from '../helpers/labels-added.ts';
 
 const brewery = 'alice/brewery';
 const web = 'acme/web';
@@ -48,6 +49,7 @@ const issue = (number: number, labels: readonly string[]): TargetIssue => ({
 const fakeTracker = (issues: Record<string, TargetIssue[]>): TargetTracker => ({
   issues: async (repo) => issues[repo] ?? [],
   pullRequest: async () => 'open',
+  labelsAdded: addedByAuthor((repo) => issues[repo]),
 });
 
 describe('the limits of a pass (ADR 0217)', () => {

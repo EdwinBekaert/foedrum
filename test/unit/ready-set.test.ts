@@ -20,6 +20,7 @@ import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import type { Event } from '../../src/schemas/events.ts';
 import { fakeGitHub } from '../helpers/fake-github.ts';
 import { fakeRecipe, fakeRecipes } from '../helpers/fake-recipes.ts';
+import { addedByAuthor } from '../helpers/labels-added.ts';
 
 const brewery = 'alice/brewery';
 const web = 'acme/web';
@@ -500,6 +501,7 @@ describe('the intake starts ready sub-orders (ADR 0211)', () => {
   ): TargetTracker => ({
     issues: async (repo) => (repo === brewery ? listed : []),
     pullRequest: async (url) => pullRequests[url] ?? 'open',
+    labelsAdded: addedByAuthor(() => []),
   });
   const poll = (listed: TargetTracker, options: Partial<IntakeOptions> = {}) =>
     createIntake({

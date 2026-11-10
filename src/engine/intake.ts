@@ -34,6 +34,7 @@ import {
   claimIssue,
   type IntakeFilter,
   isCandidate,
+  type LabelAdded,
   type PullRequestState,
   same,
   type TargetIssue,
@@ -65,6 +66,8 @@ export interface TargetTracker {
   ): Promise<readonly TargetIssue[]>;
   /** How the pull request at `url` stands now. */
   pullRequest(url: string, signal?: AbortSignal): Promise<PullRequestState>;
+  /** Each adding of a label to `repo#issue`, oldest first, from every page of its events. */
+  labelsAdded(repo: string, issue: number, signal?: AbortSignal): Promise<readonly LabelAdded[]>;
 }
 
 /** A repository whose issues the intake polls: its alias starts the batch ids of its issues. */
@@ -86,6 +89,8 @@ export type IntakeNotice =
   | { kind: 'unrouted'; batchId: string; reason: string }
   /** An issue of the queue a limit holds (ADR 0217); reported once per issue and reason. */
   | { kind: 'held'; repo: string; issue: number; reason: string }
+  /** A candidate whose intake labels nobody in `users` added (ADR 0359); once per issue and reason. */
+  | { kind: 'unapproved'; repo: string; issue: number; reason: string }
   /** A release of a repository a `release` blocker waits on, recorded (ADR 0223). */
   | { kind: 'released'; repo: string; version: string }
   /** A repository it could not list or claim in, or a pull request it could not read. */

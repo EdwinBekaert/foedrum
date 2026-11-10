@@ -11,7 +11,7 @@ import type { RankOrder } from '../../src/engine/decide.ts';
 import type { EventStore } from '../../src/engine/event-store.ts';
 import { fold } from '../../src/engine/fold.ts';
 import { createIntake, type IntakeOptions, type TargetTracker } from '../../src/engine/intake.ts';
-import type { Claimant, TargetIssue } from '../../src/engine/issue-claims.ts';
+import type { Claimant, LabelAdded, TargetIssue } from '../../src/engine/issue-claims.ts';
 import { placeAt, type QueuedOrder, rankQueue } from '../../src/engine/ranks.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import { BreweryConfig } from '../../src/schemas/brewery-config.ts';
@@ -19,6 +19,7 @@ import type { Event, OrderRef, RankPlace } from '../../src/schemas/events.ts';
 import { linux } from '../helpers/doctor-facts.ts';
 import { type FakeGitHub, fakeGitHub } from '../helpers/fake-github.ts';
 import { fakeRecipe, fakeRecipes } from '../helpers/fake-recipes.ts';
+import { addedByAuthor } from '../helpers/labels-added.ts';
 
 const brewery = 'alice/brewery';
 const web = 'acme/web';
@@ -54,13 +55,22 @@ const listings = (): Record<string, TargetIssue[]> => ({
   [web]: [issue(7, at(4)), issue(8, at(1))],
   [api]: [issue(2, at(2))],
 });
-const fakeTracker = (issues: Record<string, TargetIssue[]>): TargetTracker => ({
+/** The listings, and the labels added to `<repo>#<n>` (an Error fails it; else by its author). */
+const fakeTracker = (
+  issues: Record<string, TargetIssue[]>,
+  added: Record<string, LabelAdded[] | Error> = {},
+): TargetTracker => ({
   issues: async (repo) => {
     const listed = issues[repo];
     if (listed === undefined) throw new Error(`502 listing ${repo}`);
     return listed;
   },
   pullRequest: async () => 'open',
+  labelsAdded: async (repo, number) => {
+    const given = added[`${repo}#${number}`];
+    if (given instanceof Error) throw given;
+    return given ?? addedByAuthor((each) => issues[each])(repo, number);
+  },
 });
 
 const ranked = (order: OrderRef, place: RankPlace, why?: string): Event => ({
@@ -507,12 +517,62 @@ describe('foedrum rank (ADR 0208)', () => {
       assert.deepStrictEqual(
         await run(['rank', target, '1'], { queue: closed() }),
         refused(
-          `${target} is not in the intake's queue: closed, filtered out, assigned to someone else or not opened by an allow-listed user`,
+          `${target} is not in the intake's queue: closed, filtered out, assigned to someone else or, for a Brewery issue, not opened by someone in users`,
         ),
         target,
       );
     }
     assert.equal(lastId(), before);
+  });
+
+  describe('who added the intake label (ADR 0359)', () => {
+    const labelledBy =
+      (added: Record<string, LabelAdded[] | Error>, fields: Partial<TargetIssue> = {}) =>
+      (): ReturnType<CliContext['queue']> => ({
+        tracker: fakeTracker(
+          { ...listings(), [web]: [issue(7, at(4), fields), issue(8, at(1))] },
+          added,
+        ),
+        login: async () => 'alice',
+      });
+
+    it('places an issue a stranger opened and a user labelled', async () => {
+      const queue = labelledBy(
+        { [`${web}#7`]: [{ label: 'foedrum', by: 'alice' }] },
+        { author: 'mallory' },
+      );
+      assert.deepStrictEqual(
+        await run(['rank', 'web#7'], { queue }),
+        ok('web#7: place 4 of 5 in the queue, by its arrival\n'),
+      );
+    });
+
+    it('says who added the label of an issue nobody in users labelled, or that nobody did', async () => {
+      const before = lastId();
+      const stranger = labelledBy({ [`${web}#7`]: [{ label: 'foedrum', by: 'mallory' }] });
+      assert.deepStrictEqual(
+        await run(['rank', 'web#7', '1'], { queue: stranger }),
+        refused(
+          "web#7 is not in the intake's queue: the label foedrum was last added by mallory, who is not in users",
+        ),
+      );
+      const nobody = labelledBy({ [`${web}#7`]: [] });
+      assert.deepStrictEqual(
+        await run(['rank', 'web#7', '1'], { queue: nobody }),
+        refused("web#7 is not in the intake's queue: nobody in users added the label foedrum"),
+      );
+      assert.equal(lastId(), before);
+    });
+
+    it('refuses when it cannot read who labelled an issue of the queue', async () => {
+      const failing = labelledBy({ [`${web}#7`]: new Error('502 reading the events') });
+      assert.deepStrictEqual(
+        await run(['rank', 'web#8', '1'], { queue: failing }),
+        refused(
+          "cannot read the intake's queue: reading who labelled acme/web#7: 502 reading the events",
+        ),
+      );
+    });
   });
 
   it('refuses an order that has a batch, a sub-order, and the target issue of a live Brewery issue', async () => {
@@ -689,7 +749,7 @@ describe('foedrum rank (ADR 0208)', () => {
     assert.deepStrictEqual(
       await run(['rank', 'web#7', '1'], { queue: assigned('bob') }),
       refused(
-        "web#7 is not in the intake's queue: closed, filtered out, assigned to someone else or not opened by an allow-listed user",
+        "web#7 is not in the intake's queue: closed, filtered out, assigned to someone else or, for a Brewery issue, not opened by someone in users",
       ),
     );
     const noLogin: CliContext['queue'] = () => ({

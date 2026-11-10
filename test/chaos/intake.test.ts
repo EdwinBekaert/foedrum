@@ -121,6 +121,11 @@ const tracker = (planned: readonly Planned[], opened: ReadonlySet<number>): Targ
             return opened.has(number) ? [listed(orderOf(number), labelsOf[kind])] : [];
           }),
     pullRequest: async () => 'open',
+    // A target issue's labels are ann's, an allow-listed user's (ADR 0359).
+    labelsAdded: async () => [
+      { label: 'foedrum', by: 'ann' },
+      { label: 'recipe:half', by: 'ann' },
+    ],
   };
 };
 

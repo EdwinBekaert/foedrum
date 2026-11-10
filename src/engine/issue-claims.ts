@@ -37,6 +37,17 @@ export interface TargetIssue {
   author: string;
   /** When it was created on GitHub: its arrival in the intake's queue (ADR 0208). */
   created: string;
+  /**
+   * Each adding of a label, oldest first, from the issue's events (ADR 0359): read only for an
+   * issue that passes every other check, and absent until then.
+   */
+  labelsAdded?: readonly LabelAdded[];
+}
+
+/** A label added to an issue: who added it, undefined when that can't be told (a deleted account). */
+export interface LabelAdded {
+  label: string;
+  by: string | undefined;
 }
 
 /** The Brewery that claims: its repository (`owner/name`) and its token's GitHub login. */

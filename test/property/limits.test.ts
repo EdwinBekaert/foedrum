@@ -15,6 +15,7 @@ import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import { seededRandom } from '../helpers/event-sequences.ts';
 import { fakeGitHub } from '../helpers/fake-github.ts';
 import { fakeRecipe, fakeRecipes } from '../helpers/fake-recipes.ts';
+import { addedByAuthor } from '../helpers/labels-added.ts';
 import { forEachSeedAsync } from '../helpers/property.ts';
 
 const brewery = 'alice/brewery';
@@ -139,6 +140,7 @@ it('a pass orders and routes within every limit, and every entry within them whi
       const tracker: TargetTracker = {
         issues: async (repo) => (repo === brewery ? listed : targets),
         pullRequest: async () => 'open',
+        labelsAdded: addedByAuthor(() => targets),
       };
       const github = fakeGitHub();
       const intake = createIntake({

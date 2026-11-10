@@ -53,4 +53,7 @@ export const githubTargetTracker = (reads: GitHubReads): TargetTracker => ({
     if (pull.merged === true || (pull.merged_at ?? null) !== null) return 'merged';
     return pull.state;
   },
+  labelsAdded: async () => {
+    throw new Error('not implemented');
+  },
 });

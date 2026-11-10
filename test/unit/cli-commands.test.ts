@@ -307,6 +307,7 @@ describe('foedrum: commands that change state', () => {
             },
           ],
           pullRequest: async () => 'open',
+          labelsAdded: async () => [],
         },
         login: async () => 'ada',
       }),

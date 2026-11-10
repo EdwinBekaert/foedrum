@@ -16,6 +16,7 @@ import type { Dependency, Event } from '../../src/schemas/events.ts';
 import { seededRandom } from '../helpers/event-sequences.ts';
 import { fakeGitHub } from '../helpers/fake-github.ts';
 import { fakeRecipe, fakeRecipes } from '../helpers/fake-recipes.ts';
+import { addedByAuthor } from '../helpers/labels-added.ts';
 import { forEachSeedAsync } from '../helpers/property.ts';
 
 const brewery = 'alice/brewery';
@@ -230,6 +231,7 @@ it('one pass orders only ready sub-orders, within the free capacity, and all of 
       const tracker: TargetTracker = {
         issues: async (repo) => (repo === brewery ? plan.listed : []),
         pullRequest: async () => 'open',
+        labelsAdded: addedByAuthor(() => []),
       };
       const read: string[] = [];
       const releases: ReleaseReader = {

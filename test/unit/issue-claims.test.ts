@@ -37,6 +37,7 @@ const issue = (number: number, fields: Partial<TargetIssue> = {}): TargetIssue =
   author: 'alice',
   // A minute apart by number, so the lower number arrived first (ADR 0208).
   created: createdOf(number),
+  labelsAdded: [{ label: 'foedrum', by: 'alice' }],
   ...fields,
 });
 const options = (claimant: Claimant, fields: Partial<CandidateOptions> = {}): CandidateOptions => ({
@@ -98,10 +99,16 @@ describe('isCandidate', () => {
       options(alice),
     ],
     ['an issue this Brewery has a batch of', issue(7), options(alice, { brewed: new Set([7]) })],
-    // Before ADR 0043 only the Brewery's owner could order work; a target repository is open to more.
+    // A target repository is open to more than the Brewery's users (ADR 0043), and so is its
+    // labelling (ADR 0359).
     [
-      'an issue opened by someone not allow-listed',
-      issue(7, { author: 'mallory' }),
+      'an issue whose label someone not in users added',
+      issue(7, { labelsAdded: [{ label: 'foedrum', by: 'mallory' }] }),
+      options(alice),
+    ],
+    [
+      'an issue whose label events were not read',
+      (({ labelsAdded: _, ...unread }: TargetIssue): TargetIssue => unread)(issue(7)),
       options(alice),
     ],
     ['an issue of a Brewery with no allow-listed users', issue(7), options(alice, { authors: [] })],
@@ -114,9 +121,13 @@ describe('isCandidate', () => {
     assert.equal(isCandidate(issue(7, { assignees: ['Alice'] }), options(alice)), true);
   });
 
-  it('takes an issue of an allow-listed author, whatever the case of the login', () => {
+  it('takes an issue a user labelled, whoever opened it, whatever the case of the login', () => {
     const given = options(alice, { authors: ['alice'] });
-    assert.equal(isCandidate(issue(7, { author: 'ALICE' }), given), true);
+    const labelled = issue(7, {
+      author: 'mallory',
+      labelsAdded: [{ label: 'foedrum', by: 'ALICE' }],
+    });
+    assert.equal(isCandidate(labelled, given), true);
   });
 
   it('compares labels ignoring case, as GitHub does, and takes an issue of the milestone', () => {

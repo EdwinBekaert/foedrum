@@ -211,6 +211,61 @@ describe('githubTargetTracker', () => {
     });
   });
 
+  describe('labelsAdded (ADR 0359)', () => {
+    const events = `${api}/repos/acme/web/issues/7/events?per_page=100`;
+
+    it('reads who added each label, oldest first, from the issue events: a deleted account as nobody', async () => {
+      const { tracker, requests } = trackerWith([{ status: 200, body: fixture('issue-events') }]);
+      assert.deepStrictEqual(await tracker.labelsAdded('acme/web', 7), [
+        { label: 'foedrum', by: 'alice' },
+        { label: 'ui', by: undefined },
+        { label: 'foedrum', by: 'mallory' },
+      ]);
+      assert.deepStrictEqual(
+        requests.map(({ method, url }) => [method, url]),
+        [['GET', events]],
+      );
+    });
+
+    it('reads every page of the events, and keeps them in the order they happened', async () => {
+      const [first, ...rest] = fixture('issue-events') as unknown[];
+      const { tracker } = trackerWith([
+        {
+          status: 200,
+          // A page that lists a later event first: the order is the events' own.
+          body: [...rest.slice(2), first],
+          headers: { link: `<${api}/repositories/42/issues/7/events?page=2>; rel="next"` },
+        },
+        { status: 200, body: rest.slice(0, 2) },
+      ]);
+      assert.deepStrictEqual(
+        (await tracker.labelsAdded('acme/web', 7)).map(({ by }) => by),
+        ['alice', undefined, 'mallory'],
+      );
+    });
+
+    it('asks again with the ETag, and unchanged events answer the same addings', async () => {
+      const { tracker, requests } = trackerWith([
+        { status: 200, body: fixture('issue-events'), headers: { etag: 'W/"events"' } },
+        { status: 304 },
+      ]);
+      const first = await tracker.labelsAdded('acme/web', 7);
+      assert.deepStrictEqual(await tracker.labelsAdded('acme/web', 7), first);
+      assert.equal(requests[1]?.headers['if-none-match'], 'W/"events"');
+    });
+
+    it('fails on an event it cannot read, or a refusal, naming the issue', async () => {
+      const broken = [{ id: 1, event: 'labeled', actor: { login: 'alice' }, label: {} }];
+      const { tracker } = trackerWith([{ status: 200, body: broken }]);
+      await assert.rejects(tracker.labelsAdded('acme/web', 7), /the events of acme\/web#7/);
+      const missing = trackerWith([{ status: 404, body: { message: 'Not Found' } }]);
+      await assert.rejects(
+        missing.tracker.labelsAdded('acme/web', 7),
+        /404 .*acme\/web#7: Not Found/,
+      );
+    });
+  });
+
   describe('pullRequest', () => {
     it('reads a merged pull request as merged', async () => {
       const { tracker, requests } = trackerWith([{ status: 200, body: fixture('pull-merged') }]);

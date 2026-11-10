@@ -1555,4 +1555,12 @@ describe('formatIntakeNotice', () => {
       ],
     );
   });
+
+  it('says in one line why it does not take an issue whose labels nobody in users added (ADR 0359)', () => {
+    const reason = 'the label foedrum was last added by mallory, who is not in users';
+    assert.equal(
+      formatIntakeNotice({ kind: 'unapproved', repo: 'acme/web', issue: 7, reason }),
+      `acme/web#7 is not taken: ${reason}`,
+    );
+  });
 });

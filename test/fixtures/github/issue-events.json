@@ -1,0 +1,63 @@
+[
+  {
+    "id": 9001,
+    "node_id": "LE_kwDOAAAAAAAAAAAAAAAAAAAAAAAAAAA1",
+    "url": "https://api.github.com/repos/acme/web/issues/events/9001",
+    "actor": { "login": "alice", "id": 101, "type": "User" },
+    "event": "labeled",
+    "commit_id": null,
+    "commit_url": null,
+    "created_at": "2026-10-14T08:00:00Z",
+    "label": { "name": "foedrum", "color": "ededed" },
+    "performed_via_github_app": null
+  },
+  {
+    "id": 9002,
+    "node_id": "AE_kwDOAAAAAAAAAAAAAAAAAAAAAAAAAAA2",
+    "url": "https://api.github.com/repos/acme/web/issues/events/9002",
+    "actor": { "login": "alice", "id": 101, "type": "User" },
+    "event": "assigned",
+    "commit_id": null,
+    "commit_url": null,
+    "created_at": "2026-10-14T08:01:00Z",
+    "assignee": { "login": "alice", "id": 101, "type": "User" },
+    "assigner": { "login": "alice", "id": 101, "type": "User" },
+    "performed_via_github_app": null
+  },
+  {
+    "id": 9003,
+    "node_id": "LE_kwDOAAAAAAAAAAAAAAAAAAAAAAAAAAA3",
+    "url": "https://api.github.com/repos/acme/web/issues/events/9003",
+    "actor": null,
+    "event": "labeled",
+    "commit_id": null,
+    "commit_url": null,
+    "created_at": "2026-10-14T08:02:00Z",
+    "label": { "name": "ui", "color": "ededed" },
+    "performed_via_github_app": null
+  },
+  {
+    "id": 9004,
+    "node_id": "UE_kwDOAAAAAAAAAAAAAAAAAAAAAAAAAAA4",
+    "url": "https://api.github.com/repos/acme/web/issues/events/9004",
+    "actor": { "login": "alice", "id": 101, "type": "User" },
+    "event": "unlabeled",
+    "commit_id": null,
+    "commit_url": null,
+    "created_at": "2026-10-14T08:03:00Z",
+    "label": { "name": "foedrum", "color": "ededed" },
+    "performed_via_github_app": null
+  },
+  {
+    "id": 9005,
+    "node_id": "LE_kwDOAAAAAAAAAAAAAAAAAAAAAAAAAAA5",
+    "url": "https://api.github.com/repos/acme/web/issues/events/9005",
+    "actor": { "login": "mallory", "id": 666, "type": "User" },
+    "event": "labeled",
+    "commit_id": null,
+    "commit_url": null,
+    "created_at": "2026-10-14T08:04:00Z",
+    "label": { "name": "foedrum", "color": "ededed" },
+    "performed_via_github_app": null
+  }
+]

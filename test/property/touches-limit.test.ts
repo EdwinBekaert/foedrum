@@ -14,6 +14,7 @@ import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import { seededRandom } from '../helpers/event-sequences.ts';
 import { fakeGitHub } from '../helpers/fake-github.ts';
 import { fakeRecipe, fakeRecipes } from '../helpers/fake-recipes.ts';
+import { addedByAuthor } from '../helpers/labels-added.ts';
 import { forEachSeedAsync } from '../helpers/property.ts';
 
 const brewery = 'alice/brewery';
@@ -115,6 +116,7 @@ it('a pass never brews two sub-orders whose touches overlap, and starts every on
       const tracker: TargetTracker = {
         issues: async (repo) => (repo === brewery ? listed : []),
         pullRequest: async () => 'open',
+        labelsAdded: addedByAuthor(() => []),
       };
       const busyIn = (state: ReturnType<typeof log.state>): number =>
         [...state.batches.values()].filter(
