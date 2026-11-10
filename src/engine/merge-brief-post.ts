@@ -451,8 +451,8 @@ const briefRest = (
     );
   const name = batch.recipe?.name;
   const recipe = name === undefined ? undefined : recipes.find(name);
-  // A merge brief is about this head: an earlier recipe's attempts stay in the status comment,
-  // also of a step id the current recipe shares (ADR 0327).
+  // A merge brief is about this head: what a step's latest attempt says reads only the current
+  // recipe's attempts, also of a step id an earlier recipe shares (ADR 0327).
   const current = ofCurrentRecipe(state, batch);
   const ran = [...current.steps.keys()].filter((stepId) => ofRecipe(recipe, stepId));
   const steps: Steps = {
@@ -460,11 +460,18 @@ const briefRest = (
     recipe,
     ids: [...new Set([...(recipe?.steps ?? []), ...ran])],
   };
+  // A recipe choice keeps the task tree, so the commits of every run the batch brewed are on this
+  // head: the rounds that fixed them and the map a survey committed read the whole batch (ADR 0363).
+  const onHead: Steps = {
+    batch,
+    recipe,
+    ids: [...new Set([...steps.ids, ...(batch.path ?? []).map(({ stepId }) => stepId)])],
+  };
   const proof = name === undefined ? undefined : redProof(name);
   const head = code(shortSha(ready.head));
   const sensitive = latestPush(state, batch.id)?.sensitive;
   const findings = [
-    ...dispositionLines(steps, told),
+    ...dispositionLines(onHead, told),
     ...openLines(steps, told),
     ...skippedOpenLines(steps, told),
   ];
@@ -489,7 +496,7 @@ const briefRest = (
       ...notRunLines(steps, proof),
       tastedLine(steps, ready),
       ...(sensitive === undefined ? [] : [`- ${sensitiveLine(sensitive)}.`]),
-      ...surveyLines(steps),
+      ...surveyLines(onHead),
     ],
     ['**Findings**', ...(findings.length === 0 ? ['No finding was recorded.'] : findings)],
     ['**Risk left**', ...(risks.length === 0 ? ['None recorded.'] : risks)],
