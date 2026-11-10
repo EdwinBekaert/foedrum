@@ -739,9 +739,11 @@ export const nextRealRun = (
 export const codeOf = (seed: string, setup: RealSetup, run: number): string =>
   createHmac('sha256', seed).update(`${setup}/${run}`).digest('hex').slice(0, 8);
 
-/** Each Taster of a run in the recipe's order, so the order they finished in says nothing. */
+/**
+ * Each Taster of a run in deep-brew's lens order, nip's four first, so neither the order they
+ * finished in nor the setup's own recipe order says anything (ADR 0366).
+ */
 const inRecipeOrder = (attempts: readonly TasterAttempt[]): TasterAttempt[] => {
-  // Nip's four first, as the lens setup lists them, then the deep setup's other three.
   const place = (stepId: string): number =>
     DEEP.lenses.findIndex((lens) => stepIdOf(lens) === stepId);
   return [...attempts].sort((a, b) => place(a.stepId) - place(b.stepId));
