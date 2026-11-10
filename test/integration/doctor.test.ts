@@ -140,9 +140,7 @@ const doctorWithStubs = async (
   writeStubTools(bin, stubs);
   const global = join(dir, 'gitconfig');
   writeFileSync(global, gitconfig);
-  // The made-up host, unless the test wrote a foedrum.jsonc of its own.
-  const config = join(dir, 'foedrum.jsonc');
-  if (!existsSync(config)) writeFileSync(config, MADE_UP_CONFIG);
+  writeFileSync(join(dir, 'foedrum.jsonc'), MADE_UP_CONFIG);
   const ours = {
     PATH: bin,
     GIT_CONFIG_GLOBAL: global,
