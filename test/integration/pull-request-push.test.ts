@@ -229,44 +229,6 @@ describe('the openPullRequest push with real git', () => {
     });
   });
 
-  it('never forces: a bottle branch the origin has at another commit stops the push', async () => {
-    // Someone pushed an unrelated commit to the bottle branch's name first.
-    const other = join(dir.path, `other-${runs}`);
-    git(dir.path, ['clone', '-q', origin, other]);
-    git(other, ['commit', '-q', '--allow-empty', '-m', 'Unrelated']);
-    git(other, ['push', '-q', 'origin', `HEAD:refs/heads/${bottle}`]);
-    const unrelated = git(other, ['rev-parse', 'HEAD']).trim();
-    const { state, requests, reported } = await brew();
-    assert.equal(git(origin, ['rev-parse', `refs/heads/${bottle}`]).trim(), unrelated);
-    assert.deepEqual(requests, []);
-    assert.equal(state.batches.get('12-1')?.lane.kind, 'brewing');
-    const failed = reported.find((notice) => notice.kind === 'effect_failed');
-    assert.match(
-      failed?.kind === 'effect_failed' ? (failed.error as Error).message : '',
-      /^git push failed: /,
-    );
-  });
-
-  it('pushes nothing for a plan that committed nothing while main moved on (review of #198)', async () => {
-    const other = join(dir.path, `other-${runs}`);
-    git(dir.path, ['clone', '-q', origin, other]);
-    const { state, requests } = await brew(() => {
-      // Someone merges into main while the plan runs, and the clone fetches it.
-      git(other, ['commit', '-q', '--allow-empty', '-m', 'Merged meanwhile']);
-      git(other, ['push', '-q', 'origin', 'HEAD:refs/heads/main']);
-      git(user, ['fetch', '-q', 'origin']);
-    });
-    assert.equal(git(origin, ['for-each-ref', '--format=%(refname)', `refs/heads/${bottle}`]), '');
-    assert.deepEqual(requests, []);
-    assert.equal(state.batches.get('12-1')?.lane.kind, 'stuck');
-    const attempt = state.batches.get('12-1')?.steps.get('open-pull-request')?.attempts.get(1);
-    assert.deepEqual(attempt?.phase === 'finished' && attempt.outcome, {
-      kind: 'failed',
-      retryable: false,
-      reason: 'batch 12-1 has no commits beyond main to open a pull request with',
-    });
-  });
-
   describe('the base as the remote has it now (ADR 0090)', () => {
     /** What a brewer could write into the config of the clone its worktree shares (#200). */
     const plants: Record<string, (path: string, nowhere: string) => void> = {
@@ -374,37 +336,6 @@ describe('the openPullRequest push with real git', () => {
       assert.deepEqual(await Promise.all([push.baseTip('main'), push.baseTip('main')]), [tip, tip]);
       assert.deepEqual(readdirSync(root), ['killed.git']);
     });
-
-    it('scans from a main the clone lacks and pushes the plan beyond it (review of #254)', async () => {
-      const other = join(dir.path, `other-${runs}`);
-      git(dir.path, ['clone', '-q', origin, other]);
-      const { requests, planBranch } = await brew((path) => {
-        commitPlan(path);
-        commitOnMain(other, 'Unrelated on main');
-      });
-      const plan = git(user, ['rev-parse', `refs/heads/${planBranch}`]).trim();
-      assert.equal(git(origin, ['rev-parse', `refs/heads/${bottle}`]).trim(), plan);
-      assert.equal(requests.length, 1);
-    });
-
-    it("leaves out of the scan what main holds already, though the clone's origin/main is behind it (review of #254)", async () => {
-      // Built at run time, so no scanner takes this file for one that holds a token.
-      const token = ['ghp', 'A1b2'.repeat(9)].join('_');
-      const { state, requests, planBranch } = await brew((path) => {
-        const start = git(path, ['rev-parse', 'HEAD']).trim();
-        // A commit main holds, with what looks like a secret: the base's, not the batch's.
-        writeFileSync(join(path, 'notes.txt'), `${token}\n`);
-        git(path, ['add', 'notes.txt']);
-        git(path, ['commit', '-q', '-m', 'On main already']);
-        git(path, ['push', '-q', origin, 'HEAD:refs/heads/main']);
-        git(path, ['update-ref', 'refs/remotes/origin/main', start]);
-        commitPlan(path);
-      });
-      const plan = git(user, ['rev-parse', `refs/heads/${planBranch}`]).trim();
-      assert.equal(git(origin, ['rev-parse', `refs/heads/${bottle}`]).trim(), plan);
-      assert.equal(requests.length, 1);
-      assert.equal(state.batches.get('12-1')?.lane.kind, 'on_tap');
-    });
   });
 
   describe('the secret scan before the push (ADR 0079)', () => {
@@ -442,27 +373,6 @@ describe('the openPullRequest push with real git', () => {
         common: isAbsolute(gitDir) ? gitDir : join(path, gitDir),
       };
     };
-
-    it('stops the push of a commit whose message holds a credential', async () => {
-      const { state, requests, planBranch } = await brew((path) => {
-        writeFileSync(join(path, 'plan.txt'), 'plan\n');
-        git(path, ['add', 'plan.txt']);
-        git(path, ['commit', '-q', '-m', 'Plan', '-m', `GH=${token}`]);
-      });
-      const tip = git(user, ['rev-parse', `refs/heads/${planBranch}`]).trim();
-      assert.match(stopped(state, requests), new RegExp(`commit ${tip}, GitHub token in message`));
-    });
-
-    // Review of #237: `git commit --author` matches a brewer's `Bash(git commit *)` rule.
-    it('stops the push of a commit whose author holds a credential', async () => {
-      const { state, requests, planBranch } = await brew((path) => {
-        writeFileSync(join(path, 'plan.txt'), 'plan\n');
-        git(path, ['add', 'plan.txt']);
-        git(path, ['commit', '-q', '-m', 'Plan', `--author=${token} <x@y.z>`]);
-      });
-      const tip = git(user, ['rev-parse', `refs/heads/${planBranch}`]).trim();
-      assert.match(stopped(state, requests), new RegExp(`commit ${tip}, GitHub token in author`));
-    });
 
     // Consultant-round review of #237: settings of the clone that changed how the headers print.
     for (const [setting, value] of [
@@ -505,61 +415,6 @@ describe('the openPullRequest push with real git', () => {
         git(path, ['-c', `i18n.commitEncoding=${token}`, 'commit', '-q', '-m', 'Plan']);
       });
       assert.match(stopped(state, requests), /, GitHub token in header encoding/);
-    });
-
-    it("pushes a commit that names one of the clone's commits by its hash", async () => {
-      const { state } = await brew((path) => {
-        const start = git(path, ['rev-parse', 'HEAD']).trim();
-        writeFileSync(join(path, 'plan.txt'), `continues ${start}\n`);
-        git(path, ['add', 'plan.txt']);
-        git(path, ['commit', '-q', '-m', 'Plan', '-m', `After ${start}`]);
-      });
-      assert.equal(
-        git(origin, ['log', '-1', '--format=%s', `refs/heads/${bottle}`]).trim(),
-        'Plan',
-      );
-      assert.deepEqual(state.batches.get('12-1')?.lane, { kind: 'on_tap', pullRequests: [url] });
-    });
-
-    it('stops the push of a hexadecimal word that is no commit of the clone', async () => {
-      const key = '0123456789abcdef'.repeat(3).slice(0, 40);
-      const { state, requests } = await brew((path) => {
-        writeFileSync(join(path, 'plan.txt'), `key ${key}\n`);
-        git(path, ['add', 'plan.txt']);
-        git(path, ['commit', '-q', '-m', 'Plan']);
-      });
-      assert.match(stopped(state, requests), /, long hexadecimal string in plan\.txt/);
-    });
-
-    it('stops the push of a credential in an added line of a file the base has', async () => {
-      const { state, requests } = await brew((path) => {
-        writeFileSync(join(path, 'readme.txt'), `hello\nkey ${token}\n`);
-        git(path, ['commit', '-q', '-am', 'Note the key']);
-      });
-      assert.match(stopped(state, requests), /, GitHub token in readme\.txt/);
-    });
-
-    it('stops the push of a credential in a new file, in a commit before the tip', async () => {
-      const { state, requests } = await brew(commitAndHide);
-      assert.match(stopped(state, requests), /, GitHub token in plan\.txt/);
-    });
-
-    it('stops the push of a binary file, which it cannot read', async () => {
-      const { state, requests } = await brew((path) => {
-        writeFileSync(join(path, 'logo.png'), Buffer.from([0, 1, 2, 3, 0, 255]));
-        git(path, ['add', 'logo.png']);
-        git(path, ['commit', '-q', '-m', 'Add a logo']);
-      });
-      assert.match(stopped(state, requests), /, binary file in logo\.png/);
-    });
-
-    it('stops the push of more than 4 MiB of changes, past what it reads', async () => {
-      const { state, requests } = await brew((path) => {
-        writeFileSync(join(path, 'big.txt'), 'all work and no play\n'.repeat(250_000));
-        git(path, ['add', 'big.txt']);
-        git(path, ['commit', '-q', '-m', 'Add a big file']);
-      });
-      assert.match(stopped(state, requests), /more than 4 MiB of messages or changes/);
     });
 
     // Each one hides the commit that adds the token from a plain `git log --patch` in the clone

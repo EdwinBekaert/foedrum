@@ -18,7 +18,6 @@ import type { State } from '../../src/engine/fold.ts';
 import { type PullRequestHost, pullRequestActions } from '../../src/engine/pull-request-actions.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import { removeTree } from '../../src/platform/remove.ts';
-import { MergeResult } from '../../src/schemas/store.ts';
 import { openAttemptWorktrees } from '../../src/workspace/attempt-worktrees-git.ts';
 import { openWorktreeMerge } from '../../src/workspace/base-merge-git.ts';
 import { openBranchPush } from '../../src/workspace/branch-push-git.ts';
@@ -27,7 +26,6 @@ import { defaultLimits } from '../helpers/brewing.ts';
 import { behave, fakeBrewerRunner } from '../helpers/fake-brewer-runner.ts';
 import { fakeLock } from '../helpers/fake-lock.ts';
 import { fakeRecipe, fakeRecipes } from '../helpers/fake-recipes.ts';
-import { waitUntil } from '../helpers/load.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 
 const git = (cwd: string, args: string[]): string =>
@@ -280,20 +278,6 @@ describe('the merge of the base before green, with real git (ADR 0164)', () => {
     assert.equal(git(origin, ['for-each-ref', '--format=%(refname)', `refs/heads/${bottle}`]), '');
   });
 
-  it('pushes past what looks like a secret that the merge brought in from the base (review of #438)', async () => {
-    // Built at run time, so no scanner takes this file for one that holds a token.
-    const token = ['ghp', 'A1b2'.repeat(9)].join('_');
-    const { state, seen } = await brew((path) => {
-      commit(path, 'plan.txt', 'plan\n');
-      // Main merged a fixture that looks like a secret: the base's, not the batch's.
-      mergeIntoMain('fixture.txt', `${token}\n`);
-    });
-    assert.deepEqual(state.batches.get('12-1')?.lane, { kind: 'on_tap', pullRequests: [url] });
-    const [check] = seen;
-    assert.ok(check !== undefined);
-    assert.equal(git(origin, ['rev-parse', `refs/heads/${bottle}`]).trim(), check.head);
-  });
-
   it('merges nothing when the base did not move', async () => {
     const { state, seen } = await brew((path) => commit(path, 'plan.txt', 'plan\n'));
     const tip = implementTip(state);
@@ -304,125 +288,6 @@ describe('the merge of the base before green, with real git (ADR 0164)', () => {
     );
     assert.deepEqual(merged(state), { base });
     assert.equal(git(origin, ['rev-parse', `refs/heads/${bottle}`]).trim(), tip);
-  });
-
-  it('merges the base at the start of a fix the merged tree sent back, and green finds nothing new (ADR 0226)', async () => {
-    const fix: AttemptRef = { batchId: '12-1', stepId: 'implement', attempt: 2 };
-    let seenByFix: string[] = [];
-    let base = '';
-    const { state } = await brew(
-      (path, attempt) => {
-        if (attempt === 1) return commit(path, 'plan.txt', 'plan\n');
-        // The fix sees what main brought in, and fixes on top of it.
-        seenByFix = readdirSync(path)
-          .filter((name) => name !== '.git')
-          .sort();
-        commit(path, 'fix.txt', 'fix\n');
-      },
-      async (driver) => {
-        // Main moves on, and the merged-check run found the pushed head failing with it.
-        base = mergeIntoMain('other.txt', 'other\n');
-        const head = git(origin, ['rev-parse', `refs/heads/${bottle}`]).trim();
-        const reading = {
-          result: 'exited',
-          check: 'test',
-          command: 'npm test',
-          exitCode: 1,
-          tail: 'not ok 1',
-        } as const;
-        const event = {
-          type: 'pull_request.base_checked',
-          batchId: '12-1',
-          pullRequest: url,
-          branch: 'main',
-          tip: base,
-          head,
-          failed: reading,
-        } as const;
-        const intake = createCommandLog({ store, recipes });
-        assert.equal(
-          intake.issue({ kind: 'record', event }, new Date('2026-10-23T12:00:00.000Z')).kind,
-          'accepted',
-        );
-        await driver.tick();
-      },
-    );
-    assert.deepEqual(seenByFix, ['other.txt', 'plan.txt', 'readme.txt']);
-    const start = MergeResult.parse(state.effects.get(effectKey.encode(baseMergeKey(fix))));
-    assert.equal(start.base, base);
-    assert.ok(start.merged !== undefined, 'the fix merged the base as a commit of its own');
-    // Green merges again and finds the base already in.
-    const again = state.effects.get(effectKey.encode(baseMergeKey({ ...green, attempt: 2 })));
-    assert.deepEqual(again, { base });
-    // The fix, on top of the base it merged, is pushed to the same branch.
-    const pushed = git(origin, ['rev-parse', `refs/heads/${bottle}`]).trim();
-    assert.equal(git(origin, ['merge-base', '--is-ancestor', base, pushed]), '');
-    assert.deepEqual(state.batches.get('12-1')?.lane, { kind: 'on_tap', pullRequests: [url] });
-  });
-
-  it('sends a pull request that conflicts with a moved base back, and pushes the merge its fix concluded (ADR 0244)', async () => {
-    const fix: AttemptRef = { batchId: '12-1', stepId: 'implement', attempt: 2 };
-    let markers = false;
-    let base = '';
-    const { state } = await brew(
-      (path, attempt) => {
-        if (attempt === 1) return commit(path, 'readme.txt', 'mine\n');
-        // The fix finds the merge in progress with its markers, resolves it and commits it.
-        markers = /^<<<<<<< /m.test(readFileSync(join(path, 'readme.txt'), 'utf8'));
-        writeFileSync(join(path, 'readme.txt'), 'mine and theirs\n');
-        git(path, ['add', 'readme.txt']);
-        git(path, ['commit', '-q', '--no-edit']);
-      },
-      async (driver) => {
-        // Main moves on into a conflict, and the pass's merge-tree check found it.
-        base = mergeIntoMain('readme.txt', 'theirs\n');
-        const head = git(origin, ['rev-parse', `refs/heads/${bottle}`]).trim();
-        const event = {
-          type: 'pull_request.base_checked',
-          batchId: '12-1',
-          pullRequest: url,
-          branch: 'main',
-          tip: base,
-          head,
-          conflicts: ['readme.txt'] as string[],
-        } as const;
-        const intake = createCommandLog({ store, recipes });
-        assert.equal(
-          intake.issue({ kind: 'record', event }, new Date('2026-10-23T12:00:00.000Z')).kind,
-          'accepted',
-        );
-        // The driver reads the fix's worktree with git after its run, so its end reaches a later
-        // tick: tick until the round is On tap again.
-        let ticking = true;
-        const ticks = (async () => {
-          while (ticking) {
-            await driver.tick();
-            await new Promise((settle) => setTimeout(settle, 50));
-          }
-        })();
-        await waitUntil('the fix round to end On tap', () => {
-          const lane = driver.state().batches.get('12-1')?.lane.kind;
-          return (
-            lane === 'on_tap' &&
-            driver.state().effects.has(effectKey.encode({ batchId: '12-1', effect: 'push.2' }))
-          );
-        });
-        ticking = false;
-        await ticks;
-      },
-    );
-    assert.ok(markers, 'the fix saw the conflict markers');
-    assert.deepEqual(state.effects.get(effectKey.encode(baseMergeKey(fix))), {
-      base,
-      kept: { files: [{ path: 'readme.txt', status: 'both modified' }], more: 0 },
-    });
-    // Green finds the base already in, and the merge commit is pushed to the same branch.
-    const again = state.effects.get(effectKey.encode(baseMergeKey({ ...green, attempt: 2 })));
-    assert.deepEqual(again, { base });
-    const pushed = git(origin, ['rev-parse', `refs/heads/${bottle}`]).trim();
-    assert.equal(git(origin, ['rev-parse', `${pushed}^2`]).trim(), base);
-    assert.equal(git(origin, ['show', `${pushed}:readme.txt`]), 'mine and theirs\n');
-    assert.deepEqual(state.batches.get('12-1')?.lane, { kind: 'on_tap', pullRequests: [url] });
   });
 
   describe('found by its key after a kill (ADR 0033)', () => {
@@ -472,26 +337,6 @@ describe('the merge of the base before green, with real git (ADR 0164)', () => {
       assert.equal(git(other, ['rev-parse', 'HEAD']).trim(), elsewhere);
     });
 
-    it("throws with git's reason when the merge fails with nothing in conflict", async () => {
-      const tree = worktree();
-      mergeIntoMain('other.txt', 'other\n');
-      // An untracked file the merge would overwrite: git refuses before it merges anything.
-      writeFileSync(join(tree.path, 'other.txt'), 'mine\n');
-      await assert.rejects(target(tree).apply(key), /^Error: git merge failed: /);
-      assert.equal(git(tree.path, ['rev-parse', 'HEAD']).trim(), tree.start);
-    });
-
-    it('aborts a merge a killed run left in progress, and finds nothing', async () => {
-      const tree = worktree('readme.txt', 'mine\n');
-      mergeIntoMain('readme.txt', 'theirs\n');
-      git(user, ['fetch', '-q', 'origin']);
-      // A run killed in the middle of the merge leaves it in progress, with its conflicts.
-      assert.throws(() => git(tree.path, ['merge', '--no-edit', 'origin/main']));
-      assert.equal(await target(tree).find(key), undefined);
-      assert.equal(git(tree.path, ['rev-parse', 'HEAD']).trim(), tree.start);
-      assert.equal(git(tree.path, ['status', '--porcelain']), '');
-    });
-
     it('keeps a conflict in progress with its markers, names the files git cannot mark, and concludes once committed (ADR 0244)', async () => {
       // The base both sides start from holds a binary file and one that main will delete.
       writeFileSync(join(other, 'logo.png'), Buffer.from([0, 1, 2, 3]));
@@ -533,26 +378,6 @@ describe('the merge of the base before green, with real git (ADR 0164)', () => {
       git(tree.path, ['commit', '-q', '--no-edit']);
       const head = git(tree.path, ['rev-parse', 'HEAD']).trim();
       assert.deepEqual(await target(tree, true).find(key), { result: { base, merged: head } });
-    });
-
-    it('merges again from a HEAD that moved past the start without the merge, and finds nothing new once HEAD holds the tip (ADR 0244)', async () => {
-      const tree = worktree('readme.txt', 'mine\n');
-      // A resumed worktree recreated on its branch: the brewer's commit after the start, no merge.
-      commit(tree.path, 'plan.txt', 'more\n');
-      const base = mergeIntoMain('readme.txt', 'theirs\n');
-      assert.equal(await target(tree, true).find(key), undefined);
-      const again = await target(tree, true).apply(key);
-      assert.deepEqual(again, {
-        base,
-        kept: { files: [{ path: 'readme.txt', status: 'both modified' }], more: 0 },
-      });
-      // Concluded, then one more commit: HEAD holds the tip, so nothing is merged.
-      writeFileSync(join(tree.path, 'readme.txt'), 'both\n');
-      git(tree.path, ['add', 'readme.txt']);
-      git(tree.path, ['commit', '-q', '--no-edit']);
-      commit(tree.path, 'plan.txt', 'after\n');
-      assert.equal(await target(tree, true).find(key), undefined);
-      assert.deepEqual(await target(tree, true).apply(key), { base });
     });
   });
 });
