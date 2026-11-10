@@ -370,7 +370,8 @@ export const planLensInputs = (
  * `attempt` of it was scheduled under, the attempt whose out doc an input reads (ADR 0309); without
  * one, in the planned attempt's. A lens input's text is in `lenses`, the lenses
  * the loader found for the brewer (ADR 0098); a repositories input's in `brewery` (ADR 0234), and
- * the recipes input's in `choices`, the Brewery's recipes but those that choose one (ADR 0232), and
+ * the recipes input's in `choices`, the Brewery's recipes but those that choose one (ADR 0232), or
+ * on a step that does not choose the recipe those of type `brew` (ADR 0365), and
  * a sub-order's plan entry input's in `planEntry` (ADR 0290), and the release input's in `release`,
  * left out when the batch waited on no release (ADR 0291), and the checks input's in `checks`,
  * left out when no check ran on the commit the attempt starts at (ADR 0308). `breweryIssue` is the
