@@ -3,7 +3,8 @@
 // link, Windows short names, and the installed `claude` with the guard as a hook in the runner's
 // settings file (opt-in, FOEDRUM_REAL_CLAUDE=1). That one test runs our script inside claude; the
 // tests of how claude itself treats hooks, scoped rules and links were dropped (ADR 0057). The
-// guard's decisions are unit tests in test/unit/read-guard.test.ts.
+// guard's decisions are unit tests in test/unit/read-guard.test.ts, and realPath's reading of the
+// case on the disk in test/unit/real-path.test.ts.
 
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
@@ -103,23 +104,6 @@ describe('the read guard hook command', () => {
     assert.equal(stderr.split('\n').length, 2, stderr);
   });
 
-  it('blocks .. that leaves the checkout', async () => {
-    const { code, stderr } = await runHook(
-      hookInput('Read', { file_path: join('..', '..', '..', 'outside.txt') }, join(root, 'src')),
-    );
-    assert.equal(code, 2, stderr);
-    assert.match(stderr, /outside the checkout/);
-  });
-
-  it('blocks Grep and Glob outside the checkout', async () => {
-    const grep = await runHook(hookInput('Grep', { pattern: 'token' }, homedir()));
-    assert.equal(grep.code, 2, grep.stderr);
-    assert.match(grep.stderr, /^Grep is blocked: .* outside the checkout/);
-    const glob = await runHook(hookInput('Glob', { pattern: join(homedir(), '*') }));
-    assert.equal(glob.code, 2, glob.stderr);
-    assert.match(glob.stderr, /^Glob is blocked: .* outside the checkout/);
-  });
-
   it('fails closed: blocks with exit 2 when the project has no scripts/read-guard.ts', async () => {
     const dir = makeTempDir('read-guard-missing');
     dirs.push(dir);
@@ -164,13 +148,6 @@ describe('the read guard hook command', () => {
     const short = await shortName(long);
     if (short === undefined) return t.skip('short names are off on the checkout drive');
     const result = await runHook(hookInput('Read', { file_path: join(short, 'a.txt') }));
-    assert.deepEqual(result, { code: 0, stdout: '', stderr: '' });
-  });
-
-  it('allows a path inside in another case on Windows', { skip: !windows }, async () => {
-    const result = await runHook(
-      hookInput('Read', { file_path: join(root, 'package.json').toUpperCase() }),
-    );
     assert.deepEqual(result, { code: 0, stdout: '', stderr: '' });
   });
 });

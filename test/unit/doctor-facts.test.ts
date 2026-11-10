@@ -269,6 +269,28 @@ describe("gatherDoctorFacts: gh's login and git's credential helpers", () => {
     );
   });
 
+  // What git 2.56.0 printed for a system helper, then the helpers gh auth setup-git writes: an
+  // empty one, which clears those before it, then gh's.
+  it('is content with the helper gh auth setup-git writes, as git listed it', async () => {
+    const reportFor = async (listed: string) => {
+      const { shell } = fakeShell({
+        onPath: withGh.onPath,
+        answers: { ...withGh.answers, [`/usr/bin/git ${CREDENTIALS.join(' ')}`]: out(listed) },
+      });
+      const facts = await gatherDoctorFacts({ ...shell, readFile: () => ghe });
+      return formatDiagnosis(diagnose(facts));
+    };
+    const cleared = 'credential.helper\nmanager\0credential.https://ghe.example.helper\n\0';
+    const report = await reportFor(
+      `${cleared}credential.https://ghe.example.helper\n!gh auth git-credential\0`,
+    );
+    assert.doesNotMatch(report, /credential helper|credentials, not gh/);
+    assert.match(
+      await reportFor(cleared),
+      /git has no credential helper for https:\/\/ghe\.example/,
+    );
+  });
+
   it('asks gh without the token variables, which gh would take for a login', async () => {
     const { calls, shell } = fakeShell(withGh);
     await gatherDoctorFacts({

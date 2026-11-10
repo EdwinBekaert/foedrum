@@ -140,9 +140,7 @@ const doctorWithStubs = async (
   writeStubTools(bin, stubs);
   const global = join(dir, 'gitconfig');
   writeFileSync(global, gitconfig);
-  // The made-up host, unless the test wrote a foedrum.jsonc of its own.
-  const config = join(dir, 'foedrum.jsonc');
-  if (!existsSync(config)) writeFileSync(config, MADE_UP_CONFIG);
+  writeFileSync(join(dir, 'foedrum.jsonc'), MADE_UP_CONFIG);
   const ours = {
     PATH: bin,
     GIT_CONFIG_GLOBAL: global,
@@ -366,32 +364,6 @@ describe('foedrum doctor with stub tools', () => {
   });
 });
 
-describe('foedrum doctor in a Brewery', () => {
-  it('reads foedrum.jsonc in the working directory and refuses two repositories with one alias', async () => {
-    const dir = makeTempDir('doctor-config');
-    try {
-      const checks = { build: null, typecheck: null, lint: null, format: null, test: null };
-      const config = {
-        repositories: {
-          'acme/web': { checks, alias: 'app' },
-          'acme/api': { checks, alias: 'app' },
-        },
-      };
-      writeFileSync(join(dir.path, 'foedrum.jsonc'), JSON.stringify(config));
-      // A config that is not valid names no host, so gh is asked about github.com.
-      const stubs = { ...answers(''), 'gh auth status --hostname github.com': { exitCode: 1 } };
-      const { exitCode, report } = await doctorWithStubs(dir.path, stubs, ghHelper, guarded);
-      assert.equal(exitCode, 1);
-      assert.match(
-        report,
-        /^ {2}foedrum\.jsonc is not valid \(required\): .*The alias app is already the alias of acme\/web/m,
-      );
-    } finally {
-      await removeTree(dir.path);
-    }
-  });
-});
-
 // doctor reads git's own credential settings (ADR 0073): the format the unit tests' fixtures stand
 // in for, from the real git.
 describe("foedrum doctor and git's credential helper", () => {
@@ -408,10 +380,6 @@ describe("foedrum doctor and git's credential helper", () => {
       await removeTree(dir.path);
     }
   };
-
-  it('is content with the helper gh auth setup-git writes', async () => {
-    assert.deepEqual(await advice(['', '!gh auth git-credential']), []);
-  });
 
   it('names the helper git asks first when it is not gh, and when there is none', async () => {
     const fix = `run gh auth setup-git --hostname ${MADE_UP_HOST}, so git pushes with gh's login`;

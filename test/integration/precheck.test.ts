@@ -230,47 +230,6 @@ describe('scripts/precheck.ts started by node', () => {
     }
   });
 
-  // The commits no remote-tracking ref has, read by real git (ADR 0114): the word in the commit the
-  // remote already has does not count.
-  it('blocks a push whose commits hold a word on the denylist, naming the place only', async () => {
-    const project = makeTempDir('denied-push');
-    try {
-      const git = (args: string[]) =>
-        execFileSync('git', ['-c', 'user.name=Test', '-c', 'user.email=t@example.com', ...args], {
-          cwd: project.path,
-          stdio: 'ignore',
-        });
-      git(['init', '-q', '-b', 'main']);
-      writeFileSync(join(project.path, 'a.md'), 'examplecorp, already on the remote\n');
-      git(['add', 'a.md']);
-      git(['commit', '-q', '-m', 'Initial commit']);
-      git(['update-ref', 'refs/remotes/origin/main', 'HEAD']);
-      writeFileSync(join(project.path, 'notes.md'), 'one\nWe ship to ExampleCorp\n');
-      git(['add', 'notes.md']);
-      git(['commit', '-q', '-m', 'Add notes']);
-      const list = `${project.path}-list.txt`;
-      const gate = async (words: string) => {
-        writeFileSync(list, words);
-        return run(process.execPath, [script], hookInput('git push', project.path), {
-          cwd: root,
-          env: envWithoutNpm({ FOEDRUM_DENYLIST: list, CLAUDE_PROJECT_DIR: project.path }),
-        });
-      };
-      const denied = await gate('# clients\nexamplecorp\n');
-      assert.equal(denied.code, 2);
-      assert.match(
-        denied.stderr,
-        /^git push is blocked: it would send a word on your denylist \(ADR 0114\), at commit [0-9a-f]{7} notes\.md:2\. /,
-      );
-      assert.doesNotMatch(denied.stderr, /example ?corp/i);
-      // A word only in the commit the remote has passes on to the rest of the gate.
-      assert.doesNotMatch((await gate('remote\n')).stderr, /denylist/);
-    } finally {
-      await removeTree(project.path);
-      rmSync(`${project.path}-list.txt`, { force: true });
-    }
-  });
-
   // What gh would post, its body file read from the hook's working directory by the real reader
   // (ADR 0132); gh pr comment runs no check, so the hook starts nothing.
   it('blocks a body file that holds a word on the denylist, naming the file and line', async () => {

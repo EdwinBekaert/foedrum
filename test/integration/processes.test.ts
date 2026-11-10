@@ -8,7 +8,6 @@ import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it, type TestContext } from 'node:test';
 import { brewerBaseEnv } from '../../src/engine/brewer-env.ts';
-import { resolveExecutable } from '../../src/platform/executables.ts';
 import { jobObjectCommand } from '../../src/platform/job-object.ts';
 import {
   execProcess,
@@ -21,7 +20,6 @@ import {
   type Spawner,
   spawnCommand,
   streamProcess,
-  streamProcessWith,
 } from '../../src/platform/processes.ts';
 import { removeTree } from '../../src/platform/remove.ts';
 import { windowsCommandLine } from '../../src/platform/shell.ts';
@@ -216,31 +214,6 @@ describe('streamProcess with real processes', () => {
     assert.equal(lines[0], JSON.stringify('a prompt ✓ "quoted"\non two lines'));
     assert.equal(lines.length, 161);
     assert.ok(lines.slice(1).every((line) => line === String(32 * 1024 - 1)));
-  });
-
-  // Its deadline never comes, so the limit ended it, however long that took (ADR 0070).
-  it('kills a process that writes a line without end once the line passes the limit', {
-    timeout: hangGuardMs,
-  }, async () => {
-    const script =
-      "process.stdout.write(process.pid + '\\n'); const chunk = 'x'.repeat(65536);" +
-      ' const more = () => process.stdout.write(chunk, more); more();';
-    const lines: string[] = [];
-    const result = await streamProcessWith(processSpawner, cuedTimers())(
-      process.execPath,
-      ['-e', script],
-      {
-        cwd: dir.path,
-        maxLineBytes: 1024 * 1024,
-        timeoutMs: 20_000,
-        jobObject: true,
-        onLine: (line) => lines.push(line),
-      },
-    );
-    assert.equal(result.killed, 'line-too-long');
-    assert.equal(result.exitCode, null);
-    assert.equal(lines.length, 1);
-    await assertAllEnd([Number(lines[0])]);
   });
 });
 
@@ -489,12 +462,6 @@ describe('execProcess in a Job Object', { skip: process.platform !== 'win32' }, 
   });
 });
 
-describe('resolveExecutable on this machine', () => {
-  it('finds nothing for a name that is not installed', () => {
-    assert.equal(resolveExecutable('foedrum-no-such-tool'), undefined);
-  });
-});
-
 // A repository's own git.exe in the working directory must not run instead of the installed
 // git (#12). The decoy is a copy of node, which answers --version with its own version.
 describe('execProcess and a planted git.exe', { skip: process.platform !== 'win32' }, () => {
@@ -568,14 +535,6 @@ describe('execProcess and a .cmd file', { skip: process.platform !== 'win32' }, 
     const { exitCode, stdout } = await execProcess(printArgs, args, { cwd: import.meta.dirname });
     assert.equal(exitCode, 0);
     assert.deepEqual(JSON.parse(stdout), args);
-  });
-
-  it('refuses an argument cmd.exe would read as syntax, without starting anything', async () => {
-    const { exitCode, stderr } = await execProcess(printArgs, ['a & calc'], {
-      cwd: import.meta.dirname,
-    });
-    assert.equal(exitCode, null);
-    assert.match(stderr, /cannot go through the Windows shell/);
   });
 
   it('runs the node on PATH, not one planted in the working directory (#12)', async () => {

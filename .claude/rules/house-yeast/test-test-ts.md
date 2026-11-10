@@ -16,3 +16,7 @@ A test that expects nothing to be reported gives the code under test an input th
 ## nothing-more-after-asserts-the-event (semantic)
 
 A test that asserts nothing more happens once an event has happened first asserts that the event happened, so the negative check cannot pass when the event never came.
+
+## removed-test-checked-against-the-records (semantic)
+
+A change that removes a test first searches docs/adr/ and docs/design/ for its file, its name and, in words, the case it covers (a real junction or link): a test a decision record names stays, or a new ADR amends that record in the same change.

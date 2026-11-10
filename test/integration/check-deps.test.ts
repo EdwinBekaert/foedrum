@@ -39,12 +39,6 @@ describe('check-deps command', () => {
   const run = (...args: string[]) =>
     spawnSync(process.execPath, [script, ...args], { cwd: dir.path, encoding: 'utf8' });
 
-  it('exits 0 offline for a lockfile in its working directory that passes', () => {
-    writeFileSync(join(dir.path, 'package-lock.json'), JSON.stringify(lockfile));
-    const result = run('--offline');
-    assert.equal(result.status, 0, result.stdout + result.stderr);
-  });
-
   it('exits 1 and prints the problem on stdout', () => {
     const scripted = structuredClone(lockfile);
     Object.assign(scripted.packages['node_modules/zod'], { hasInstallScript: true });

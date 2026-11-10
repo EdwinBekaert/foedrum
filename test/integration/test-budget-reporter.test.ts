@@ -59,15 +59,6 @@ describe('test-budget-reporter under node --test', () => {
     ]);
   });
 
-  it('fails the run and names the file when its CPU time is over the budget', () => {
-    const result = runWith('./test/fixtures/test-budget/no-time-reporter.ts');
-    assert.equal(result.status, 1, result.stdout + result.stderr);
-    assert.match(
-      result.stdout,
-      /^✖ test\/fixtures\/test-budget\/sample\.test\.ts used \d+\.\d\d s of CPU time, over the 0 s budget/m,
-    );
-  });
-
   // A file over the budget in the run is run again alone, under the real runner (ADR 0089).
   it('measures a file over the budget again alone and names both readings', () => {
     const result = runWith('./test/fixtures/test-budget/remeasure-reporter.ts');

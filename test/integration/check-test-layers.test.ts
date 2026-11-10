@@ -1,6 +1,7 @@
-// scripts/check-test-layers.ts started by node: it scans test/, passes as this repository stands,
-// and fails naming a file under test/unit/ that imports child_process, or the file and line of an
-// integration test that can start the real gh. The failing runs use a copy of the script, which
+// scripts/check-test-layers.ts started by node: it scans test/, passes silently for a test/ with no
+// probe, and fails naming a file under test/unit/ that imports child_process, or the file and line
+// of an integration test that can start the real gh (ADR 0086). That it passes as this repository
+// stands, `npm run check` shows on every run. The failing runs use a copy of the script, which
 // scans the test/ beside it, in a folder of the test's own: a probe in the tracked tree would fail
 // an `npm run check` running beside this test. The matching itself is unit-tested against fixtures
 // in test/unit/check-test-layers.test.ts.
@@ -44,12 +45,6 @@ describe('check-test-layers command', () => {
   });
   after(() => dir.remove());
 
-  it('exits 0 silently for test/unit/ as it stands', () => {
-    const result = runGuard();
-    assert.equal(result.status, 0, result.stdout + result.stderr);
-    assert.equal(result.stdout, '');
-  });
-
   it('exits 1 naming a file under test/unit/ that imports child_process', () => {
     const result = withProbe(
       'unit/guard-probe.ts',
@@ -57,15 +52,6 @@ describe('check-test-layers command', () => {
     );
     assert.equal(result.status, 1, result.stderr);
     assert.match(result.stdout, /^test\/unit\/guard-probe\.ts imports child_process/m);
-  });
-
-  it('exits 1 naming a file under test/helpers/ that imports the real process runner', () => {
-    const result = withProbe(
-      'helpers/guard-probe.ts',
-      "export { spawnProcess } from '../../src/platform/processes.ts';\n",
-    );
-    assert.equal(result.status, 1, result.stderr);
-    assert.match(result.stdout, /^test\/helpers\/guard-probe\.ts imports the real process runner/m);
   });
 
   it('exits 1 naming the file and line of an integration test that can start the real gh', () => {

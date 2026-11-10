@@ -1,10 +1,10 @@
-// `foedrum serve` (ADR 0063). Its own start refuses a folder that is no Brewery, with a canned
-// answer for gh's login check (test/helpers/canned-gh.ts); and, as the real program,
-// opt-in with FOEDRUM_REAL_CLAUDE=1 (ADR 0057), it brews one real step end to end on a throwaway
-// Brewery: a labelled issue the intake orders and routes from a fake GitHub (ADR 0068) that the
-// real gh reaches with a synthetic login of the test's own (ADR 0073), the order's text from there
-// too, the real claude runner against the fake Messages API (no login, no tokens), real attempt worktrees
-// of the user's clone, and the state branch pushed back. It tests Foedrum's wiring, not claude.
+// `foedrum serve` (ADR 0063) as the real program, opt-in with FOEDRUM_REAL_CLAUDE=1 (ADR 0057): it
+// brews one real step end to end on a throwaway Brewery: a labelled issue the intake orders and
+// routes from a fake GitHub (ADR 0068) that the real gh reaches with a synthetic login of the
+// test's own (ADR 0073), the order's text from there too, the real claude runner against the fake
+// Messages API (no login, no tokens), real attempt worktrees of the user's clone, and the state
+// branch pushed back. It tests Foedrum's wiring, not claude. Its start refusing a folder that is
+// no Brewery is a unit test in test/unit/serve-main.test.ts.
 
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
@@ -13,10 +13,8 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { pathToFileURL } from 'node:url';
-import { serveFromCheckout } from '../../src/cli/serve-main.ts';
 import { execProcess } from '../../src/platform/processes.ts';
 import { removeTree } from '../../src/platform/remove.ts';
-import { cannedGhLogin, resolveWithMadeUpGh } from '../helpers/canned-gh.ts';
 import { outDoc } from '../helpers/fake-brewer-runner.ts';
 import { hangGuardMs } from '../helpers/load.ts';
 import { realClaude } from '../helpers/real-claude.ts';
@@ -34,26 +32,6 @@ const git = (cwd: string, args: string[]): string =>
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'pipe'],
   });
-
-describe('foedrum serve', () => {
-  let dir: TempDir;
-  beforeEach(() => {
-    dir = makeTempDir('serve');
-  });
-  afterEach(() => removeTree(dir.path));
-
-  it('refuses a folder that is no Brewery, with one line per problem', async () => {
-    // serve's own start, with a canned answer for gh's login check (ADR 0073).
-    const result = await serveFromCheckout(dir.path, {
-      exec: cannedGhLogin(execProcess),
-      resolve: resolveWithMadeUpGh,
-    });
-    assert.equal(result.exitCode, 1, result.stderr);
-    assert.match(result.stderr, /^foedrum serve: foedrum\.jsonc: not found in /m);
-    // The Brewery's models.jsonc is optional: Foedrum's defaults map their aliases (ADR 0153).
-    assert.doesNotMatch(result.stderr, /models\.jsonc/);
-  });
-});
 
 /** A pull request the recipe's openPullRequest action asked for, as it was sent. */
 interface Pull {
