@@ -757,6 +757,16 @@ describe('openBranchPush: secretScan (ADR 0079)', () => {
     ]);
   });
 
+  it("reads with the runner's own output limit, 4 MiB, past which it refuses (regression test)", async () => {
+    const { git, calls } = recordingGit(answers);
+    await openBranchPush({ git, clone }).secretScan(BASE, TIP);
+    // No limit of the scan's own: the runner kills git at its default (ADR 0035).
+    assert.deepEqual(
+      calls.map(({ options }) => options?.maxOutputBytes),
+      [undefined, undefined, undefined, undefined, undefined],
+    );
+  });
+
   it('refuses commits it cannot read whole: more than 4 MiB of messages or changes', async () => {
     for (const large of ['messages', 'patches']) {
       const { git } = recordingGit((args) => {
