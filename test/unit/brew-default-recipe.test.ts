@@ -190,6 +190,16 @@ describe('runBrew on an issue with no recipe label (ADR 0370)', () => {
     );
   });
 
+  it('a Brewery whose default has no recipe to offer says so in one line: regression test', async () => {
+    const none = ready({ only: 'none' });
+    assert.equal(await runBrew(none, shell(behave.succeed()), brew(13)), 5, f.lines.join('\n'));
+    assert.equal(log().state().batches.size, 0);
+    assert.equal(
+      f.lines.at(-1),
+      `foedrum brew: #13 has no recipe:<name> label, and the Brewery's default recipe mash-in has no recipe to offer; label it with the recipe to brew it with, or choose one with foedrum recipe 13 <recipe> "<reason>"`,
+    );
+  });
+
   it('a left-out default whose mash-in the Brewery replaced with a recipe of type brew is refused in one line', async () => {
     const building = ready({ own: [{ path: 'recipes/mash-in.jsonc', text: buildingMashIn }] });
     assert.equal(await runBrew(building, shell(behave.succeed()), brew(13)), 5, f.lines.join('\n'));
