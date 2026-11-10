@@ -15,6 +15,7 @@ The full recipe has four stages, each added by its own issue: readiness (#373), 
 ## Decision
 - **`deep-brew` ships** (`defaults/recipes/deep-brew.jsonc`, type `brew`, [ADR 0365](0365-a-recipe-has-a-type-mash-or-brew.md)): the full recipe's build stage, for a change that can reach a lot, whatever its size. A person labels an order `recipe:deep-brew`, and a sub-order may name it.
   It is chosen by what a change can reach, never by its size: its `description` says so, and the Innkeeper, the Brewmaster and `plan/recipe-fit` read it; a person confirms the choice. What every recipe does, when to choose it and how it is best used is #977's.
+  Until #977 lands, the Innkeeper's prompt still suggests a recipe of type `brew` for a small, clear order, so it may suggest `nip` for a large, clear order that can reach a lot; a person then answers its question with `deep-brew`, or labels the order `recipe:deep-brew`.
 - **Its steps are `nip`'s, from the Maltster's survey to green**, with the same brewers, checks and routes: `survey`, `survey-check`, `gauge`, `red`, `implement` (its findings back to the Gauger once), `fine`, `green` (a failure back to Cellarman once).
 - **Then a blocking Brett step**, `mutants`, whose `onBlocked` findings route goes to `gauge`, twice at most in each run of the recipe ([ADR 0369](0369-a-recipe-s-routes-count-their-rounds-per-run-an-open-pull-request-s-over-the-batch-s-life.md)).
   Each surviving mutant is a `major` finding ([ADR 0319](0319-brett-s-survivors-are-listed-where-findings-are-and-a-blocking-brett-step-sends-them-back.md)).
