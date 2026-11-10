@@ -165,6 +165,18 @@ describe("a route's rounds per run of the recipe (ADR 0369)", () => {
     assert.equal(stuckRounds(), 1);
   });
 
+  it('counts a round whose attempt is scheduled and not yet on the path: regression test', () => {
+    routed('tasted');
+    tastedRun(2);
+    choose('tasted');
+    run('plan', done);
+    run('taste', blocked);
+    const batch = log.state().batches.get(batchId);
+    assert.equal(latest('plan')?.phase, 'scheduled');
+    assert.ok(batch !== undefined);
+    assert.equal(recipes.find('tasted')?.rounds(batch, 'taste', 'findings'), 1);
+  });
+
   it('an onFail route gets its round back after a rewind', () => {
     routed('checked');
     run('implement', done);
