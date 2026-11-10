@@ -474,7 +474,8 @@ const orderStatus = async (target: OrderTarget, context: CliContext): Promise<Cl
  * The intake's queue as a pass would read it now, in rank order (ADR 0208): the Brewery's open
  * issues and every intake repository's, through gh's login, with who added each candidate's labels
  * (ADR 0359); or what could not be read. `placed`, the order being ranked, is in it while
- * sub-orders of it are left, ready or not (ADR 0211). `why`: why an order is not in it.
+ * sub-orders of it are left, ready or not (ADR 0211). `why`: why an order is not in it. `unread`:
+ * why the labels of an order could not be read; the queue leaves it out, as a pass does.
  */
 const readQueue = async (
   config: BreweryConfig,
@@ -482,7 +483,14 @@ const readQueue = async (
   state: State,
   context: CliContext,
   placed: OrderRef,
-): Promise<{ queue: QueuedIssue[]; why: (order: OrderRef) => string } | { refused: string }> => {
+): Promise<
+  | {
+      queue: QueuedIssue[];
+      why: (order: OrderRef) => string;
+      unread: (order: OrderRef) => string | undefined;
+    }
+  | { refused: string }
+> => {
   const { tracker, login } = context.queue(config);
   const read = async <T>(what: string, reading: () => Promise<T>): Promise<T> => {
     try {
@@ -501,15 +509,20 @@ const readQueue = async (
       const issues = await read(`listing ${repo}`, () => tracker.issues(repo, filter));
       listings.push({ repository, issues });
     }
-    let unread: string | undefined;
+    // By `<repo>#<n>` in lower case: GitHub compares repository names ignoring case.
+    const failures = new Map<string, string>();
     const failed = (issue: string, error: unknown): void => {
-      unread ??= `reading who labelled ${issue}: ${messageOf(error)}`;
+      failures.set(issue.toLowerCase(), messageOf(error));
     };
     const repositories = await withLabelsAdded(state, listings, { claimant, tracker, failed });
-    if (unread !== undefined) return { refused: `cannot read the intake's queue: ${unread}` };
     const authors = config.users ?? [];
     const queue = intakeQueue(state, { brewery: own, repositories }, { authors, claimant }, placed);
-    return { queue, why: (order) => notQueued(repositories, authors, order) };
+    return {
+      queue,
+      why: (order) => notQueued(repositories, authors, order),
+      unread: ({ repo, issue }) =>
+        repo === undefined ? undefined : failures.get(`${repo}#${issue}`.toLowerCase()),
+    };
   } catch (error) {
     return { refused: messageOf(error) };
   }
@@ -1193,6 +1206,10 @@ export const commands: readonly RegisteredCommand[] = [
         const read = await readQueue(config, brewery, log.state(), context, order);
         if ('refused' in read) return failed('rank', read.refused);
         const { queue } = read;
+        const unread = read.unread(order);
+        if (unread !== undefined) {
+          return failed('rank', `cannot read who labelled ${name}: ${unread}`);
+        }
         const before = placeIn(queue, order);
         if (before === undefined) {
           return failed('rank', `${name} is not in the intake's queue: ${read.why(order)}`);
