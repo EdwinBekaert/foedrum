@@ -238,6 +238,22 @@ const ofCurrentRecipe = (state: State, batch: Batch): Batch => {
   return { ...batch, steps };
 };
 
+/**
+ * `batch` from its latest recipe choice (`recipeFrom`): its path since, and only the attempts on
+ * it. A return to a recipe it brewed before starts the brief's rounds and survey afresh, and a
+ * rewind since keeps the steps before its point (ADR 0363).
+ */
+const ofLatestRun = (batch: Batch): Batch => {
+  const path = (batch.path ?? []).slice(batch.recipeFrom ?? 0);
+  const steps = new Map<string, Step>();
+  for (const step of batch.steps.values()) {
+    const ran = new Set(path.filter(({ stepId }) => stepId === step.id).map((at) => at.attempt));
+    const attempts = new Map([...step.attempts].filter(([attempt]) => ran.has(attempt)));
+    if (attempts.size > 0) steps.set(step.id, { ...step, attempts });
+  }
+  return { ...batch, steps, path };
+};
+
 /** The `when` that was false for `stepId`, or its group's, when the batch skipped it (ADR 0064). */
 const skippedBy = ({ batch, recipe }: Steps, stepId: string): { when?: string } | undefined => {
   const group = recipe?.group(stepId);
@@ -461,8 +477,9 @@ const briefRest = (
   const proof = name === undefined ? undefined : redProof(name);
   const head = code(shortSha(ready.head));
   const sensitive = latestPush(state, batch.id)?.sensitive;
+  const latestRun: Steps = { ...steps, batch: ofLatestRun(current) };
   const findings = [
-    ...dispositionLines(steps, told),
+    ...dispositionLines(latestRun, told),
     ...openLines(steps, told),
     ...skippedOpenLines(steps, told),
   ];
@@ -487,7 +504,7 @@ const briefRest = (
       ...notRunLines(steps, proof),
       tastedLine(steps, ready),
       ...(sensitive === undefined ? [] : [`- ${sensitiveLine(sensitive)}.`]),
-      ...surveyLines(steps),
+      ...surveyLines(latestRun),
     ],
     ['**Findings**', ...(findings.length === 0 ? ['No finding was recorded.'] : findings)],
     ['**Risk left**', ...(risks.length === 0 ? ['None recorded.'] : risks)],
