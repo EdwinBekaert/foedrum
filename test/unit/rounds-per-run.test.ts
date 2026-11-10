@@ -177,6 +177,27 @@ describe("a route's rounds per run of the recipe (ADR 0369)", () => {
     assert.equal(recipes.find('tasted')?.rounds(batch, 'taste', 'findings'), 1);
   });
 
+  it("counts in no later run a route's attempt that its deadline abandoned before it started", () => {
+    routed('tasted');
+    run('plan', done);
+    run('taste', blocked);
+    const sent = latest('plan');
+    assert.equal(sent?.phase, 'scheduled');
+    assert.deepStrictEqual(sent.route, { from: 'taste', why: 'findings' });
+    const due = new Date(Date.parse(sent.deadlineAt) + 1);
+    const expired = log.issue(
+      { kind: 'expire', batchId, stepId: 'plan', attempt: sent.attempt },
+      due,
+    );
+    assert.equal(expired.kind, 'accepted', JSON.stringify(expired));
+    assert.equal(lane()?.kind, 'stuck');
+    rewind('plan');
+    run('plan', done);
+    run('taste', blocked);
+    assert.equal(lane()?.kind, 'brewing');
+    assert.deepStrictEqual(latest('plan')?.route, { from: 'taste', why: 'findings' });
+  });
+
   it('an onFail route gets its round back after a rewind', () => {
     routed('checked');
     run('implement', done);
