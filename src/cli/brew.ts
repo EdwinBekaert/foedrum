@@ -2,8 +2,9 @@
 // or the Claude Code session it runs in, else `terminal`), it takes that owner's lock, opens the
 // driver on the wiring it shares with `foedrum serve` (driver-wiring.ts) with `takes` that batch
 // alone, orders and routes the issue first when it has no batch (a claimed one only by its Brewery
-// issue, ADR 0156), and ticks until the batch is on tap, cancelled or Stuck. Its exit code says
-// which, so the plugin's session can ask the engineer and brew again.
+// issue, ADR 0156; with no label, to the Brewery's default recipe, ADR 0370), and ticks until the
+// batch is on tap, cancelled or Stuck. Its exit code says which, so the plugin's session can ask
+// the engineer and brew again.
 // `foedrum mash` routes the batch to mash-in first (ADR 0232), and `foedrum lauter` records a
 // person's lauter of the plan its batch waits with first, so its session opens (ADR 0286).
 // On a terminal (the shell gives one) it keeps a live line, from the command's first second to its
@@ -114,7 +115,7 @@ const mashRefusal = (
   }
   const mashIn = setup.recipes.find(MASH_IN);
   if (mashIn === undefined) return `the Brewery has no recipe ${MASH_IN}`;
-  const choices = setup.brewers.find(MASH_IN, mashIn.firstStep)?.choices ?? [];
+  const choices = offered(setup, MASH_IN, mashIn.firstStep);
   // A question needs two options (ADR 0006).
   if (choices.length >= 2) return undefined;
   const [only] = choices;
@@ -122,6 +123,31 @@ const mashRefusal = (
     ? `the Brewery has no recipe to offer but ${MASH_IN}`
     : `the Brewery has one recipe to offer, ${only.name}: label ${named} recipe:${only.name} to brew it`;
 };
+
+/** The recipes the step `stepId` of `recipe` offers a person to choose from (ADR 0232). */
+const offered = (setup: ServeSetup, recipe: string, stepId: string) =>
+  setup.brewers.find(recipe, stepId)?.choices ?? [];
+
+/**
+ * Why the Brewery's default recipe cannot brew an issue with no recipe label (ADR 0370), or
+ * undefined: the Brewery has no recipe of its name, or its first step asks which recipe brews the
+ * issue and has fewer than the two options a question needs (ADR 0006, ADR 0232).
+ */
+const defaultRefusal = (setup: ServeSetup): string | undefined => {
+  const name = setup.defaultRecipe;
+  const recipe = setup.recipes.find(name);
+  if (recipe === undefined) return `the Brewery has no recipe ${name} to brew it with by default`;
+  if (!recipe.choosesRecipe(recipe.firstStep)) return undefined;
+  const choices = offered(setup, name, recipe.firstStep);
+  if (choices.length >= 2) return undefined;
+  const [only] = choices;
+  return only === undefined
+    ? `the Brewery's default recipe ${name} has no recipe to offer`
+    : `the Brewery's default recipe ${name} has one recipe to offer, ${only.name}`;
+};
+
+/** The route of an issue with no recipe label to the Brewery's default recipe (ADR 0370). */
+const DEFAULT_REASON = "the Brewery's default recipe, for an issue with no recipe label";
 
 /** The line feed and the Unicode line and paragraph separators, which end a line. */
 const BREAKS = new Set([0x0a, 0x2028, 0x2029]);
@@ -570,13 +596,16 @@ export const runBrew = async (
         `${saidAs(log.state(), foldedBatch(log.state(), request.lauter))} goes to a session on its plan`,
       );
     }
-    // An issue with no batch, or an Ordered one, is routed by its one recipe label (ADR 0068); a
-    // claimed batch by its Brewery issue's, and it waits for that issue until the ledger records
-    // it, never reading the target issue's (ADR 0156).
+    // An issue with no batch, or an Ordered one, is routed by its one recipe label (ADR 0068), or
+    // with none to the Brewery's default recipe (ADR 0370); a claimed batch by its Brewery
+    // issue's, and it waits for that issue until the ledger records it, never reading the target
+    // issue's (ADR 0156).
     const labelled = latest === undefined ? undefined : breweryIssueOf(log.state(), latest);
     const waitsForOrder =
       request.mash !== true && order.repo !== undefined && labelled === undefined;
     let recipe: string | undefined;
+    // Whether the batch is routed to the Brewery's default recipe, for want of a label (ADR 0370).
+    let byDefault = false;
     if (request.mash === true) {
       const refused = mashRefusal(setup, latest, named, called(log.state()));
       if (refused !== undefined) return refuse(refused);
@@ -586,16 +615,21 @@ export const runBrew = async (
         labels(labelled === undefined ? order : { issue: labelled }, signal),
       );
       const names = recipeLabels(on);
+      // No label: the Brewery's default recipe brews it, once it can (ADR 0370).
       if (names.length === 0) {
-        return refuse(
-          `${named} has no recipe:<name> label; label it with the recipe to brew it with, or choose one with foedrum recipe ${called(log.state())} <recipe> "<reason>"`,
-        );
+        const why = defaultRefusal(setup);
+        if (why !== undefined) {
+          return refuse(
+            `${named} has no recipe:<name> label, and ${why}; label it with the recipe to brew it with, or choose one with foedrum recipe ${called(log.state())} <recipe> "<reason>"`,
+          );
+        }
+        byDefault = true;
       }
       if (names.length > 1) {
         const all = names.map((name) => `recipe:${name}`).join(' and ');
         return refuse(`${named} carries ${all}; give it one recipe label`);
       }
-      recipe = names[0];
+      recipe = names.length === 0 ? setup.defaultRecipe : names[0];
       // Checked before anything is ordered or claimed, as the intake leaves it unrouted.
       if (recipe !== undefined && setup.recipes.find(recipe) === undefined) {
         return refuse(`${named} carries recipe:${recipe}, which names no recipe of this Brewery`);
@@ -660,7 +694,7 @@ export const runBrew = async (
     }
     if (waitsForOrder && batch.lane.kind === 'ordered') {
       // One tick applies the claim's effects, the Brewery issue among them (ADR 0144); a fresh
-      // Brewery issue has no label yet, so the batch waits for a person to give it one.
+      // Brewery issue has no label yet, so the Brewery's default recipe brews it (ADR 0370).
       await lively(undefined, () => tick(driver, report));
       // A batch that waits for a person is not Stuck: it keeps no lease (ADR 0123).
       store.withTransaction((tx) => releaseBatch(tx, batch.id, owner));
@@ -671,8 +705,8 @@ export const runBrew = async (
         return BREW_EXIT.failed;
       }
       // A recipe label on the target issue chooses nothing (ADR 0156), and a person who put one
-      // there would wait for it: the line says so, one conditional read on this refusal alone, and
-      // is left out when that read fails (ADR 0336).
+      // there would wait for it: the line says so, one conditional read on this line alone, and is
+      // left out when that read fails (ADR 0336).
       const carried = await lively('reading its labels', () =>
         githubOrderLabels(reads, setup.brewery)(order, signal).then(recipeLabels, () => []),
       );
@@ -680,10 +714,16 @@ export const runBrew = async (
         const all = carried.map((name) => `recipe:${name}`).join(' and ');
         say(`${named} carries ${all}, which Foedrum does not read; label #${opened}`);
       }
-      // The bare number, which every shell passes as it is (cmd.exe keeps quotes).
-      return refuse(
-        `${named} waits for a recipe:<name> label on its Brewery issue #${opened}; label it and brew ${opened}, choose one with foedrum recipe ${opened} <recipe> "<reason>", or foedrum mash ${opened}`,
-      );
+      // The fresh Brewery issue has no label: the Brewery's default recipe brews it (ADR 0370).
+      const why = defaultRefusal(setup);
+      if (why !== undefined) {
+        // The bare number, which every shell passes as it is (cmd.exe keeps quotes).
+        return refuse(
+          `${named} waits for a recipe:<name> label on its Brewery issue #${opened}, and ${why}; label it and brew ${opened}, or choose one with foedrum recipe ${opened} <recipe> "<reason>"`,
+        );
+      }
+      recipe = setup.defaultRecipe;
+      byDefault = true;
     }
     if (request.mash === true && batch.recipe === undefined) {
       const mashIn = {
@@ -699,13 +739,16 @@ export const runBrew = async (
       say(`routed ${saidAs(log.state(), batch)} to the recipe ${MASH_IN}`);
     }
     if (recipe !== undefined && batch.lane.kind === 'ordered') {
-      const route = {
-        kind: 'route',
-        batchId,
-        recipe,
-        reason: `the label recipe:${recipe}`,
-        source: 'label',
-      } as const;
+      // The default is the router's choice, which labels nothing (ADR 0370).
+      const route = byDefault
+        ? ({ kind: 'route', batchId, recipe, reason: DEFAULT_REASON, source: 'router' } as const)
+        : ({
+            kind: 'route',
+            batchId,
+            recipe,
+            reason: `the label recipe:${recipe}`,
+            source: 'label',
+          } as const);
       const decision = log.issue(route, clock());
       if (decision.kind === 'refused') return refuse(decision.reason);
       say(`routed ${saidAs(log.state(), batch)} to the recipe ${recipe}`);

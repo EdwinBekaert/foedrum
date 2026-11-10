@@ -7,6 +7,7 @@ import {
   type BreweryFile,
   type BreweryFiles,
   type Catalog,
+  defaultRecipeProblem,
   INVALID_RECIPES,
   loadRecipes,
   replacedDefaults,
@@ -583,9 +584,11 @@ const catalogNotices = (
 
 // The recipe and brewer files, when doctor read them: files that do not load stop every command
 // that needs recipes, with this same line (ADR 0053).
-// The defaults in use, when they load (ADR 0098); prompt sizes and notices (ADR 0141).
+// The defaults in use, when they load (ADR 0098); prompt sizes and notices (ADR 0141). A default
+// recipe foedrum.jsonc names that is not of type mash stops the Brewery, with serve's line (ADR 0370).
 const recipesOf = ({
   brewery,
+  config,
 }: DoctorFacts): {
   problems: Problem[];
   defaults?: string[];
@@ -599,8 +602,12 @@ const recipesOf = ({
   );
   if (loaded.valid) {
     const prompts = promptSizes(loaded.catalog);
+    const read = config === undefined ? undefined : readJsonc(config, BreweryConfig);
+    const defaulted = read?.valid
+      ? defaultRecipeProblem(read.value.defaultRecipe, loaded.recipes)
+      : undefined;
     return {
-      problems: [],
+      problems: defaulted === undefined ? [] : [{ required: true, ...defaulted }],
       defaults: [...loaded.defaults],
       prompts,
       notices: [...catalogNotices(loaded.catalog, loaded.defaults, prompts), ...replacements],
