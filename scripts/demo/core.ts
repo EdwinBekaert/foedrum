@@ -316,8 +316,11 @@ export interface DemoRun {
   plan: ProcessOutcome;
   /** The pull requests on the fake code host. */
   pulls: readonly { title: string; head: string; base: string }[];
-  /** The subject of the commit at the tip of the second order's bottle branch (ADR 0367). */
-  brewTip: string;
+  /**
+   * The subject of the commit at the tip of the second order's bottle branch, or why it could not
+   * be read (ADR 0367).
+   */
+  brewTip: { subject: string } | { unread: string };
   /** The comments on each order's issue there, by issue number. */
   comments: ReadonlyMap<number, readonly { author: string; body: string }[]>;
   /** The foedrum commands the walkthrough ran, and how each ended. */

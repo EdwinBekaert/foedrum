@@ -4,6 +4,7 @@ import { join, resolve, win32 } from 'node:path';
 import { describe, it } from 'node:test';
 import { DEMO_GIT_CONFIG } from '../../scripts/demo/brewer.ts';
 import {
+  BREW_BOTTLE,
   BREW_ON_TAP_LINE,
   BREW_ORDER,
   BREWERY,
@@ -214,6 +215,7 @@ describe('the demo Brewery', () => {
 
 describe('problemsOf', () => {
   const pull = { title: ORDER.title, head: 'foedrum/demo.brewery/1-1/demo.web', base: 'main' };
+  const brewPull = { title: BREW_ORDER.title, head: BREW_BOTTLE, base: 'main' };
   const comment = [{ author: 'cellar-bot', body: 'On tap' }];
   // The mashed order's two lives: foedrum mash to the Innkeeper's question, then foedrum brew to the
   // plan, Stuck for review; and its status comment and plan comment.
@@ -228,8 +230,8 @@ describe('problemsOf', () => {
     brew: { exitCode: 0, output: `${BREW_ON_TAP_LINE}: https://example.test/pull/3\n` },
     mash: { exitCode: 4, output: mashed },
     plan: { exitCode: 3, output: planned },
-    pulls: [pull, pull],
-    brewTip: FIX_MESSAGE,
+    pulls: [pull, brewPull],
+    brewTip: { subject: FIX_MESSAGE },
     comments: new Map([
       [ORDER.number, comment],
       [BREW_ORDER.number, comment],
@@ -279,10 +281,26 @@ describe('problemsOf', () => {
   });
 
   it("says when the second order's bottle branch does not end at the Cellarman's third fix (ADR 0367)", () => {
-    const problems = problemsOf(run({ brewTip: 'Greet a stranger when no name is given' }));
+    const brewTip = { subject: 'Greet a stranger when no name is given' };
+    const problems = problemsOf(run({ brewTip }));
     assert.deepStrictEqual(problems, [
       `the bottle branch of #2 ends at "Greet a stranger when no name is given", not at the Cellarman's third fix "${FIX_MESSAGE}"`,
     ]);
+  });
+
+  it("says when it could not read the second order's bottle branch, with the first line of why, and claims no tip", () => {
+    const brewTip = { unread: 'git log failed: fatal: bad revision\nusage: git log' };
+    assert.deepStrictEqual(problemsOf(run({ brewTip })), [
+      'could not read the bottle branch of #2: git log failed: fatal: bad revision',
+    ]);
+  });
+
+  it("says when no pull request runs from the second order's bottle branch into main (ADR 0367)", () => {
+    const missing = `the code host has no pull request from ${BREW_BOTTLE} into main`;
+    // Each half alone: the head of the first order's branch, or the base another branch.
+    assert.deepStrictEqual(problemsOf(run({ pulls: [pull, pull] })), [missing]);
+    const develop = { ...brewPull, base: 'develop' };
+    assert.deepStrictEqual(problemsOf(run({ pulls: [pull, develop] })), [missing]);
   });
 
   it('says when foedrum status or replay failed, with what it said', () => {
