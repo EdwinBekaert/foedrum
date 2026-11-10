@@ -344,39 +344,39 @@ describe('an order whose issue changed after its approval (ADR 0368)', () => {
   });
 
   it("a person's order approves the issue as it was when they ordered it", async () => {
-    // Ordered again by a person at t0, after the stranger's edit and before the next one.
+    // Ordered by a person at t0, after the stranger's edit; the intake's batch is cancelled.
     log.issue({ kind: 'cancel', batchId, ...by }, t0);
     const again = {
       kind: 'order_again',
-      batchId: 'app-7-2',
-      order: { issue: 7, repo: 'acme/app' },
+      batchId: 'app-8',
+      order: { issue: 8, repo: 'acme/app' },
     };
     assert.equal(log.issue({ ...again, kind: 'order_again', ...by }, t0).kind, 'accepted');
-    const route = { kind: 'route', batchId: 'app-7-2', recipe: 'pint', reason: 'label' } as const;
+    const route = { kind: 'route', batchId: 'app-8', recipe: 'pint', reason: 'label' } as const;
     assert.equal(log.issue({ ...route, source: 'label' }, t0).kind, 'accepted');
     activity = { ...approved(), labelled: [], edited: [{ by: 'stranger', at: after }] };
     const { runner, started } = handRunner();
     const driver = await open(runner);
     await driver.tick();
-    assert.deepStrictEqual(started, [{ batchId: 'app-7-2', stepId: 'plan', attempt: 1 }]);
+    assert.deepStrictEqual(started, [{ batchId: 'app-8', stepId: 'plan', attempt: 1 }]);
   });
 
   it("an edit after a person's order asks", async () => {
     log.issue({ kind: 'cancel', batchId, ...by }, t0);
     const again = {
       kind: 'order_again',
-      batchId: 'app-7-2',
-      order: { issue: 7, repo: 'acme/app' },
+      batchId: 'app-8',
+      order: { issue: 8, repo: 'acme/app' },
     };
     assert.equal(log.issue({ ...again, kind: 'order_again', ...by }, t0).kind, 'accepted');
-    const route = { kind: 'route', batchId: 'app-7-2', recipe: 'pint', reason: 'label' } as const;
+    const route = { kind: 'route', batchId: 'app-8', recipe: 'pint', reason: 'label' } as const;
     assert.equal(log.issue({ ...route, source: 'label' }, t0).kind, 'accepted');
     activity = { ...approved(), edited: [{ by: 'stranger', at: later }] };
     const { runner, started } = handRunner();
     const driver = await open(runner);
     await driver.tick();
     assert.deepStrictEqual(started, []);
-    const found = driver.state().batches.get('app-7-2')?.lane;
+    const found = driver.state().batches.get('app-8')?.lane;
     assert.ok(found?.kind === 'stuck' && found.reason.kind === 'order_changed');
     assert.deepStrictEqual(found.reason.changes, [{ what: 'body', by: 'stranger', at: later }]);
   });
