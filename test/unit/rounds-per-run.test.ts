@@ -193,6 +193,18 @@ describe("a route's rounds per run of the recipe (ADR 0369)", () => {
     assert.equal(stuckRounds(), 1);
   });
 
+  it("counts the goto step's first attempt of a run when its route scheduled it: regression test", () => {
+    routed('tasted');
+    tastedRun(2);
+    // A rewind past plan: plan's first attempt of the run is the one the route schedules.
+    rewind('taste');
+    run('taste', blocked);
+    assert.deepStrictEqual(latest('plan')?.route, { from: 'taste', why: 'findings' });
+    run('plan', done);
+    run('taste', blocked);
+    assert.equal(stuckRounds(), 1);
+  });
+
   it("counts in no later run a route's attempt that its deadline abandoned before it started", () => {
     routed('tasted');
     run('plan', done);
