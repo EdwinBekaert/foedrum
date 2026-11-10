@@ -12,6 +12,6 @@
   `foedrum brew <n>` on an issue with no recipe label, an Ordered batch or a claimed order's Brewery issue included, routes the batch to the Brewery's default recipe, `foedrum.jsonc`'s `defaultRecipe` (a recipe of type `mash`) or else `mash-in`, so it ends at the Innkeeper's question, where it refused ([ADR 0370](../../adr/0370-foedrum-brew-runs-the-brewery-s-default-recipe-on-an-issue-with-no-recipe-label.md)).
   The route is the router's, `source: "router"`, which labels nothing; the answer labels the issue as above.
   A brew of a claimed issue routes the Brewery issue it opens to the default after the tick that opens it.
-  Two labels or a recipe the Brewery lacks are refused as before, and a Brewery whose default cannot run (no recipe of its name, or fewer than two recipes for its question) says so in one line before anything is ordered.
+  Two labels or a recipe the Brewery lacks are refused as before, and a Brewery whose default cannot run (no recipe of its name, a left-out default whose `mash-in` the Brewery replaced with one that builds, or fewer than two recipes for its question) says so in one line before anything is ordered.
   The model call is the person's, who asked about that issue; `serve` would make one for every unlabelled issue anyone opened, which ADR 0232 rejected.
   A claimed batch is routed by its Brewery issue's label, never its target issue's ([target issues](target-issues.md), [ADR 0156](../../adr/0156-a-claimed-order-is-routed-by-its-brewery-issue-s-recipe-label.md)).
