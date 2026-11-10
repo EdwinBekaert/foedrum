@@ -170,6 +170,8 @@ export const CRASH_LINE = 'demo: the Gauger committed its test; the Cellar is ki
 export const ON_TAP_LINE = 'demo: #1 is on tap';
 /** The start of foedrum brew's last line once the second order's batch is on tap. */
 export const BREW_ON_TAP_LINE = 'foedrum brew: #2 is on tap';
+/** The message of the Cellarman's third fix, after the blocking lens's finding (ADR 0193). */
+export const FIX_MESSAGE = 'Greet a visitor whose name is only spaces as a stranger';
 /** The line foedrum mash stops at: the Innkeeper's question of the third order's batch. */
 export const QUESTION_LINE = 'foedrum mash: #3 needs input at innkeep:';
 /**
