@@ -9,9 +9,11 @@ import { describe, it } from 'node:test';
 import { FOEDRUM_DEFAULTS, readBreweryFiles } from '../../src/engine/brewery-files.ts';
 import { type Context, decide } from '../../src/engine/decide.ts';
 import { fold } from '../../src/engine/fold.ts';
+import { planEntryText, renderPlan } from '../../src/engine/plan-comment.ts';
 import { loadRecipes } from '../../src/engine/recipe-files.ts';
+import { renderStatus } from '../../src/engine/status-comment.ts';
 import type { Event } from '../../src/schemas/events.ts';
-import { PlanOutDoc } from '../../src/schemas/plan.ts';
+import { PlanOutDoc, planOf } from '../../src/schemas/plan.ts';
 
 const at = '2026-11-10T10:00:00.000Z';
 const reason = 'it only rewords the help text';
@@ -100,7 +102,29 @@ const routed = (events: Event[]) => {
   };
 };
 
+const testFirstSteps = ['survey', 'survey-check', 'gauge', 'red'];
+
 describe("a plan entry's testFirst false is what its sub-order's batch does (ADR 0371)", () => {
+  it('a sub-order approved with testFirst false runs with its four test-first steps skipped and says why', () => {
+    const plan = done(subOrder('help', { testFirst: false, testFirstOff: reason }));
+    const events = [...planned(plan), ordered('help')];
+    const { recorded, steps } = routed(events);
+    assert.deepStrictEqual(steps, [
+      ...testFirstSteps.map((stepId) => `step.skipped ${stepId}`),
+      'step.scheduled implement',
+    ]);
+    const batch = fold([...events, ...recorded]).batches.get('12-1');
+    assert.ok(batch);
+    const text = renderStatus(batch);
+    for (const stepId of testFirstSteps) {
+      const line = text.split('\n').find((each) => each.includes(`\`${stepId}\``)) ?? '';
+      assert.match(
+        line,
+        /skipped: test-first is off in the approved plan: it only rewords the help text$/,
+      );
+    }
+  });
+
   it("a sub-order without the field runs its recipe's test-first: regression test", () => {
     const { steps } = routed([...planned(done(subOrder('help'))), ordered('help')]);
     assert.deepStrictEqual(steps, ['step.scheduled survey']);
@@ -128,5 +152,18 @@ describe("a plan entry's testFirst false is what its sub-order's batch does (ADR
       JSON.stringify(read.error?.issues),
       /A sub-order with a securityMark keeps test-first on/,
     );
+  });
+
+  it('the plan comment and the plan entry say its batch skips the test-first steps', () => {
+    const plan = done(subOrder('help', { testFirst: false, testFirstOff: reason }));
+    const line =
+      "- Recipe `nip`: a small change in one repository; test-first off, so its batch skips its recipe's test-first steps: it only rewords the help text";
+    const report = planOf(plan);
+    assert.ok(report);
+    const rendered = renderPlan('7-1', 'plan', report);
+    assert.ok(rendered.split('\n').includes(line), rendered);
+    const origin = { batchId: '7-1', stepId: 'plan', attempt: 1, entry: 'help' };
+    const entry = planEntryText(fold(planned(plan)), origin);
+    assert.ok(entry.split('\n').includes(line), entry);
   });
 });

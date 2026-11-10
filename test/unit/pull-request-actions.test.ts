@@ -324,6 +324,75 @@ describe('pullRequestActions: the pull request', () => {
     assert.doesNotMatch(body, /^Closes /m);
   });
 
+  it('the pull request says the test-first steps were skipped and why (ADR 0371)', async () => {
+    const { actions, requests } = actionsWith();
+    const entry = {
+      id: 'api',
+      title: 'Reword the help',
+      repo: 'acme/api',
+      size: { lines: 20, mechanism: 'one text' },
+      doneWhen: 'the help reads as asked',
+      touches: [{ path: 'src/help.ts' }],
+      dependencies: [],
+      recipe: 'ale',
+      why: 'one repository',
+      testFirst: false,
+      testFirstOff: 'it only rewords the help',
+      ready: true,
+    };
+    // Batch 1-1 planned the order with the entry `api`, test-first off; 12-1 brews it.
+    const planned: Event[] = [
+      {
+        type: 'batch.ordered',
+        batchId: '1-1',
+        order: { issue: 1 },
+        routeBy: '2026-12-31T00:00:00.000Z',
+      },
+      {
+        type: 'step.scheduled',
+        batchId: '1-1',
+        stepId: 'plan',
+        attempt: 1,
+        deadlineAt: '2026-10-15T13:00:00.000Z',
+      },
+      { type: 'step.started', batchId: '1-1', stepId: 'plan', attempt: 1 },
+      {
+        type: 'step.finished',
+        batchId: '1-1',
+        stepId: 'plan',
+        attempt: 1,
+        outcome: {
+          kind: 'succeeded',
+          output: { status: 'done', summary: 'A plan', assumptions: [], subOrders: [entry] },
+        },
+      },
+      {
+        type: 'batch.ordered',
+        batchId: '12-1',
+        order: { issue: 12 },
+        routeBy: '2026-12-31T00:00:00.000Z',
+        parentBatchId: '1-1',
+        plan: { batchId: '1-1', stepId: 'plan', attempt: 1, entry: 'api' },
+      },
+    ];
+    const [chosen, ...rest] = brewed;
+    assert.ok(chosen);
+    const skipped = ['gauge', 'red'].map(
+      (stepId): Event => ({
+        type: 'step.skipped',
+        batchId: '12-1',
+        stepId,
+        when: 'recipe.testFirst',
+      }),
+    );
+    keysOf(fold([...planned, chosen, ...skipped, ...rest, ...opening]), actions);
+    await actions.target.apply(open);
+    const body = requests[0]?.request.body ?? '';
+    const line =
+      'Test-first was off, as the approved plan says: it only rewords the help. Not run: `gauge`, `red`.';
+    assert.ok(body.split('\n').includes(line), body);
+  });
+
   it('says nothing of test-first for a batch that is no sub-order, its own recipe skipping the steps: regression test', async () => {
     const { actions, requests } = actionsWith();
     const [chosen, ...rest] = brewed;

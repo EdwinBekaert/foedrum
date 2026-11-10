@@ -62,6 +62,8 @@ const recipes = fakeRecipes({
     skips: { gauge: 'recipe.testFirst', red: 'recipe.testFirst' },
     pullRequests: [],
   }),
+  // One plan step and no pull request: its plan waits for review (ADR 0275).
+  planning: fakeRecipe({ steps: ['plan'], pullRequests: [] }),
   // One blocking Taster in a line, whose findings go back to implement once.
   lined: fakeRecipe({
     steps: ['implement', 'taste', OPEN],
@@ -685,6 +687,48 @@ describe('the merge brief (ADR 0225)', () => {
       const body = await brief();
       assert.match(body, /- Red proof `red`: not run: its when "recipe\.testFirst" was false\./);
       assert.match(body, /- `gauge`: not run: its when "recipe\.testFirst" was false\./);
+    });
+
+    it("the merge brief names the skipped steps and the plan's reason (ADR 0371)", async () => {
+      // Order 3 was planned with the entry `web`, test-first off, and approved; web-7 brews it.
+      const entry = {
+        id: 'web',
+        title: 'Reword the page',
+        repo: 'acme/web',
+        size: { lines: 20, mechanism: 'one text' },
+        doneWhen: 'the page reads as asked',
+        touches: [{ path: 'src/page.ts' }],
+        dependencies: [],
+        recipe: 'skippy',
+        why: 'one repository',
+        testFirst: false,
+        testFirstOff: 'it only rewords the page',
+        ready: true,
+      };
+      order('planning', '3-1', 3);
+      const plan = { status: 'done', summary: 'A plan', assumptions: [], subOrders: [entry] };
+      run('plan', { kind: 'succeeded', output: plan }, {}, '3-1');
+      accept({ kind: 'approve', batchId: '3-1', by: 'grace', via: 'terminal' });
+      accept({
+        kind: 'order',
+        batchId: 'web-7',
+        order: { issue: 7 },
+        parentBatchId: '3-1',
+        plan: { batchId: '3-1', stepId: 'plan', attempt: 1, entry: 'web' },
+      });
+      accept({
+        kind: 'route',
+        batchId: 'web-7',
+        recipe: 'skippy',
+        reason: 'label',
+        source: 'label',
+      });
+      nipFromImplement();
+      finished([passed('ci/build')]);
+      const body = await brief();
+      const why = 'not run: test-first is off in the approved plan: it only rewords the page.';
+      assert.ok(body.split('\n').includes(`- Red proof \`red\`: ${why}`), body);
+      assert.ok(body.split('\n').includes(`- \`gauge\`: ${why}`), body);
     });
 
     it('says the recipe has no red proof', async () => {
