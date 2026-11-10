@@ -7,8 +7,6 @@ export interface FakeApiIssue {
   number: number;
   labels: string[];
   author: string;
-  /** Who added its labels, in its events (ADR 0359); by default its author. */
-  labelledBy?: string;
   assignees?: string[];
   body?: string;
   title?: string;
@@ -327,7 +325,8 @@ export const fakeGitHubApi = (options: FakeGitHubApiOptions): FakeGitHubApi => {
     };
     if (method === 'GET' && what === '') return json(200, asIssue(found));
     if (method === 'GET' && what === 'events') {
-      const actor = { login: found.labelledBy ?? found.author };
+      // Each label added by whoever opened the issue (ADR 0359).
+      const actor = { login: found.author };
       const events = found.labels.map((name, index) => ({
         id: index + 1,
         event: 'labeled',

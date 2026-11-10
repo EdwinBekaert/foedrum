@@ -51,7 +51,7 @@ ADR 0043 already noted that a label alone is no boundary: an issue template can 
 ## Consequences
 - A maintainer approves a community member's issue by adding the intake label, and someone with only triage rights, or a template, can no longer approve work for a Brewery.
 - The Cellar is no longer silent about a labelled issue it does not take: it says once who added the label.
-- Every fake `TargetTracker` in the tests answers `labelsAdded`; the shared `addedByAuthor` (`test/helpers/labels-added.ts`) gives each label to whoever opened the issue, and the fake GitHub API answers the events the same way unless an issue names `labelledBy`.
+- Every fake `TargetTracker` in the tests answers `labelsAdded`; the shared `addedByAuthor` (`test/helpers/labels-added.ts`) gives each label to whoever opened the issue, and the fake GitHub API answers the events the same way.
 
 ### Migration
 - No file in a Brewery changes, but what it takes does. An issue labelled by someone not in `users` stops being taken after the upgrade, even if a `users` member opened it: someone in `users` has to add its label again (remove it and add it).
