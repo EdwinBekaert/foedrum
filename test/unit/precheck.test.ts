@@ -3450,20 +3450,39 @@ describe('.claude/settings.json permissions', () => {
     }
   });
 
-  it('asks before npm install and GitHub API writes, not before every GitHub API call', () => {
+  it('asks before npm install, a REST write and a GraphQL mutation, not before a GraphQL read', () => {
     const ask = permissions?.ask ?? [];
-    const flags = ['-X', '--method', '-f', '-F', '--field', '--raw-field', '--input'];
+    const writes = ['-f', '-F', '--field', '--raw-field'];
+    const roots = [
+      'repos',
+      'orgs',
+      'user',
+      'gists',
+      'notifications',
+      'teams',
+      'enterprises',
+      'app',
+    ];
     const rules = [
       'npm install *',
-      ...flags.flatMap((flag) => [`gh api ${flag}*`, `gh api * ${flag}*`]),
+      ...['-X', '--method', '--input'].flatMap((flag) => [`gh api ${flag}*`, `gh api * ${flag}*`]),
+      ...writes.map((flag) => `gh api ${flag}*`),
+      ...roots.flatMap((root) =>
+        [root, `/${root}`].flatMap((path) => writes.map((flag) => `gh api ${path}* ${flag}*`)),
+      ),
+      'gh api graphql*mutation*',
+      'gh api graphql*@*',
     ];
     for (const rule of rules) {
       for (const tool of ['Bash', 'PowerShell']) {
         assert.ok(ask.includes(`${tool}(${rule})`), `ask is missing ${tool}(${rule})`);
       }
     }
+    // A GraphQL read passes its query with -f, so a rule on -f after any path would ask for it.
     for (const tool of ['Bash', 'PowerShell']) {
-      assert.ok(!ask.includes(`${tool}(gh api *)`), `ask still has ${tool}(gh api *)`);
+      for (const rule of ['gh api *', ...writes.map((flag) => `gh api * ${flag}*`)]) {
+        assert.ok(!ask.includes(`${tool}(${rule})`), `ask still has ${tool}(${rule})`);
+      }
     }
   });
 
