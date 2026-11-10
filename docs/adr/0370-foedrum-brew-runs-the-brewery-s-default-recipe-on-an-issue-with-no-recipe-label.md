@@ -1,6 +1,6 @@
 # 0370. foedrum brew runs the Brewery's default recipe on an issue with no recipe label
 
-Date: 2026-11-10 · Status: Accepted · Amends [0123](0123-foedrum-brew-drives-one-batch-under-an-owner-of-its-own.md) (an issue with no recipe label is no longer refused, and its route is the router's, recorded without `by` or `via` as the label's is), [0232](0232-foedrum-mash-routes-an-issue-to-the-innkeeper-whose-question-the-answer-chooses-the-recipe-by.md) (`foedrum brew` on an issue with no recipe label runs a recipe of type `mash`, `mash-in` unless the Brewery names another, where it refused; `foedrum serve` still waits) and [0156](0156-a-claimed-order-is-routed-by-its-brewery-issue-s-recipe-label.md) (a brew of a claimed order whose Brewery issue has no label runs the default there, where it waited for a label)
+Date: 2026-11-10 · Status: Accepted · Amends [0123](0123-foedrum-brew-drives-one-batch-under-an-owner-of-its-own.md) (an issue with no recipe label is no longer refused, and its route is the router's, recorded without `by` or `via` as the label's is), [0232](0232-foedrum-mash-routes-an-issue-to-the-innkeeper-whose-question-the-answer-chooses-the-recipe-by.md) (`foedrum brew` on an issue with no recipe label runs a recipe of type `mash`, `mash-in` unless the Brewery names another, where it refused; `foedrum serve` still waits), [0156](0156-a-claimed-order-is-routed-by-its-brewery-issue-s-recipe-label.md) (a brew of a claimed order whose Brewery issue has no label runs the default there, where it waited for a label) and [0336](0336-small-rough-edges-of-the-self-brew-trial.md) (the brew that opens a claimed issue's Brewery issue runs the default where it refused, and its line about the target issue's unread recipe label names `foedrum recipe` then, since a label would choose nothing)
 
 ## Context
 `foedrum brew <n>` on an issue with no `recipe:<name>` label refused: `has no recipe:<name> label; label it with the recipe to brew it with`.
@@ -34,7 +34,7 @@ Rejected: the default as a person's choice (`source: "human"`, as `foedrum mash`
 ## Consequences
 - `foedrum brew` on an unlabelled issue starts the Innkeeper, one model call, where it refused; the answer chooses the recipe.
 - A batch Stuck on routing is not routed by `foedrum brew`, as before: `foedrum mash` or `foedrum recipe` routes it.
-- A target issue's own recipe label still chooses nothing, and the brew still says so (ADR 0156).
+- A target issue's own recipe label still chooses nothing, and the brew still says so (ADR 0156, ADR 0336): `web#7 carries recipe:stout, which Foedrum does not read; foedrum recipe 40 <recipe> "<reason>" chooses another recipe` when the default runs, and `…; label #40` before brew's refusal when it cannot.
 
 ## Migration
 None: `defaultRecipe` is optional and defaults to `mash-in`, which ships with Foedrum.
