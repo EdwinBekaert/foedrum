@@ -44,6 +44,7 @@ export const recipeText = (): string =>
   `// Nip's steps, tasted through four lenses side by side (ADR 0168), their findings sent back once (ADR 0354), then mutated by Brett (ADR 0319).\n${JSON.stringify(
     {
       name: RECIPE,
+      type: 'brew',
       description: 'Quick fix in one repository, test-first, tasted through four lenses at once',
       steps: [
         { id: 'survey', brewer: 'maltster', when: 'recipe.testFirst' },

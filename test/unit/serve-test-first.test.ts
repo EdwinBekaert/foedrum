@@ -24,6 +24,7 @@ describe('runServe', () => {
     // The Gauger commits failing tests, the red proof reads them, the cellarman keeps them.
     const nip = JSON.stringify({
       name: 'nip',
+      type: 'brew',
       description: 'Proves the tests red, then brews.',
       steps: [
         { id: 'gauge', brewer: 'gauger' },
@@ -40,6 +41,7 @@ describe('runServe', () => {
     // A survey ahead of the Gauger, whose check reads its map against one run (ADR 0298).
     const surveying = JSON.stringify({
       name: 'nip',
+      type: 'brew',
       description: 'Surveys the test map, proves the tests red, then brews.',
       steps: [
         { id: 'survey', brewer: 'maltster' },
@@ -406,6 +408,7 @@ describe('runServe', () => {
     it("a sent-back Gauger's done without a commit is a divergence again", async () => {
       const routed = JSON.stringify({
         name: 'nip',
+        type: 'brew',
         description: 'Proves the tests red, once more after a failure, then brews.',
         steps: [
           { id: 'gauge', brewer: 'gauger' },
@@ -549,6 +552,7 @@ describe('runServe', () => {
     it('lets a batch whose red proof it skips brew in a repository without a test report', async () => {
       const off = JSON.stringify({
         name: 'nip',
+        type: 'brew',
         description: 'Proves the tests red only when test-first.',
         steps: [
           { id: 'gauge', brewer: 'gauger', when: 'recipe.testFirst' },
@@ -567,6 +571,7 @@ describe('runServe', () => {
     it('guards only the brewer with testsUnchanged, not the Gauger a failed red proof sent back', async () => {
       const routed = JSON.stringify({
         name: 'nip',
+        type: 'brew',
         description: 'Proves the tests red, once more after a failure, then brews.',
         steps: [
           { id: 'gauge', brewer: 'gauger' },
@@ -603,6 +608,7 @@ describe('runServe', () => {
       // regression test: in a repository with a test map, whose module wrote no report (ADR 0274).
       const routed = JSON.stringify({
         name: 'nip',
+        type: 'brew',
         description: 'Proves the tests red, once more after a failure, then brews.',
         steps: [
           { id: 'gauge', brewer: 'gauger' },

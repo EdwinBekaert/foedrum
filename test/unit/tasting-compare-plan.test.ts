@@ -629,6 +629,7 @@ describe('the diff mode beside plan mode', () => {
       `// node scripts/tasting-compare.ts's setup together-nip (ADR 0224).\n${JSON.stringify(
         {
           name: 'together-nip',
+          type: 'brew',
           description: 'The seeded change of #567, tasted together',
           testFirst: false,
           steps: [

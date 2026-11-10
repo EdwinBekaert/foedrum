@@ -93,6 +93,7 @@ export const recipeText = (setup: SetupName): string => {
       : { id: TASTE, brewer: 'taster', lenses, ...backTo(IMPLEMENT) };
   const recipe = {
     name: setup,
+    type: 'brew',
     description: `The seeded change of #567, tasted ${setup.startsWith('apart') ? 'apart' : 'together'}`,
     testFirst: false,
     steps: [

@@ -94,6 +94,7 @@ export const planRecipeText = (setup: PlanSetupName): string => {
     : { id: TASTE, brewer: 'taster', lenses, ...backTo(PLAN_STEP) };
   const recipe = {
     name: setup,
+    type: 'mash',
     description: `The seeded plan of #804, tasted ${apart ? 'apart' : 'together'}; it builds nothing`,
     testFirst: false,
     steps: [{ id: PLAN_STEP, brewer: 'brewmaster' }, taste],

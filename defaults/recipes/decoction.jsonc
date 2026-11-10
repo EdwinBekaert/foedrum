@@ -5,6 +5,7 @@
 {
   "$schema": "../../schemas/recipe.json",
   "name": "decoction",
+  "type": "mash",
   "description": "A careful plan of a large order, through all seven plan lenses, shown on its issue; nothing is built",
   // It commits nothing, so there is no test to write first.
   "testFirst": false,

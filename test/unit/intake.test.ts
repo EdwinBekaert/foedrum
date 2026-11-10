@@ -804,6 +804,7 @@ describe('createIntake', () => {
         name: 'half',
         reason: 'the label recipe:half',
         source: 'label',
+        type: 'brew',
       });
       assert.deepStrictEqual(notices, [
         { kind: 'ordered', repo: brewery, issue: 12, batchId: '12-1' },
@@ -976,6 +977,7 @@ describe('createIntake', () => {
         name: 'nip',
         reason: 'the label recipe:nip',
         source: 'label',
+        type: 'brew',
       });
     });
 

@@ -393,6 +393,7 @@ describe('runBrew', () => {
         .replace('"git": { "commit": true },', '');
       const tasting = JSON.stringify({
         name: 'tasting',
+        type: 'brew',
         description: 'Two lenses side by side.',
         testFirst: false,
         steps: [

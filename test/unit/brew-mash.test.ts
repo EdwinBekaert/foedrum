@@ -78,6 +78,7 @@ describe('runBrew', () => {
       assert.deepStrictEqual(f.started, ['innkeep#1']);
       assert.deepStrictEqual(log().state().batches.get('13-1')?.recipe, {
         name: 'mash-in',
+        type: 'mash',
         reason: 'the engineer ran foedrum mash',
         source: 'human',
         by: 'ann',

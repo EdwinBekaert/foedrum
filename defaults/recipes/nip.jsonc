@@ -12,6 +12,7 @@
 {
   "$schema": "../../schemas/recipe.json",
   "name": "nip",
+  "type": "brew",
   "description": "Quick fix in one repository, test-first",
   "steps": [
     // Without a session when the base's map is fresh, or the Brewery keeps it (ADR 0298).

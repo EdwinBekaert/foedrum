@@ -130,7 +130,7 @@ describe('the default recipes that plan (ADR 0321)', () => {
     const loaded = defaults();
     assert.deepStrictEqual(
       loaded.brewers.find('mash', 'sizing')?.choices?.map(({ name }) => name),
-      ['decoction', 'mash', 'nip'],
+      ['nip'],
     );
     assert.equal(loaded.brewers.find('nip', 'correctness')?.choices, undefined);
   });
@@ -389,8 +389,8 @@ describe('foedrum brew on recipe:mash and recipe:decoction, through the default 
     const recipes = (key: string) =>
       /source="[^"]*" name="recipes">\n([^<]*)</.exec(prompts.get(key) ?? '')?.[1] ?? '';
     for (const key of ['coverage#1', 'sizing#1', 'naive-reader#1']) {
-      assert.match(recipes(key), /^- decoction: /m, key);
-      assert.match(recipes(key), /^- nip: /m, key);
+      assert.match(recipes(key), /^- nip \(brew\): /m, key);
+      assert.doesNotMatch(recipes(key), /^- decoction /m, key);
     }
   });
 

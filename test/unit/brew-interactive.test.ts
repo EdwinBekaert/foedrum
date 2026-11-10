@@ -22,6 +22,7 @@ describe('runBrew', () => {
     // A cellarman with attempts to spare, whose refine step is a person's session.
     const lauter = JSON.stringify({
       name: 'lauter',
+      type: 'brew',
       description: 'Refines an order with a person, then opens its pull request.',
       steps: [
         { id: 'refine', brewer: 'steward', interactive: true, prompt: 'Refine it with me.' },

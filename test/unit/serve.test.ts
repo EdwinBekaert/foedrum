@@ -36,6 +36,7 @@ describe('runServe', () => {
   it('pushes the bottle branch and opens one pull request for a recipe that ends with openPullRequest (ADR 0071)', async () => {
     const porter = JSON.stringify({
       name: 'porter',
+      type: 'brew',
       description: 'Brews an order in one step and opens its pull request.',
       steps: [{ id: 'brew', brewer: 'cellarman' }, { action: 'openPullRequest' }],
       testFirst: false,
@@ -96,6 +97,7 @@ describe('runServe', () => {
     // Foedrum's own Cellarman, whose tests input names step:gauge (#774).
     const porter = JSON.stringify({
       name: 'porter',
+      type: 'brew',
       description: 'The Cellarman, then the pull request, with no Gauger.',
       steps: [{ id: 'implement', brewer: 'cellarman' }, { action: 'openPullRequest' }],
       testFirst: false,
@@ -138,6 +140,7 @@ describe('runServe', () => {
   it("records the sensitive files the push of a repository's pull request touches (ADR 0201)", async () => {
     const porter = JSON.stringify({
       name: 'porter',
+      type: 'brew',
       description: 'Brews an order in one step and opens its pull request.',
       steps: [{ id: 'brew', brewer: 'cellarman' }, { action: 'openPullRequest' }],
       testFirst: false,
@@ -207,6 +210,7 @@ describe('runServe', () => {
   ) => {
     const porter = JSON.stringify({
       name: 'porter',
+      type: 'brew',
       description: 'Brews an order in one step and opens its pull request.',
       steps: [{ id: 'brew', brewer: 'cellarman' }, { action: 'openPullRequest' }],
       testFirst: false,
@@ -316,6 +320,7 @@ describe('runServe', () => {
   const brewWithMovedBase = async (passed = false) => {
     const porter = JSON.stringify({
       name: 'porter',
+      type: 'brew',
       description: 'Brews an order in one step and opens its pull request.',
       // With `passed`, a red proof its `when` skips, which the brief names (ADR 0225).
       steps: [
@@ -442,6 +447,7 @@ describe('runServe', () => {
   const brewMashed = async (mash = true, readyToo = false) => {
     const porter = JSON.stringify({
       name: 'porter',
+      type: 'brew',
       description: 'Brews an order in one step and opens its pull request.',
       steps: [{ id: 'brew', brewer: 'cellarman' }, { action: 'openPullRequest' }],
       testFirst: false,
@@ -918,6 +924,7 @@ Plan the order in {order}.
 `;
     const mash = JSON.stringify({
       name: 'mash',
+      type: 'mash',
       description: 'Plans an order.',
       steps: [{ id: 'plan', brewer: 'brewmaster' }],
       testFirst: false,
@@ -1005,6 +1012,7 @@ Plan the order in {order}.
     })}\n---\nPlan the order in {order}.\n`;
     const mash = JSON.stringify({
       name: 'mash',
+      type: 'mash',
       description: 'Plans an order.',
       steps: [{ id: 'plan', brewer: 'brewmaster' }],
       testFirst: false,
