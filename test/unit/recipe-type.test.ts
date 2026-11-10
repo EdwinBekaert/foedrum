@@ -85,7 +85,13 @@ describe('what a step is offered, by type (ADR 0365)', () => {
     const offered = loaded.brewers
       .find('mash-in', 'innkeep')
       ?.choices?.map(({ name, type }) => `${name} ${type}`);
-    assert.deepEqual(offered, ['wort mash', 'decoction mash', 'deep-brew brew', 'mash mash', 'nip brew']);
+    assert.deepEqual(offered, [
+      'wort mash',
+      'decoction mash',
+      'deep-brew brew',
+      'mash mash',
+      'nip brew',
+    ]);
   });
 
   it('offers the Brewmaster and a plan lens step only the recipes of type brew', () => {
