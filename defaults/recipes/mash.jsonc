@@ -16,7 +16,7 @@
     { "id": "plan", "brewer": "brewmaster" },
     {
       // Every lens's findings send the plan back to the Brewmaster once all of them ended, two
-      // rounds in all, then the batch is Stuck with them open (ADR 0192, ADR 0354).
+      // rounds in each run, then the batch is Stuck with them open (ADR 0192, ADR 0354, ADR 0369).
       "id": "taste",
       "parallel": [
         {
