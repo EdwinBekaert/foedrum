@@ -48,8 +48,8 @@
     {
       // Each mutant the tests let survive is a finding that goes back to the Gauger, whose round
       // starts at its own latest success, without the code (ADR 0358): it adds the tests that catch
-      // them, the red proof checks they fail, and Cellarman writes the code again. Two rounds, then
-      // the batch is Stuck with the survivors open (ADR 0319).
+      // them, the red proof checks they fail, and Cellarman writes the code again. Two rounds in each
+      // run, then the batch is Stuck with the survivors open (ADR 0319, ADR 0369).
       "id": "mutants",
       "brewer": "brett",
       "blocking": true,
@@ -58,8 +58,8 @@
     {
       // One Taster on Opus through every diff lens, at the Taster's own effort, the setup three
       // lenses together were measured in (ADR 0347, ADR 0366). Every finding goes back to Cellarman, through the Finer,
-      // green and Brett again: two rounds, then the batch is Stuck with the findings still open
-      // (ADR 0192, ADR 0354).
+      // green and Brett again: two rounds in each run, then the batch is Stuck with the findings
+      // still open (ADR 0192, ADR 0354, ADR 0369).
       "id": "taste",
       "brewer": "taster",
       "model": "planner",
