@@ -52,7 +52,7 @@ describe('an order that changed after its approval, as people see it (ADR 0368)'
     const { detail } = describeLane(changed, 'app-7');
     assert.equal(
       detail,
-      `the order changed at plan: acme/app#7 changed after its approval: ${what}`,
+      `the order changed at plan: acme/app#7 changed after its approval: ${what}; reminder 2026-11-12T12:00:00.000Z`,
     );
   });
 
