@@ -3,6 +3,7 @@
 
 import { calledAs, orderName } from '../engine/claim-orders.ts';
 import type { Batch, State } from '../engine/fold.ts';
+import { issueUrl, ORDER_CHANGED_QUESTION } from '../engine/order-changes.ts';
 import { withoutSecrets } from '../engine/out-doc-text.ts';
 import { findingText, knownCommits } from '../engine/pull-request.ts';
 import { longest, planNextStep, roundsText, STEP_BACK } from '../engine/status-comment.ts';
@@ -84,6 +85,13 @@ export const formatStuck = (state: State): string => {
           ({ q, options, recommended }, n) =>
             `  ${n + 1}. ${q} (${options.join(', ')}; recommended: ${recommended})`,
         )
+      : []),
+    // The issue that changed since its approval, and the one question (ADR 0368).
+    ...(lane.reason.kind === 'order_changed' && batch.repo !== undefined
+      ? [
+          `  issue: ${issueUrl(batch.repo, batch.issue)}`,
+          `  1. ${ORDER_CHANGED_QUESTION} (continue, stop)`,
+        ]
       : []),
     ...read(
       () => openLines(state, batch, lane.reason),

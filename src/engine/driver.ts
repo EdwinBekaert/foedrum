@@ -418,6 +418,7 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
     sessions = false,
     alsoCleans = [],
     effects,
+    orderCheck,
     actions,
     leaseMs = defaultLeaseMs,
     reminderMs = defaultReminderMs,
@@ -1033,6 +1034,30 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
     return { ref, end: { ending }, rejected: { error } };
   };
 
+  /**
+   * Whether the attempt `ref` of a claimed order waits for the engineer instead of starting: its
+   * issue changed since its approval, so it goes Stuck with the question, or the check could not
+   * read the issue, so the attempt fails before it starts and is retried (ADR 0368).
+   */
+  const changedOrder = async (batch: Batch, ref: AttemptRef, key: string): Promise<boolean> => {
+    if (orderCheck === undefined || batch.repo === undefined) return false;
+    let changes: Awaited<ReturnType<OrderCheck>>;
+    try {
+      changes = await orderCheck(batch);
+    } catch (error) {
+      const reason = `the order could not be checked for changes since its approval: ${messageOf(error)}`;
+      const ending = { kind: 'failed', retryable: true, reason } as const;
+      const started = { type: 'step.started', ...ref } as const;
+      if (recordStart(started, (tx) => leaseAttempt(tx, key)))
+        issue({ kind: 'finish', ...ref, ending });
+      releaseAttempt(key);
+      return true;
+    }
+    if (changes === undefined) return false;
+    issueHolding(batch.id, { kind: 'order_changed', ...ref, ...changes });
+    return true;
+  };
+
   /** Starts the scheduled attempts of `batch` that may start; whether any step of it moved. */
   const driveBatch = async (
     batch: Batch,
@@ -1065,6 +1090,11 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
       }
       saidWaiting.delete(key);
       moved = true;
+      // No attempt of a claimed order reads its issue once it changed since its approval (ADR 0368).
+      if (await changedOrder(batch, ref, key)) {
+        refused.add(key);
+        continue;
+      }
       // A person runs an interactive step's session, in a driver that opens one (ADR 0222).
       if (!sessions && interactiveOf(log.state(), recipes, ref)) {
         // A refusal (the attempt moved on meanwhile) is not asked again this drive.

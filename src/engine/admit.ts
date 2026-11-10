@@ -196,8 +196,9 @@ function rule(state: State, event: Event): string | undefined {
     case 'usage.window_closed':
     case 'usage.window_opened':
       return undefined;
+    // A continue answers the question of a batch whose issue changed (ADR 0368).
     case 'order.approved':
-      throw new Error('not implemented');
+      return lanes(state, event, ['stuck']);
     default: {
       const unhandled: never = event;
       throw new Error(`Unhandled event ${JSON.stringify(unhandled)}`);
