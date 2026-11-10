@@ -699,7 +699,8 @@ export const runBrew = async (
       // One tick applies the claim's effects, the Brewery issue among them (ADR 0144); a fresh
       // Brewery issue has no label yet, so the Brewery's default recipe brews it (ADR 0370).
       await lively(undefined, () => tick(driver, report));
-      // A batch that waits for a person is not Stuck: it keeps no lease (ADR 0123).
+      // A batch that may wait for a person is not Stuck: it keeps no lease while it is unrouted
+      // (ADR 0123); routed to the default below, the next tick leases it again (ADR 0370).
       store.withTransaction((tx) => releaseBatch(tx, batch.id, owner));
       const opened = breweryIssueOf(driver.state(), batch);
       // A tick that did not open it (a failed or a put-off effect) said why first.
@@ -707,18 +708,23 @@ export const runBrew = async (
         say(`${named} waits for its Brewery issue, which is not open yet; brew ${named} again`);
         return BREW_EXIT.failed;
       }
+      // The fresh Brewery issue has no label: the Brewery's default recipe brews it (ADR 0370).
+      const why = defaultRefusal(setup);
       // A recipe label on the target issue chooses nothing (ADR 0156), and a person who put one
       // there would wait for it: the line says so, one conditional read on this line alone, and is
-      // left out when that read fails (ADR 0336).
+      // left out when that read fails (ADR 0336). With the default routed below, a label on the
+      // Brewery issue would choose nothing either, so the line names foedrum recipe (ADR 0370).
       const carried = await lively('reading its labels', () =>
         githubOrderLabels(reads, setup.brewery)(order, signal).then(recipeLabels, () => []),
       );
       if (carried.length > 0) {
         const all = carried.map((name) => `recipe:${name}`).join(' and ');
-        say(`${named} carries ${all}, which Foedrum does not read; label #${opened}`);
+        const choose =
+          why === undefined
+            ? `foedrum recipe ${opened} <recipe> "<reason>" chooses another recipe`
+            : `label #${opened}`;
+        say(`${named} carries ${all}, which Foedrum does not read; ${choose}`);
       }
-      // The fresh Brewery issue has no label: the Brewery's default recipe brews it (ADR 0370).
-      const why = defaultRefusal(setup);
       if (why !== undefined) {
         // The bare number, which every shell passes as it is (cmd.exe keeps quotes).
         return refuse(
