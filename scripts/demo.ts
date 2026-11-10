@@ -298,8 +298,8 @@ const brewTip = await git(scratch, [
   '--end-of-options',
   BREW_BOTTLE,
 ]).then(
-  (subject) => subject.trim(),
-  (error: unknown) => `none: ${error instanceof Error ? error.message : String(error)}`,
+  (subject) => ({ subject: subject.trim() }),
+  (error: unknown) => ({ unread: error instanceof Error ? error.message : String(error) }),
 );
 
 await next();

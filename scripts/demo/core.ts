@@ -369,9 +369,17 @@ ${tail(plan.output)}`,
     );
   }
   if (pulls.length !== 2) problems.push(`the code host has ${pulls.length} pull requests, not 2`);
-  if (run.brewTip !== FIX_MESSAGE) {
+  if (!pulls.some(({ head, base }) => head === BREW_BOTTLE && base === 'main')) {
+    problems.push(`the code host has no pull request from ${BREW_BOTTLE} into main`);
+  }
+  const { brewTip } = run;
+  if ('unread' in brewTip) {
+    // Nothing was read, so nothing is said of the branch's tip.
+    const why = brewTip.unread.split(/\r?\n/)[0];
+    problems.push(`could not read the bottle branch of #2: ${why}`);
+  } else if (brewTip.subject !== FIX_MESSAGE) {
     problems.push(
-      `the bottle branch of #2 ends at "${run.brewTip}", not at the Cellarman's third fix "${FIX_MESSAGE}"`,
+      `the bottle branch of #2 ends at "${brewTip.subject}", not at the Cellarman's third fix "${FIX_MESSAGE}"`,
     );
   }
   for (const { number } of [ORDER, BREW_ORDER, MASH_ORDER]) {
