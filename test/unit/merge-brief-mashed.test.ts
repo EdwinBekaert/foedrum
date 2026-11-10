@@ -638,67 +638,6 @@ describe('the merge brief of a batch mashed to a building recipe (#867)', () => 
     choose('twice-taste');
   };
 
-  it("lists only the latest run's rounds of a recipe the batch returned to through another (#972)", async () => {
-    backToTwiceTaste();
-    run('plan', done);
-    run('taste', blockedAt('second.md'));
-    run('plan', fixedAt('second.md'));
-    run('taste', tasted('the cut was not run'), { commit: head });
-    run('ask', done);
-    opened();
-    const body = await briefBody();
-    assert.match(body, /- `taste`: fixed at second\.md:3/);
-    assert.doesNotMatch(body, /first\.md/);
-  });
-
-  it('reports no map that an earlier run of the recipe the batch returned to proposed (#972)', async () => {
-    backToTwiceTaste(surveyed('new'));
-    run('plan', surveyed('fresh'), { commit: head });
-    run('taste', tasted('the cut was not run'), { commit: head });
-    run('ask', done);
-    opened();
-    const body = await briefBody();
-    assert.match(body, /\*\*Evidence on /);
-    assert.doesNotMatch(body, /The test map of/);
-  });
-
-  it('lists only the latest run of a recipe the batch was given again from Stuck (#972)', async () => {
-    accept({ kind: 'order', batchId, order: { issue: 7 } });
-    accept({ kind: 'route', batchId, recipe: 'twice-taste', reason: 'label', source: 'label' });
-    twiceTasteRun('first.md', earlierCommit);
-    choose('twice-taste');
-    run('plan', done);
-    run('taste', blockedAt('second.md'));
-    run('plan', fixedAt('second.md'));
-    run('taste', tasted('the cut was not run'), { commit: head });
-    run('ask', done);
-    opened();
-    const body = await briefBody();
-    assert.match(body, /- `taste`: fixed at second\.md:3/);
-    assert.doesNotMatch(body, /first\.md/);
-  });
-
-  it("keeps the rounds before a rewind's step in the latest run of the recipe (#972)", async () => {
-    accept({ kind: 'order', batchId, order: { issue: 7 } });
-    accept({ kind: 'route', batchId, recipe: 'twice-taste', reason: 'label', source: 'label' });
-    twiceTasteRun('first.md', earlierCommit);
-    choose('twice-taste');
-    twiceTasteRun('second.md', head);
-    accept({
-      kind: 'rewind',
-      batchId,
-      toStepId: 'ask',
-      shas: { 'acme/web': head },
-      by: 'ann',
-      via: 'terminal',
-    });
-    run('ask', done);
-    opened();
-    const body = await briefBody();
-    assert.match(body, /- `taste`: fixed at second\.md:3/);
-    assert.doesNotMatch(body, /first\.md/);
-  });
-
   it("finds the merged-check step of a batch mashed to nip, in nip's own steps: regression test", () => {
     mashed('nip');
     const found = log.state().batches.get(batchId);

@@ -351,13 +351,6 @@ export interface Batch {
    */
   runFrom?: number;
   /**
-   * How many attempts of its path started before its latest recipe choice, the same recipe's
-   * included: where its latest run of its recipe began, which a rewind since does not move, so the
-   * merge brief's rounds and survey read none of an earlier run (ADR 0363); absent while none had
-   * started then.
-   */
-  recipeFrom?: number;
-  /**
    * How its open pull requests merged with their base, each check in the order it was recorded
    * (ADR 0198); absent while none was.
    */
@@ -704,9 +697,7 @@ function apply(state: State, event: Event): State {
       // The skips belonged to the run of the recipe before (ADR 0064).
       return updateBatch(state, event.batchId, ({ skipped: _, skips: _past, ...batch }) => ({
         ...batch,
-        ...(batch.path === undefined
-          ? {}
-          : { runFrom: batch.path.length, recipeFrom: batch.path.length }),
+        ...(batch.path === undefined ? {} : { runFrom: batch.path.length }),
         recipe:
           event.source === 'human'
             ? {
