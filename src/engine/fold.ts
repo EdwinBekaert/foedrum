@@ -32,6 +32,7 @@ import type {
   WorktreeRef,
 } from '../schemas/events.ts';
 import type { BlockerKind } from '../schemas/out-doc.ts';
+import type { RecipeType } from '../schemas/recipe.ts';
 import { StatusRevision } from '../schemas/status-comment.ts';
 import type { StepOutcome } from '../schemas/step-outcome.ts';
 import type { EffectKey } from '../schemas/store.ts';
@@ -87,6 +88,8 @@ export type Attempt =
       answered?: true;
       /** The recipe its batch brewed when it was scheduled (#657); absent without one. */
       recipe?: string;
+      /** That recipe's type, when its choice recorded one (ADR 0365). */
+      recipeType?: RecipeType;
       /** Scheduled by a person's lauter, who chose it and from where (ADR 0286). */
       chosen?: Chosen;
       abandoned?: true;
@@ -104,6 +107,8 @@ export type Attempt =
       answered?: true;
       /** The recipe its batch brewed when it was scheduled (#657); absent without one. */
       recipe?: string;
+      /** That recipe's type, when its choice recorded one (ADR 0365). */
+      recipeType?: RecipeType;
       /** Scheduled by a person's lauter, who chose it and from where (ADR 0286). */
       chosen?: Chosen;
       session?: SessionRef;
@@ -127,6 +132,8 @@ export type Attempt =
       answered?: true;
       /** The recipe its batch brewed when it was scheduled (#657); absent without one. */
       recipe?: string;
+      /** That recipe's type, when its choice recorded one (ADR 0365). */
+      recipeType?: RecipeType;
       /** Scheduled by a person's lauter, who chose it and from where (ADR 0286). */
       chosen?: Chosen;
       session?: SessionRef;
@@ -250,6 +257,16 @@ export const attemptRecipeOf = (state: State, ref: AttemptRef): string | undefin
   return batch?.steps.get(ref.stepId)?.attempts.get(ref.attempt)?.recipe ?? batch?.recipe?.name;
 };
 
+/**
+ * The type of the recipe `attemptRecipeOf` names, as its choice recorded it (ADR 0365); undefined
+ * when that choice is from before types.
+ */
+export const attemptRecipeTypeOf = (state: State, ref: AttemptRef): RecipeType | undefined => {
+  const batch = state.batches.get(ref.batchId);
+  const attempt = batch?.steps.get(ref.stepId)?.attempts.get(ref.attempt);
+  return attempt?.recipe === undefined ? batch?.recipe?.type : attempt.recipeType;
+};
+
 export interface Rewind {
   toStepId: string;
   by: string;
@@ -312,7 +329,7 @@ export interface Batch {
   /** When it was ordered (ADR 0179); absent for an order that did not record it. */
   orderedAt?: string;
   /** What chose the recipe; a human's choice also records who issued it and from where. */
-  recipe?: { name: string; reason: string } & (
+  recipe?: { name: string; reason: string; type?: RecipeType } & (
     | { source: 'label' | 'router' }
     | { source: 'human'; by: string; via: Surface; askedBy?: string }
   );
@@ -693,7 +710,9 @@ function apply(state: State, event: Event): State {
       };
     }
     case 'batch.recipe_chosen': {
-      const { recipe: name, reason } = event;
+      const { recipe: name, recipeType: type } = event;
+      // Its type, when the choice recorded one (ADR 0365).
+      const chose = { name, reason: event.reason, ...(type === undefined ? {} : { type }) };
       // The skips belonged to the run of the recipe before (ADR 0064).
       return updateBatch(state, event.batchId, ({ skipped: _, skips: _past, ...batch }) => ({
         ...batch,
@@ -701,14 +720,13 @@ function apply(state: State, event: Event): State {
         recipe:
           event.source === 'human'
             ? {
-                name,
-                reason,
+                ...chose,
                 source: event.source,
                 by: event.by,
                 via: event.via,
                 ...(event.askedBy === undefined ? {} : { askedBy: event.askedBy }),
               }
-            : { name, reason, source: event.source },
+            : { ...chose, source: event.source },
       }));
     }
     case 'step.scheduled': {
@@ -717,6 +735,7 @@ function apply(state: State, event: Event): State {
         const step = batch.steps.get(stepId) ?? { id: stepId, attempts: new Map(), inputs: [] };
         if (step.attempts.has(attempt)) throw attemptError(event, 'was already scheduled');
         const recipe = batch.recipe?.name;
+        const recipeType = batch.recipe?.type;
         const { choosing, ...rest } = skipping(batch, stepId, false);
         // A retry of an attempt a person's choice scheduled, a session reopened, is theirs too
         // (ADR 0286).
@@ -735,6 +754,7 @@ function apply(state: State, event: Event): State {
               ...(retry === undefined ? {} : { retry }),
               ...(answered === undefined ? {} : { answered }),
               ...(recipe === undefined ? {} : { recipe }),
+              ...(recipeType === undefined ? {} : { recipeType }),
               ...(chosen === undefined ? {} : { chosen }),
             }),
           }),

@@ -36,7 +36,7 @@ export interface Stall {
 
 export interface Recipe {
   /** What kind of work it does: `mash` chooses a recipe or makes a plan, `brew` builds (ADR 0365). */
-  readonly type?: RecipeType;
+  readonly type: RecipeType;
   /** How many of its batches may brew at once (ADR 0217); absent when it has no limit of its own. */
   readonly concurrency?: number;
   /** The step a batch starts with. */

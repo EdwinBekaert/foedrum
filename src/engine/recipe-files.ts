@@ -6,6 +6,7 @@
 
 import { BrewerFrontmatter } from '../schemas/brewer.ts';
 import { MUTANTS, SURVEY, TASTING } from '../schemas/out-doc.ts';
+import { PLAN } from '../schemas/plan.ts';
 import { durationMs } from '../schemas/primitives.ts';
 import { readDoc, readJsonc } from '../schemas/read.ts';
 import {
@@ -48,10 +49,10 @@ export interface BreweryFiles extends FilesByKind {
   };
 }
 
-/** A recipe a step that chooses the recipe may offer: its name and description (ADR 0232). */
+/** A recipe a step that chooses the recipe may offer: its name, type and description (ADR 0232, ADR 0365). */
 export interface RecipeChoice {
   name: string;
-  type?: RecipeType;
+  type: RecipeType;
   description: string;
 }
 
@@ -86,8 +87,9 @@ export interface StepBrewer {
   /** On a step a person's choice schedules: that choice (ADR 0286). */
   chosenBy?: ChosenBy;
   /**
-   * On a step that chooses the recipe, or whose brewer names the recipes input: the Brewery's recipes
-   * but those that choose one, in order (ADR 0232, ADR 0234).
+   * On a step that chooses the recipe: the Brewery's recipes but those that choose one, in order
+   * (ADR 0232); on a step whose brewer names the recipes input or writes a plan, or that reviews a
+   * plan, those of type `brew`, the recipes a sub-order may run with (ADR 0234, ADR 0365).
    */
   choices?: readonly RecipeChoice[];
 }
@@ -605,6 +607,7 @@ function unproven(recipe: RecipeFile, commits: (step: Step) => boolean): string[
  */
 function lineRecipe(
   name: string,
+  type: RecipeType,
   steps: readonly LineStep[],
   settings: Settings,
   groups: ReadonlyMap<string, string | undefined>,
@@ -653,6 +656,7 @@ function lineRecipe(
     ).length;
   };
   return {
+    type,
     ...(concurrency === undefined ? {} : { concurrency }),
     // A recipe has at least one step (its schema).
     firstStep: steps[0] === undefined ? '' : named(steps[0]),
@@ -1217,9 +1221,9 @@ export function loadRecipes(breweryFiles: BreweryFiles): LoadedRecipes {
   const stepBrewers = new Map<string, ReadonlyMap<string, StepBrewer>>();
   const stepChecks = new Map<string, ReadonlyMap<string, StepCheck>>();
   const redProofs = new Map<string, { id: string; of: string }>();
-  // Each loaded recipe's description, in the order read, and the steps that choose a recipe, by
-  // recipe: what those steps may offer is known once every recipe loaded (ADR 0232).
-  const descriptions = new Map<string, string>();
+  // Each loaded recipe's type and description, in the order read, and the steps that choose a
+  // recipe, by recipe: what those steps may offer is known once every recipe loaded (ADR 0232).
+  const offered = new Map<string, { type: RecipeType; description: string }>();
   const choosingSteps = new Map<string, readonly string[]>();
   for (const { path, value } of readAll(
     files.recipes,
@@ -1288,13 +1292,14 @@ export function loadRecipes(breweryFiles: BreweryFiles): LoadedRecipes {
       value.name,
       lineRecipe(
         value.name,
+        value.type,
         steps.map(({ line }) => line),
         { testFirst },
         groups,
         value.concurrency,
       ),
     );
-    descriptions.set(value.name, value.description);
+    offered.set(value.name, { type: value.type, description: value.description });
     const choosing = steps.flatMap(({ line }) => (line.chooses === true ? [line.id] : []));
     if (choosing.length > 0) choosingSteps.set(value.name, choosing);
     stepBrewers.set(
@@ -1309,20 +1314,22 @@ export function loadRecipes(breweryFiles: BreweryFiles): LoadedRecipes {
     );
   }
   if (problems.length > 0) return { valid: false, problems };
-  // Every recipe but those that choose a recipe themselves: what a step that chooses offers, and what
-  // the recipes input of any other brewer names, such as a plan's for its sub-orders (ADR 0232,
-  // ADR 0234), and what a plan lens step judges those by (ADR 0321).
-  const choices = [...descriptions]
+  // Every recipe but those that choose a recipe themselves: what a step that chooses offers
+  // (ADR 0232). Of those, the `brew` ones: what the recipes input of any other brewer names, such
+  // as a plan's for its sub-orders, what a plan's out doc may name, and what a plan lens step
+  // judges those by (ADR 0234, ADR 0321, ADR 0365).
+  const choices = [...offered]
     .filter(([name]) => !choosingSteps.has(name))
-    .map(([name, description]): RecipeChoice => ({ name, description }));
+    .map(([name, { type, description }]): RecipeChoice => ({ name, type, description }));
+  const building = choices.filter(({ type }) => type === 'brew');
   for (const [recipe, steps] of stepBrewers) {
     const chooses = choosingSteps.get(recipe) ?? [];
     const given = [...steps].map(([id, found]): [string, StepBrewer] => {
+      if (chooses.includes(id)) return [id, { ...found, choices }];
       const names = found.brewer.inputs.some(({ from }) => from === 'recipes');
+      const plans = found.brewer.output.schema === PLAN;
       const tastesPlan = (found.together?.[0] ?? found.lens)?.startsWith('plan/') === true;
-      return names || tastesPlan || chooses.includes(id)
-        ? [id, { ...found, choices }]
-        : [id, found];
+      return names || plans || tastesPlan ? [id, { ...found, choices: building }] : [id, found];
     });
     stepBrewers.set(recipe, new Map(given));
   }
