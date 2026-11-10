@@ -1223,7 +1223,7 @@ export function loadRecipes(breweryFiles: BreweryFiles): LoadedRecipes {
   const redProofs = new Map<string, { id: string; of: string }>();
   // Each loaded recipe's type and description, in the order read, and the steps that choose a
   // recipe, by recipe: what those steps may offer is known once every recipe loaded (ADR 0232).
-  const offered = new Map<string, { type: RecipeType; description: string }>();
+  const offered = new Map<string, RecipeChoice>();
   const choosingSteps = new Map<string, readonly string[]>();
   for (const { path, value } of readAll(
     files.recipes,
@@ -1299,7 +1299,7 @@ export function loadRecipes(breweryFiles: BreweryFiles): LoadedRecipes {
         value.concurrency,
       ),
     );
-    offered.set(value.name, { type: value.type, description: value.description });
+    offered.set(value.name, { name: value.name, type: value.type, description: value.description });
     const choosing = steps.flatMap(({ line }) => (line.chooses === true ? [line.id] : []));
     if (choosing.length > 0) choosingSteps.set(value.name, choosing);
     stepBrewers.set(
@@ -1318,9 +1318,7 @@ export function loadRecipes(breweryFiles: BreweryFiles): LoadedRecipes {
   // (ADR 0232). Of those, the `brew` ones: what the recipes input of any other brewer names, such
   // as a plan's for its sub-orders, what a plan's out doc may name, and what a plan lens step
   // judges those by (ADR 0234, ADR 0321, ADR 0365).
-  const choices = [...offered]
-    .filter(([name]) => !choosingSteps.has(name))
-    .map(([name, { type, description }]): RecipeChoice => ({ name, type, description }));
+  const choices = [...offered.values()].filter(({ name }) => !choosingSteps.has(name));
   const building = choices.filter(({ type }) => type === 'brew');
   for (const [recipe, steps] of stepBrewers) {
     const chooses = choosingSteps.get(recipe) ?? [];
