@@ -485,7 +485,7 @@ const testFirstOffLine = (
 ): string => {
   const shown = unlinked(withoutSecrets(reason.replace(/\s+/g, ' ').trim(), stepId, isCommit));
   const steps = skipped.map((id) => `\`${id}\``).join(', ');
-  return `Test-first was off, as the approved plan says: ${shown}.${skipped.length === 0 ? '' : ` Not run: ${steps}.`}`;
+  return `Test-first was off, as the approved plan says: ${shown}. Not run: ${steps}.`;
 };
 
 /**
@@ -568,7 +568,7 @@ export interface PullRequestTextInput {
   handovers?: readonly Handover[];
   /**
    * The approved plan's reason for turning test-first off, model text written by the plan step
-   * `stepId`, and the steps the batch skipped for it (ADR 0371).
+   * `stepId`, and the steps the batch skipped for it, at least one (ADR 0371).
    */
   testFirstOff?: { reason: string; stepId: string; skipped: readonly string[] };
 }

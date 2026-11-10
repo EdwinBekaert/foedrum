@@ -465,13 +465,17 @@ export const pullRequestActions = (options: PullRequestActionsOptions): DriverAc
         key,
         ...(siblings === undefined ? {} : { siblings }),
         handovers: handoversOf(batch),
-        ...(batch.testFirstOff === undefined || batch.plan === undefined
+        // Only a batch that skipped a step for it: one that ran them before the plan could turn
+        // them off says nothing of it (ADR 0371).
+        ...(batch.testFirstOff === undefined ||
+        batch.plan === undefined ||
+        batch.skipped === undefined
           ? {}
           : {
               testFirstOff: {
                 reason: batch.testFirstOff,
                 stepId: batch.plan.stepId,
-                skipped: [...(batch.skipped ?? [])],
+                skipped: [...batch.skipped],
               },
             }),
       });
