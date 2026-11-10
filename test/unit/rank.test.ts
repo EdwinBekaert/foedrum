@@ -564,13 +564,16 @@ describe('foedrum rank (ADR 0208)', () => {
       assert.equal(lastId(), before);
     });
 
-    it('refuses when it cannot read who labelled an issue of the queue', async () => {
+    it('refuses only the order whose labels it cannot read, and ranks the others without it', async () => {
       const failing = labelledBy({ [`${web}#7`]: new Error('502 reading the events') });
       assert.deepStrictEqual(
+        await run(['rank', 'web#7', '1'], { queue: failing }),
+        refused('cannot read who labelled web#7: 502 reading the events'),
+      );
+      // As a pass would, it leaves web#7 out: four orders in the queue, not five.
+      assert.deepStrictEqual(
         await run(['rank', 'web#8', '1'], { queue: failing }),
-        refused(
-          "cannot read the intake's queue: reading who labelled acme/web#7: 502 reading the events",
-        ),
+        ok('web#8 ranked 1: place 1 of 4 in the queue\n'),
       );
     });
   });
