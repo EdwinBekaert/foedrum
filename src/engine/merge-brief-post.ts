@@ -241,15 +241,15 @@ const ofCurrentRecipe = (state: State, batch: Batch): Batch => {
 };
 
 /**
- * `batch` from its latest recipe choice (`recipeFrom`): its path since, and only the attempts on
- * it. A return to a recipe it brewed before starts the brief's rounds and survey afresh, and a
- * rewind since keeps the steps before its point (ADR 0363).
+ * `batch` with only the attempts on its path since its latest recipe choice (`recipeFrom`). A
+ * return to a recipe it brewed before starts the brief's rounds and survey afresh, and a rewind
+ * since keeps the steps before its point (ADR 0363).
  */
 const ofLatestRun = (batch: Batch): Batch => {
   const path = (batch.path ?? []).slice(batch.recipeFrom ?? 0);
-  const ran = (stepId: string, attempt: number): boolean =>
-    path.some((at) => at.stepId === stepId && at.attempt === attempt);
-  return { ...keeping(batch, ran), path };
+  return keeping(batch, (stepId, attempt) =>
+    path.some((at) => at.stepId === stepId && at.attempt === attempt),
+  );
 };
 
 /** The `when` that was false for `stepId`, or its group's, when the batch skipped it (ADR 0064). */
