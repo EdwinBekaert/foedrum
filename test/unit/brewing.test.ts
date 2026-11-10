@@ -507,5 +507,37 @@ describe('brewing with the fake brewer runner', () => {
       ]);
       assert.deepStrictEqual(repair.done, [`cleaned ${worktrees.root} every batch`]);
     });
+
+    it('repairs at its start the worktrees of a batch that ended before a driver that died cleaned them', async () => {
+      // The batch went on tap, but nothing cleaned up after it: the driver had died.
+      const { brewing, recipes } = await brew({
+        plan: [behave.succeed()],
+        implement: [behave.succeed()],
+      });
+      assert.equal(brewing.batch('b1').lane.kind, 'on_tap');
+      const worktrees = fakeWorktrees();
+      const restarted = createBrewing({
+        store,
+        runner: fakeBrewerRunner({}),
+        recipes,
+        clock: () => now,
+        worktrees,
+      });
+
+      const { repair } = await restarted.start();
+
+      assert.deepStrictEqual(worktrees.cleans(), [
+        {
+          claims: {
+            batches: new Map([['b1', 'ended']]),
+            leased: [],
+            unpushed: new Map(),
+            open: new Set(),
+          },
+          scope: {},
+        },
+      ]);
+      assert.deepStrictEqual(repair.done, [`cleaned ${worktrees.root} every batch`]);
+    });
   });
 });
