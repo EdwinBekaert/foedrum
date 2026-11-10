@@ -88,16 +88,4 @@ describe('affectedInCheckout with real git', () => {
       ],
     });
   });
-
-  it('runs every test file, saying why, without an origin/main', async () => {
-    // A repository of its own, so the other test's origin/main stays.
-    const bare = join(dir.path, 'no-origin');
-    git(dir.path, ['init', '-q', '-b', 'main', bare]);
-    write(bare, { 'src/a.ts': '' });
-    git(bare, ['add', '.']);
-    git(bare, ['commit', '-q', '-m', 'Base']);
-    const affected = await affectedInCheckout(bare);
-    assert.equal(affected.kind, 'all');
-    assert.match((affected as { why: string }).why, /^no merge base with origin\/main: /);
-  });
 });

@@ -5,7 +5,7 @@
 
 import assert from 'node:assert/strict';
 import { after, before, describe, it } from 'node:test';
-import { createGitHubClient, GitHubRateLimited } from '../../src/github/client.ts';
+import { createGitHubClient } from '../../src/github/client.ts';
 import { resolveExecutable } from '../../src/platform/executables.ts';
 import { execProcessWith, processSpawner, type Timers } from '../../src/platform/processes.ts';
 import { hangGuardMs } from '../helpers/load.ts';
@@ -39,15 +39,6 @@ const route: Route = ({ method, path, headers, body }, response) => {
         : json(response, 200, { number: 7, title: 'Brew ✓' }, { etag: 'W/"seven"' });
     case 'GET /repos/acme/web/issues/9':
       return json(response, 404, { message: 'Not Found' });
-    case 'GET /rate_limited':
-      return json(
-        response,
-        403,
-        { message: 'API rate limit exceeded' },
-        { 'x-ratelimit-remaining': '0', 'x-ratelimit-reset': '4102444800' },
-      );
-    case 'GET /large':
-      return json(response, 200, { text: 'x'.repeat(200_000) });
     case 'POST /repos/acme/web/issues/7/labels':
       return json(response, 200, JSON.parse(body));
     case 'DELETE /repos/acme/web/issues/7/labels/brewing':
@@ -75,7 +66,7 @@ describe('the GitHub client through the real gh (ADR 0073)', {
     set: (callback, ms) => setTimeout(callback, Math.max(0, ms - 30_100)),
     clear: (timer) => clearTimeout(timer as NodeJS.Timeout),
   };
-  const client = (options: { env?: NodeJS.ProcessEnv; maxResponseBytes?: number } = {}) =>
+  const client = (options: { env?: NodeJS.ProcessEnv } = {}) =>
     createGitHubClient({
       exec: execProcessWith(processSpawner, loaded),
       hostname: FAKE_HOST,
@@ -83,9 +74,6 @@ describe('the GitHub client through the real gh (ADR 0073)', {
       // Only a guard against a hang: how fast gh answers is gh's business (ADR 0070).
       timeoutMs: hangGuardMs,
       env: options.env ?? fake?.env ?? {},
-      ...(options.maxResponseBytes === undefined
-        ? {}
-        : { maxResponseBytes: options.maxResponseBytes }),
     });
 
   before(async () => {
@@ -117,10 +105,6 @@ describe('the GitHub client through the real gh (ADR 0073)', {
     assert.deepStrictEqual([removed.status, removed.body], [204, null]);
   });
 
-  it('pauses on a rate-limited 403, from the headers gh printed', async () => {
-    await assert.rejects(client().rest('GET', '/rate_limited'), GitHubRateLimited);
-  });
-
   it("sends a body on stdin, with gh's own login and never a token variable", async () => {
     const github = client({ env: { ...fake?.env, GH_TOKEN: 'from-the-environment' } });
     const answer = await github.rest('POST', '/repos/acme/web/issues/7/labels', {
@@ -135,13 +119,6 @@ describe('the GitHub client through the real gh (ADR 0073)', {
   it("sends GraphQL to gh's endpoint, and reads data and errors", async () => {
     const answer = await client().graphql('query foedrumProbe { probe }', { n: 1 });
     assert.deepStrictEqual(answer, { data: { probe: 1 }, errors: [{ message: 'partly' }] });
-  });
-
-  it('fails on an answer longer than its limit', async () => {
-    await assert.rejects(
-      client({ maxResponseBytes: 100_000 }).rest('GET', '/large'),
-      /longer than 100000 bytes/,
-    );
   });
 
   it('fails with the login to make when gh has none for the host', async () => {

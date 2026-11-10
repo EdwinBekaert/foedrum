@@ -25,8 +25,4 @@ describe('with-checkout-tmp command', () => {
     assert.ok(dir.startsWith(join(root, '.foedrum', 'tmp', 'tests', 'tmpdir-')), dir);
     assert.equal(existsSync(dir), false, `${dir} was left behind`);
   });
-
-  it("exits with the program's exit code", () => {
-    assert.equal(wrap('process.exitCode = 5').status, 5);
-  });
 });

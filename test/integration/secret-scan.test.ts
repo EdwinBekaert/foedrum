@@ -1,6 +1,6 @@
 // scripts/secret-scan.ts with real node and git (ADR 0021): reading the file and asking git
-// whether a hash is a commit. Matching and exit codes are unit tests in
-// test/unit/secret-scan.test.ts.
+// whether a hash is a commit, both when it is and when it is not. Matching, exit codes and the
+// lines it prints are unit tests in test/unit/secret-scan.test.ts.
 
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
@@ -11,9 +11,6 @@ import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 
 const root = join(import.meta.dirname, '..', '..');
 const script = join(root, 'scripts', 'secret-scan.ts');
-
-// Built at run time so the source never holds a token-shaped string.
-const githubToken = `ghp${'_'}${'a1B2'.repeat(9)}`;
 
 describe('secret-scan command', () => {
   let dir: TempDir;
@@ -38,12 +35,5 @@ describe('secret-scan command', () => {
     const result = scan(`Base \`${'c0ffee'.repeat(6)}beef\`\n`);
     assert.equal(result.status, 1, result.stderr);
     assert.match(result.stdout, /^line 1: long hexadecimal string/);
-  });
-
-  it('exits 1 and names the line when it finds a secret', () => {
-    const result = scan(`fine\n${githubToken}\n`);
-    assert.equal(result.status, 1);
-    assert.match(result.stdout, /^line 2: GitHub token/);
-    assert.ok(!result.stdout.includes(githubToken));
   });
 });
