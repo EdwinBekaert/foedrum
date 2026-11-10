@@ -33,7 +33,7 @@ const recipes = fakeRecipes({
   ale: fakeRecipe({ steps: ['open'], actions: { open: 'openPullRequest' }, pullRequests: [] }),
 });
 const users = ['maintainer'];
-const login = 'maintainer';
+const login = 'brewery-bot';
 const batchId = 'app-7';
 const labelled = '2026-11-10T10:00:00Z';
 const before = '2026-11-10T09:00:00Z';
