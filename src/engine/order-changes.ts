@@ -1,7 +1,7 @@
 // What changed on a claimed issue after someone in `users` approved it (ADR 0368): its title, its
 // body or a comment, after the latest adding of its intake label, or after the engineer's latest
-// "continue". The driver checks it before each attempt of a claimed order starts, and asks the
-// engineer when anything did; it never goes on by itself.
+// "continue". The driver checks it before each attempt of a claimed order that reads the issue
+// starts, and asks the engineer when anything did; it never goes on by itself.
 
 import { MOST_ORDER_CHANGES, type OrderChange } from '../schemas/events.ts';
 import { isMarkedComment } from './claim-effects.ts';
@@ -82,14 +82,14 @@ const latest = (times: readonly (string | undefined)[]): string | undefined =>
  * When `batch`'s issue was last approved, undefined when it never was: a person's order when they
  * made it; else the moment each of the filter's labels had been added by someone in `users`, at or
  * before the order, since a label added later approves nothing the order took; and after either,
- * the engineer's latest "continue", up to what it was shown.
+ * the engineer's latest "continue", up to what it was shown (`continued`).
  */
 export const approvedAt = (
   batch: Batch,
   { labelled }: Pick<OrderActivity, 'labelled'>,
   filter: IntakeFilter | undefined,
   users: readonly string[],
-): string | undefined => {
+): Approval | undefined => {
   const ordered = (): string | undefined => {
     if (batch.orderedBy !== undefined && batch.orderedAt !== undefined) return batch.orderedAt;
     const { orderedAt } = batch;
@@ -106,21 +106,39 @@ export const approvedAt = (
     if (labels.length === 0 || each.some((at) => at === undefined)) return undefined;
     return latest(each);
   };
-  return latest([ordered(), batch.approvedUpTo]);
+  const by = ordered();
+  const { approvedUpTo } = batch;
+  if (approvedUpTo !== undefined && (by === undefined || !later(by, approvedUpTo))) {
+    return { at: approvedUpTo, continued: true };
+  }
+  return by === undefined ? undefined : { at: by, continued: false };
 };
 
 /**
- * The changes of `activity` after `since`, or every one when it is undefined: each change of the
+ * When an issue was approved, and whether by the engineer's continue: a label or an order approves
+ * the issue as it was before that second, since GitHub's times are whole seconds and a change in
+ * it may not have been seen; a continue approves what it showed, up to and with `upTo`.
+ */
+export interface Approval {
+  at: string;
+  continued: boolean;
+}
+
+/**
+ * The changes of `activity` since `approval`, or every one when it is undefined: each change of the
  * title, each edit of the body, and each comment made or changed, by anyone but Foedrum, whose
  * comments are its login's that end in an effect marker (ADR 0333). The first few by time, how
  * many more, and the latest one's time; undefined when there is none.
  */
 export const changesSince = (
   activity: OrderActivity,
-  since: string | undefined,
+  approval: Approval | undefined,
   login: string,
 ): OrderChanges | undefined => {
-  const after = ({ at }: { at: string }): boolean => since === undefined || later(at, since);
+  const after = ({ at }: { at: string }): boolean =>
+    approval === undefined ||
+    later(at, approval.at) ||
+    (!approval.continued && !later(approval.at, at));
   const byOf = (by: string | undefined) => (by === undefined ? {} : { by });
   const foedrums = ({ by, body }: OrderActivity['comments'][number]): boolean =>
     by !== undefined && same(by, login) && isMarkedComment(body);
@@ -148,9 +166,10 @@ export const changesSince = (
 };
 
 /**
- * The check the driver runs before each brewer attempt of a claimed order (ADR 0368): it reads the
- * issue's activity and gives what changed since its approval. A Brewery order is never checked:
- * no label approves it, and the Brewery is its users' own repository (ADR 0359).
+ * The check the driver runs before each attempt of a claimed order that reads its issue, a
+ * brewer's or an action's (ADR 0368): it reads the issue's activity and gives what changed since
+ * its approval. A Brewery order is never checked: no label approves it, and the Brewery is its
+ * users' own repository (ADR 0359).
  */
 export const createOrderCheck =
   ({ activity, users, login, filterOf }: OrderCheckOptions): OrderCheck =>

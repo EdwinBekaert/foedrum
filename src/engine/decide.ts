@@ -1133,6 +1133,8 @@ function continueOrStop(
         ...(asked?.retry === undefined ? {} : { retry: asked.retry }),
         ...(asked?.answered === undefined ? {} : { answered: asked.answered }),
       });
+      // The group's other children, abandoned with it, run again (ADR 0168).
+      resumeGroup(draft, batchId, stepId);
       return;
     }
     case 'stop':

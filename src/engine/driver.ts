@@ -212,8 +212,9 @@ export interface DriverOptions {
    */
   actions?: DriverActions;
   /**
-   * What changed on a claimed order's issue since it was approved, read before each of its brewer
-   * attempts starts (ADR 0368); without it, nothing is read and no attempt asks.
+   * What changed on a claimed order's issue since it was approved, read before each of its attempts
+   * that reads the issue starts, a brewer's or an action's, never a check step's (ADR 0368);
+   * without it, nothing is read and no attempt asks.
    */
   orderCheck?: OrderCheck;
   /** How long a batch's or an attempt's lease lasts between renewals; default 5 minutes. */
@@ -1041,6 +1042,8 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
    */
   const changedOrder = async (batch: Batch, ref: AttemptRef, key: string): Promise<boolean> => {
     if (orderCheck === undefined || batch.repo === undefined) return false;
+    // A check step reads nothing of the issue; a brewer reads its text, an action its title.
+    if (!brews(ref) && actionOf(log.state(), recipes, ref) === undefined) return false;
     let changes: Awaited<ReturnType<OrderCheck>>;
     try {
       changes = await orderCheck(batch);

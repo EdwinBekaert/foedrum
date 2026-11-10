@@ -8,7 +8,8 @@ import { checked, graphqlData, repoPath } from './answers.ts';
 import type { GitHubClient } from './client.ts';
 import { type GitHubReads, pageSize } from './reads.ts';
 
-// A page of the newest 100 edits; an issue with more counts its latest edit by nobody known.
+// A page of 100 edits, and the time of the latest, which counts by nobody known when no edit of the
+// page has it.
 const EDITS = `query($owner: String!, $name: String!, $number: Int!) {
   repository(owner: $owner, name: $name) {
     issue(number: $number) {
@@ -55,7 +56,10 @@ export const githubOrderActivity =
       by: editor?.login,
       at: editedAt,
     }));
-    if (userContentEdits.pageInfo.hasNextPage && lastEditedAt !== null) {
+    // The latest edit counts even when the history lists none at its time, past its first page or
+    // left out of it, by nobody known.
+    const listed = (at: string) => edited.some((edit) => Date.parse(edit.at) === Date.parse(at));
+    if (lastEditedAt !== null && !listed(lastEditedAt)) {
       edited.push({ by: undefined, at: lastEditedAt });
     }
 
