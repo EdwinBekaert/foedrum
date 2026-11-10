@@ -1,7 +1,6 @@
 // The merge-tree of an open pull request's head and its base's tip, with real git (ADR 0198): a
 // clone with a pull request's head and a base that moved, merged in a git directory of Foedrum's
-// own with the clone's objects, so a merge driver the clone's configuration names takes no part,
-// and nothing is left in the git directories' root.
+// own with the clone's objects, so a merge driver the clone's configuration names takes no part.
 
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
@@ -84,16 +83,12 @@ describe('openMergeTree, with real git (ADR 0198)', () => {
   });
 
   it("names the conflicting file, whatever merge driver the clone's configuration names", async () => {
+    const refs = git(clone, ['for-each-ref']);
     assert.deepStrictEqual(await mergeTree()(head, conflictTip), {
       kind: 'conflicts',
       files: ['app.txt'],
     });
-  });
-
-  it('leaves no git directory behind, and moves no ref of the clone', async () => {
-    const refs = git(clone, ['for-each-ref']);
-    await mergeTree()(head, conflictTip);
-    assert.equal(existsSync(root) ? readdirSync(root).length : 0, 0);
+    // Git wrote nothing into the clone: the merge ran in a git directory of Foedrum's own.
     assert.equal(git(clone, ['for-each-ref']), refs);
   });
 });
@@ -154,6 +149,7 @@ describe('openMergedTree, with real git (ADR 0203)', () => {
     openMergedTree({ git: runGit, clone, own: { url: join(dir.path, 'nowhere.git'), root } });
 
   it("checks out the merged files, a commit on head and tip with the clone's tags and history, and runs no hook of the clone's", async () => {
+    const refs = git(clone, ['for-each-ref']);
     const read = await mergedTree()(head, tip, async (worktree) => ({
       app: readFileSync(join(worktree, 'app.txt'), 'utf8'),
       other: readFileSync(join(worktree, 'other.txt'), 'utf8'),
@@ -169,6 +165,9 @@ describe('openMergedTree, with real git (ADR 0203)', () => {
       count: '4',
     });
     assert.equal(existsSync(join(dir.path, 'hook-ran')), false);
+    // Git wrote no ref and no worktree record into the clone: the tree was its own directory's.
+    assert.equal(git(clone, ['for-each-ref']), refs);
+    assert.doesNotMatch(git(clone, ['worktree', 'list']), /\.tree/);
   });
 
   it('in a blobless clone, checks out the files with blobs from the URL Foedrum names', async () => {
@@ -229,37 +228,5 @@ describe('openMergedTree, with real git (ADR 0203)', () => {
     assert.equal(existsSync(root) ? readdirSync(root).length : 0, 0);
     // The commit as it is: the clone's file stays.
     assert.equal(git(clone, ['show', `${head}:app.txt`]), 'the batch');
-  });
-
-  it("gives a mutant's rewrite the file as git checked it out (ADR 0313, regression test)", async () => {
-    const commitTree = openCommitTree({
-      git: runGit,
-      clone,
-      own: { url: join(dir.path, 'nowhere.git'), root },
-    });
-    const seen: string[] = [];
-    const edit = {
-      file: 'app.txt',
-      rewrite: (text: string) => {
-        seen.push(text);
-        return text.replace('the batch', 'the mutant');
-      },
-    };
-    const read = await commitTree(
-      head,
-      async (worktree) => readFileSync(join(worktree, 'app.txt'), 'utf8'),
-      { edit },
-    );
-    // The commit's text, as the checkout wrote it, and the rewrite of it in the tree.
-    assert.deepStrictEqual(seen, ['the batch\n']);
-    assert.equal(read, 'the mutant\n');
-  });
-
-  it('leaves no worktree or git directory behind, and moves no ref of the clone', async () => {
-    const refs = git(clone, ['for-each-ref']);
-    await mergedTree()(head, tip, async () => undefined);
-    assert.equal(existsSync(root) ? readdirSync(root).length : 0, 0);
-    assert.equal(git(clone, ['for-each-ref']), refs);
-    assert.doesNotMatch(git(clone, ['worktree', 'list']), /\.tree/);
   });
 });

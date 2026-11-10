@@ -26,6 +26,7 @@ import { NIP_TARGET_FILES } from '../test/helpers/nip-fixture.ts';
 import { DEMO_GIT_CONFIG } from './demo/brewer.ts';
 import { codeHost, fileJournal } from './demo/code-host.ts';
 import {
+  BREW_BOTTLE,
   BREW_ORDER,
   BREWERY,
   breweryFiles,
@@ -287,6 +288,19 @@ await host.fetch(`https://api.github.com/repos/${BREWERY}/issues/${BREW_ORDER.nu
 say(`$ foedrum brew ${BREW_ORDER.number} --as ${USER}`);
 const brew = await live('brew', String(BREW_ORDER.number));
 indented(brew.output.trimEnd().split(/\r?\n/));
+// The commit the second order's pull request ends at, as the target's remote has it (ADR 0367).
+const brewTip = await git(scratch, [
+  '--git-dir',
+  join(scratch, 'web.git'),
+  'log',
+  '-1',
+  '--format=%s',
+  '--end-of-options',
+  BREW_BOTTLE,
+]).then(
+  (subject) => ({ subject: subject.trim() }),
+  (error: unknown) => ({ unread: error instanceof Error ? error.message : String(error) }),
+);
 
 await next();
 // As a Claude Code session runs it (ADR 0126): resume names the attempt and prints the line to
@@ -335,6 +349,7 @@ const problems = problemsOf({
   mash,
   plan,
   pulls: host.pulls(),
+  brewTip,
   comments: new Map(
     [ORDER, BREW_ORDER, MASH_ORDER].map(({ number }) => [number, host.comments(BREWERY, number)]),
   ),

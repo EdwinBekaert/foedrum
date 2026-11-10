@@ -368,6 +368,12 @@ export interface Batch {
    */
   runFrom?: number;
   /**
+   * The first attempt number of each step that had attempts at its latest recipe choice or rewind,
+   * in the run that began there: one above its highest then, so an attempt abandoned before it
+   * started, which is on no path, still falls in its own run (ADR 0369); absent while neither was.
+   */
+  runStarts?: Readonly<Record<string, number>>;
+  /**
    * How its open pull requests merged with their base, each check in the order it was recorded
    * (ADR 0198); absent while none was.
    */
@@ -717,6 +723,7 @@ function apply(state: State, event: Event): State {
       return updateBatch(state, event.batchId, ({ skipped: _, skips: _past, ...batch }) => ({
         ...batch,
         ...(batch.path === undefined ? {} : { runFrom: batch.path.length }),
+        runStarts: runStartsOf(batch),
         recipe:
           event.source === 'human'
             ? {
@@ -988,6 +995,7 @@ function apply(state: State, event: Event): State {
           taskTree: { kind: 'rewound', shas },
           // A rewind runs the change again from its step, as a recipe choice does (ADR 0357).
           ...(batch.path === undefined ? {} : { runFrom: batch.path.length }),
+          runStarts: runStartsOf(batch),
         };
       });
     }
@@ -1316,6 +1324,12 @@ function unfinished(steps: ReadonlyMap<string, Step>): StoppedAttempt[] {
     ),
   );
 }
+
+/** The first attempt number of each of `batch`'s steps in a run that begins now (ADR 0369). */
+const runStartsOf = (batch: Batch): Record<string, number> =>
+  Object.fromEntries(
+    [...batch.steps].map(([id, step]) => [id, Math.max(0, ...step.attempts.keys()) + 1]),
+  );
 
 /**
  * Marks every attempt that has not finished as abandoned, and as `stopped` when a person's stop

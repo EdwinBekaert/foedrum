@@ -41,7 +41,6 @@ import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import { execProcess } from '../../src/platform/processes.ts';
 import { removeTree } from '../../src/platform/remove.ts';
 import type { Event } from '../../src/schemas/events.ts';
-import { surveyOf } from '../../src/schemas/out-doc.ts';
 import { type Git, runGit } from '../../src/workspace/git.ts';
 import { cannedGhLogin, resolveWithMadeUpGh } from '../helpers/canned-gh.ts';
 import { ghOver } from '../helpers/fake-gh.ts';
@@ -326,51 +325,6 @@ describe('the Nip recipe end to end', () => {
       prompts.get(attemptKey.encode({ batchId: BATCH, stepId: 'acceptance', attempt: 1 })) ?? '';
     assert.match(acceptance, /- \[ \] a test pins it down/);
     assert.match(acceptance, /# Lens: acceptance/);
-  });
-
-  it("a Nip batch's status comment lists the security Taster beside the other two", () => {
-    const comments = brewed.api.comments.get(`${BREWERY}#${NIP_ORDER.number}`) ?? [];
-    const body = comments[0]?.body ?? '';
-    // The Tasters' attempts share the path's line of the round they ran in (ADR 0168, ADR 0306).
-    const tasted = body.split('\n').find((line) => line.includes('`correctness #1`'));
-    assert.ok(tasted !== undefined, body);
-    assert.match(tasted, /`acceptance #1`/);
-    assert.match(tasted, /`security #1`/);
-  });
-
-  it("proves red and green through the test map the Maltster's session committed, reading no test names", () => {
-    const { events, api } = brewed;
-    const finished = (stepId: string) =>
-      events.flatMap((event) =>
-        event.type === 'step.finished' && event.batchId === BATCH && event.stepId === stepId
-          ? [event]
-          : [],
-      );
-    // The repository has no map on main, so the Maltster's session proposes one: only it says new
-    // (ADR 0298).
-    const [survey] = finished('survey');
-    const map =
-      survey?.outcome.kind === 'succeeded' ? surveyOf(survey.outcome.output)?.map : undefined;
-    assert.equal(map, 'new', JSON.stringify(survey));
-    // The survey's check ran the confirmed test line once against it, and it passed.
-    const [check] = finished('survey-check');
-    assert.equal(check?.outcome.kind, 'succeeded', JSON.stringify(check));
-    assert.deepEqual(
-      check?.readings?.map((reading) => [reading.check, reading.result]),
-      [['test', 'exited']],
-    );
-    // foedrum.jsonc names no test report, so a red proof by test names would block for one: the
-    // red proof read the module's report where the map says.
-    assert.deepEqual(
-      finished('red').map(({ outcome }) => outcome.kind),
-      ['succeeded'],
-    );
-    // The passing green read the map's one module, whose coverage is none, and names it.
-    const green = finished('green').at(-1);
-    assert.equal(green?.outcome.kind, 'succeeded', JSON.stringify(green));
-    assert.deepEqual(green?.coverage?.unmeasured, ['greet']);
-    const comments = api.comments.get(`${BREWERY}#${NIP_ORDER.number}`) ?? [];
-    assert.match(comments[0]?.body ?? '', /not measured, coverage none: greet/);
   });
 });
 

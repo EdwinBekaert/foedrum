@@ -171,6 +171,10 @@ export const CRASH_LINE = 'demo: the Gauger committed its test; the Cellar is ki
 export const ON_TAP_LINE = 'demo: #1 is on tap';
 /** The start of foedrum brew's last line once the second order's batch is on tap. */
 export const BREW_ON_TAP_LINE = 'foedrum brew: #2 is on tap';
+/** The bottle branch of the second order's batch on the target's remote. */
+export const BREW_BOTTLE = `foedrum/${BREWERY.replace('/', '.')}/${BREW_ORDER.number}-1/${TARGET.replace('/', '.')}`;
+/** The message of the Cellarman's third fix, after the blocking lens's finding (ADR 0193). */
+export const FIX_MESSAGE = 'Greet a visitor whose name is only spaces as a stranger';
 /** The line foedrum mash stops at: the Innkeeper's question of the third order's batch. */
 export const QUESTION_LINE = 'foedrum mash: #3 needs input at innkeep:';
 /**
@@ -313,6 +317,11 @@ export interface DemoRun {
   plan: ProcessOutcome;
   /** The pull requests on the fake code host. */
   pulls: readonly { title: string; head: string; base: string }[];
+  /**
+   * The subject of the commit at the tip of the second order's bottle branch, or why it could not
+   * be read (ADR 0367).
+   */
+  brewTip: { subject: string } | { unread: string };
   /** The comments on each order's issue there, by issue number. */
   comments: ReadonlyMap<number, readonly { author: string; body: string }[]>;
   /** The foedrum commands the walkthrough ran, and how each ended. */
@@ -361,6 +370,19 @@ ${tail(plan.output)}`,
     );
   }
   if (pulls.length !== 2) problems.push(`the code host has ${pulls.length} pull requests, not 2`);
+  if (!pulls.some(({ head, base }) => head === BREW_BOTTLE && base === 'main')) {
+    problems.push(`the code host has no pull request from ${BREW_BOTTLE} into main`);
+  }
+  const { brewTip } = run;
+  if ('unread' in brewTip) {
+    // Nothing was read, so nothing is said of the branch's tip.
+    const why = brewTip.unread.split(/\r?\n/)[0];
+    problems.push(`could not read the bottle branch of #2: ${why}`);
+  } else if (brewTip.subject !== FIX_MESSAGE) {
+    problems.push(
+      `the bottle branch of #2 ends at "${brewTip.subject}", not at the Cellarman's third fix "${FIX_MESSAGE}"`,
+    );
+  }
   for (const { number } of [ORDER, BREW_ORDER, MASH_ORDER]) {
     const all = comments.get(number) ?? [];
     // The mashed order has a plan comment beside its status comment (ADR 0233), told by its heading.
