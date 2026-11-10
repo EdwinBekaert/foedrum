@@ -682,8 +682,7 @@ function lineRecipe(
     skip: (batch, id) => {
       const when = groups.has(id) ? groups.get(id) : at(id).when;
       // A sub-order whose approved plan turned test-first off brews without it (ADR 0371).
-      const off = batch.testFirstOff !== undefined;
-      const read = off ? { ...settings, testFirst: false } : settings;
+      const read = batch.testFirstOff === undefined ? settings : { ...settings, testFirst: false };
       return when === undefined || holds(when, read) ? undefined : when;
     },
     after: (_batch, id) => {
