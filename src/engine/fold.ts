@@ -1161,6 +1161,8 @@ function apply(state: State, event: Event): State {
         ? updateBatch(applied, key.batchId, (ended) => ({ ...ended, endShown: true }))
         : applied;
     }
+    case 'order.approved':
+      throw new Error('not implemented');
     default:
       return unreachable(event);
   }

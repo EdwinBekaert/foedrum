@@ -196,6 +196,8 @@ function rule(state: State, event: Event): string | undefined {
     case 'usage.window_closed':
     case 'usage.window_opened':
       return undefined;
+    case 'order.approved':
+      throw new Error('not implemented');
     default: {
       const unhandled: never = event;
       throw new Error(`Unhandled event ${JSON.stringify(unhandled)}`);

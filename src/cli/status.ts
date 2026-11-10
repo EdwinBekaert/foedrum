@@ -72,6 +72,8 @@ const stuckOn = (reason: StuckReason, called: string): string => {
       return `the plan of ${reason.stepId} #${reason.attempt} is ready for your review`;
     case 'stopped':
       return `stopped at ${reason.stepId} by ${reason.by} via ${reason.via}${reason.why === undefined ? '' : `: ${reason.why}`}`;
+    case 'order_changed':
+      throw new Error('not implemented');
     default: {
       const unhandled: never = reason;
       throw new Error(`Unhandled stuck reason ${JSON.stringify(unhandled)}`);

@@ -329,6 +329,7 @@ export const openSqliteEventStore = (
       case 'order.ranked':
       case 'usage.window_closed':
       case 'usage.window_opened':
+      case 'order.approved':
         return;
       default: {
         const unhandled: never = event;

@@ -42,6 +42,7 @@ import type { BatchLease, EffectKey, EventStore, EventStoreTransaction } from '.
 import { createFailingBatches } from './failing-batches.ts';
 import { createFailureLines } from './failure-lines.ts';
 import { attemptRecipeOf, type Batch, runningAttempt, type State, stuckOnFailing } from './fold.ts';
+import type { OrderCheck } from './order-changes.ts';
 import { withoutSecrets } from './out-doc-text.ts';
 import { pauseOf, stopsNow } from './pauses.ts';
 import type { RecipeAction, Recipes } from './recipes.ts';
@@ -210,6 +211,11 @@ export interface DriverOptions {
    * on its environment at its start.
    */
   actions?: DriverActions;
+  /**
+   * What changed on a claimed order's issue since it was approved, read before each of its brewer
+   * attempts starts (ADR 0368); without it, nothing is read and no attempt asks.
+   */
+  orderCheck?: OrderCheck;
   /** How long a batch's or an attempt's lease lasts between renewals; default 5 minutes. */
   leaseMs?: number;
   /** Default 2 days. */

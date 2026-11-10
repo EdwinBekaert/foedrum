@@ -157,6 +157,13 @@ const valid: Record<Event['type'], Event> = {
     at: '2026-10-15T12:00:00.000Z',
   },
   'batch.cancelled': { type: 'batch.cancelled', batchId: 'b1', by: 'octocat', via: 'comment' },
+  'order.approved': {
+    type: 'order.approved',
+    batchId: 'b1',
+    upTo: '2026-11-10T11:00:00Z',
+    by: 'octocat',
+    via: 'terminal',
+  },
   'batch.failing': {
     type: 'batch.failing',
     batchId: 'b1',
@@ -910,6 +917,16 @@ describe('StuckReason', () => {
     routing: { kind: 'routing', deadlineAt: '2026-10-15T12:00:00Z' },
     plan_review: { kind: 'plan_review', stepId: 'plan', attempt: 2 },
     stopped: { kind: 'stopped', stepId: 'brew', by: 'ada', via: 'terminal', why: 'lunch' },
+    order_changed: {
+      kind: 'order_changed',
+      stepId: 'brew',
+      changes: [
+        { what: 'body', by: 'mallory', at: '2026-11-10T11:00:00Z' },
+        { what: 'comment', comment: 501, at: '2026-11-10T11:30:00Z' },
+      ],
+      more: 0,
+      upTo: '2026-11-10T11:30:00Z',
+    },
     pull_request_failed: {
       kind: 'pull_request_failed',
       stepId: 'open-pull-request',

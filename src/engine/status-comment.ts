@@ -316,6 +316,8 @@ const stuckText = (
       const why = reason.why === undefined ? '' : `: ${plain(reason.why)}`;
       return `${code(reason.stepId)} was stopped by ${plain(reason.by)} (${reason.via})${why}`;
     }
+    case 'order_changed':
+      throw new Error('not implemented');
     default:
       return reason satisfies never;
   }
