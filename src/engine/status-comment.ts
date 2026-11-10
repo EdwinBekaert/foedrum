@@ -665,6 +665,13 @@ const nextLines = (
           `Next: answer the questions above with ${code(`foedrum answer ${called} ${answers}`)}${or}.`,
         ];
       }
+      // The one question of an issue that changed since its approval (ADR 0368).
+      case 'order_changed': {
+        const answer = (word: string) => code(`foedrum answer ${called} ${word}`);
+        return [
+          `Next: answer with ${answer('continue')} to brew the issue as it is now, or ${answer('stop')} to end the batch.`,
+        ];
+      }
       default:
         return [`Next: ${moving(options)}.`];
     }

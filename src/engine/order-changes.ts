@@ -91,7 +91,10 @@ export const approvedAt = (
   users: readonly string[],
 ): Approval | undefined => {
   const ordered = (): string | undefined => {
-    if (batch.orderedBy !== undefined && batch.orderedAt !== undefined) return batch.orderedAt;
+    // In whole seconds, as GitHub gives a change's time: a change in the order's second counts.
+    if (batch.orderedBy !== undefined && batch.orderedAt !== undefined) {
+      return new Date(Math.floor(Date.parse(batch.orderedAt) / 1000) * 1000).toISOString();
+    }
     const { orderedAt } = batch;
     const labels = filter?.labels ?? [];
     const each = labels.map((label) =>

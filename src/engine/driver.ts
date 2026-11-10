@@ -1037,10 +1037,11 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
 
   /**
    * Whether the attempt `ref` of a claimed order waits for the engineer instead of starting: its
-   * issue changed since its approval, so it goes Stuck with the question, or the check could not
-   * read the issue, so the attempt fails before it starts and is retried (ADR 0368).
+   * issue changed since its approval, so it goes Stuck with the question (ADR 0368). A read that
+   * fails throws, so the batch is set aside for the drive and checked again at the next tick, with
+   * no attempt spent, and marked after an hour (ADR 0328, ADR 0335).
    */
-  const changedOrder = async (batch: Batch, ref: AttemptRef, key: string): Promise<boolean> => {
+  const changedOrder = async (batch: Batch, ref: AttemptRef): Promise<boolean> => {
     if (orderCheck === undefined || batch.repo === undefined) return false;
     // A check step reads nothing of the issue; a brewer reads its text, an action its title.
     if (!brews(ref) && actionOf(log.state(), recipes, ref) === undefined) return false;
@@ -1048,13 +1049,9 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
     try {
       changes = await orderCheck(batch);
     } catch (error) {
-      const reason = `the order could not be checked for changes since its approval: ${messageOf(error)}`;
-      const ending = { kind: 'failed', retryable: true, reason } as const;
-      const started = { type: 'step.started', ...ref } as const;
-      if (recordStart(started, (tx) => leaseAttempt(tx, key)))
-        issue({ kind: 'finish', ...ref, ending });
-      releaseAttempt(key);
-      return true;
+      throw new Error(
+        `the order could not be checked for changes since its approval: ${messageOf(error)}`,
+      );
     }
     if (changes === undefined) return false;
     issueHolding(batch.id, { kind: 'order_changed', ...ref, ...changes });
@@ -1094,7 +1091,7 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
       saidWaiting.delete(key);
       moved = true;
       // No attempt of a claimed order reads its issue once it changed since its approval (ADR 0368).
-      if (await changedOrder(batch, ref, key)) {
+      if (await changedOrder(batch, ref)) {
         refused.add(key);
         continue;
       }
