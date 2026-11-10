@@ -314,6 +314,22 @@ describe('openAttemptWorktrees with a fake git', () => {
       assert.deepEqual(worktree, { path, branch, commit: BASE });
       assert.equal(recordAtAdd, false);
     });
+
+    it('adds the worktree at the commit git resolved the recorded one to, when its branch is gone', async () => {
+      const { calls, git } = fakeGit((_cwd, args) => {
+        if (args.includes('v1^{commit}')) return ok(`${TIP}\n`);
+        if (args[0] === 'rev-parse') return { code: 1, stdout: '', stderr: '' };
+        if (args[0] === 'worktree' && args[1] === 'list') {
+          return ok(porcelain([{ path: clone, branch: 'main' }]));
+        }
+        return undefined;
+      });
+
+      const worktree = await open(git).recreate(attempt, 'v1');
+
+      assert.deepEqual(worktree, { path, branch, commit: TIP });
+      assert.deepEqual(calls.at(-1), [clone, 'worktree', 'add', '-b', branch, '--', path, TIP]);
+    });
   });
 });
 
