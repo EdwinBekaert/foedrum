@@ -59,13 +59,34 @@ export const GitHubListedIssue = GitHubIssue.extend({
 
 /**
  * One item of `GET /repos/{owner}/{repo}/issues/{n}/events`: what the intake reads of it (ADR
- * 0359). A `labeled` event names its label; its actor is null for an account deleted since.
+ * 0359), and when it happened, which the order check reads (ADR 0368). A `labeled` event names its
+ * label; its actor is null for an account deleted since.
  */
 export const GitHubIssueEvent = z.object({
   id: z.number().int().positive(),
   event: z.string(),
   actor: Account.nullable().optional(),
   label: z.object({ name: z.string() }).optional(),
+  created_at: z.iso.datetime({ offset: true }).optional(),
+});
+
+/** GraphQL's answer to the edits of an issue's body, newest first (ADR 0368). */
+export const GitHubIssueEdits = z.object({
+  repository: z.object({
+    issue: z.object({
+      lastEditedAt: z.iso.datetime({ offset: true }).nullable(),
+      userContentEdits: z.object({
+        pageInfo: z.object({ hasNextPage: z.boolean() }),
+        nodes: z.array(
+          z.object({
+            editedAt: z.iso.datetime({ offset: true }),
+            /** null for an account that was deleted since. */
+            editor: z.object({ login: z.string() }).nullable(),
+          }),
+        ),
+      }),
+    }),
+  }),
 });
 
 /** `GET /repos/{owner}/{repo}/pulls/{n}`. */
@@ -176,6 +197,11 @@ export const GitHubOrderComment = GitHubComment.extend({
   body: z.string(),
   created_at: z.iso.datetime({ offset: true }),
   author_association: z.string(),
+});
+
+/** A comment as the order check reads it, with when it last changed (ADR 0368). */
+export const GitHubActivityComment = GitHubOrderComment.extend({
+  updated_at: z.iso.datetime({ offset: true }),
 });
 
 /** GraphQL's answer to whether a comment is hidden (ADR 0229). */

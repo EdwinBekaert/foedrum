@@ -12,6 +12,7 @@ import {
   type State,
   stuckOnFailing,
 } from '../engine/fold.ts';
+import { changesText } from '../engine/order-changes.ts';
 import { pauseOf, stopAtText } from '../engine/pauses.ts';
 import { totalParts } from '../engine/receipt.ts';
 import { sessionCommand } from '../engine/status-comment.ts';
@@ -38,7 +39,7 @@ const waitingFor = (on: WaitCondition): string => {
   }
 };
 
-const stuckOn = (reason: StuckReason, called: string): string => {
+const stuckOn = (reason: StuckReason, called: string, { repo, issue }: Batch): string => {
   switch (reason.kind) {
     case 'needs_input':
       return `needs input at ${reason.stepId}`;
@@ -72,6 +73,8 @@ const stuckOn = (reason: StuckReason, called: string): string => {
       return `the plan of ${reason.stepId} #${reason.attempt} is ready for your review`;
     case 'stopped':
       return `stopped at ${reason.stepId} by ${reason.by} via ${reason.via}${reason.why === undefined ? '' : `: ${reason.why}`}`;
+    case 'order_changed':
+      return `the order changed at ${reason.stepId}: ${repo ?? ''}#${issue} changed after its approval: ${changesText(reason)}`;
     default: {
       const unhandled: never = reason;
       throw new Error(`Unhandled stuck reason ${JSON.stringify(unhandled)}`);
@@ -109,7 +112,7 @@ export const describeLane = (
     case 'stuck':
       return {
         lane: 'stuck',
-        detail: `${stuckOn(lane.reason, called)}; reminder ${lane.remindAt}`,
+        detail: `${stuckOn(lane.reason, called, batch)}; reminder ${lane.remindAt}`,
       };
     case 'on_tap': {
       // A plan a person signed off is on tap with no pull request (ADR 0281).

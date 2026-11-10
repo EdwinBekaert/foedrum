@@ -42,6 +42,7 @@ import {
   limitsOf,
   mayHold,
 } from '../engine/limits.ts';
+import { ORDER_CHANGED_QUESTION } from '../engine/order-changes.ts';
 import { orderOfBatch, pauseOf, stopAtText } from '../engine/pauses.ts';
 import { onePerOrder, placeAt, rankQueue, rankRefusal } from '../engine/ranks.ts';
 import { batchOf } from '../engine/state-branch.ts';
@@ -575,12 +576,15 @@ const placeIn = (queue: readonly QueuedIssue[], order: OrderRef): string | undef
   return at < 0 ? undefined : `place ${at + 1} of ${orders.length} in the queue`;
 };
 
-/** The questions `batch` asks while Stuck on `needs_input`, in order; none otherwise. */
+/**
+ * The questions `batch` asks while Stuck on `needs_input`, in order, or the one a batch whose issue
+ * changed asks (ADR 0368); none otherwise.
+ */
 const questionsOf = (state: State, batchId: string): readonly string[] => {
   const lane = state.batches.get(batchId)?.lane;
-  return lane?.kind === 'stuck' && lane.reason.kind === 'needs_input'
-    ? lane.reason.questions.map(({ q }) => q)
-    : [];
+  if (lane?.kind !== 'stuck') return [];
+  if (lane.reason.kind === 'order_changed') return [ORDER_CHANGED_QUESTION];
+  return lane.reason.kind === 'needs_input' ? lane.reason.questions.map(({ q }) => q) : [];
 };
 
 /** The target repository an order claims its issue in, and the Brewery the claim records. */

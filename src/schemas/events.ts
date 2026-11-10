@@ -505,6 +505,21 @@ export type FailingPass = z.infer<typeof FailingPass>;
 /** The first line of the failure, at most 120 characters, as a rejected run's (ADR 0099). */
 const FailingSummary = NonEmpty.max(120);
 
+/** The most changes of an order a Stuck reason lists; the rest it counts (ADR 0368). */
+export const MOST_ORDER_CHANGES = 5;
+
+/** A change of a claimed order's issue after its approval (ADR 0368); `by` absent for a deleted account. */
+export const OrderChange = z.discriminatedUnion('what', [
+  z.strictObject({ what: z.enum(['title', 'body']), by: NonEmpty.optional(), at: Timestamp }),
+  z.strictObject({
+    what: z.literal('comment'),
+    comment: z.number().int().positive(),
+    by: NonEmpty.optional(),
+    at: Timestamp,
+  }),
+]);
+export type OrderChange = z.infer<typeof OrderChange>;
+
 export const StuckReason = z.discriminatedUnion('kind', [
   z.strictObject({
     kind: z.literal('needs_input'),
@@ -578,6 +593,16 @@ export const StuckReason = z.discriminatedUnion('kind', [
   // The recipe ended with the plan attempt `attempt` of `stepId` wrote, and no pull request: the
   // plan waits for a person's review (ADR 0275). An older Foedrum cannot read it.
   z.strictObject({ kind: z.literal('plan_review'), stepId: StepId, attempt: Attempt }),
+  // A claimed order's issue changed after its approval (ADR 0368): its title, its body or a
+  // comment, the first few of them and how many more, up to the latest; `stepId`'s attempt waits.
+  // An older Foedrum cannot read it.
+  z.strictObject({
+    kind: z.literal('order_changed'),
+    stepId: StepId,
+    changes: z.array(OrderChange).min(1).max(MOST_ORDER_CHANGES),
+    more: Count,
+    upTo: Timestamp,
+  }),
   // A person stopped the batch's order (ADR 0205): `stepId` is the step a retry schedules again.
   z.strictObject({
     kind: z.literal('stopped'),
@@ -917,6 +942,15 @@ export const Event = z.discriminatedUnion('type', [
   z.strictObject({
     type: z.literal('batch.cancelled'),
     batchId: BatchId,
+    by: NonEmpty,
+    via: Surface,
+  }),
+  // A person's "continue" approved the batch's claimed issue as it was up to `upTo` (ADR 0368):
+  // a change after it asks again. An older Foedrum cannot read this event.
+  z.strictObject({
+    type: z.literal('order.approved'),
+    batchId: BatchId,
+    upTo: Timestamp,
     by: NonEmpty,
     via: Surface,
   }),

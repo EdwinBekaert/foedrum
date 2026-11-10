@@ -49,6 +49,8 @@ export const laneLabel = (
         case 'plan_review':
           return 'foedrum:awaiting-approval';
         case 'needs_input':
+        // An issue that changed since its approval waits for continue or stop (ADR 0368).
+        case 'order_changed':
           return 'foedrum:awaiting-answer';
         default:
           return 'foedrum:stuck';

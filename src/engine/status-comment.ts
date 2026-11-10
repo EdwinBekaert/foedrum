@@ -36,6 +36,7 @@ import { handoverLines, handoversOf } from './handover.ts';
 import { keptRound } from './lens-rounds.ts';
 import { briefLine } from './merge-brief.ts';
 import { unreportedLine, unreportedOf } from './named-tests.ts';
+import { changesText, issueUrl } from './order-changes.ts';
 import { orderEnd, type SubOrderRow, subOrderRows } from './order-end.ts';
 import { withoutSecrets } from './out-doc-text.ts';
 import { pauseOf, stopAtText } from './pauses.ts';
@@ -267,6 +268,7 @@ const stuckText = (
   reason: StuckReason,
   told: Told,
   called: string,
+  { repo, issue }: Batch,
   planComment?: string,
 ): string => {
   switch (reason.kind) {
@@ -315,6 +317,12 @@ const stuckText = (
     case 'stopped': {
       const why = reason.why === undefined ? '' : `: ${plain(reason.why)}`;
       return `${code(reason.stepId)} was stopped by ${plain(reason.by)} (${reason.via})${why}`;
+    }
+    // The issue's link and the logins GitHub gave, as plain text (ADR 0368).
+    case 'order_changed': {
+      const where = labelled(`${repo ?? ''}#${issue}`, issueUrl(repo ?? '', issue));
+      const answer = (word: string) => code(`foedrum answer ${called} ${word}`);
+      return `${code(reason.stepId)} waits for you: ${where} changed after its approval: ${changesText(reason, plain)}. Run ${answer('continue')} to brew it as it is now, or ${answer('stop')} to end the batch`;
     }
     default:
       return reason satisfies never;
@@ -603,7 +611,7 @@ const laneText = (
         questions.push(`- and ${asked.length - questions.length} more questions`);
       }
       return [
-        `🔔 **Stuck**: ${stuckText(reason, told, called, planComment)}`,
+        `🔔 **Stuck**: ${stuckText(reason, told, called, batch, planComment)}`,
         ...questions,
         ...(reason.kind === 'blocked' && reason.roundsOut !== undefined
           ? openLines(reason.stepId, reason.roundsOut, told)
@@ -655,6 +663,13 @@ const nextLines = (
         const or = others.length === 0 ? '' : `, or ${moving(others)}`;
         return [
           `Next: answer the questions above with ${code(`foedrum answer ${called} ${answers}`)}${or}.`,
+        ];
+      }
+      // The one question of an issue that changed since its approval (ADR 0368).
+      case 'order_changed': {
+        const answer = (word: string) => code(`foedrum answer ${called} ${word}`);
+        return [
+          `Next: answer with ${answer('continue')} to brew the issue as it is now, or ${answer('stop')} to end the batch.`,
         ];
       }
       default:

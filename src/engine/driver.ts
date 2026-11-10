@@ -42,6 +42,7 @@ import type { BatchLease, EffectKey, EventStore, EventStoreTransaction } from '.
 import { createFailingBatches } from './failing-batches.ts';
 import { createFailureLines } from './failure-lines.ts';
 import { attemptRecipeOf, type Batch, runningAttempt, type State, stuckOnFailing } from './fold.ts';
+import type { OrderCheck } from './order-changes.ts';
 import { withoutSecrets } from './out-doc-text.ts';
 import { pauseOf, stopsNow } from './pauses.ts';
 import type { RecipeAction, Recipes } from './recipes.ts';
@@ -210,6 +211,12 @@ export interface DriverOptions {
    * on its environment at its start.
    */
   actions?: DriverActions;
+  /**
+   * What changed on a claimed order's issue since it was approved, read before each of its attempts
+   * that reads the issue starts, a brewer's or an action's, never a check step's (ADR 0368);
+   * without it, nothing is read and no attempt asks.
+   */
+  orderCheck?: OrderCheck;
   /** How long a batch's or an attempt's lease lasts between renewals; default 5 minutes. */
   leaseMs?: number;
   /** Default 2 days. */
@@ -412,6 +419,7 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
     sessions = false,
     alsoCleans = [],
     effects,
+    orderCheck,
     actions,
     leaseMs = defaultLeaseMs,
     reminderMs = defaultReminderMs,
@@ -1027,6 +1035,29 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
     return { ref, end: { ending }, rejected: { error } };
   };
 
+  /**
+   * Whether the attempt `ref` of a claimed order waits for the engineer instead of starting: its
+   * issue changed since its approval, so it goes Stuck with the question (ADR 0368). A read that
+   * fails throws, so the batch is set aside for the drive and checked again at the next tick, with
+   * no attempt spent, and marked after an hour (ADR 0328, ADR 0335).
+   */
+  const changedOrder = async (batch: Batch, ref: AttemptRef): Promise<boolean> => {
+    if (orderCheck === undefined || batch.repo === undefined) return false;
+    // A check step reads nothing of the issue; a brewer reads its text, an action its title.
+    if (!brews(ref) && actionOf(log.state(), recipes, ref) === undefined) return false;
+    let changes: Awaited<ReturnType<OrderCheck>>;
+    try {
+      changes = await orderCheck(batch);
+    } catch (error) {
+      throw new Error(
+        `the order could not be checked for changes since its approval: ${messageOf(error)}`,
+      );
+    }
+    if (changes === undefined) return false;
+    issueHolding(batch.id, { kind: 'order_changed', ...ref, ...changes });
+    return true;
+  };
+
   /** Starts the scheduled attempts of `batch` that may start; whether any step of it moved. */
   const driveBatch = async (
     batch: Batch,
@@ -1059,6 +1090,13 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
       }
       saidWaiting.delete(key);
       moved = true;
+      // No attempt of a claimed order reads its issue once it changed since its approval (ADR 0368).
+      if (await changedOrder(batch, ref)) {
+        // Stuck now: the rest of its steps wait for the answer, and read nothing more (ADR 0368).
+        if (log.state().batches.get(batch.id)?.lane.kind !== 'brewing') break;
+        refused.add(key);
+        continue;
+      }
       // A person runs an interactive step's session, in a driver that opens one (ADR 0222).
       if (!sessions && interactiveOf(log.state(), recipes, ref)) {
         // A refusal (the attempt moved on meanwhile) is not asked again this drive.
