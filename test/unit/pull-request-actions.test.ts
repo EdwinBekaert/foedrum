@@ -324,6 +324,21 @@ describe('pullRequestActions: the pull request', () => {
     assert.doesNotMatch(body, /^Closes /m);
   });
 
+  it('says nothing of test-first for a batch that is no sub-order, its own recipe skipping the steps: regression test', async () => {
+    const { actions, requests } = actionsWith();
+    const [chosen, ...rest] = brewed;
+    assert.ok(chosen);
+    const skipped: Event = {
+      type: 'step.skipped',
+      batchId: '12-1',
+      stepId: 'gauge',
+      when: 'recipe.testFirst',
+    };
+    keysOf(fold([ordered({ issue: 12 }), chosen, skipped, ...rest, ...opening]), actions);
+    await actions.target.apply(open);
+    assert.doesNotMatch(requests[0]?.request.body ?? '', /Test-first was off/);
+  });
+
   it("names no Brewery issue in an unsplit Brewery order's pull request body (ADR 0296)", async () => {
     const { actions, requests } = actionsWith();
     keysOf(brewing(), actions);
