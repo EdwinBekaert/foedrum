@@ -17,7 +17,8 @@ The maintainer decided on 2026-11-10: when the title or the body changed, or a c
 - **The engineer's "continue"** approves the issue up to the latest change the question showed (`upTo`), recorded as `order.approved`. A change after that asks again.
 - **An issue with no approval at all**, such as one whose filter has no label any more, counts every change it ever had.
 - **A Brewery order,** a batch with no `repo`, is never checked: no label approves it, and the Brewery is its users' own repository (ADR 0359). That holds for the Brewery issue of a claimed order too.
-- **The same second:** GitHub gives its times in whole seconds, so a change in the second of a label or an order counts, as one the person who approved may not have seen; a change at the `upTo` a continue approved does not, since the question showed it.
+- **The same second:** GitHub gives its times in whole seconds, so a change in the second of a label or an order counts, as one the person who approved may not have seen; a person's order, which the driver's clock times, is taken in its whole second too. A change at the `upTo` a continue approved does not count, since the question showed it.
+- **Two clocks:** an order's time is the driver's clock, a change's GitHub's. A driver clock ahead of GitHub's widens the second above by the difference, and one behind it can leave a label later than the order, which then approves nothing and asks about every change: a needless question, never text that goes on unasked.
 
 ### What counts as a change
 - **The title:** each `renamed` event after the approval.
@@ -29,14 +30,14 @@ The maintainer decided on 2026-11-10: when the title or the body changed, or a c
 ### Where the check sits
 - **The driver checks before each attempt of a claimed order that reads its issue starts** (`changedOrder` in `src/engine/driver.ts`), before `step.started` is recorded, so no prompt is built and no process starts: a brewer's, a resumed one's, and an action's, since the pull request takes the issue's title (ADR 0071). A check step's attempt reads nothing of the issue and is not checked; the next attempt that reads it is.
 - **A change parks the scheduled attempt** with the engine command `order_changed`: the batch goes Stuck with the reason `order_changed` (the step, the first five changes, how many more, and `upTo`), and its options are `answer` and `cancel`. The abandoned attempt counts against no retry, as a Stuck that abandons an attempt before it starts never does (ADR 0222).
-- **A check that cannot read the issue fails the attempt before it starts,** retryably, with `the order could not be checked for changes since its approval: <error>`. No attempt goes on unchecked.
+- **A check that cannot read the issue starts nothing and spends no attempt:** it throws `the order could not be checked for changes since its approval: <error>`, so the driver sets the batch aside for that drive and checks again at the next tick, and a batch whose check keeps failing is marked after an hour ([ADR 0328](0328-one-batch-s-error-stops-no-other-in-the-supervisor-or-the-drive.md), [ADR 0335](0335-a-batch-that-keeps-failing-is-marked-after-an-hour-and-stuck-when-a-reading-hides-its-deadline.md)). An outage never spends a step's attempts or its `onFail` route. No attempt goes on unchecked. The check gets no abort signal from the driver: a stop waits for its reads, which the GitHub client's own deadline bounds.
 - **Before a batch exists, nothing changes:** the intake claims the issue as ADR 0359 has it, and the check before the first attempt asks at once. `foedrum rank` says nothing new. The claim label and the claim comment land on the target issue before the engineer can say no.
 
 ### The question
 - One question, `The issue changed after it was approved: continue with it as it is now, or stop?`, answered with `foedrum answer <n> continue` or `foedrum answer <n> stop`.
 - **Continue** records `order.approved` with the question's `upTo`, resumes the batch and schedules the step's attempt again as it was scheduled (its route, retry and answered marks), never as an answer a brewer reads.
 - **Stop** records `batch.cancelled`, as `foedrum cancel` does, with the claim's release that follows it.
-- **Where it shows:** `foedrum stuck` (the changes, the issue's link and the question), `foedrum status` (the changes on the batch's line), the status comment (the changes, the issue's link, and the two commands), and `foedrum brew`'s Stuck line. The issue's link is built for github.com, as the clone URLs are.
+- **Where it shows:** `foedrum stuck` (the changes, the issue's link and the question), `foedrum status` (the changes on the batch's line), the status comment (the changes, the issue's link, and the two commands, on its Stuck line and its `Next:` line), the lane label `foedrum:awaiting-answer`, as a question has ([ADR 0316](0316-a-brewery-issue-s-label-and-status-comment-name-the-person-s-next-action.md)), and `foedrum brew`'s Stuck line. The issue's link is built for github.com, as the clone URLs are.
 
 ### How it is read
 - **The events** of the issue, every page, 100 to a page, through the conditional reads (ADR 0052): who added each label and when (`created_at`, now read), and each `renamed` event. The same path ADR 0359's intake reads.
