@@ -68,7 +68,7 @@ const loaded = loadRecipes({
     building('built-first', [{ id: 'implement', brewer: 'cellarman' }, ask, open]),
     building('plain-taste', [first, { id: 'taste', ...earlierTaster }, ask, open]),
     // plain-taste with a second round back, which a run after the first can still take, since a
-    // route counts its rounds over the batch's life (#972).
+    // route counts its rounds over the batch's life.
     building('twice-taste', [
       first,
       { id: 'taste', ...earlierTaster, onFindings: { goto: 'plan', maxRounds: 2 } },
@@ -370,7 +370,7 @@ describe('the merge brief of a batch mashed to a building recipe (#867)', () => 
   });
 
   // An earlier recipe's commits stay on the head, since a recipe choice keeps the task tree, so the
-  // map its survey committed is still in the pull request (#972).
+  // map its survey committed is still in the pull request (ADR 0363).
   it("lists the map an earlier recipe's survey committed on this head (#972)", async () => {
     const body = await briefAfterMove(() =>
       run(

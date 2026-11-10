@@ -14,15 +14,15 @@ A later survey reads that map as fresh because it is there.
 Hiding them, as ADR 0327's rule already did for an earlier recipe, leaves out of the brief a test map no person has confirmed, though merging the pull request confirms it ([the test map](../design/checks/test-map.md)).
 
 ## Decision
-The brief reads its evidence about what is on the head from the whole batch: the rounds of each Taster's step and what the steps its routes went back to did with each finding, and the first survey that proposed a map, of every recipe the batch brewed, including an earlier run of the current one.
-The steps are listed in the current recipe's order, then the others in the order they first started.
-The lines about a step's latest attempt read the current recipe's attempts, as ADR 0327 decided: where the last Taster tasted, its risk left, a Taster's open findings, a step a skip left open, Brett's survivors, the check steps and the steps not run.
+The brief reads its evidence about what is on the head from the whole batch: the rounds of each Taster's step and what the steps its routes went back to did with each finding, and, for each repository, the first survey that proposed a map of it, of every recipe the batch brewed, including an earlier run of the current one.
+The steps of the rounds are listed in the current recipe's order, then the others in the order they first started.
+The lines about a step's latest attempt read the current recipe's attempts, as ADR 0327 decided: where the last Taster tasted, its risk left, a Taster's open findings, a step a skip left open, Brett's survivors, the tests the Gauger named that are not proven, the check steps and the steps not run.
 `batch.runFrom` and the fold are unchanged.
 
 ## Consequences
 - A batch moved to another recipe, or back to one it brewed, lists every round that fixed code on its head and reports a map an earlier run committed.
 - An earlier recipe's Taster's risk left and verdict stay out of the brief, as before.
-- A rewind does not change what the brief reads: rounds whose commits it dropped are still listed, as before #871.
+- A rewind does not change what the brief reads: rounds whose commits it dropped, and a map a survey before it proposed, are still listed, as before #871.
 - The brief only reads events already recorded, so a Brewery has nothing to migrate.
 
 ## Alternatives considered
