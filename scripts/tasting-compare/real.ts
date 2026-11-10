@@ -69,6 +69,7 @@ const PROFILES: readonly Profile[] = [
   'high-together',
   'nip',
   'deep',
+  'apart7',
 ];
 /**
  * One order tasted one way: the order first, so the record reads on its own. `867-comments` is
@@ -129,6 +130,8 @@ const REAL_TOGETHER_RECIPE = 'real-nip-together';
 const REAL_SHIPPED_NIP_RECIPE = 'real-nip-shipped';
 /** The recipe of the `deep` setup: `deep-brew`'s tasting as it ships (ADR 0366). */
 const REAL_DEEP_RECIPE = 'real-deep-brew';
+/** The recipe of the `apart7` setup: `nip`'s tasting as it ships and the other three diff lenses apart (ADR 0366). */
+const REAL_APART7_RECIPE = 'real-nip-apart7';
 
 /** The three Tasters `nip` had when #879 measured it, kept so `real-nip` means what it meant (ADR 0343). */
 const TASTERS = [
@@ -175,8 +178,20 @@ const DEEP = {
     'diff/cross-platform',
   ],
 } as const;
+/**
+ * The `apart7` setup's Tasters: `nip`'s as it ships, then the three diff lenses `nip` has not, each a
+ * Taster of its own at the Taster's own effort (ADR 0366).
+ */
+const APART7_TASTERS = [
+  ...SHIPPED_NIP_TASTERS,
+  { id: 'test-design', brewer: 'taster', lens: 'diff/test-design' },
+  { id: 'cross-platform', brewer: 'taster', lens: 'diff/cross-platform' },
+  { id: 'necessity', brewer: 'taster', lens: 'diff/necessity' },
+] as const;
+/** The Tasters of one lens each, in every setup's recipe. */
+const ONE_LENS = [...LENS_TASTERS, ...APART7_TASTERS.slice(SHIPPED_NIP_TASTERS.length)];
 const STEPS: ReadonlyMap<string, readonly string[]> = new Map([
-  ...LENS_TASTERS.map(({ id, lens }): [string, readonly string[]] => [id, [lens]]),
+  ...ONE_LENS.map(({ id, lens }): [string, readonly string[]] => [id, [lens]]),
   [TOGETHER.id, TOGETHER.lenses],
   [DEEP.id, DEEP.lenses],
 ]);
@@ -187,6 +202,7 @@ export const realRecipeOf = (setup: RealSetup): string => {
   if (profile === 'lens') return REAL_LENS_RECIPE;
   if (profile === 'nip') return REAL_SHIPPED_NIP_RECIPE;
   if (profile === 'deep') return REAL_DEEP_RECIPE;
+  if (profile === 'apart7') return REAL_APART7_RECIPE;
   return profile.endsWith('-together') ? REAL_TOGETHER_RECIPE : REAL_RECIPE;
 };
 
@@ -215,6 +231,11 @@ const RECIPES: Record<string, { description: string; taste: Record<string, unkno
     description:
       'A head as it was brewed, tasted as deep-brew ships its one Taster of every diff lens, one round tasted',
     taste: { ...DEEP, ...backTo(IMPLEMENT) },
+  },
+  [REAL_APART7_RECIPE]: {
+    description:
+      'A head as it was brewed, tasted as nip ships its four Tasters and by test design, cross-platform and necessity apart, one round tasted',
+    taste: { id: TASTE, parallel: APART7_TASTERS, ...backTo(IMPLEMENT) },
   },
 };
 
@@ -322,7 +343,7 @@ const ON_OPUS: ReadonlySet<Profile | 'comments'> = new Set(['opus', 'opus-bare',
 /** The setups whose Taster asks for Opus, by models.jsonc or by its step's own alias (ADR 0366). */
 const ASKS_OPUS: ReadonlySet<Profile | 'comments'> = new Set([...ON_OPUS, 'deep']);
 /** The setups that taste with the default Taster as it ships, not a pinned text (ADR 0366). */
-const SHIPPED: ReadonlySet<Profile | 'comments'> = new Set(['nip', 'deep']);
+const SHIPPED: ReadonlySet<Profile | 'comments'> = new Set(['nip', 'deep', 'apart7']);
 
 /**
  * A setup's Taster text, which replaces the default's: since ADR 0352 the default reads no rules, so
@@ -330,10 +351,9 @@ const SHIPPED: ReadonlySet<Profile | 'comments'> = new Set(['nip', 'deep']);
  */
 const tasterOf = (profile: Profile | 'comments', tasters: Tasters): string => {
   switch (profile) {
-    case 'apart7':
-      throw new Error('not implemented');
     case 'nip':
     case 'deep':
+    case 'apart7':
       throw new Error(`the ${profile} setup tastes with the default Taster, not a text of its own`);
     case 'today':
       return tasters.today;
@@ -899,35 +919,38 @@ export const realTable = (records: readonly RealRecord[]): string => {
  */
 export const scriptedRealTastings = (file: string): Record<string, readonly Scripted[]> =>
   Object.fromEntries(
-    [...LENS_TASTERS.map(({ id, lens }) => ({ id, lenses: [lens] })), TOGETHER, DEEP].map(
-      ({ id, lenses }) => [
-        id,
-        [
-          {
-            files: {},
-            message: '',
-            summary: `The dry run's scripted Taster through ${lenses.join(', ')}.`,
-            tasting: {
-              verdict: 'approve' as const,
-              findings: lenses.map((lens) => ({
-                ...(lenses.length === 1 ? {} : { lens }),
-                file,
-                line: 1,
-                severity: 'minor',
-                why: `scripted by the dry run, through ${lens}`,
-                introduced: true,
-              })),
-            },
-            doc: {
-              riskLeft: lenses.map(
-                (lens) =>
-                  `${lenses.length === 1 ? '' : `${lens}: `}scripted by the dry run: a risk left through ${lens}`,
-              ),
-            },
+    [
+      ...LENS_TASTERS.map(({ id, lens }) => ({ id, lenses: [lens] })),
+      TOGETHER,
+      DEEP,
+      ...ONE_LENS.slice(LENS_TASTERS.length).map(({ id, lens }) => ({ id, lenses: [lens] })),
+    ].map(({ id, lenses }) => [
+      id,
+      [
+        {
+          files: {},
+          message: '',
+          summary: `The dry run's scripted Taster through ${lenses.join(', ')}.`,
+          tasting: {
+            verdict: 'approve' as const,
+            findings: lenses.map((lens) => ({
+              ...(lenses.length === 1 ? {} : { lens }),
+              file,
+              line: 1,
+              severity: 'minor',
+              why: `scripted by the dry run, through ${lens}`,
+              introduced: true,
+            })),
           },
-        ],
+          doc: {
+            riskLeft: lenses.map(
+              (lens) =>
+                `${lenses.length === 1 ? '' : `${lens}: `}scripted by the dry run: a risk left through ${lens}`,
+            ),
+          },
+        },
       ],
-    ),
+    ]),
   );
 
 /**
