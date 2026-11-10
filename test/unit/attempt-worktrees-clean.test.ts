@@ -261,6 +261,38 @@ describe('openAttemptWorktrees with a fake git', () => {
       assert.equal(existsSync(join(root, '12-1')), false);
     });
 
+    it('prunes a stale record in the attempts root, and leaves one outside the work root alone', async () => {
+      // Both folders are gone; only their records are left.
+      const elsewhere = join(dir.path, 'elsewhere');
+      const outside = worktreeOnDisk(elsewhere, 'elsewhere');
+      const inside = worktreeOnDisk(path, 'implement1');
+      rmSync(elsewhere, { recursive: true });
+      rmSync(path, { recursive: true });
+      const { calls, git } = fakeGit((_cwd, args) => {
+        if (args[0] === 'rev-parse') return ok(`${join(clone, '.git')}\n`);
+        if (args[0] === 'worktree' && args[1] === 'list') {
+          return ok(
+            porcelain([
+              { path: clone, branch: 'main' },
+              { path: elsewhere, branch: 'elsewhere' },
+              { path, branch },
+            ]),
+          );
+        }
+        if (args[0] === 'for-each-ref') return ok(`${branch}\0${TIP}\n`);
+        return undefined;
+      });
+
+      const report = await open(git).clean(ended);
+
+      assert.ok(report.done.includes('pruned stale worktree 12-1/implement/1: folder is gone'));
+      assert.equal(existsSync(inside), false);
+      assert.ok(existsSync(join(outside, 'gitdir')));
+      const said = [...report.done, ...report.kept, ...report.failed];
+      assert.ok(!said.some((line) => line.includes('elsewhere')), said.join('\n'));
+      assert.ok(!calls.some((call) => call.includes(elsewhere)));
+    });
+
     it('reports a worktree it could not remove, and keeps its branch', async () => {
       worktreeOnDisk(path, 'implement1');
       const { calls, git } = fakeGit((_cwd, args) => {
