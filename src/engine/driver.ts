@@ -1092,6 +1092,8 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
       moved = true;
       // No attempt of a claimed order reads its issue once it changed since its approval (ADR 0368).
       if (await changedOrder(batch, ref)) {
+        // Stuck now: the rest of its steps wait for the answer, and read nothing more (ADR 0368).
+        if (log.state().batches.get(batch.id)?.lane.kind !== 'brewing') break;
         refused.add(key);
         continue;
       }
