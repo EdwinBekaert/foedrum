@@ -229,6 +229,24 @@ describe('the openPullRequest push with real git', () => {
     });
   });
 
+  it('never forces: a bottle branch the origin has at another commit stops the push', async () => {
+    // Someone pushed an unrelated commit to the bottle branch's name first.
+    const other = join(dir.path, `other-${runs}`);
+    git(dir.path, ['clone', '-q', origin, other]);
+    git(other, ['commit', '-q', '--allow-empty', '-m', 'Unrelated']);
+    git(other, ['push', '-q', 'origin', `HEAD:refs/heads/${bottle}`]);
+    const unrelated = git(other, ['rev-parse', 'HEAD']).trim();
+    const { state, requests, reported } = await brew();
+    assert.equal(git(origin, ['rev-parse', `refs/heads/${bottle}`]).trim(), unrelated);
+    assert.deepEqual(requests, []);
+    assert.equal(state.batches.get('12-1')?.lane.kind, 'brewing');
+    const failed = reported.find((notice) => notice.kind === 'effect_failed');
+    assert.match(
+      failed?.kind === 'effect_failed' ? (failed.error as Error).message : '',
+      /^git push failed: /,
+    );
+  });
+
   describe('the base as the remote has it now (ADR 0090)', () => {
     /** What a brewer could write into the config of the clone its worktree shares (#200). */
     const plants: Record<string, (path: string, nowhere: string) => void> = {
