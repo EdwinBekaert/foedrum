@@ -82,7 +82,7 @@ describe('githubOrderActivity', () => {
       [
         'GET https://api.github.com/repos/acme/web/issues/7/events?per_page=100',
         'POST https://api.github.com/graphql',
-        'GET https://api.github.com/repos/acme/web/issues/7/comments?per_page=100',
+        'GET https://api.github.com/repos/acme/web/issues/7/comments?per_page=10',
       ],
     );
     assert.deepStrictEqual((requests[1]?.body as { variables?: unknown } | undefined)?.variables, {
