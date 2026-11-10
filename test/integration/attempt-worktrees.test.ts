@@ -24,7 +24,7 @@ import {
 } from '../../src/workspace/attempt-worktrees-git.ts';
 import { runGit } from '../../src/workspace/git.ts';
 import { brewerText, recipeText } from '../helpers/brewery-files.ts';
-import { defaultLimits } from '../helpers/brewing.ts';
+import { createBrewing, defaultLimits } from '../helpers/brewing.ts';
 import { behave, fakeBrewerRunner } from '../helpers/fake-brewer-runner.ts';
 import { fakeLock } from '../helpers/fake-lock.ts';
 import { fakeRecipe, fakeRecipes } from '../helpers/fake-recipes.ts';
@@ -235,8 +235,9 @@ describe('attempt worktrees with real git', () => {
 });
 
 // The engine's side (ADR 0037): openDriver gives each attempt a worktree of the user's clone, at
-// the commits of the step before it (ADR 0066), and a check step one of its own (ADR 0069). What
-// it records and cleans is shown on fakeWorktrees in the unit tests.
+// the commits of the step before it (ADR 0066), and a check step one of its own (ADR 0069); the
+// test driver cleans up at its start what a driver that died left. What a driver records is
+// shown on fakeWorktrees in the unit tests.
 describe('the driver and attempt worktrees with real git', () => {
   let dir: TempDir;
   let user: string;
@@ -291,6 +292,22 @@ describe('the driver and attempt worktrees with real git', () => {
       clone: user,
       own: { url: join(dir.path, 'origin.git'), root: join(workRoot, 'git-dirs') },
     });
+  const driver = (worktrees: boolean) =>
+    createBrewing({
+      store,
+      runner: fakeBrewerRunner({ plan: [behave.succeed()], implement: [behave.succeed()] }),
+      recipes,
+      clock: () => new Date('2026-10-16T12:00:00.000Z'),
+      ...(worktrees ? { worktrees: manager() } : {}),
+    });
+  const brewOnTap = async (brewing: ReturnType<typeof createBrewing>) => {
+    assert.ok(brewing.command({ kind: 'order', batchId: '12-1', order: { issue: 12 } }));
+    const route = { kind: 'route', batchId: '12-1', recipe: 'pint', reason: 'label' } as const;
+    assert.ok(brewing.command({ ...route, source: 'label' }));
+    await brewing.drive();
+    assert.equal(brewing.batch('12-1').lane.kind, 'on_tap');
+  };
+
   it('brews two steps through openDriver: the second has the commits of the first, not of a failed attempt (ADR 0066)', async () => {
     const clock = () => new Date('2026-10-16T12:00:00.000Z');
     let driver: Driver | undefined;
@@ -492,5 +509,21 @@ describe('the driver and attempt worktrees with real git', () => {
     const base = git(user, ['rev-parse', 'origin/main']).trim();
     assert.equal(git(user, ['log', '-1', '--format=%s', 'foedrum/12-1/green/2']), 'Test 2\n');
     assert.notEqual(git(user, ['rev-parse', 'foedrum/12-1/green/2']).trim(), base);
+  });
+
+  it('removes at its start what a driver that died before cleaning up left of an ended batch', async () => {
+    // The batch went on tap, but the driver died before it cleaned up: its worktree is still there.
+    await brewOnTap(driver(false));
+    const left = await manager().create(
+      { batchId: '12-1', stepId: 'plan', attempt: 1 },
+      'origin/main',
+    );
+    assert.ok(existsSync(left.path));
+
+    const { repair } = await driver(true).start();
+
+    assert.deepEqual(repair.failed, []);
+    assert.equal(existsSync(left.path), false);
+    assert.deepEqual(leftovers(), { branches: [], records: [] });
   });
 });
