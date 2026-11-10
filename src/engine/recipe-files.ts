@@ -643,16 +643,21 @@ function lineRecipe(
     ...(batch.steps.get(id)?.attempts.values() ?? []),
   ];
   // A route counts the attempts of its goto step it scheduled (ADR 0064); a group's children share
-  // its findings route's rounds, whichever child sent the batch back (ADR 0354).
+  // its findings route's rounds, whichever child sent the batch back (ADR 0354). An onFindings,
+  // onBlocked or onFail route counts only those of the batch's latest run from a recipe choice or
+  // a rewind, numbered from the goto step's first attempt in that run; an onPullRequestFail route
+  // counts over the batch's life, since its rounds are the one pull request's (ADR 0369).
   const roundsOf: Recipe['rounds'] = (batch, id, why) => {
     const { route, group } = at(id);
     if (route === undefined || route.why !== why) return undefined;
     const from = why === 'findings' && group !== undefined ? (children.get(group) ?? []) : [id];
+    const first = why === 'pull_request' ? 0 : (batch.runStarts?.[route.goto] ?? 0);
     return attemptsOf(batch, route.goto).filter(
       (attempt) =>
         attempt.route !== undefined &&
         from.includes(attempt.route.from) &&
-        attempt.route.why === why,
+        attempt.route.why === why &&
+        attempt.attempt >= first,
     ).length;
   };
   return {
