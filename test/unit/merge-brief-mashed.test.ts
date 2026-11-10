@@ -67,14 +67,6 @@ const loaded = loadRecipes({
     ]),
     building('built-first', [{ id: 'implement', brewer: 'cellarman' }, ask, open]),
     building('plain-taste', [first, { id: 'taste', ...earlierTaster }, ask, open]),
-    // plain-taste with a second round back, which a run after the first can still take, since a
-    // route counts its rounds over the batch's life.
-    building('twice-taste', [
-      first,
-      { id: 'taste', ...earlierTaster, onFindings: { goto: 'plan', maxRounds: 2 } },
-      ask,
-      open,
-    ]),
     building('group-taste', [
       { id: 'implement', brewer: 'cellarman' },
       {
@@ -648,10 +640,10 @@ describe('the merge brief of a batch mashed to a building recipe (#867)', () => 
       via: 'terminal',
     });
   /**
-   * A run of twice-taste from its plan: the plan ends with `planned`, its Taster sends a finding at
+   * A run of plain-taste from its plan: the plan ends with `planned`, its Taster sends a finding at
    * `file` back once and approves at `commit`, and `ask` asks, so the batch waits Stuck.
    */
-  const twiceTasteRun = (file: string, commit: string, planned: Ending = done): void => {
+  const plainTasteRun = (file: string, commit: string, planned: Ending = done): void => {
     run('plan', planned, { commit });
     run('taste', blockedAt(file));
     run('plan', fixedAt(file));
@@ -659,18 +651,18 @@ describe('the merge brief of a batch mashed to a building recipe (#867)', () => 
     run('ask', { kind: 'needs_input', questions: [which] });
     assert.equal(log.state().batches.get(batchId)?.lane.kind, 'stuck');
   };
-  /** twice-taste's run 1, when-taste's implement Stuck on a question, and twice-taste again. */
-  const backToTwiceTaste = (planned: Ending = done): void => {
+  /** plain-taste's run 1, when-taste's implement Stuck on a question, and plain-taste again. */
+  const backToPlainTaste = (planned: Ending = done): void => {
     accept({ kind: 'order', batchId, order: { issue: 7 } });
-    accept({ kind: 'route', batchId, recipe: 'twice-taste', reason: 'label', source: 'label' });
-    twiceTasteRun('first.md', earlierCommit, planned);
+    accept({ kind: 'route', batchId, recipe: 'plain-taste', reason: 'label', source: 'label' });
+    plainTasteRun('first.md', earlierCommit, planned);
     choose('when-taste');
     run('implement', { kind: 'needs_input', questions: [which] });
-    choose('twice-taste');
+    choose('plain-taste');
   };
 
   it('lists the rounds and the map of an earlier run of a recipe the batch returned to: regression test', async () => {
-    backToTwiceTaste(surveyed('new'));
+    backToPlainTaste(surveyed('new'));
     run('plan', done);
     run('taste', blockedAt('second.md'));
     run('plan', fixedAt('second.md'));
