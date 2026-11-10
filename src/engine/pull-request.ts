@@ -471,6 +471,23 @@ export const stepReports = (batch: Batch): StepReport[] => {
   return [...reports, ...never.map(instead)];
 };
 
+/** Why a sub-order's batch brewed without its recipe's test-first steps, as the merge brief says it (ADR 0371). */
+export const testFirstOffText = (reason: string): string =>
+  `test-first is off in the approved plan: ${reason}`;
+
+/**
+ * The line that says the approved plan turned test-first off and which steps did not run for it
+ * (ADR 0371): the reason is model text on one line, taken out of what GitHub links (ADR 0184).
+ */
+const testFirstOffLine = (
+  { reason, stepId, skipped }: NonNullable<PullRequestTextInput['testFirstOff']>,
+  isCommit: IsCommit,
+): string => {
+  const shown = unlinked(withoutSecrets(reason.replace(/\s+/g, ' ').trim(), stepId, isCommit));
+  const steps = skipped.map((id) => `\`${id}\``).join(', ');
+  return `Test-first was off, as the approved plan says: ${shown}. Not run: ${steps}.`;
+};
+
 /**
  * The findings the succeeded attempts of `step` marked pre-existing (ADR 0191), in order, each
  * place and why once: every round's, since a later round never raises one again.
@@ -549,6 +566,11 @@ export interface PullRequestTextInput {
   siblings?: string;
   /** What the brewers handed over, each line read for a secret (ADR 0340): model text, untrusted. */
   handovers?: readonly Handover[];
+  /**
+   * The approved plan's reason for turning test-first off, model text written by the plan step
+   * `stepId`, and the steps the batch skipped for it, at least one (ADR 0371).
+   */
+  testFirstOff?: { reason: string; stepId: string; skipped: readonly string[] };
 }
 
 export interface PullRequestText {
@@ -1054,6 +1076,7 @@ export const pullRequestText = ({
   key,
   siblings,
   handovers = [],
+  testFirstOff,
 }: PullRequestTextInput): PullRequestText => {
   const order = closes === undefined ? undefined : `${closes.repo}#${closes.issue}`;
   const oneLine = title.replace(/\s+/g, ' ').trim();
@@ -1066,6 +1089,7 @@ export const pullRequestText = ({
       : [howItWorks(written.stepId, written.sections, isCommit)]),
     '## How this was brewed',
     `Brewed by Foedrum${order === undefined ? '' : ` from ${order}`}${recipe === undefined ? '' : ` with the recipe ${recipe}`}.`,
+    ...(testFirstOff === undefined ? [] : [testFirstOffLine(testFirstOff, isCommit)]),
     // Without how it works, a person reads the change first, whatever the Tasters say.
     ...(written?.sections?.howItWorks === undefined ? [NO_HOW] : []),
     draftLine(reports),

@@ -49,6 +49,7 @@ import {
   latestPush,
   leftOpenLines,
   recordedPushes,
+  testFirstOffText,
   unlinked,
 } from './pull-request.ts';
 import { pairsOf } from './pull-request-pairs.ts';
@@ -240,24 +241,39 @@ const ofCurrentRecipe = (state: State, batch: Batch): Batch => {
   );
 };
 
-/** The `when` that was false for `stepId`, or its group's, when the batch skipped it (ADR 0064). */
-const skippedBy = ({ batch, recipe }: Steps, stepId: string): { when?: string } | undefined => {
+/**
+ * The `when` that was false for `stepId`, or its group's, when the batch skipped it (ADR 0064), and
+ * the approved plan's reason, model text of its plan step, when it turned test-first off (ADR 0371).
+ */
+const skippedBy = (
+  { batch, recipe }: Steps,
+  stepId: string,
+): { when?: string; off?: { reason: string; stepId: string } } | undefined => {
   const group = recipe?.group(stepId);
   const skipped = batch.skipped?.has(stepId) === true;
   const groupSkipped = group !== undefined && batch.skipped?.has(group) === true;
   if (!skipped && !groupSkipped) return undefined;
   const when = recipe?.skip(batch, skipped ? stepId : (group ?? stepId));
-  return when === undefined ? {} : { when };
+  if (when === undefined) return {};
+  const { testFirstOff, plan } = batch;
+  return testFirstOff === undefined || plan === undefined
+    ? { when }
+    : { when, off: { reason: testFirstOff, stepId: plan.stepId } };
 };
 
-const notRunText = ({ when }: { when?: string }): string =>
-  when === undefined ? 'not run' : `not run: its when "${plain(when)}" was false`;
+const notRunText = (
+  { when, off }: NonNullable<ReturnType<typeof skippedBy>>,
+  told: Told,
+): string => {
+  if (off !== undefined) return `not run: ${testFirstOffText(told(off.reason, off.stepId))}`;
+  return when === undefined ? 'not run' : `not run: its when "${plain(when)}" was false`;
+};
 
 /** The red proof's row: its readings, not run and why, or that the recipe has none. */
-const redProofLine = (steps: Steps, proof: string | undefined): string => {
+const redProofLine = (steps: Steps, proof: string | undefined, told: Told): string => {
   if (proof === undefined) return '- Red proof: none in the recipe.';
   const skipped = skippedBy(steps, proof);
-  if (skipped !== undefined) return `- Red proof ${code(proof)}: ${notRunText(skipped)}.`;
+  if (skipped !== undefined) return `- Red proof ${code(proof)}: ${notRunText(skipped, told)}.`;
   const readings = checkReadings(steps.batch, proof);
   if (readings === undefined) return `- Red proof ${code(proof)}: not run.`;
   const read = readings.map((reading) => plain(readingText(reading))).join('; ');
@@ -287,11 +303,11 @@ const checkStepLines = (steps: Steps, proof: string | undefined): string[] =>
  * Each step that did not run, with the `when` that was false, and each whose latest attempt did not
  * succeed that a person's skip went past; a step blocked by findings is the Findings section's.
  */
-const notRunLines = (steps: Steps, proof: string | undefined): string[] =>
+const notRunLines = (steps: Steps, proof: string | undefined, told: Told): string[] =>
   steps.ids.flatMap((stepId) => {
     if (stepId === proof || steps.recipe?.action(stepId) !== undefined) return [];
     const skipped = skippedBy(steps, stepId);
-    if (skipped !== undefined) return [`- ${code(stepId)}: ${notRunText(skipped)}.`];
+    if (skipped !== undefined) return [`- ${code(stepId)}: ${notRunText(skipped, told)}.`];
     const step = steps.batch.steps.get(stepId);
     const latest = step && latestAttempt(step);
     if (latest === undefined) return [`- ${code(stepId)}: not run.`];
@@ -491,9 +507,9 @@ const briefRest = (
       ...checkLines(ready),
       baseLine(batch, ready.pullRequest, ready.head),
       ...pairLines(state, batch),
-      redProofLine(steps, proof),
+      redProofLine(steps, proof, told),
       ...checkStepLines(steps, proof),
-      ...notRunLines(steps, proof),
+      ...notRunLines(steps, proof, told),
       tastedLine(steps, ready),
       ...(sensitive === undefined ? [] : [`- ${sensitiveLine(sensitive)}.`]),
       ...surveyLines(onHead),

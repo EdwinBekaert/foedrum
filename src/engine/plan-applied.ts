@@ -37,6 +37,12 @@ export const linkKey = (batchId: string, id: string, on: string): BatchEffectKey
 });
 
 /**
+ * What a sub-order's `"testFirst": false` does, as its plan entry and its sub-issue say it after
+ * "test-first off" (ADR 0371).
+ */
+export const SKIPS_TEST_FIRST = "so its batch skips its recipe's test-first steps";
+
+/**
  * The plan an approval signed off: the out doc of the attempt it names, whose digest the guard
  * checked at approve (ADR 0281); undefined for a batch without an approval.
  */

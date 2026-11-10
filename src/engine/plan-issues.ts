@@ -18,6 +18,7 @@ import {
   OpenedIssue,
   openedIssue,
   parentKey,
+  SKIPS_TEST_FIRST,
 } from './plan-applied.ts';
 import { code, plain } from './status-comment.ts';
 import type { SubIssues } from './sub-issues.ts';
@@ -60,6 +61,9 @@ const bodyOf = (batch: Batch, stepId: string, subOrder: PlannedSubOrder): string
     `- Builds in ${plain(repo)}: ${told(size.mechanism)}, about ${size.lines} lines`,
     `- Done when: ${told(doneWhen)}`,
     `- Recipe ${code(recipe)}: ${told(why)}`,
+    ...(subOrder.testFirst === false
+      ? [`- Test-first off, ${SKIPS_TEST_FIRST}: ${told(subOrder.testFirstOff ?? '')}`]
+      : []),
     ...(subOrder.ready ? [] : [`- Not ready: ${told(subOrder.refinement ?? '')}`]),
   ].join('\n');
 };

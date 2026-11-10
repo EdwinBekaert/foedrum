@@ -378,6 +378,27 @@ describe('planIssueEffects (ADR 0285)', () => {
     assert.ok(!(api.issue(brewery, 9)?.body ?? '').includes('Not ready'));
   });
 
+  it("says in a sub-issue that its batch skips its recipe's test-first steps, and why (ADR 0371)", async () => {
+    const off: PlanReport = {
+      subOrders: [
+        subOrder('api', { testFirst: false, testFirstOff: 'it only rewords the help' }),
+        subOrder('ui'),
+      ],
+    };
+    issue({ kind: 'order', batchId: '7-1', order: { issue: 7 } });
+    issue({ kind: 'route', batchId: '7-1', recipe: 'pale', reason: 'label', source: 'label' });
+    const ref = { batchId: '7-1', stepId: 'plan', attempt: 1 };
+    issue({ kind: 'record', event: { type: 'step.started', ...ref } });
+    issue({ kind: 'finish', ...ref, ending: planned(off) });
+    issue({ kind: 'approve', batchId: '7-1', by: 'grace', via: 'terminal' });
+    await (await open()).applyEffects();
+    const line =
+      "- Test-first off, so its batch skips its recipe's test-first steps: it only rewords the help";
+    const body = api.issue(brewery, 8)?.body ?? '';
+    assert.ok(body.split('\n').includes(line), body);
+    assert.ok(!(api.issue(brewery, 9)?.body ?? '').includes('Test-first'));
+  });
+
   it('links a sub-order blocked by two others to both, each once: regression test', async () => {
     const twice: PlanReport = {
       subOrders: [

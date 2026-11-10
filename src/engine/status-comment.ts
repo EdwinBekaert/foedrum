@@ -53,6 +53,7 @@ import {
   leftOpenLines,
   openedPullRequest,
   openOf,
+  testFirstOffText,
 } from './pull-request.ts';
 import { type PairConflict, pairsOf } from './pull-request-pairs.ts';
 import { receiptParts, receiptsOf } from './receipt.ts';
@@ -821,7 +822,14 @@ const outDocLabelled = (
 
 const stepLine = (batch: Batch, stepId: string, told: Told, stateBranchUrl?: string): string => {
   const id = code(stepId);
-  if (batch.skipped?.has(stepId) === true) return `- ⏭️ ${id}: skipped`;
+  if (batch.skipped?.has(stepId) === true) {
+    // Every `when` the engine follows reads recipe.testFirst, so a skip of a batch whose plan
+    // turned test-first off is that plan's (ADR 0064, ADR 0371).
+    const { testFirstOff, plan } = batch;
+    return testFirstOff === undefined || plan === undefined
+      ? `- ⏭️ ${id}: skipped`
+      : `- ⏭️ ${id}: skipped: ${testFirstOffText(told(testFirstOff, plan.stepId))}`;
+  }
   const [latest] = latestFirst(batch, stepId);
   if (latest === undefined) return `- ⬜ ${id}`;
   const n = latest.attempt;
