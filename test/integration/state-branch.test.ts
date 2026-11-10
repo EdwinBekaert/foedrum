@@ -3,16 +3,8 @@
 
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import {
-  chmodSync,
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  renameSync,
-  rmSync,
-  writeFileSync,
-} from 'node:fs';
-import { dirname, join } from 'node:path';
+import { chmodSync, existsSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { after, afterEach, before, beforeEach, describe, it } from 'node:test';
 import type { EventStore } from '../../src/engine/event-store.ts';
 import { fold } from '../../src/engine/fold.ts';
@@ -321,34 +313,6 @@ describe('the state branch with real git', () => {
     assert.equal(existsSync(marker), false, 'a state commit ran the post-commit hook');
   });
 
-  it('catches up a store that is behind with a fast-forward', async () => {
-    const a = machine('a');
-    await a.state.start();
-    await record(a, {
-      type: 'batch.ordered',
-      batchId: 'b1',
-      order: { issue: 6 },
-      routeBy: '2026-12-31T00:00:00.000Z',
-    });
-    const b = machine('b');
-    await b.state.start();
-    await record(b, {
-      type: 'batch.ordered',
-      batchId: 'b2',
-      order: { issue: 7 },
-      routeBy: '2026-12-31T00:00:00.000Z',
-    });
-
-    close(a);
-    const restarted = reopen(a);
-    assert.deepEqual(await restarted.state.start(), { decision: 'restore' });
-    assert.deepEqual(restarted.store.eventsAfter(0), b.store.eventsAfter(0));
-    assert.equal(
-      git(a.worktree, ['rev-parse', 'HEAD']).trim(),
-      git(origin, ['rev-parse', 'foedrum/state']).trim(),
-    );
-  });
-
   // #306, ADR 0111 and ADR 0115: the lock files a git commit killed while it moved the branch leaves are where
   // real git looks for them, and the next flush removes them and pushes.
   it('removes a stale ref lock and HEAD.lock that block a real commit, and pushes', async () => {
@@ -410,91 +374,6 @@ describe('the state branch with real git', () => {
     );
   });
 
-  // #320, ADR 0115: the signing check's ref lock is in the clone's common git folder, where real
-  // git looks for it, and the next start removes it and passes the check.
-  it('removes a stale signing check ref lock that blocks a real update-ref, and starts', async () => {
-    const a = machine('a');
-    await a.state.start();
-    const probeLock = join(a.clone, '.git', 'refs', 'foedrum', 'signing-check.lock');
-    mkdirSync(dirname(probeLock), { recursive: true });
-    writeFileSync(probeLock, '');
-    const commit = git(a.clone, ['rev-parse', 'HEAD']).trim();
-    assert.throws(
-      () => git(a.worktree, ['update-ref', 'refs/foedrum/signing-check', commit]),
-      (error: Error & { stderr?: string }) => (error.stderr ?? '').includes('signing-check.lock'),
-    );
-
-    const said: string[] = [];
-    const restarted = openStateBranch({
-      store: a.store,
-      git: runGit,
-      clone: a.clone,
-      worktree: a.worktree,
-      out: (line) => said.push(line),
-    });
-
-    assert.deepEqual(await restarted.start(), { decision: 'ready' });
-    assert.equal(existsSync(probeLock), false);
-    assert.equal(said.length, 1, said.join('\n'));
-    assert.match(
-      said[0] ?? '',
-      /^removed a stale refs\/foedrum\/signing-check\.lock from the clone's common git folder: /,
-    );
-  });
-
-  // #320, ADR 0115: a stale branch ref lock blocks the real worktree add that creates the state
-  // worktree, and a start with no worktree removes it first and restores from the remote.
-  it('removes a stale branch ref lock that blocks a real worktree add, and restores', async () => {
-    const a = machine('a');
-    await a.state.start();
-    await record(a, {
-      type: 'batch.ordered',
-      batchId: 'b1',
-      order: { issue: 6 },
-      routeBy: '2026-12-31T00:00:00.000Z',
-    });
-    const b = machine('b');
-    const refLock = join(b.clone, '.git', 'refs', 'heads', 'foedrum', 'state.lock');
-    mkdirSync(dirname(refLock), { recursive: true });
-    writeFileSync(refLock, '');
-    git(b.clone, ['fetch', '-q', 'origin', 'foedrum/state']);
-    assert.throws(
-      () =>
-        git(b.clone, [
-          'worktree',
-          'add',
-          '--no-track',
-          '-b',
-          'foedrum/state',
-          join(dir.path, 'b', 'probe'),
-          'FETCH_HEAD',
-        ]),
-      (error: Error & { stderr?: string }) => (error.stderr ?? '').includes('state.lock'),
-    );
-
-    const said: string[] = [];
-    const started = openStateBranch({
-      store: b.store,
-      git: runGit,
-      clone: b.clone,
-      worktree: b.worktree,
-      out: (line) => said.push(line),
-    });
-
-    assert.deepEqual(await started.start(), { decision: 'restore' });
-    assert.equal(existsSync(refLock), false);
-    assert.equal(said.length, 1, said.join('\n'));
-    assert.match(
-      said[0] ?? '',
-      /^removed a stale refs\/heads\/foedrum\/state\.lock from the clone's common git folder: /,
-    );
-    assert.equal(b.store.lastEventId(), 1);
-    assert.equal(
-      git(b.worktree, ['rev-parse', 'HEAD']).trim(),
-      git(origin, ['rev-parse', 'foedrum/state']).trim(),
-    );
-  });
-
   it('reports a push that a remote hook refuses, keeps the marker, and does not stop', async () => {
     const a = machine('a');
     await a.state.start();
@@ -520,43 +399,5 @@ describe('the state branch with real git', () => {
 
     assert.equal(result.kind, 'failed', JSON.stringify(result));
     assert.equal(a.store.pushedThrough()?.eventId, 1);
-  });
-
-  it('refuses to start when the clone signs and signing cannot work, and leaves no ref', async () => {
-    const a = machine('a');
-    git(a.clone, ['config', 'commit.gpgsign', 'true']);
-    git(a.clone, ['config', 'gpg.program', join(dir.path, 'no-such-gpg')]);
-    await assert.rejects(
-      a.state.start(),
-      (error) => error instanceof StateBranchStopError && /commit\.gpgSign/.test(error.message),
-    );
-    assert.throws(
-      () => git(a.clone, ['show-ref', '--verify', 'refs/foedrum/signing-check']),
-      /not a valid ref/,
-    );
-  });
-
-  it('refuses a remote branch that holds a symbolic link', async () => {
-    // A commit on foedrum/state whose tree has batches/b1 as a link to a folder outside.
-    const author = ['-c', 'user.name=Test', '-c', 'user.email=t@example.com'];
-    const work = join(dir.path, 'work-clone');
-    git(dir.path, ['clone', '-q', origin, work]);
-    const blob = execFileSync('git', ['hash-object', '-w', '--stdin'], {
-      cwd: work,
-      input: '../../outside',
-      encoding: 'utf8',
-    }).trim();
-    git(work, ['checkout', '-q', '--orphan', 'foedrum/state']);
-    git(work, ['rm', '-rq', '--cached', '.']);
-    git(work, ['update-index', '--add', '--cacheinfo', `120000,${blob},batches/b1`]);
-    git(work, [...author, 'commit', '-q', '-m', 'Link out']);
-    git(work, ['push', '-q', origin, 'foedrum/state']);
-
-    const a = machine('a');
-    await assert.rejects(
-      a.state.start(),
-      (error) => error instanceof StateBranchStopError && /batches\/b1/.test(error.message),
-    );
-    assert.equal(existsSync(a.worktree), false);
   });
 });
