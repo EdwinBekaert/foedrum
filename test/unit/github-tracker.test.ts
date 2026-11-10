@@ -264,6 +264,16 @@ describe('githubTargetTracker', () => {
         /404 .*acme\/web#7: Not Found/,
       );
     });
+
+    it('fails on a labeled event without its label, rather than leave out an adding', async () => {
+      const { tracker } = trackerWith([
+        { status: 200, body: [{ id: 1, event: 'labeled', actor: { login: 'alice' } }] },
+      ]);
+      await assert.rejects(
+        tracker.labelsAdded('acme/web', 7),
+        /the events of acme\/web#7 has a labeled event without its label/,
+      );
+    });
   });
 
   describe('pullRequest', () => {
