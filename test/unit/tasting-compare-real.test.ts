@@ -179,6 +179,8 @@ const SETUPS: readonly RealSetup[] = [
   '855-high-bare',
   '855-opus-together',
   '855-high-together',
+  '855-nip',
+  '855-deep',
   '864-today',
   '864-reads',
   '864-lens',
@@ -188,6 +190,8 @@ const SETUPS: readonly RealSetup[] = [
   '864-high-bare',
   '864-opus-together',
   '864-high-together',
+  '864-nip',
+  '864-deep',
   '867-today',
   '867-reads',
   '867-lens',
@@ -197,6 +201,8 @@ const SETUPS: readonly RealSetup[] = [
   '867-high-bare',
   '867-opus-together',
   '867-high-together',
+  '867-nip',
+  '867-deep',
   '867-comments',
 ];
 
@@ -831,7 +837,11 @@ describe('tasting-compare --real', () => {
               ? 'real-nip-lens'
               : setup.endsWith('-together')
                 ? 'real-nip-together'
-                : REAL_RECIPE,
+                : setup.endsWith('-nip')
+                  ? 'real-nip-shipped'
+                  : setup.endsWith('-deep')
+                    ? 'real-deep-brew'
+                    : REAL_RECIPE,
           ),
         );
       });
@@ -1014,6 +1024,8 @@ describe('tasting-compare --real', () => {
         '| 855-high-bare | 0 | 0 | 0 | 0 of 0 |',
         '| 855-opus-together | 0 | 0 | 0 | 0 of 0 |',
         '| 855-high-together | 0 | 0 | 0 | 0 of 0 |',
+        '| 855-nip | 0 | 0 | 0 | 0 of 0 |',
+        '| 855-deep | 0 | 0 | 0 | 0 of 0 |',
         '| 864-today | 0 | 0 | 0 | 0 of 0 |',
         '| 864-reads | 0 | 0 | 0 | 0 of 0 |',
         '| 864-lens | 0 | 0 | 0 | 0 of 0 |',
@@ -1023,6 +1035,8 @@ describe('tasting-compare --real', () => {
         '| 864-high-bare | 0 | 0 | 0 | 0 of 0 |',
         '| 864-opus-together | 0 | 0 | 0 | 0 of 0 |',
         '| 864-high-together | 0 | 0 | 0 | 0 of 0 |',
+        '| 864-nip | 0 | 0 | 0 | 0 of 0 |',
+        '| 864-deep | 0 | 0 | 0 | 0 of 0 |',
         '| 867-today | 0 | 0 | 0 | 0 of 0 |',
         '| 867-reads | 1 | 0 | 0 | 0 of 1 |',
         '| 867-lens | 0 | 0 | 0 | 0 of 0 |',
@@ -1032,6 +1046,8 @@ describe('tasting-compare --real', () => {
         '| 867-high-bare | 0 | 0 | 0 | 0 of 0 |',
         '| 867-opus-together | 0 | 0 | 0 | 0 of 0 |',
         '| 867-high-together | 0 | 0 | 0 | 0 of 0 |',
+        '| 867-nip | 0 | 0 | 0 | 0 of 0 |',
+        '| 867-deep | 0 | 0 | 0 | 0 of 0 |',
         '| 867-comments | 0 | 0 | 0 | 0 of 0 |',
         '',
         'Score lists/<order>.md by hand, then read bodies/<order>.md, then open codes.md, which says which setup each code is.',
@@ -1156,6 +1172,7 @@ describe('tasting-compare --real', () => {
         'security',
         'design-conformance',
         'together',
+        'deep',
       ]);
       const [turn] = tastings.security ?? [];
       assert.equal(turn?.tasting?.findings[0]?.file, 'src/a.ts');
@@ -1467,7 +1484,7 @@ describe('tasting-compare --real: the opus and high setups (ADR 0344)', () => {
     it('refuses a name no setup has, and says which it knows', () => {
       assert.throws(
         () => selectRealSetups('opus,hihg'),
-        /hihg.*today, reads, lens, opus, high, opus-bare, high-bare, opus-together, high-together, comments/,
+        /hihg.*today, reads, lens, opus, high, opus-bare, high-bare, opus-together, high-together, nip, deep, comments/,
       );
     });
 
@@ -1500,6 +1517,97 @@ describe('tasting-compare --real: the opus and high setups (ADR 0344)', () => {
         run: 1,
         retry: false,
       });
+    });
+  });
+
+  describe('the nip and deep setups, tasting as the defaults ship (ADR 0366)', () => {
+    const defaultRecipe = (name: string) =>
+      Recipe.parse(
+        parseJsonc(readFileSync(join(root, 'defaults', 'recipes', `${name}.jsonc`), 'utf8')),
+      );
+    const stepOf = (recipe: Recipe, id: string) =>
+      recipe.steps.find((step) => 'id' in step && step.id === id) ?? assert.fail(`no step ${id}`);
+    const back = { goto: 'implement', maxRounds: 1 };
+
+    it("the nip setup tastes through nip's taste group as it ships, its findings sent back once", () => {
+      const files = realBreweryFiles('867-nip', REAL_TASTERS);
+      assert.equal(realRecipeOf('867-nip'), 'real-nip-shipped');
+      const recipe = Recipe.parse(parseJsonc(files['recipes/real-nip-shipped.jsonc'] ?? ''));
+      const { onFindings, ...taste } = stepOf(recipe, 'taste') as Record<string, unknown>;
+      const { onFindings: _, ...shipped } = stepOf(defaultRecipe('nip'), 'taste') as Record<
+        string,
+        unknown
+      >;
+      assert.deepEqual(taste, shipped);
+      assert.deepEqual(onFindings, back);
+    });
+
+    it("the deep setup tastes through deep-brew's one Taster as it ships, its findings sent back once", () => {
+      const files = realBreweryFiles('867-deep', REAL_TASTERS);
+      assert.equal(realRecipeOf('867-deep'), 'real-deep-brew');
+      const recipe = Recipe.parse(parseJsonc(files['recipes/real-deep-brew.jsonc'] ?? ''));
+      const tasters = recipe.steps.filter((step) => 'brewer' in step && step.brewer === 'taster');
+      assert.equal(tasters.length, 1);
+      const { id, onFindings, ...taste } = tasters[0] as Record<string, unknown>;
+      const {
+        id: __,
+        onFindings: _,
+        ...shipped
+      } = stepOf(defaultRecipe('deep-brew'), 'taste') as Record<string, unknown>;
+      assert.deepEqual(taste, shipped);
+      assert.deepEqual(onFindings, back);
+      assert.equal(id, 'deep');
+    });
+
+    it('both taste with the default Taster and models, no text or model of their own', () => {
+      for (const setup of ['867-nip', '867-deep'] as const) {
+        const files = realBreweryFiles(setup, REAL_TASTERS);
+        assert.deepEqual(Object.keys(files), [`recipes/${realRecipeOf(setup)}.jsonc`], setup);
+      }
+    });
+
+    it('the deep setup runs its Taster on opus, the nip setup its four on sonnet', () => {
+      const deep = commandLine('867-deep', 'deep');
+      assert.equal(deep[deep.indexOf('--model') + 1], 'opus');
+      for (const step of ['correctness', 'design-conformance']) {
+        const line = commandLine('867-nip', step);
+        assert.equal(line[line.indexOf('--model') + 1], 'sonnet', step);
+      }
+    });
+
+    it('a deep run asks for opus, a nip run for sonnet', () => {
+      const ranOn = (setup: RealSetup, model: string) => ({
+        setup,
+        attempts: [attempt('deep', [], { models: [model] })],
+      });
+      assert.equal(modelStop(ranOn('867-deep', 'claude-opus-5-5')), undefined);
+      assert.match(modelStop(ranOn('867-deep', 'claude-sonnet-5-5')) ?? '', /asks for opus/);
+      assert.equal(modelStop(ranOn('867-nip', 'claude-sonnet-5-5')), undefined);
+      assert.match(modelStop(ranOn('867-nip', 'claude-opus-5-5')) ?? '', /asks for sonnet/);
+    });
+
+    it('a record reads the deep Taster with its seven lenses', () => {
+      const lensed = { ...finding('a gap'), lens: 'diff/test-design' };
+      const { attempts } = realRecordOf(tasted('deep', { findings: [lensed] }), () =>
+        transcript(outDoc),
+      );
+      const shipped = stepOf(defaultRecipe('deep-brew'), 'taste');
+      assert.deepEqual(
+        attempts.map(({ stepId, lenses, findings }) => [stepId, lenses, findings.length]),
+        [['deep', 'lenses' in shipped ? shipped.lenses : [], 1]],
+      );
+    });
+
+    it('--orders names the orders of the setups --setups names, in the order a whole run walks them', () => {
+      assert.deepEqual(selectRealSetups('deep,nip', '867'), ['867-nip', '867-deep']);
+      assert.deepEqual(selectRealSetups('deep', '867,855'), ['855-deep', '867-deep']);
+    });
+
+    it('--orders refuses an order it does not know, and says which it knows', () => {
+      assert.throws(
+        () => selectRealSetups('deep', '868'),
+        /--orders names no order "868".*855, 864, 867/,
+      );
     });
   });
 

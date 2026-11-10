@@ -53,7 +53,9 @@ type Profile =
   | 'opus-bare'
   | 'high-bare'
   | 'opus-together'
-  | 'high-together';
+  | 'high-together'
+  | 'nip'
+  | 'deep';
 const PROFILES: readonly Profile[] = [
   'today',
   'reads',
@@ -79,7 +81,8 @@ export const REAL_SETUPS: readonly RealSetup[] = [
 ];
 
 /** The setups `--setups` names, by the part of a setup's name after its order. */
-export const selectRealSetups = (names: string): readonly RealSetup[] => {
+export const selectRealSetups = (names: string, orders?: string): readonly RealSetup[] => {
+  if (orders !== undefined) throw new Error('not implemented');
   const known = [...PROFILES, 'comments'];
   const chosen = names.split(',');
   const unknown = chosen.find((name) => !known.includes(name));
@@ -264,6 +267,9 @@ const ON_OPUS: ReadonlySet<Profile | 'comments'> = new Set(['opus', 'opus-bare',
  */
 const tasterOf = (profile: Profile | 'comments', tasters: Tasters): string => {
   switch (profile) {
+    case 'nip':
+    case 'deep':
+      throw new Error('not implemented');
     case 'today':
       return tasters.today;
     case 'high':
