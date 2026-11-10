@@ -32,6 +32,7 @@ import type {
   WorktreeRef,
 } from '../schemas/events.ts';
 import type { BlockerKind } from '../schemas/out-doc.ts';
+import { planOf } from '../schemas/plan.ts';
 import type { RecipeType } from '../schemas/recipe.ts';
 import { StatusRevision } from '../schemas/status-comment.ts';
 import type { StepOutcome } from '../schemas/step-outcome.ts';
@@ -324,6 +325,11 @@ export interface Batch {
   parentBatchId?: string;
   /** The plan entry a sub-order's batch was ordered from (ADR 0285). */
   plan?: PlanOrigin;
+  /**
+   * The reason of that entry's `"testFirst": false`, which the approval signed: the batch skips its
+   * recipe's test-first steps (ADR 0371). Read from the recorded plan, never from an event of its own.
+   */
+  testFirstOff?: string;
   /** It recorded its order's breakdown: an approved plan it applied (ADR 0285). */
   decomposed?: true;
   /** When it was ordered (ADR 0179); absent for an order that did not record it. */
@@ -685,6 +691,7 @@ function apply(state: State, event: Event): State {
         ...(repo === undefined ? {} : { repo }),
         ...(parentBatchId === undefined ? {} : { parentBatchId }),
         ...(plan === undefined ? {} : { plan }),
+        ...offOf(state, plan),
         ...(at === undefined ? {} : { orderedAt: at }),
         lane: { kind: 'ordered', routeBy },
         steps: new Map(),
@@ -1260,6 +1267,21 @@ const withSkipsPast = (batch: Batch, reason: StuckReason): Batch => {
   if ('stepId' in reason && !batch.steps.has(reason.stepId)) skips.set(reason.stepId, undefined);
   return skips.size === 0 ? batch : { ...batch, skips };
 };
+
+/**
+ * The plan's reason when the entry `origin` names turned test-first off (ADR 0371), read from the
+ * attempt that wrote the plan; nothing for a batch ordered from no plan, or from one it cannot read.
+ */
+function offOf(state: State, origin: PlanOrigin | undefined): { testFirstOff?: string } {
+  if (origin === undefined) return {};
+  const { batchId, stepId, attempt, entry } = origin;
+  const ended = state.batches.get(batchId)?.steps.get(stepId)?.attempts.get(attempt);
+  if (ended?.phase !== 'finished' || ended.outcome.kind !== 'succeeded') return {};
+  const found = planOf(ended.outcome.output)?.subOrders.find(({ id }) => id === entry);
+  return found?.testFirst === false && found.testFirstOff !== undefined
+    ? { testFirstOff: found.testFirstOff }
+    : {};
+}
 
 /** `batch` with `stepId` added to or taken out of its skipped steps; none is kept as absent. */
 function skipping(batch: Batch, stepId: string, skipped: boolean): Batch {

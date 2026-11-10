@@ -30,6 +30,7 @@ import {
   brewLog,
   knownCommits,
   openedPullRequest,
+  type PullRequestTextInput,
   pullRequestKey,
   pullRequestRound,
   pullRequestText,
@@ -133,6 +134,8 @@ interface BodyFrom {
   siblings?: string;
   /** What the batch's brewers handed over (ADR 0340). */
   handovers: readonly Handover[];
+  /** Why the approved plan turned test-first off, and what the batch skipped for it (ADR 0371). */
+  testFirstOff?: PullRequestTextInput['testFirstOff'];
 }
 
 /** What one of the action's effects does, as `due` worked it out. */
@@ -283,7 +286,8 @@ export const pullRequestActions = (options: PullRequestActionsOptions): DriverAc
   };
 
   const render = async (from: BodyFrom, signal?: AbortSignal) => {
-    const { order, reports, isCommit, recipe, attempts, key, siblings, handovers } = from;
+    const { order, reports, isCommit, recipe, attempts, key, siblings, handovers, testFirstOff } =
+      from;
     return pullRequestText({
       title: await orderTitle(order, signal),
       // Only a claimed target issue: a Brewery issue is private (ADR 0296).
@@ -295,6 +299,7 @@ export const pullRequestActions = (options: PullRequestActionsOptions): DriverAc
       key,
       ...(siblings === undefined ? {} : { siblings }),
       handovers,
+      ...(testFirstOff === undefined ? {} : { testFirstOff }),
     });
   };
 
@@ -460,6 +465,15 @@ export const pullRequestActions = (options: PullRequestActionsOptions): DriverAc
         key,
         ...(siblings === undefined ? {} : { siblings }),
         handovers: handoversOf(batch),
+        ...(batch.testFirstOff === undefined || batch.plan === undefined
+          ? {}
+          : {
+              testFirstOff: {
+                reason: batch.testFirstOff,
+                stepId: batch.plan.stepId,
+                skipped: [...(batch.skipped ?? [])],
+              },
+            }),
       });
       const opened = pullRequestKey(batchId);
       effects.set(effectKey.encode(opened), {

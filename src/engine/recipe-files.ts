@@ -628,7 +628,8 @@ function lineRecipe(
   // The step the first red proof proves, as the testsUnchanged guard reads it (ADR 0358).
   const proves = steps.find((entry) => entry.proves !== undefined)?.proves;
   // The last checks before the pull request read the code it will hold (ADR 0164): of those the
-  // recipe runs, since a `when` reads only the recipe's settings (ADR 0064).
+  // recipe runs by its own settings (ADR 0064), not a batch's whose plan turned test-first off
+  // (ADR 0371).
   const runs = ({ when }: LineStep) => when === undefined || holds(when, settings);
   const merges =
     opens === undefined
@@ -678,9 +679,12 @@ function lineRecipe(
     proven: (id) => id === proves,
     deadlineMs: (id) => durationMs(at(id).deadline),
     stall: (id) => at(id).stall,
-    skip: (_batch, id) => {
+    skip: (batch, id) => {
       const when = groups.has(id) ? groups.get(id) : at(id).when;
-      return when === undefined || holds(when, settings) ? undefined : when;
+      // A sub-order whose approved plan turned test-first off brews without it (ADR 0371).
+      const off = batch.testFirstOff !== undefined;
+      const read = off ? { ...settings, testFirst: false } : settings;
+      return when === undefined || holds(when, read) ? undefined : when;
     },
     after: (_batch, id) => {
       // A step a person's choice schedules is never the next one (ADR 0286).

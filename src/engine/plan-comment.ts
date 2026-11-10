@@ -24,7 +24,7 @@ import type { DriverEffects } from './driver.ts';
 import type { Approval, Batch, State } from './fold.ts';
 import { lensRounds, roundFindings, withDispositions } from './lens-rounds.ts';
 import { withoutSecrets } from './out-doc-text.ts';
-import { type OpenedSubIssue, openedSubIssues } from './plan-applied.ts';
+import { type OpenedSubIssue, openedSubIssues, SKIPS_TEST_FIRST } from './plan-applied.ts';
 import { digestOf, findingText, knownCommits, quoted } from './pull-request.ts';
 import { outDocLink, outDocPlace } from './state-branch.ts';
 import { code, labelled, plain, planNextLine, type StatusComments } from './status-comment.ts';
@@ -67,7 +67,7 @@ const section = (subOrder: PlannedSubOrder, told: Told, more: readonly string[] 
   const { repo, size, doneWhen, touches, recipe, why } = subOrder;
   const off =
     subOrder.testFirst === false
-      ? `; test-first off: ${plain(told(subOrder.testFirstOff ?? ''))}`
+      ? `; test-first off, ${SKIPS_TEST_FIRST}: ${plain(told(subOrder.testFirstOff ?? ''))}`
       : '';
   const paths = touches.map(
     ({ path, new: fresh }) => `- ${plain(told(path))}${fresh === true ? ' (new)' : ''}`,
