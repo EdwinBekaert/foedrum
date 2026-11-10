@@ -73,7 +73,7 @@ Foedrum borrows its vocabulary from Belgian brewing. A *foeder* is the large oak
 
 ## Default recipes — sized by the glass
 
-The bigger the work, the bigger the vessel. Choose one with a label such as `recipe:pint`, or run `foedrum mash` and choose with the Innkeeper's suggestion ([ADR 0232](adr/0232-foedrum-mash-routes-an-issue-to-the-innkeeper-whose-question-the-answer-chooses-the-recipe-by.md)).
+The bigger the work, the bigger the vessel. Choose one with a label such as `recipe:nip`, or run `foedrum mash` and choose with the Innkeeper's suggestion ([ADR 0232](adr/0232-foedrum-mash-routes-an-issue-to-the-innkeeper-whose-question-the-answer-chooses-the-recipe-by.md)).
 
 | Recipe | Use |
 |---|---|
@@ -81,9 +81,7 @@ The bigger the work, the bigger the vessel. Choose one with a label such as `rec
 | Nip | Quick fix |
 | Mash | A plan of sub-orders for an order, reviewed through three plan lenses, shown on its issue, corrected in a lauter session if the engineer chooses; nothing built |
 | Decoction | A careful plan of a large order: Mash through all seven plan lenses |
-| Half-pint | Small feature |
-| Pint | Medium feature, with plan approval |
-| Growler | Large feature, split into sub-orders |
+| Deep-brew | A change that can reach a lot, whatever its size: every diff lens and Brett's mutants |
 | Keg | Multi-repository change with release dependencies |
 | Pilot batch | Spike or research |
 | Infection check | Bug triage |
