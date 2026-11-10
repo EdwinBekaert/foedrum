@@ -1,6 +1,7 @@
 // The local gate's pre-filter on plain strings (ADR 0056, ADR 0252): which hook inputs and
 // commands may need the gate, and how it reads a word the shells' quotes and escapes split. That
-// a call it lets go loads nothing past it is test/integration/precheck.test.ts's load trace.
+// a call it lets go loads nothing past it, at either test, is test/integration/precheck.test.ts's
+// two load traces.
 
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';

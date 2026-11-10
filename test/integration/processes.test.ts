@@ -173,6 +173,13 @@ describe('execProcess with a real tree of processes', () => {
     await waitUntil('the grandchild to end', () => !isPidAlive(grandchild));
     assert.deepEqual(endedByThemselves(pidFile), [], 'the grandchild ended by itself');
   });
+
+  it('answers without an exit code when the program does not exist', async () => {
+    const result = await execProcess(join(dir.path, 'no-such-program'), [], { cwd: dir.path });
+    assert.equal(result.exitCode, null);
+    assert.equal(result.killed, undefined);
+    assert.match(result.output, /ENOENT/);
+  });
 });
 
 // The line-by-line runner the brewer runner reads claude's stream with (ADR 0046).

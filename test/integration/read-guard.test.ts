@@ -1,14 +1,14 @@
 // The read guard with real processes and a real file system (ADR 0049): the hook command from the
-// read-only agents' frontmatter run through bash the way Claude Code runs it, Windows short names,
-// and the installed `claude` with the guard as a hook in the runner's settings file (opt-in,
-// FOEDRUM_REAL_CLAUDE=1). That one test runs our script inside claude; the
+// read-only agents' frontmatter run through bash the way Claude Code runs it, a real junction or
+// link, Windows short names, and the installed `claude` with the guard as a hook in the runner's
+// settings file (opt-in, FOEDRUM_REAL_CLAUDE=1). That one test runs our script inside claude; the
 // tests of how claude itself treats hooks, scoped rules and links were dropped (ADR 0057). The
-// guard's decisions are unit tests in test/unit/read-guard.test.ts, and realPath's reading of a
-// real junction or link and of the case on the disk in test/unit/real-path.test.ts.
+// guard's decisions are unit tests in test/unit/read-guard.test.ts, and realPath's reading of the
+// case on the disk in test/unit/real-path.test.ts.
 
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { after, afterEach, beforeEach, describe, it } from 'node:test';
@@ -113,6 +113,20 @@ describe('the read guard hook command', () => {
     );
     assert.equal(code, 2);
     assert.ok(stderr.includes('Foedrum read guard could not run (exit 1)'), `stderr: ${stderr}`);
+  });
+
+  // A junction on Windows (no privilege needed), a directory link elsewhere, inside the checkout,
+  // to the home folder: the link is inside, what it leads to is not.
+  it('blocks a read through a junction or link that leads outside', async () => {
+    const dir = makeTempDir('read-guard-link');
+    dirs.push(dir);
+    const link = join(dir.path, 'home');
+    symlinkSync(homedir(), link, windows ? 'junction' : 'dir');
+    const { code, stderr } = await runHook(
+      hookInput('Read', { file_path: join(link, '.config', 'gh', 'hosts.yml') }),
+    );
+    assert.equal(code, 2, stderr);
+    assert.match(stderr, /resolves to/);
   });
 
   it('blocks a short name that leads outside', { skip: !windows }, async (t) => {

@@ -119,6 +119,28 @@ describe('scripts/precheck.ts started by node', () => {
     ]);
   });
 
+  // An input whose description names git passes the raw-input test and is parsed; the command
+  // test then lets it go, still before the reader and the policies load (#152, ADR 0252).
+  it('loads only the pre-filter for a command that does not name git or gh, whatever the input around it names', async () => {
+    const input = JSON.stringify({
+      hook_event_name: 'PreToolUse',
+      tool_name: 'Bash',
+      tool_input: { command: 'ls -la src', description: 'List the files git tracks' },
+      cwd: root,
+    });
+    const { code, stderr } = await run(
+      process.execPath,
+      ['--import', `data:text/javascript,${encodeURIComponent(recordLoads)}`, script],
+      input,
+      { cwd: root, env: envWithoutNpm() },
+    );
+    assert.equal(code, 0);
+    assert.deepEqual(stderr.trim().split(/\r?\n/), [
+      `loaded ${pathToFileURL(script).href}`,
+      `loaded ${pathToFileURL(prefilter).href}`,
+    ]);
+  });
+
   it('blocks a push from a checkout whose node_modules is out of date, before npm runs', async () => {
     const project = makeTempDir('stale-project');
     try {
@@ -207,9 +229,6 @@ describe('scripts/precheck.ts started by node', () => {
       await removeTree(project.path);
     }
   });
-
-  // The commits no remote-tracking ref has, read by real git (ADR 0114): the word in the commit the
-  // remote already has does not count.
 
   // What gh would post, its body file read from the hook's working directory by the real reader
   // (ADR 0132); gh pr comment runs no check, so the hook starts nothing.

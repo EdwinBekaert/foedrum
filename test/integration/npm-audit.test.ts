@@ -138,4 +138,10 @@ describe('npm audit --json read by readAudit', () => {
     assert.equal(result.kind, 'endpoint-error');
     assert.equal(result.statusCode, 503);
   });
+
+  it('reads a dropped connection as an endpoint error without a status', async () => {
+    const result = await audit(project.path, (request) => request.socket.destroy());
+    assert.equal(result.kind, 'endpoint-error');
+    assert.equal(result.statusCode, undefined);
+  });
 });
