@@ -69,6 +69,15 @@ describe('openMergeTree', () => {
     assert.equal(call.options?.config?.['gc.auto'], '0');
   });
 
+  it('leaves no git directory behind (regression test)', async () => {
+    const root = nextFolder();
+    const { git, mergeTree } = recordingGit(ok(`${TREE}\0`));
+    const merge = openMergeTree({ git, clone, own: { url, root, id: () => 'one' } });
+    assert.deepStrictEqual(await merge(HEAD, TIP), { kind: 'clean' });
+    assert.match(mergeTree()?.args[0] ?? '', /^--git-dir=.*one\.git$/);
+    assert.equal(existsSync(join(root, 'one.git')), false);
+  });
+
   it('lists the files of a conflict once each, in the order git names them', async () => {
     const { git } = recordingGit(exited(1, `${TREE}\0src/a.ts\0src/b.ts\0src/a.ts\0`));
     assert.deepStrictEqual(await open(git)(HEAD, TIP), {
@@ -282,6 +291,36 @@ describe('openCommitTree', () => {
     assert.equal(used, false);
     assert.equal(readFileSync(join(outside, 'add.mjs'), 'utf8'), 'outside\n');
     assert.equal(existsSync(join(root, 'one.tree')), false);
+  });
+
+  it("gives a mutant's rewrite the file as git checked it out (ADR 0313, regression test)", async () => {
+    const root = nextFolder();
+    const recorded = recordingGit(ok());
+    // The checkout writes the commit's text, as git's worktree add would.
+    const git: Git = async (cwd, args, options) => {
+      const result = await recorded.git(cwd, args, options);
+      if (args.includes('worktree') && args.includes('add')) {
+        mkdirSync(args.at(-2) ?? '', { recursive: true });
+        writeFileSync(join(args.at(-2) ?? '', 'app.txt'), 'the batch\n');
+      }
+      return result;
+    };
+    const seen: string[] = [];
+    const edit = {
+      file: 'app.txt',
+      rewrite: (text: string) => {
+        seen.push(text);
+        return text.replace('the batch', 'the mutant');
+      },
+    };
+    const read = await openCommitTree({ git, clone, own: { url, root, id: () => 'one' } })(
+      COMMIT,
+      async (worktree) => readFileSync(join(worktree, 'app.txt'), 'utf8'),
+      { edit },
+    );
+    // The commit's text, as the checkout wrote it, and the rewrite of it in the tree.
+    assert.deepStrictEqual(seen, ['the batch\n']);
+    assert.equal(read, 'the mutant\n');
   });
 
   it('writes no edit to a file the checked-out tree does not hold (regression test)', async () => {
