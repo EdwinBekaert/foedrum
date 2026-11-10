@@ -11,7 +11,8 @@ import { attemptKey } from '../../src/engine/attempt-key.ts';
 import type { AttemptEnd, BrewerRunner } from '../../src/engine/brewer-runner.ts';
 import { markedComment } from '../../src/engine/claim-effects.ts';
 import { type CommandLog, createCommandLog } from '../../src/engine/command-log.ts';
-import { type Driver, openDriver } from '../../src/engine/driver.ts';
+import type { Ending } from '../../src/engine/decide.ts';
+import { type Driver, type DriverOptions, openDriver } from '../../src/engine/driver.ts';
 import type { EventStore } from '../../src/engine/event-store.ts';
 import {
   createOrderCheck,
@@ -24,10 +25,13 @@ import { fakeLock } from '../helpers/fake-lock.ts';
 import { fakeRecipe, fakeRecipes } from '../helpers/fake-recipes.ts';
 
 const t0 = new Date('2026-11-10T12:00:00.000Z');
-const recipes = fakeRecipes({ pint: fakeRecipe({ steps: ['plan', 'implement'] }) });
+const recipes = fakeRecipes({
+  pint: fakeRecipe({ steps: ['plan', 'implement'] }),
+  // A parallel group of two children (ADR 0168).
+  taste: fakeRecipe({ steps: ['taste'], groups: { taste: ['look', 'smell'] } }),
+});
 const users = ['maintainer'];
 const login = 'maintainer';
-const filter = { labels: ['foedrum:brew'] };
 const batchId = 'app-7';
 const labelled = '2026-11-10T10:00:00Z';
 const before = '2026-11-10T09:00:00Z';
@@ -69,13 +73,15 @@ const handRunner = () => {
         ? { lastProgressAt: t0, turnsWithoutProgress: 0 }
         : undefined,
   };
-  const end = (ref: AttemptRef): void => {
+  const succeeded: Ending = {
+    kind: 'succeeded',
+    output: { status: 'done', summary: 'Done', assumptions: [] },
+  };
+  const end = (ref: AttemptRef, ending: Ending = succeeded): void => {
     const resolve = running.get(attemptKey.encode(ref));
     assert.ok(resolve, `${attemptKey.encode(ref)} runs`);
     running.delete(attemptKey.encode(ref));
-    resolve({
-      ending: { kind: 'succeeded', output: { status: 'done', summary: 'Done', assumptions: [] } },
-    });
+    resolve({ ending });
   };
   return { runner, started, end };
 };
@@ -85,6 +91,7 @@ describe('an order whose issue changed after its approval (ADR 0368)', () => {
   let log: CommandLog;
   let activity: OrderActivity;
   let reads: string[];
+  let filter: { labels: string[] };
   const drivers: Driver[] = [];
 
   beforeEach(() => {
@@ -92,6 +99,7 @@ describe('an order whose issue changed after its approval (ADR 0368)', () => {
     log = createCommandLog({ store, recipes });
     activity = approved();
     reads = [];
+    filter = { labels: ['foedrum:brew'] };
     // The intake's claim of acme/app#7, routed to pint: plan#1 is scheduled.
     const order = { kind: 'order', batchId, order: { issue: 7, repo: 'acme/app' } } as const;
     assert.equal(log.issue(order, t0).kind, 'accepted');
@@ -109,7 +117,7 @@ describe('an order whose issue changed after its approval (ADR 0368)', () => {
     store.close();
   });
 
-  const open = async (runner: BrewerRunner) => {
+  const open = async (runner: BrewerRunner, more: Partial<DriverOptions> = {}) => {
     const orderCheck = createOrderCheck({
       activity: async (repo, issue) => {
         reads.push(`${repo}#${issue}`);
@@ -129,6 +137,7 @@ describe('an order whose issue changed after its approval (ADR 0368)', () => {
       stateBranch: { flush: async () => ({ kind: 'unchanged' }) },
       limits: () => defaultLimits,
       orderCheck,
+      ...more,
     });
     drivers.push(driver);
     return driver;
@@ -444,5 +453,144 @@ describe('an order whose issue changed after its approval (ADR 0368)', () => {
     await driver.tick();
     assert.deepStrictEqual(started, [{ batchId: '12-1', stepId: 'plan', attempt: 1 }]);
     assert.deepStrictEqual(reads, []);
+  });
+
+  /** The changes of the Stuck reason of the batch `driver` drives, after one tick that started nothing. */
+  const askedAbout = async (driver: Driver, started: readonly AttemptRef[]) => {
+    await driver.tick();
+    assert.deepStrictEqual(started, []);
+    const found = lane(driver);
+    assert.ok(found?.kind === 'stuck' && found.reason.kind === 'order_changed');
+    return found.reason;
+  };
+  const comment = (id: number, by: string, body: string) => ({
+    id,
+    by,
+    association: 'OWNER',
+    created: after,
+    updated: after,
+    body,
+  });
+
+  it("a stranger's comment that ends in Foedrum's marker asks", async () => {
+    const forged = markedComment('Claimed by acme/brewery.', 'claim:app-7');
+    activity = { ...approved(), comments: [comment(4, 'stranger', forged)] };
+    const { runner, started } = handRunner();
+    const { changes } = await askedAbout(await open(runner), started);
+    assert.deepStrictEqual(changes, [{ what: 'comment', comment: 4, by: 'stranger', at: after }]);
+  });
+
+  it("a comment by Foedrum's login without its marker asks", async () => {
+    activity = { ...approved(), comments: [comment(5, login, 'Written by hand.')] };
+    const { runner, started } = handRunner();
+    const { changes } = await askedAbout(await open(runner), started);
+    assert.deepStrictEqual(changes, [{ what: 'comment', comment: 5, by: login, at: after }]);
+  });
+
+  it('a label outside the filter that someone in users adds approves nothing', async () => {
+    const between = '2026-11-10T10:30:00Z';
+    activity = {
+      ...approved(),
+      labelled: [...approved().labelled, { label: 'bug', by: 'maintainer', at: after }],
+      edited: [{ by: 'stranger', at: between }],
+    };
+    const { runner, started } = handRunner();
+    const { changes } = await askedAbout(await open(runner), started);
+    assert.deepStrictEqual(changes, [{ what: 'body', by: 'stranger', at: between }]);
+  });
+
+  it("a filter's label nobody in users added leaves the issue unapproved, its other labels' too", async () => {
+    filter = { labels: ['foedrum:brew', 'ready'] };
+    activity = {
+      ...approved(),
+      labelled: [...approved().labelled, { label: 'ready', by: 'stranger', at: labelled }],
+    };
+    const { runner, started } = handRunner();
+    const { changes } = await askedAbout(await open(runner), started);
+    assert.deepStrictEqual(changes, [
+      { what: 'body', by: 'stranger', at: before },
+      { what: 'comment', comment: 1, by: 'stranger', at: before },
+    ]);
+  });
+
+  it('the issue is approved once each of the filter labels was added by someone in users', async () => {
+    filter = { labels: ['foedrum:brew', 'ready'] };
+    const readyAt = '2026-11-10T10:30:00Z';
+    activity = {
+      ...approved(),
+      labelled: [...approved().labelled, { label: 'ready', by: 'maintainer', at: readyAt }],
+      edited: [{ by: 'stranger', at: '2026-11-10T10:15:00Z' }],
+    };
+    const { runner, started } = handRunner();
+    await (await open(runner)).tick();
+    assert.deepStrictEqual(started, [{ batchId, stepId: 'plan', attempt: 1 }]);
+  });
+
+  it('lists the five earliest changes by time, counts the rest, and asks up to the latest', async () => {
+    const at = (minute: number) => `2026-11-10T10:0${minute}:00Z`;
+    const made = (id: number, minute: number) => ({
+      ...comment(id, 'stranger', 'More.'),
+      created: at(minute),
+      updated: at(minute),
+    });
+    activity = {
+      ...approved(),
+      renamed: [
+        { by: 'stranger', at: at(5) },
+        { by: 'stranger', at: at(1) },
+      ],
+      edited: [
+        { by: 'stranger', at: at(7) },
+        { by: 'stranger', at: at(3) },
+      ],
+      comments: [made(10, 6), made(11, 2), made(12, 4)],
+    };
+    const { runner, started } = handRunner();
+    const reason = await askedAbout(await open(runner), started);
+    assert.deepStrictEqual(reason.changes, [
+      { what: 'title', by: 'stranger', at: at(1) },
+      { what: 'comment', comment: 11, by: 'stranger', at: at(2) },
+      { what: 'body', by: 'stranger', at: at(3) },
+      { what: 'comment', comment: 12, by: 'stranger', at: at(4) },
+      { what: 'title', by: 'stranger', at: at(5) },
+    ]);
+    assert.equal(reason.more, 2);
+    assert.equal(reason.upTo, at(7));
+  });
+
+  it('continue schedules the step as the attempt it parked was scheduled: a retry stays a retry', async () => {
+    const { runner, started, end } = handRunner();
+    const driver = await open(runner);
+    await driver.tick();
+    end({ batchId, stepId: 'plan', attempt: 1 }, { kind: 'failed', retryable: true, reason: 'no' });
+    activity = { ...approved(), edited: [{ by: 'stranger', at: after }] };
+    await driver.tick();
+    await driver.tick();
+    const parked = driver.state().batches.get(batchId)?.steps.get('plan')?.attempts.get(2);
+    assert.equal(parked?.retry, true);
+    assert.equal(lane(driver)?.kind, 'stuck');
+    assert.equal(answer('continue'), 'accepted');
+    const next = driver.state().batches.get(batchId)?.steps.get('plan')?.attempts.get(3);
+    assert.deepStrictEqual([next?.phase, next?.retry], ['scheduled', true]);
+  });
+
+  it('refuses any answer but continue or stop, another question, and a second answer, appending nothing', async () => {
+    activity = { ...approved(), edited: [{ by: 'stranger', at: after }] };
+    const { runner } = handRunner();
+    await (await open(runner)).tick();
+    const before = store.lastEventId();
+    const q = ORDER_CHANGED_QUESTION;
+    for (const answers of [
+      [{ q, answer: 'maybe' }],
+      [{ q: 'Keep the old endpoint?', answer: 'continue' }],
+      [
+        { q, answer: 'continue' },
+        { q, answer: 'stop' },
+      ],
+    ]) {
+      const decision = log.issue({ kind: 'answer', batchId, ...by, answers }, t0);
+      assert.equal(decision.kind, 'refused', JSON.stringify(answers));
+    }
+    assert.equal(store.lastEventId(), before);
   });
 });

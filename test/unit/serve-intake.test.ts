@@ -375,6 +375,39 @@ describe('runServe', () => {
       assert.ok(github.requests.includes('GET /repos/acme/web/issues/7/events?per_page=100'));
     });
 
+    it("brews a claimed target issue edited only before its label, by users and filter serve's config names (ADR 0368)", async () => {
+      f.store = empty();
+      f.setup = intakeSetup({}, target);
+      const github = fakeGitHubApi({
+        login: 'ann',
+        issues: {
+          'acme/brewery': [],
+          'acme/web': [
+            {
+              number: 7,
+              labels: ['foedrum'],
+              author: 'ann',
+              title: 'Dark theme',
+              body: 'Add a dark theme.',
+              // Labelled when it was opened, on 2026-10-02; edited by a stranger the day before.
+              created: '2026-10-02T00:00:00.000Z',
+              edited: [{ by: 'mallory', at: '2026-10-01T12:00:00Z' }],
+            },
+          ],
+        },
+      });
+      const done = () => {
+        const opened = github.issue('acme/brewery', 1);
+        if (opened !== undefined && !opened.labels.includes('recipe:stout')) {
+          opened.labels.push('recipe:stout');
+        }
+        return f.plans.length > 0 || lane('web-7') === 'stuck';
+      };
+      assert.equal(await runServe(f.setup, shell({ fetch: github.fetch, ...ticking(done) })), 0);
+      assert.notEqual(lane('web-7'), 'stuck', f.lines.join('\n'));
+      assert.match(f.plans[0]?.prompt ?? '', /Add a dark theme\./);
+    });
+
     it('opens the Brewery issue of a target issue ordered by hand (ADR 0105, ADR 0144)', async () => {
       f.store = empty();
       f.setup = intakeSetup();

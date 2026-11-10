@@ -92,6 +92,24 @@ describe('githubOrderActivity', () => {
     });
   });
 
+  it('keeps the labels added in the order of their events, whatever order the page gives', async () => {
+    const { activity } = activityWith([
+      {
+        status: 200,
+        body: [
+          event(2, { event: 'labeled', actor: { login: 'bea' }, label: { name: 'ready' } }),
+          event(1, { event: 'labeled', label: { name: 'foedrum:brew' } }),
+        ],
+      },
+      edits([]),
+      { status: 200, body: [] },
+    ]);
+    assert.deepStrictEqual((await activity('acme/web', 7)).labelled, [
+      { label: 'foedrum:brew', by: 'ada', at: '2026-11-10T10:01:00Z' },
+      { label: 'ready', by: 'bea', at: '2026-11-10T10:02:00Z' },
+    ]);
+  });
+
   it('counts the latest edit as by nobody known when the issue has more edits than one page', async () => {
     const { activity } = activityWith([
       { status: 200, body: [] },
