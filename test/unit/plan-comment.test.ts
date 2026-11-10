@@ -928,6 +928,22 @@ describe('planEffects (ADR 0233)', () => {
       },
     });
 
+  it("makes no revision due for an earlier batch's plan when the plan comment's text changes and a later batch of the order has a plan (#825)", async () => {
+    order();
+    step('plan', planned(three));
+    step('replan', planned(three));
+    const driver = await open();
+    await driver.applyEffects();
+    olderText(2, '7-1');
+    order('7-2');
+    step('plan', planned(second), '7-2');
+    await driver.applyEffects();
+    assert.notEqual(revision(1, '7-2'), undefined);
+    await driver.applyEffects();
+    assert.equal(revision(3), undefined);
+    assert.equal(only().body, `${renderPlan('7-2', 'plan', second)}\n\n${marker(1, '7-2')}`);
+  });
+
   it("keeps a revision due for an earlier batch's plan when the plan comment's text changes and the later batch has no plan yet: regression test (#825)", async () => {
     order();
     step('plan', planned(three));
