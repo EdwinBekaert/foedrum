@@ -14,12 +14,14 @@ import { DEFAULT_OPEN_ORDERS } from '../engine/limits.ts';
 import {
   type BreweryFile,
   type BreweryFiles,
+  defaultRecipeProblem,
   filesInUse,
   invalidRecipes,
   loadRecipes,
   type StepBrewers,
   type StepChecks,
 } from '../engine/recipe-files.ts';
+import { MASH_IN } from '../engine/recipe-label.ts';
 import type { Recipes } from '../engine/recipes.ts';
 import { sameRepo } from '../engine/task-tree.ts';
 import { checksRunUnsandboxed } from '../platform/check-sandbox.ts';
@@ -145,6 +147,8 @@ export interface ServeSetup {
   repositories: readonly ServeRepository[];
   models: ModelsConfig;
   recipes: Recipes;
+  /** What `foedrum brew` runs for an issue with no recipe label: foedrum.jsonc's, else mash-in (ADR 0370). */
+  defaultRecipe: string;
   brewers: StepBrewers;
   /** The Brewery's house-yeast rule files, for the brewers that ask for them (ADR 0169). */
   houseYeast?: readonly BreweryFile[];
@@ -352,6 +356,11 @@ export const serveSetup = (inputs: ServeInputs): ServeSetupResult => {
 
   const loaded = loadRecipes(files.brewery);
   if (!loaded.valid) problems.push(invalidRecipes(loaded.problems));
+  // A default that would build an issue nobody chose a recipe for stops the Brewery (ADR 0370).
+  const defaulted = loaded.valid
+    ? defaultRecipeProblem(config?.defaultRecipe, loaded.recipes)
+    : undefined;
+  if (defaulted !== undefined) problems.push(`${defaulted.what}: ${defaulted.fix}`);
   // Every brewer's alias has a model, so no attempt finds out only when it starts.
   if (models !== undefined) {
     for (const file of filesInUse(files.brewery).brewers) {
@@ -426,6 +435,7 @@ export const serveSetup = (inputs: ServeInputs): ServeSetupResult => {
       repositories,
       models,
       recipes: loaded.recipes,
+      defaultRecipe: config.defaultRecipe ?? MASH_IN,
       brewers: loaded.brewers,
       ...(files.houseYeast === undefined ? {} : { houseYeast: files.houseYeast }),
       checks: loaded.checks,
