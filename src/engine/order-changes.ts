@@ -72,9 +72,9 @@ export interface OrderCheckOptions {
 export type OrderCheck = (batch: Batch, signal?: AbortSignal) => Promise<OrderChanges | undefined>;
 
 const later = (one: string, other: string): boolean => Date.parse(one) > Date.parse(other);
-const latest = (times: readonly string[]): string | undefined =>
+const latest = (times: readonly (string | undefined)[]): string | undefined =>
   times.reduce<string | undefined>(
-    (found, at) => (found === undefined || later(at, found) ? at : found),
+    (found, at) => (at !== undefined && (found === undefined || later(at, found)) ? at : found),
     undefined,
   );
 
@@ -104,9 +104,9 @@ export const approvedAt = (
       ),
     );
     if (labels.length === 0 || each.some((at) => at === undefined)) return undefined;
-    return latest(each.flatMap((at) => (at === undefined ? [] : [at])));
+    return latest(each);
   };
-  return latest([ordered(), batch.approvedUpTo].flatMap((at) => (at === undefined ? [] : [at])));
+  return latest([ordered(), batch.approvedUpTo]);
 };
 
 /**
@@ -141,7 +141,7 @@ export const changesSince = (
       }))
       .filter(after),
   ].sort((one, other) => Date.parse(one.at) - Date.parse(other.at));
-  const upTo = latest(changes.map(({ at }) => at));
+  const upTo = changes.at(-1)?.at;
   if (upTo === undefined) return undefined;
   const shown = changes.slice(0, MOST_ORDER_CHANGES);
   return { changes: shown, more: changes.length - shown.length, upTo };

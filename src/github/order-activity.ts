@@ -27,13 +27,15 @@ export const githubOrderActivity =
     const events = (await reads.pages(`${path}/events?per_page=100`, happened, signal))
       .map((item) => checked(GitHubIssueEvent, item, happened))
       .sort((one, other) => one.id - other.id);
-    const timed = (event: string): { by: string | undefined; at: string; label?: string }[] =>
+    const timed = (
+      event: string,
+    ): { by: string | undefined; at: string; label: string | undefined }[] =>
       events
         .filter((each) => each.event === event)
         .map(({ actor, created_at: at, label }) => {
           if (at === undefined)
             throw new Error(`${happened} has a ${event} event without its time`);
-          return { by: actor?.login, at, ...(label === undefined ? {} : { label: label.name }) };
+          return { by: actor?.login, at, label: label?.name };
         });
     const labelled = timed('labeled').map(({ label, by, at }) => {
       if (label === undefined) throw new Error(`${happened} has a labeled event without its label`);
