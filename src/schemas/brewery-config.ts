@@ -1,7 +1,7 @@
 // foedrum.jsonc: the Brewery's repositories and permission ceiling (architecture §14, ADR 0023).
 
 import { Repo } from './events.ts';
-import { RepositoryAlias } from './ids.ts';
+import { PathSafeId, RepositoryAlias } from './ids.ts';
 import {
   CeilingTool,
   Command,
@@ -221,6 +221,9 @@ export const BreweryConfig = z
       .array(CeilingTool)
       .default([])
       .describe('The most any repository may add to its brewers; a rule covers narrower ones'),
+    defaultRecipe: PathSafeId.optional().describe(
+      'The recipe foedrum brew runs for an issue with no recipe:<name> label, of type mash; default mash-in (ADR 0370)',
+    ),
     repositories: z
       .record(Repo, RepositoryConfig)
       .describe('The target repositories, by owner/name'),

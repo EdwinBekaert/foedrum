@@ -73,7 +73,7 @@ Foedrum borrows its vocabulary from Belgian brewing. A *foeder* is the large oak
 
 ## Default recipes — one for each kind of work
 
-Choose a recipe by what the work is and what it can reach, not by its size ([ADR 0366](adr/0366-deep-brew-builds-a-change-that-can-reach-a-lot-through-every-diff-lens-and-a-blocking-brett-step.md)). Choose one with a label such as `recipe:nip`, or run `foedrum mash` and choose with the Innkeeper's suggestion ([ADR 0232](adr/0232-foedrum-mash-routes-an-issue-to-the-innkeeper-whose-question-the-answer-chooses-the-recipe-by.md)).
+Choose a recipe by what the work is and what it can reach, not by its size ([ADR 0366](adr/0366-deep-brew-builds-a-change-that-can-reach-a-lot-through-every-diff-lens-and-a-blocking-brett-step.md)). Choose one with a label such as `recipe:nip`, or run `foedrum mash` and choose with the Innkeeper's suggestion ([ADR 0232](adr/0232-foedrum-mash-routes-an-issue-to-the-innkeeper-whose-question-the-answer-chooses-the-recipe-by.md)); `foedrum brew` on an issue with no label does the same, through the Brewery's default recipe, Mash-in unless `foedrum.jsonc`'s `defaultRecipe` names another of type `mash` ([ADR 0370](adr/0370-foedrum-brew-runs-the-brewery-s-default-recipe-on-an-issue-with-no-recipe-label.md)).
 
 | Recipe | Use |
 |---|---|

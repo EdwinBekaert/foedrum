@@ -68,7 +68,7 @@ describe('every line names the number (ADR 0329, ADR 0334)', () => {
 
   it('the line after a claim offers only commands that use the number', async () => {
     const number = await claim(github(), claiming());
-    assert.deepStrictEqual(offered(f.lines), [`recipe ${number}`, `mash ${number}`]);
+    assert.deepStrictEqual(offered(f.lines), [`recipe ${number}`]);
     assert.ok(f.lines.at(-1)?.includes(`brew ${number},`), f.lines.join('\n'));
     assert.ok(!f.lines.some((line) => line.includes('web-7')), f.lines.join('\n'));
   });
