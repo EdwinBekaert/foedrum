@@ -29,6 +29,8 @@ const recipes = fakeRecipes({
   pint: fakeRecipe({ steps: ['plan', 'implement'] }),
   // A parallel group of two children (ADR 0168).
   taste: fakeRecipe({ steps: ['taste'], groups: { taste: ['look', 'smell'] } }),
+  // An action that opens the pull request, which takes the issue's title (ADR 0071).
+  ale: fakeRecipe({ steps: ['open'], actions: { open: 'openPullRequest' }, pullRequests: [] }),
 });
 const users = ['maintainer'];
 const login = 'maintainer';
@@ -91,7 +93,7 @@ describe('an order whose issue changed after its approval (ADR 0368)', () => {
   let log: CommandLog;
   let activity: OrderActivity;
   let reads: string[];
-  let filter: { labels: string[] };
+  let filter: { labels: string[] } | undefined;
   const drivers: Driver[] = [];
 
   beforeEach(() => {
@@ -616,6 +618,36 @@ describe('an order whose issue changed after its approval (ADR 0368)', () => {
     const { runner, started } = handRunner();
     const { changes } = await askedAbout(await open(runner), started);
     assert.deepStrictEqual(changes, [{ what: 'body', by: 'stranger', at: labelled }]);
+  });
+
+  it("an action's attempt is checked, though no brewer runs it", async () => {
+    const order = {
+      kind: 'order',
+      batchId: 'app-11',
+      order: { issue: 11, repo: 'acme/app' },
+    } as const;
+    const route = { kind: 'route', batchId: 'app-11', recipe: 'ale', reason: 'label' } as const;
+    assert.equal(log.issue(order, t0).kind, 'accepted');
+    assert.equal(log.issue({ ...route, source: 'label' }, t0).kind, 'accepted');
+    log.issue({ kind: 'cancel', batchId, ...by }, t0);
+    activity = { ...approved(), edited: [{ by: 'stranger', at: after }] };
+    const { runner } = handRunner();
+    const driver = await open(runner, { brews: () => false });
+    await driver.tick();
+    const found = driver.state().batches.get('app-11')?.lane;
+    assert.ok(found?.kind === 'stuck' && found.reason.kind === 'order_changed');
+    assert.equal(found.reason.stepId, 'open');
+    assert.deepStrictEqual(reads, ['acme/app#11']);
+  });
+
+  it('a repository with no intake filter any more leaves its issue unapproved, so every change asks', async () => {
+    filter = undefined;
+    const { runner, started } = handRunner();
+    const { changes } = await askedAbout(await open(runner), started);
+    assert.deepStrictEqual(changes, [
+      { what: 'body', by: 'stranger', at: before },
+      { what: 'comment', comment: 1, by: 'stranger', at: before },
+    ]);
   });
 
   it('refuses any answer but continue or stop, another question, and a second answer, appending nothing', async () => {
