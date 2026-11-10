@@ -74,6 +74,7 @@ const blocked: Ending = {
     { severity: 'major', why: 'A step is missing', introduced: true, file: 'plan.md', line: 3 },
   ],
 };
+const ended: Ending = { kind: 'failed', retryable: true, reason: 'the session ended' };
 const failedCheck: Ending = { kind: 'failed', retryable: false, reason: 'test failed' };
 const failing: HeadCheck = {
   name: 'ci/build',
@@ -175,6 +176,21 @@ describe("a route's rounds per run of the recipe (ADR 0369)", () => {
     assert.equal(latest('plan')?.phase, 'scheduled');
     assert.ok(batch !== undefined);
     assert.equal(recipes.find('tasted')?.rounds(batch, 'taste', 'findings'), 1);
+  });
+
+  it("counts a run's rounds from its goto step's first attempt, not the sending step's: regression test", () => {
+    routed('tasted');
+    run('plan', done);
+    // A retry in each round leaves taste two attempts ahead of plan when the run ends.
+    run('taste', ended);
+    run('taste', blocked);
+    run('plan', done);
+    run('taste', ended);
+    run('taste', blocked);
+    assert.equal(stuckRounds(), 1);
+    choose('tasted');
+    tastedRun(2);
+    assert.equal(stuckRounds(), 1);
   });
 
   it("counts in no later run a route's attempt that its deadline abandoned before it started", () => {
