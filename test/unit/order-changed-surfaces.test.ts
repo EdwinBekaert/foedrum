@@ -7,6 +7,7 @@ import { describe, it } from 'node:test';
 import { describeLane } from '../../src/cli/status.ts';
 import { formatStuck } from '../../src/cli/stuck.ts';
 import { type Batch, emptyState, type State } from '../../src/engine/fold.ts';
+import { laneLabel } from '../../src/engine/lane-labels.ts';
 import { ORDER_CHANGED_QUESTION } from '../../src/engine/order-changes.ts';
 import { renderStatus } from '../../src/engine/status-comment.ts';
 
@@ -64,5 +65,18 @@ describe('an order that changed after its approval, as people see it (ADR 0368)'
       ),
       text,
     );
+  });
+
+  it("the status comment's Next: line names continue and stop", () => {
+    const text = renderStatus(changed);
+    const next = text.split('\n').find((line) => line.startsWith('Next:'));
+    assert.equal(
+      next,
+      `Next: answer with ${'`foedrum answer 7 continue`'} to brew the issue as it is now, or ${'`foedrum answer 7 stop`'} to end the batch.`,
+    );
+  });
+
+  it('carries the label of a batch that waits for an answer', () => {
+    assert.equal(laneLabel(changed), 'foedrum:awaiting-answer');
   });
 });

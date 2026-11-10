@@ -410,38 +410,54 @@ describe('an order whose issue changed after its approval (ADR 0368)', () => {
     ]);
   });
 
-  it('a check that cannot read the issue fails the attempt before it starts', async () => {
+  it('a check that cannot read the issue starts nothing and spends no attempt, and the next tick checks again', async () => {
     const { runner, started } = handRunner();
+    let failing = true;
     const orderCheck = createOrderCheck({
       activity: async () => {
-        throw new Error('GitHub answered 502 to the events of acme/app#7');
+        if (failing) throw new Error('GitHub answered 502 to the events of acme/app#7');
+        return approved();
       },
       users,
       login,
       filterOf: () => filter,
     });
-    const driver = await openDriver({
-      store,
-      runner,
-      recipes,
-      clock: () => t0,
-      lock: () => fakeLock('cellar'),
-      takes: () => true,
-      stateBranch: { flush: async () => ({ kind: 'unchanged' }) },
-      limits: () => defaultLimits,
-      orderCheck,
-    });
-    drivers.push(driver);
+    const driver = await open(runner, { orderCheck });
+    await driver.tick();
     await driver.tick();
     assert.deepStrictEqual(started, []);
-    const attempt = driver.state().batches.get(batchId)?.steps.get('plan')?.attempts.get(1);
-    assert.ok(attempt?.phase === 'finished');
-    assert.deepStrictEqual(attempt.outcome, {
-      kind: 'failed',
-      retryable: true,
-      reason:
-        'the order could not be checked for changes since its approval: GitHub answered 502 to the events of acme/app#7',
-    });
+    const attempts = driver.state().batches.get(batchId)?.steps.get('plan')?.attempts;
+    assert.deepStrictEqual(
+      [...(attempts?.values() ?? [])].map(({ attempt, phase }) => [attempt, phase]),
+      [[1, 'scheduled']],
+    );
+    failing = false;
+    await driver.tick();
+    assert.deepStrictEqual(started, [{ batchId, stepId: 'plan', attempt: 1 }]);
+  });
+
+  it("a change in the second of a person's order, after it, asks", async () => {
+    log.issue({ kind: 'cancel', batchId, ...by }, t0);
+    const ordered = new Date('2026-11-10T12:00:00.600Z');
+    const again = { kind: 'order_again', batchId: 'app-8', order: { issue: 8, repo: 'acme/app' } };
+    assert.equal(log.issue({ ...again, kind: 'order_again', ...by }, ordered).kind, 'accepted');
+    const route = { kind: 'route', batchId: 'app-8', recipe: 'pint', reason: 'label' } as const;
+    assert.equal(log.issue({ ...route, source: 'label' }, ordered).kind, 'accepted');
+    // GitHub stamps an edit made at 12:00:00.800 in whole seconds.
+    activity = {
+      ...approved(),
+      labelled: [],
+      edited: [{ by: 'stranger', at: '2026-11-10T12:00:00Z' }],
+    };
+    const { runner, started } = handRunner();
+    const driver = await open(runner);
+    await driver.tick();
+    assert.deepStrictEqual(started, []);
+    const found = driver.state().batches.get('app-8')?.lane;
+    assert.ok(found?.kind === 'stuck' && found.reason.kind === 'order_changed');
+    assert.deepStrictEqual(found.reason.changes, [
+      { what: 'body', by: 'stranger', at: '2026-11-10T12:00:00Z' },
+    ]);
   });
 
   it('a Brewery order is never checked', async () => {
