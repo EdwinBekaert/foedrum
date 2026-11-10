@@ -744,6 +744,19 @@ describe('openBranchPush: secretScan (ADR 0079)', () => {
     }
   });
 
+  it('refuses a binary file, which it cannot read, as git 2.56 prints its patch (regression test)', async () => {
+    // Captured from git's log of the patches of a commit that adds a six-byte logo.png.
+    const binary = `\0${TIP}\n\ndiff --git a/logo.png b/logo.png\nnew file mode 100644\nindex 0000000..0df5c99\nBinary files /dev/null and b/logo.png differ\n`;
+    const { git } = recordingGit((args) => {
+      if (args.includes('--format=raw')) return ok(plainHeaders);
+      if (args[0] === 'rev-list') return ok('');
+      return ok(args.includes('--patch') ? binary : `\0${TIP}\nClean\n`);
+    });
+    assert.deepEqual(await openBranchPush({ git, clone }).secretScan(BASE, TIP), [
+      { commit: TIP, place: 'logo.png', kind: 'binary file' },
+    ]);
+  });
+
   it('refuses commits it cannot read whole: more than 4 MiB of messages or changes', async () => {
     for (const large of ['messages', 'patches']) {
       const { git } = recordingGit((args) => {

@@ -1,12 +1,14 @@
 // The base a batch's latest merge brought in (ADR 0164), read from the ledger: a merge whose
 // conflicts a brewer concluded counts as the base merged at its tip (ADR 0244); and why a done
-// with that merge unconcluded fails. Pure.
+// with that merge unconcluded fails; and the merge at the start of a routed fix, on a scripted
+// worktree. Pure.
 
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
   type BaseMerge,
   baseMergeKey,
+  baseMergeTarget,
   mergedBase,
   unconcludedMerge,
 } from '../../src/engine/base-merge.ts';
@@ -138,5 +140,49 @@ describe('unconcludedMerge', () => {
       reason,
       `the merge of main at ${tip} is still in progress, with ${named.join(', ')} and 2 more unmerged: resolve each file, git add it and git commit the merge`,
     );
+  });
+});
+
+describe('baseMergeTarget, keeping a conflict at the start of a routed fix (ADR 0244)', () => {
+  const start = 'a'.repeat(40);
+  const tip = 'e'.repeat(40);
+  const moved = '1'.repeat(40);
+  const concluded = '2'.repeat(40);
+  const after = '3'.repeat(40);
+  const key = effectKey.encode(baseMergeKey(ref(2)));
+  const files: KeptFile[] = [{ path: 'readme.txt', status: 'both modified' }];
+
+  it('merges again from a HEAD that moved past the start without the merge, and finds nothing new once HEAD holds the tip', async () => {
+    // A resumed worktree recreated on its branch: the brewer's commit after the start, no merge.
+    let head = moved;
+    const merges: string[] = [];
+    const merge: BaseMerge = {
+      base: 'main',
+      push: {
+        baseTip: async () => tip,
+        // Only the commits after the brewer concluded the merge hold the tip.
+        isAncestor: async (commit, of) => commit === tip && (of === concluded || of === after),
+      },
+      worktree: {
+        head: async () => head,
+        parents: async (_path, commit) =>
+          ({ [moved]: [start], [concluded]: [moved, tip], [after]: [concluded] })[commit] ?? [],
+        abort: async () => assert.fail('a kept merge is never aborted'),
+        pending: async () => undefined,
+        merge: async (_path, commit, _message, _signal, keep) => {
+          merges.push(`${commit} into ${head}${keep === true ? ', kept' : ''}`);
+          return { kind: 'kept', files };
+        },
+      },
+    };
+    const target = () => baseMergeTarget(merge, { path: '/work/tree', start }, 'implement', true);
+    assert.equal(await target().find(key), undefined);
+    assert.deepEqual(await target().apply(key), { base: tip, kept: { files, more: 0 } });
+    assert.deepEqual(merges, [`${tip} into ${moved}, kept`]);
+    // Concluded, then one more commit: HEAD holds the tip, so nothing is merged.
+    head = after;
+    assert.equal(await target().find(key), undefined);
+    assert.deepEqual(await target().apply(key), { base: tip });
+    assert.deepEqual(merges, [`${tip} into ${moved}, kept`]);
   });
 });
