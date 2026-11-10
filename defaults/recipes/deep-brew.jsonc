@@ -1,0 +1,81 @@
+// Deep-brew, the build stage of the full recipe, for a change that can reach a lot, whatever its
+// size (ADR 0366): Nip's steps from the Maltster's survey to green (ADR 0017, ADR 0166, ADR 0298),
+// then a blocking Brett step whose surviving mutants go back to the Gauger, who adds the tests that
+// catch them before the code is written again (ADR 0319, ADR 0358), then one Taster on the planner
+// alias through all seven diff lenses together (ADR 0220), every finding of it going back to
+// Cellarman (ADR 0354), and the pull request. Brett comes before the Taster, so a survivor round,
+// which writes the code again from the red proof's tip, never throws away a Taster's fixes
+// (ADR 0366).
+{
+  "$schema": "../../schemas/recipe.json",
+  "name": "deep-brew",
+  "type": "brew",
+  "description": "A change that can reach a lot, whatever its size, test-first: every diff lens and Brett's mutants",
+  "steps": [
+    // Without a session when the base's map is fresh, or the Brewery keeps it (ADR 0298).
+    { "id": "survey", "brewer": "maltster", "when": "recipe.testFirst" },
+    {
+      // A run that disagrees with the proposed map goes back to the Maltster once, then the batch
+      // is Stuck on its environment (ADR 0298).
+      "id": "survey-check",
+      "check": "test",
+      "of": "survey",
+      "when": "recipe.testFirst",
+      "onFail": { "goto": "survey", "maxRounds": 1 }
+    },
+    { "id": "gauge", "brewer": "gauger", "when": "recipe.testFirst" },
+    {
+      "id": "red",
+      "check": "test",
+      "expect": "fail",
+      "of": "gauge",
+      "when": "recipe.testFirst",
+      "onFail": { "goto": "gauge", "maxRounds": 1 }
+    },
+    {
+      "id": "implement",
+      "brewer": "cellarman",
+      // A test Cellarman finds wrong goes back to the Gauger, once (ADR 0017, ADR 0064).
+      "onBlocked": { "findings": { "goto": "gauge", "maxRounds": 1 } }
+    },
+    { "id": "fine", "brewer": "finer" },
+    {
+      // A failure goes back to Cellarman, whichever step broke it; the Finer then runs again.
+      "id": "green",
+      "check": ["build", "typecheck", "lint", "format", "test"],
+      "onFail": { "goto": "implement", "maxRounds": 1 }
+    },
+    {
+      // Each mutant the tests let survive is a finding that goes back to the Gauger, whose round
+      // starts at its own latest success, without the code (ADR 0358): it adds the tests that catch
+      // them, the red proof checks they fail, and Cellarman writes the code again. Two rounds in each
+      // run, then the batch is Stuck with the survivors open (ADR 0319, ADR 0369).
+      "id": "mutants",
+      "brewer": "brett",
+      "blocking": true,
+      "onBlocked": { "findings": { "goto": "gauge", "maxRounds": 2 } }
+    },
+    {
+      // One Taster on Opus through every diff lens, at the Taster's own effort, the setup three
+      // lenses together were measured in (ADR 0347, ADR 0366). Every finding goes back to Cellarman, through the Finer,
+      // green and Brett again: two rounds in each run, then the batch is Stuck with the findings
+      // still open (ADR 0192, ADR 0354, ADR 0369).
+      "id": "taste",
+      "brewer": "taster",
+      "model": "planner",
+      "lenses": [
+        "diff/correctness",
+        "diff/acceptance",
+        "diff/security",
+        "diff/design-conformance",
+        "diff/test-design",
+        "diff/necessity",
+        "diff/cross-platform"
+      ],
+      "onFindings": { "goto": "implement", "maxRounds": 2 }
+    },
+    // A check that fails on the pull request's head sends the batch back to Cellarman, twice at most,
+    // and the fix is pushed to the same pull request (ADR 0219).
+    { "action": "openPullRequest", "onPullRequestFail": { "goto": "implement", "maxRounds": 2 } }
+  ]
+}

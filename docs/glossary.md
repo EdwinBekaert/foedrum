@@ -71,9 +71,9 @@ Foedrum borrows its vocabulary from Belgian brewing. A *foeder* is the large oak
 | Tasting panel | Evaluation |
 | Tapster | Showing the engineer what can now be done, and taking feedback |
 
-## Default recipes — sized by the glass
+## Default recipes — one for each kind of work
 
-The bigger the work, the bigger the vessel. Choose one with a label such as `recipe:pint`, or run `foedrum mash` and choose with the Innkeeper's suggestion ([ADR 0232](adr/0232-foedrum-mash-routes-an-issue-to-the-innkeeper-whose-question-the-answer-chooses-the-recipe-by.md)); `foedrum brew` on an issue with no label does the same, through the Brewery's default recipe, Mash-in unless `foedrum.jsonc`'s `defaultRecipe` names another of type `mash` ([ADR 0370](adr/0370-foedrum-brew-runs-the-brewery-s-default-recipe-on-an-issue-with-no-recipe-label.md)).
+Choose a recipe by what the work is and what it can reach, not by its size ([ADR 0366](adr/0366-deep-brew-builds-a-change-that-can-reach-a-lot-through-every-diff-lens-and-a-blocking-brett-step.md)). Choose one with a label such as `recipe:nip`, or run `foedrum mash` and choose with the Innkeeper's suggestion ([ADR 0232](adr/0232-foedrum-mash-routes-an-issue-to-the-innkeeper-whose-question-the-answer-chooses-the-recipe-by.md)); `foedrum brew` on an issue with no label does the same, through the Brewery's default recipe, Mash-in unless `foedrum.jsonc`'s `defaultRecipe` names another of type `mash` ([ADR 0370](adr/0370-foedrum-brew-runs-the-brewery-s-default-recipe-on-an-issue-with-no-recipe-label.md)).
 
 | Recipe | Use |
 |---|---|
@@ -81,9 +81,7 @@ The bigger the work, the bigger the vessel. Choose one with a label such as `rec
 | Nip | Quick fix |
 | Mash | A plan of sub-orders for an order, reviewed through three plan lenses, shown on its issue, corrected in a lauter session if the engineer chooses; nothing built |
 | Decoction | A careful plan of a large order: Mash through all seven plan lenses |
-| Half-pint | Small feature |
-| Pint | Medium feature, with plan approval |
-| Growler | Large feature, split into sub-orders |
+| Deep-brew | A change that can reach a lot, whatever its size: every diff lens and Brett's mutants |
 | Keg | Multi-repository change with release dependencies |
 | Pilot batch | Spike or research |
 | Infection check | Bug triage |
