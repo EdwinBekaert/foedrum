@@ -130,11 +130,15 @@ it('a pass orders and routes within every limit, and every entry within them whi
       const free = random.int(7);
       const limits: Limits = { openOrders: 1 + random.int(5), recipe: (name) => concurrency[name] };
 
-      // The queue the pass walks, in its rank order.
+      // The queue the pass walks, in its rank order, with the addings it reads (ADR 0359).
       const before = log.state();
+      const read = targets.map((each) => ({
+        ...each,
+        labelsAdded: each.labels.map((label) => ({ label, by: each.author })),
+      }));
       const queue = intakeQueue(
         before,
-        { brewery: listed, repositories: [{ repository, issues: targets }] },
+        { brewery: listed, repositories: [{ repository, issues: read }] },
         { authors: ['alice'], claimant },
       );
       const tracker: TargetTracker = {
