@@ -66,6 +66,8 @@ const PROFILES: readonly Profile[] = [
   'high-bare',
   'opus-together',
   'high-together',
+  'nip',
+  'deep',
 ];
 /**
  * One order tasted one way: the order first, so the record reads on its own. `867-comments` is
@@ -80,16 +82,28 @@ export const REAL_SETUPS: readonly RealSetup[] = [
   '867-comments',
 ];
 
-/** The setups `--setups` names, by the part of a setup's name after its order. */
+/**
+ * The setups `--setups` names, by the part of a setup's name after its order, of the orders
+ * `--orders` names, or of every order without it (ADR 0366).
+ */
 export const selectRealSetups = (names: string, orders?: string): readonly RealSetup[] => {
-  if (orders !== undefined) throw new Error('not implemented');
   const known = [...PROFILES, 'comments'];
   const chosen = names.split(',');
   const unknown = chosen.find((name) => !known.includes(name));
   if (unknown !== undefined) {
     throw new Error(`--setups names no setup "${unknown}": it knows ${known.join(', ')}`);
   }
-  return REAL_SETUPS.filter((setup) => chosen.includes(profileOf(setup)));
+  const numbers = REAL_ORDERS.map(({ order }) => String(order));
+  const only = orders?.split(',');
+  const stranger = only?.find((order) => !numbers.includes(order));
+  if (stranger !== undefined) {
+    throw new Error(`--orders names no order "${stranger}": it knows ${numbers.join(', ')}`);
+  }
+  return REAL_SETUPS.filter(
+    (setup) =>
+      chosen.includes(profileOf(setup)) &&
+      (only === undefined || only.includes(String(orderOf(setup).order))),
+  );
 };
 
 /** A setup's name after its order: its profile, or `comments`. */
@@ -110,6 +124,10 @@ export const REAL_RECIPE = 'real-nip';
 const REAL_LENS_RECIPE = 'real-nip-lens';
 /** The recipe of the `opus-together` and `high-together` setups (ADR 0347, ADR 0348). */
 const REAL_TOGETHER_RECIPE = 'real-nip-together';
+/** The recipe of the `nip` setup: `nip`'s tasting as it ships (ADR 0366). */
+const REAL_SHIPPED_NIP_RECIPE = 'real-nip-shipped';
+/** The recipe of the `deep` setup: `deep-brew`'s tasting as it ships (ADR 0366). */
+const REAL_DEEP_RECIPE = 'real-deep-brew';
 
 /** The three Tasters `nip` had when #879 measured it, kept so `real-nip` means what it meant (ADR 0343). */
 const TASTERS = [
@@ -128,15 +146,46 @@ const TOGETHER = {
   brewer: 'taster',
   lenses: TASTERS.map(({ lens }) => lens),
 } as const;
+/**
+ * The `nip` setup's Tasters: `defaults/recipes/nip.jsonc`'s taste group as it ships, efforts and
+ * all; a test holds them to that file (ADR 0366).
+ */
+const SHIPPED_NIP_TASTERS = [
+  { ...LENS_TASTERS[0], effort: 'high', everyRound: true },
+  { ...LENS_TASTERS[1], effort: 'high' },
+  { ...LENS_TASTERS[2], effort: 'high' },
+  LENS_TASTERS[3],
+] as const;
+/**
+ * The `deep` setup's one Taster: `defaults/recipes/deep-brew.jsonc`'s taste step as it ships, every
+ * diff lens on the planner alias; a test holds it to that file (ADR 0366).
+ */
+const DEEP = {
+  id: 'deep',
+  brewer: 'taster',
+  model: 'planner',
+  lenses: [
+    'diff/correctness',
+    'diff/acceptance',
+    'diff/security',
+    'diff/design-conformance',
+    'diff/test-design',
+    'diff/necessity',
+    'diff/cross-platform',
+  ],
+} as const;
 const STEPS: ReadonlyMap<string, readonly string[]> = new Map([
   ...LENS_TASTERS.map(({ id, lens }): [string, readonly string[]] => [id, [lens]]),
   [TOGETHER.id, TOGETHER.lenses],
+  [DEEP.id, DEEP.lenses],
 ]);
 
 /** The recipe a run of `setup` brews. */
 export const realRecipeOf = (setup: RealSetup): string => {
   const profile = profileOf(setup);
   if (profile === 'lens') return REAL_LENS_RECIPE;
+  if (profile === 'nip') return REAL_SHIPPED_NIP_RECIPE;
+  if (profile === 'deep') return REAL_DEEP_RECIPE;
   return profile.endsWith('-together') ? REAL_TOGETHER_RECIPE : REAL_RECIPE;
 };
 
@@ -156,6 +205,15 @@ const RECIPES: Record<string, { description: string; taste: Record<string, unkno
     description:
       'A head as it was brewed, tasted by correctness, acceptance and security together in one Taster, one round tasted',
     taste: { ...TOGETHER, ...backTo(IMPLEMENT) },
+  },
+  [REAL_SHIPPED_NIP_RECIPE]: {
+    description: 'A head as it was brewed, tasted as nip ships its four Tasters, one round tasted',
+    taste: { id: TASTE, parallel: SHIPPED_NIP_TASTERS, ...backTo(IMPLEMENT) },
+  },
+  [REAL_DEEP_RECIPE]: {
+    description:
+      'A head as it was brewed, tasted as deep-brew ships its one Taster of every diff lens, one round tasted',
+    taste: { ...DEEP, ...backTo(IMPLEMENT) },
   },
 };
 
@@ -260,6 +318,10 @@ const OPUS_MODELS = `${JSON.stringify({ models: { opus: 'opus' }, brewers: { tas
 
 /** The setups that put the Taster on Opus. */
 const ON_OPUS: ReadonlySet<Profile | 'comments'> = new Set(['opus', 'opus-bare', 'opus-together']);
+/** The setups whose Taster asks for Opus, by models.jsonc or by its step's own alias (ADR 0366). */
+const ASKS_OPUS: ReadonlySet<Profile | 'comments'> = new Set([...ON_OPUS, 'deep']);
+/** The setups that taste with the default Taster as it ships, not a pinned text (ADR 0366). */
+const SHIPPED: ReadonlySet<Profile | 'comments'> = new Set(['nip', 'deep']);
 
 /**
  * A setup's Taster text, which replaces the default's: since ADR 0352 the default reads no rules, so
@@ -269,7 +331,7 @@ const tasterOf = (profile: Profile | 'comments', tasters: Tasters): string => {
   switch (profile) {
     case 'nip':
     case 'deep':
-      throw new Error('not implemented');
+      throw new Error(`the ${profile} setup tastes with the default Taster, not a text of its own`);
     case 'today':
       return tasters.today;
     case 'high':
@@ -300,7 +362,7 @@ export const realBreweryFiles = (setup: RealSetup, tasters: Tasters): Record<str
   const profile = profileOf(setup);
   return {
     [`recipes/${realRecipeOf(setup)}.jsonc`]: realRecipeText(setup),
-    'brewers/taster.md': tasterOf(profile, tasters),
+    ...(SHIPPED.has(profile) ? {} : { 'brewers/taster.md': tasterOf(profile, tasters) }),
     ...(ON_OPUS.has(profile) ? { 'models.jsonc': OPUS_MODELS } : {}),
   };
 };
@@ -618,7 +680,7 @@ export const modelStop = ({
   setup,
   attempts,
 }: Pick<RealRecord, 'setup' | 'attempts'>): string | undefined => {
-  const asked = ON_OPUS.has(profileOf(setup)) ? 'opus' : 'sonnet';
+  const asked = ASKS_OPUS.has(profileOf(setup)) ? 'opus' : 'sonnet';
   for (const { stepId, failure, models = [] } of attempts) {
     const other = models.find((model) => !model.includes(asked));
     if (other !== undefined) {
@@ -656,7 +718,9 @@ export const codeOf = (seed: string, setup: RealSetup, run: number): string =>
 
 /** Each Taster of a run in the recipe's order, so the order they finished in says nothing. */
 const inRecipeOrder = (attempts: readonly TasterAttempt[]): TasterAttempt[] => {
-  const place = (stepId: string): number => LENS_TASTERS.findIndex(({ id }) => id === stepId);
+  // Nip's four first, as the lens setup lists them, then the deep setup's other three.
+  const place = (stepId: string): number =>
+    DEEP.lenses.findIndex((lens) => stepIdOf(lens) === stepId);
   return [...attempts].sort((a, b) => place(a.stepId) - place(b.stepId));
 };
 
@@ -832,7 +896,7 @@ export const realTable = (records: readonly RealRecord[]): string => {
  */
 export const scriptedRealTastings = (file: string): Record<string, readonly Scripted[]> =>
   Object.fromEntries(
-    [...LENS_TASTERS.map(({ id, lens }) => ({ id, lenses: [lens] })), TOGETHER].map(
+    [...LENS_TASTERS.map(({ id, lens }) => ({ id, lenses: [lens] })), TOGETHER, DEEP].map(
       ({ id, lenses }) => [
         id,
         [

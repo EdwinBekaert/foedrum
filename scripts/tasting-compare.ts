@@ -21,7 +21,7 @@
 // with --dry-run, until the batch waits for the plan's review. Its records, runs and table are kept
 // apart under .foedrum/tmp/tasting-compare/plan. Its decisions are scripts/tasting-compare/plan.ts.
 //
-// With --real (#879, ADR 0332) it tastes three brewed heads of this repository instead, each in nine
+// With --real (#879, ADR 0332) it tastes three brewed heads of this repository instead, each in eleven
 // setups, and #867 in a tenth with its maintainer's comment (ADR 0333): the target is the order's
 // base fetched from this checkout, a scripted Cellarman commits the head's changed files, and the
 // three Tasters nip had then, with design conformance, as nip now has it (ADR 0343), as a fourth in
@@ -29,8 +29,9 @@
 // (ADR 0344), on Opus and at high effort with a Taster told nothing of the rules in the opus-bare
 // and high-bare setups, and with real-nip's three lenses in one such Taster on Opus in the
 // opus-together setup (ADR 0347) and on Sonnet at high effort in the high-together setup
-// (ADR 0348), run on the real claude, or scripted with --dry-run. --setups
-// <names> runs only those, such as opus,high. It prints each Taster's model and effort as it is
+// (ADR 0348), and as nip and deep-brew ship their tasting in the nip and deep setups (ADR 0366),
+// run on the real claude, or scripted with --dry-run. --setups <names> runs only those, such as
+// opus,high, and --orders <numbers> only those of these orders, such as 867. It prints each Taster's model and effort as it is
 // planned, reads each Taster's transcript for what it read and the model it ran on, and stops at
 // once on a transcript that cannot say or another model. It writes one blinded list per order and
 // one file of its bodies under .foedrum/tmp/tasting-compare/real, the setups named only in
@@ -135,6 +136,7 @@ const { values } = parseArgs({
     plan: { type: 'boolean' },
     real: { type: 'boolean' },
     setups: { type: 'string' },
+    orders: { type: 'string' },
     comparison: { type: 'string' },
   },
 });
@@ -146,11 +148,17 @@ if (values.setups !== undefined && values.real !== true) {
   process.stderr.write('--setups chooses among the setups of --real: give --real too\n');
   process.exit(2);
 }
-/** The real mode's setups to run: those --setups names, or all. */
+if (values.orders !== undefined && values.setups === undefined) {
+  process.stderr.write(
+    '--orders chooses the orders of the setups --setups names: give --setups too\n',
+  );
+  process.exit(2);
+}
+/** The real mode's setups to run: those --setups names, of the orders --orders names, or all. */
 const chosenSetups = (): readonly RealSetup[] => {
   if (values.setups === undefined) return REAL_SETUPS;
   try {
-    return selectRealSetups(values.setups);
+    return selectRealSetups(values.setups, values.orders);
   } catch (error) {
     process.stderr.write(`${(error as Error).message}\n`);
     process.exit(2);
