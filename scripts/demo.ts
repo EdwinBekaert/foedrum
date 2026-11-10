@@ -287,6 +287,20 @@ await host.fetch(`https://api.github.com/repos/${BREWERY}/issues/${BREW_ORDER.nu
 say(`$ foedrum brew ${BREW_ORDER.number} --as ${USER}`);
 const brew = await live('brew', String(BREW_ORDER.number));
 indented(brew.output.trimEnd().split(/\r?\n/));
+// The commit the second order's pull request ends at, as the target's remote has it (ADR 0367).
+const bottle = `foedrum/${BREWERY.replace('/', '.')}/${BREW_ORDER.number}-1/${TARGET.replace('/', '.')}`;
+const brewTip = await git(scratch, [
+  '--git-dir',
+  join(scratch, 'web.git'),
+  'log',
+  '-1',
+  '--format=%s',
+  '--end-of-options',
+  bottle,
+]).then(
+  (subject) => subject.trim(),
+  (error: unknown) => `none: ${error instanceof Error ? error.message : String(error)}`,
+);
 
 await next();
 // As a Claude Code session runs it (ADR 0126): resume names the attempt and prints the line to
@@ -335,6 +349,7 @@ const problems = problemsOf({
   mash,
   plan,
   pulls: host.pulls(),
+  brewTip,
   comments: new Map(
     [ORDER, BREW_ORDER, MASH_ORDER].map(({ number }) => [number, host.comments(BREWERY, number)]),
   ),

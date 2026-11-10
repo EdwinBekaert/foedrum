@@ -364,6 +364,11 @@ ${tail(plan.output)}`,
     );
   }
   if (pulls.length !== 2) problems.push(`the code host has ${pulls.length} pull requests, not 2`);
+  if (run.brewTip !== FIX_MESSAGE) {
+    problems.push(
+      `the bottle branch of #2 ends at "${run.brewTip}", not at the Cellarman's third fix "${FIX_MESSAGE}"`,
+    );
+  }
   for (const { number } of [ORDER, BREW_ORDER, MASH_ORDER]) {
     const all = comments.get(number) ?? [];
     // The mashed order has a plan comment beside its status comment (ADR 0233), told by its heading.
