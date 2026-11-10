@@ -25,20 +25,26 @@ import { serveFixture } from '../helpers/serve-fixture.ts';
 
 // A second recipe like stout, so the Innkeeper has two to offer beside porter and nip.
 const mild = JSON.stringify({ ...JSON.parse(recipe), name: 'mild', description: 'A mild.' });
+// A Brewery's own mash-in that builds, replacing Foedrum's (ADR 0098).
+const buildingMashIn = JSON.stringify({ ...JSON.parse(recipe), name: 'mash-in' });
 const web = { alias: 'web', intake: { labels: ['foedrum'] } };
 
 /**
  * The test Brewery with Foedrum's defaults under it, mash-in, mash and the Innkeeper among them,
  * in the work root `workRoot`; with `only`, the Brewery's recipes are that one, and Foedrum's are
- * mash-in alone.
+ * mash-in alone; `own` adds recipe files of the Brewery's own.
  */
 const defaultSetup = (
   workRoot: string,
-  fields: { config?: string; only?: string } = {},
+  fields: { config?: string; only?: string; own?: { path: string; text: string }[] } = {},
 ): ServeSetupResult => {
   const inputs = serveInputs();
   const { defaults = {} } = readBreweryFiles(join(workRoot, 'no-brewery'));
-  const own = [...(inputs.files.brewery.recipes ?? []), { path: 'recipes/mild.jsonc', text: mild }];
+  const own = [
+    ...(inputs.files.brewery.recipes ?? []),
+    { path: 'recipes/mild.jsonc', text: mild },
+    ...(fields.own ?? []),
+  ];
   return serveSetup(
     serveInputs({
       files: {
@@ -181,6 +187,17 @@ describe('runBrew on an issue with no recipe label (ADR 0370)', () => {
     assert.equal(
       f.lines.at(-1),
       `foedrum brew: #13 has no recipe:<name> label, and the Brewery's default recipe mash-in has one recipe to offer, stout; label it with the recipe to brew it with, or choose one with foedrum recipe 13 <recipe> "<reason>"`,
+    );
+  });
+
+  it('a left-out default whose mash-in the Brewery replaced with a recipe of type brew is refused in one line', async () => {
+    const building = ready({ own: [{ path: 'recipes/mash-in.jsonc', text: buildingMashIn }] });
+    assert.equal(await runBrew(building, shell(behave.succeed()), brew(13)), 5, f.lines.join('\n'));
+    assert.equal(log().state().batches.size, 0);
+    assert.deepStrictEqual(f.started, []);
+    assert.equal(
+      f.lines.at(-1),
+      `foedrum brew: #13 has no recipe:<name> label, and the Brewery's default recipe mash-in is of type brew; label it with the recipe to brew it with, or choose one with foedrum recipe 13 <recipe> "<reason>"`,
     );
   });
 });
