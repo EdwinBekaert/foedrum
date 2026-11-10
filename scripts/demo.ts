@@ -26,6 +26,7 @@ import { NIP_TARGET_FILES } from '../test/helpers/nip-fixture.ts';
 import { DEMO_GIT_CONFIG } from './demo/brewer.ts';
 import { codeHost, fileJournal } from './demo/code-host.ts';
 import {
+  BREW_BOTTLE,
   BREW_ORDER,
   BREWERY,
   breweryFiles,
@@ -288,7 +289,6 @@ say(`$ foedrum brew ${BREW_ORDER.number} --as ${USER}`);
 const brew = await live('brew', String(BREW_ORDER.number));
 indented(brew.output.trimEnd().split(/\r?\n/));
 // The commit the second order's pull request ends at, as the target's remote has it (ADR 0367).
-const bottle = `foedrum/${BREWERY.replace('/', '.')}/${BREW_ORDER.number}-1/${TARGET.replace('/', '.')}`;
 const brewTip = await git(scratch, [
   '--git-dir',
   join(scratch, 'web.git'),
@@ -296,7 +296,7 @@ const brewTip = await git(scratch, [
   '-1',
   '--format=%s',
   '--end-of-options',
-  bottle,
+  BREW_BOTTLE,
 ]).then(
   (subject) => subject.trim(),
   (error: unknown) => `none: ${error instanceof Error ? error.message : String(error)}`,
