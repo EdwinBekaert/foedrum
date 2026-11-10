@@ -161,7 +161,7 @@ describe('runBrew', () => {
       assert.deepStrictEqual(f.started, []);
       assert.equal(
         f.lines.at(-1),
-        `foedrum brew: web#7 waits for a recipe:<name> label on its Brewery issue #${order.number}; label it and brew ${order.number}, choose one with foedrum recipe ${order.number} <recipe> "<reason>", or foedrum mash ${order.number}`,
+        `foedrum brew: web#7 waits for a recipe:<name> label on its Brewery issue #${order.number}, and the Brewery has no recipe mash-in to brew it with by default; label it and brew ${order.number}, or choose one with foedrum recipe ${order.number} <recipe> "<reason>"`,
       );
     });
 
@@ -176,7 +176,7 @@ describe('runBrew', () => {
       const [order] = host.issues['acme/brewery'] ?? [];
       assert.equal(
         f.lines.at(-1),
-        `foedrum brew: web#7 waits for a recipe:<name> label on its Brewery issue #${order?.number}; label it and brew ${order?.number}, choose one with foedrum recipe ${order?.number} <recipe> "<reason>", or foedrum mash ${order?.number}`,
+        `foedrum brew: web#7 waits for a recipe:<name> label on its Brewery issue #${order?.number}, and the Brewery has no recipe mash-in to brew it with by default; label it and brew ${order?.number}, or choose one with foedrum recipe ${order?.number} <recipe> "<reason>"`,
       );
     });
 
