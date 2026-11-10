@@ -118,7 +118,8 @@ describe('runBrew on an issue with no recipe label (ADR 0370)', () => {
   it('foedrum brew on an unlabelled issue runs the default recipe foedrum.jsonc names', async () => {
     const named = ready({ config: config({ defaultRecipe: 'mash' }) });
     const asks = shell(behave.needInput([which(13)]));
-    await runBrew(named, asks, brew(13));
+    assert.equal(await runBrew(named, asks, brew(13)), 4, f.lines.join('\n'));
+    assert.ok(f.lines.includes('foedrum brew: routed #13 to the recipe mash'), f.lines.join('\n'));
     assert.deepStrictEqual(log().state().batches.get('13-1')?.recipe, byDefault('mash'));
     assert.equal(f.started[0], 'plan#1', f.lines.join('\n'));
   });
