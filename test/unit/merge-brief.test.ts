@@ -689,8 +689,11 @@ describe('the merge brief (ADR 0225)', () => {
       assert.match(body, /- `gauge`: not run: its when "recipe\.testFirst" was false\./);
     });
 
-    it("the merge brief names the skipped steps and the plan's reason (ADR 0371)", async () => {
-      // Order 3 was planned with the entry `web`, test-first off, and approved; web-7 brews it.
+    /**
+     * Order 3 planned with the entry `web`, with `off` added to it, and approved; web-7 brews it
+     * with skippy, which skips the Gauger and the red proof.
+     */
+    const subOrder = (off: Record<string, unknown>): void => {
       const entry = {
         id: 'web',
         title: 'Reword the page',
@@ -701,8 +704,7 @@ describe('the merge brief (ADR 0225)', () => {
         dependencies: [],
         recipe: 'skippy',
         why: 'one repository',
-        testFirst: false,
-        testFirstOff: 'it only rewords the page',
+        ...off,
         ready: true,
       };
       order('planning', '3-1', 3);
@@ -723,10 +725,24 @@ describe('the merge brief (ADR 0225)', () => {
         reason: 'label',
         source: 'label',
       });
+    };
+
+    it("the merge brief names the skipped steps and the plan's reason (ADR 0371)", async () => {
+      subOrder({ testFirst: false, testFirstOff: 'it only rewords the page' });
       nipFromImplement();
       finished([passed('ci/build')]);
       const body = await brief();
       const why = 'not run: test-first is off in the approved plan: it only rewords the page.';
+      assert.ok(body.split('\n').includes(`- Red proof \`red\`: ${why}`), body);
+      assert.ok(body.split('\n').includes(`- \`gauge\`: ${why}`), body);
+    });
+
+    it("says why a sub-order's steps did not run by their when, when its plan kept test-first on: regression test", async () => {
+      subOrder({});
+      nipFromImplement();
+      finished([passed('ci/build')]);
+      const body = await brief();
+      const why = 'not run: its when "recipe.testFirst" was false.';
       assert.ok(body.split('\n').includes(`- Red proof \`red\`: ${why}`), body);
       assert.ok(body.split('\n').includes(`- \`gauge\`: ${why}`), body);
     });
