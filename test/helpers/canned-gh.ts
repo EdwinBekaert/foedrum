@@ -1,15 +1,16 @@
-// doctor and serve on this machine, with gh answered from captured output (ADR 0073): what doctor
-// does with gh's answers is the unit tests' (captured gh output), and whether gh works, and how fast
-// it starts, is gh's business (ADR 0070). So gh is found at a made-up path and never started; the
-// real runner starts every other tool, and no test asks the real gh for a login, reaches
-// github.com or touches the keyring.
+// doctor and serve with gh answered from captured output (ADR 0073): what doctor does with gh's
+// answers is the unit tests' (captured gh output), and whether gh works, and how fast it starts,
+// is gh's business (ADR 0070). So gh is found at a made-up path and never started. Every other
+// tool goes to the runner the caller gives, with no default: a fake one in a unit test, the real
+// one in an integration test, so this helper imports no real runner (ADR 0021, ADR 0362). No test
+// asks the real gh for a login, reaches github.com or touches the keyring.
 
 import { parse } from 'node:path';
 import { doctorFromCheckout } from '../../src/cli/doctor-main.ts';
 import { runCli } from '../../src/cli/run.ts';
 import type { DenylistState } from '../../src/platform/denylist.ts';
 import { resolveExecutable } from '../../src/platform/executables.ts';
-import { type ExecProcess, execProcess } from '../../src/platform/processes.ts';
+import type { ExecProcess } from '../../src/platform/processes.ts';
 
 /** A host no real account logs in to: the only one the canned answer is logged in to. */
 export const MADE_UP_HOST = 'ghe.example';
@@ -51,7 +52,7 @@ const isGh = (file: string): boolean => parse(file).name.toLowerCase() === 'gh';
  * login for anything else.
  */
 export const cannedGhLogin =
-  (exec: ExecProcess = execProcess): ExecProcess =>
+  (exec: ExecProcess): ExecProcess =>
   async (file, args, options) => {
     if (!isGh(file)) return exec(file, args, options);
     if (args.join(' ') === '--version') {
@@ -71,12 +72,12 @@ const notForDoctor = (what: string) => () => {
 
 /**
  * `foedrum doctor` in `cwd` through the command layer (`runCli`), with the facts main.ts gathers
- * (`doctorFromCheckout`) through `exec`, default the real runner with canned gh, and the tools
+ * (`doctorFromCheckout`) through `exec`, such as `cannedGhLogin` over a runner, and the tools
  * `resolve` finds, default gh at `MADE_UP_GH`.
  */
 export const doctorHere = async (
   cwd: string,
-  exec: ExecProcess = cannedGhLogin(),
+  exec: ExecProcess,
   resolve: (name: string) => string | undefined = resolveWithMadeUpGh,
 ) =>
   runCli(['doctor'], {

@@ -238,6 +238,27 @@ describe('cleanWorktrees with a fake git', () => {
     assert.ok(commands.includes(`update-ref -d refs/heads/7-merged ${TIP_7}`));
   });
 
+  it('finishes a worktree folder whose .git file is gone, with its record, and deletes its branch', async () => {
+    // A removal that stopped after git deleted the .git file: the folder and the record are left.
+    rmSync(join(wt('7-merged'), '.git'));
+    writeFileSync(join(wt('7-merged'), 'left.txt'), 'left behind\n');
+    const { calls, git } = fakeGit(main);
+
+    const lines = await cleanWorktrees(main, git);
+
+    assert.equal(existsSync(wt('7-merged')), false, lines.join('\n'));
+    assert.equal(existsSync(record('7-merged')), false, lines.join('\n'));
+    assert.ok(
+      lines.includes(
+        'finished removing worktree .claude/worktrees/7-merged: its .git file was gone',
+      ),
+      lines.join('\n'),
+    );
+    const commands = calls.map(([, ...args]) => args.join(' '));
+    assert.ok(!commands.includes(`worktree remove ${wt('7-merged')}`));
+    assert.ok(commands.includes(`update-ref -d refs/heads/7-merged ${TIP_7}`));
+  });
+
   it('keeps the config and reports the branch when update-ref refuses it', async () => {
     const { calls, git } = fakeGit(
       main,

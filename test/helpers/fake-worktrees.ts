@@ -21,8 +21,13 @@ export type WorktreeCall =
 export interface FakeWorktreesOptions {
   /** The attempts root; default `work/acme.app/attempts`. */
   root?: string;
-  /** The commit every new worktree is at. */
+  /** The commit every new worktree is at, unless `tips` names the branch it starts at. */
   commit?: string;
+  /**
+   * The commit each attempt branch is at once its brewer ran, by branch name: a worktree made at
+   * `refs/heads/<branch>` starts there, as one made by git at a branch would.
+   */
+  tips?: Readonly<Record<string, string>>;
   /** Why `create` refuses this attempt, or undefined to make its worktree. */
   refuse?: (ref: AttemptRef) => string | undefined;
   /** Why `recreate` cannot give this attempt's worktree back, or undefined to give it back. */
@@ -84,7 +89,10 @@ export const fakeWorktrees = (options: FakeWorktreesOptions = {}): FakeWorktrees
       const reason = options.refuse?.(ref);
       if (reason !== undefined) throw new Error(reason);
       const path = join(root, ...attemptFolder(ref).split('/'));
-      return { path, branch: attemptBranch(ref), commit };
+      const tip = base.startsWith('refs/heads/')
+        ? options.tips?.[base.slice('refs/heads/'.length)]
+        : undefined;
+      return { path, branch: attemptBranch(ref), commit: tip ?? commit };
     },
     async recreate(ref, at): Promise<AttemptWorktree> {
       calls.push({ kind: 'recreate', ref, commit: at });

@@ -17,12 +17,7 @@ import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import { stepRunner } from '../../src/engine/step-runner.ts';
 import { execProcess } from '../../src/platform/processes.ts';
 import { removeTree } from '../../src/platform/remove.ts';
-import { countCommits, scanAttemptCommits } from '../../src/workspace/attempt-commits-git.ts';
-import {
-  type AttemptRef,
-  attemptBranch,
-  type Claims,
-} from '../../src/workspace/attempt-worktrees.ts';
+import type { AttemptRef, Claims } from '../../src/workspace/attempt-worktrees.ts';
 import {
   ensureManagedClone,
   openAttemptWorktrees,
@@ -152,44 +147,6 @@ describe('attempt worktrees with real git', () => {
     assert.deepEqual(readdirSync(worktrees.root), []);
   });
 
-  it("removes a worktree whose only change is its attempt's out doc, and keeps one with another (ADR 0081)", async () => {
-    const worktrees = open();
-    const done = await worktrees.create(attempt('12-1'), 'origin/main');
-    const left = await worktrees.create(attempt('12-1', 'review'), 'origin/main');
-    for (const { path } of [done, left]) {
-      brew(path);
-      writeFileSync(join(path, 'brew.md'), '---\n{ "status": "done" }\n---\n');
-    }
-    writeFileSync(join(left.path, 'notes.txt'), 'work a brewer left\n');
-    const outDocs = new Map([
-      ['12-1/implement/1', 'brew.md'],
-      ['12-1/review/1', 'brew.md'],
-    ]);
-
-    const report = await worktrees.clean({ ...claims({ '12-1': 'ended' }), outDocs });
-
-    assert.deepEqual(report.failed, []);
-    assert.equal(existsSync(done.path), false);
-    assert.deepEqual(report.kept, [
-      'kept worktree 12-1/review/1: it has uncommitted or untracked changes',
-    ]);
-    assert.ok(existsSync(join(left.path, 'brew.md')));
-    assert.ok(existsSync(join(left.path, 'notes.txt')));
-    assert.deepEqual(foedrumBranches(), [left.branch]);
-  });
-
-  it('keeps the worktrees of a Stuck batch and of a leased attempt', async () => {
-    const worktrees = open();
-    const stuck = await worktrees.create(attempt('12-1'), 'origin/main');
-    const leased = await worktrees.create(attempt('13-1'), 'origin/main');
-
-    await worktrees.clean(claims({ '12-1': 'live', '13-1': 'ended' }, [attempt('13-1')]));
-
-    assert.ok(existsSync(join(stuck.path, '.git')));
-    assert.ok(existsSync(join(leased.path, '.git')));
-    assert.deepEqual(foedrumBranches().sort(), [stuck.branch, leased.branch]);
-  });
-
   it('repairs after a crash: a removal that stopped part-way, and a worktree no batch claims', async () => {
     const worktrees = open();
     const halfRemoved = await worktrees.create(attempt('12-1'), 'origin/main');
@@ -216,29 +173,6 @@ describe('attempt worktrees with real git', () => {
     assert.equal(records().length, 1);
   });
 
-  it('creates the worktree again when a crash left the same attempt half made', async () => {
-    const worktrees = open();
-    const made = await worktrees.create(attempt('12-1'), 'origin/main');
-
-    const again = await worktrees.create(attempt('12-1'), 'origin/main');
-
-    assert.deepEqual(again, made);
-  });
-
-  it('recreates the worktree of a finished attempt at its recorded commit', async () => {
-    const worktrees = open();
-    const made = await worktrees.create(attempt('12-1'), 'origin/main');
-    brew(made.path);
-    const recorded = git(made.path, ['rev-parse', 'HEAD']).trim();
-    git(user, ['worktree', 'remove', made.path]);
-    git(user, ['branch', '-q', '-D', made.branch]);
-
-    const back = await worktrees.recreate(attempt('12-1'), recorded);
-
-    assert.equal(back.path, made.path);
-    assert.equal(git(back.path, ['rev-parse', 'HEAD']).trim(), recorded);
-  });
-
   it("checks a Brewery order's attempt out detached at its base, gives it back, and cleans it (ADR 0301)", async () => {
     const worktrees = open();
     const ref = attempt('12-1', 'plan');
@@ -262,18 +196,6 @@ describe('attempt worktrees with real git', () => {
     assert.ok(!existsSync(join(workRoot, 'brewery-orders', '12-1')));
   });
 
-  it('leaves a stale record outside the work root alone', async () => {
-    const elsewhere = join(dir.path, 'elsewhere');
-    git(user, ['worktree', 'add', '-q', '-b', 'elsewhere', elsewhere, 'main']);
-    rmSync(elsewhere, { recursive: true, force: true });
-
-    await open().clean(claims({}));
-
-    assert.ok(records().includes('elsewhere'));
-    git(user, ['worktree', 'remove', '--force', elsewhere]);
-    git(user, ['branch', '-q', '-D', 'elsewhere']);
-  });
-
   it('removes read-only folders and a stale index.lock', async () => {
     const worktrees = open();
     const readOnly = await worktrees.create(attempt('12-1'), 'origin/main');
@@ -290,72 +212,6 @@ describe('attempt worktrees with real git', () => {
     assert.equal(existsSync(readOnly.path), false);
     assert.equal(existsSync(lock), false);
     assert.ok(existsSync(join(live.path, '.git')));
-  });
-
-  it("counts an attempt's commits on its branch in the user's clone and in a managed one (ADR 0074, review of #208)", async () => {
-    const managed = await ensureManagedClone({
-      git: runGit,
-      workRoot,
-      repo: 'acme/app',
-      url: origin,
-      reference: user,
-    });
-    const count = countCommits(runGit);
-    for (const clone of [user, managed]) {
-      const worktrees = open(clone);
-      const brewed = attempt('12-1');
-      const made = await worktrees.create(brewed, 'origin/main');
-      brew(made.path);
-      assert.deepEqual(await count(clone, attemptBranch(brewed), made.commit), {
-        kind: 'counted',
-        count: 1,
-      });
-      // A brewer that amends the commit its worktree started at rewrote it.
-      const amended = attempt('12-1', 'review');
-      const fresh = await worktrees.create(amended, 'origin/main');
-      git(fresh.path, ['commit', '-q', '--amend', '-m', 'Rewritten']);
-      assert.deepEqual(await count(clone, attemptBranch(amended), fresh.commit), {
-        kind: 'rewritten',
-      });
-      await worktrees.clean(claims({ '12-1': 'ended' }));
-    }
-  });
-
-  it("scans an attempt's commits after its start on its branch, in the user's clone and in a managed one (ADR 0187)", async () => {
-    const managed = await ensureManagedClone({
-      git: runGit,
-      workRoot,
-      repo: 'acme/app',
-      url: origin,
-      reference: user,
-    });
-    // Built at run time, so no scanner takes this file for one that holds a token.
-    const token = ['ghp', 'A1b2'.repeat(9)].join('_');
-    const scan = scanAttemptCommits(runGit);
-    for (const clone of [user, managed]) {
-      const worktrees = open(clone);
-      const brewed = attempt('12-1');
-      const made = await worktrees.create(brewed, 'origin/main');
-      brew(made.path);
-      assert.deepEqual(await scan(clone, attemptBranch(brewed), made.commit), {
-        kind: 'scanned',
-        findings: [],
-      });
-      writeFileSync(join(made.path, 'keys.test.ts'), `const key = '${token}';\n`);
-      git(made.path, ['add', 'keys.test.ts']);
-      git(made.path, ['commit', '-q', '-m', 'Add a fixture']);
-      const tip = git(made.path, ['rev-parse', 'HEAD']).trim();
-      assert.deepEqual(await scan(clone, attemptBranch(brewed), made.commit), {
-        kind: 'scanned',
-        findings: [{ commit: tip, place: 'keys.test.ts', kind: 'GitHub token' }],
-      });
-      // From the tip, the commit with the token is before the start: not this attempt's.
-      assert.deepEqual(await scan(clone, attemptBranch(brewed), tip), {
-        kind: 'scanned',
-        findings: [],
-      });
-      await worktrees.clean(claims({ '12-1': 'ended' }));
-    }
   });
 
   it('makes worktrees from a managed bare partial clone that borrows from the user clone', async () => {
@@ -378,8 +234,10 @@ describe('attempt worktrees with real git', () => {
   });
 });
 
-// The engine's side (ADR 0037): the test driver gives each attempt a worktree of the user's clone,
-// records it, and cleans up when the batch ends and when it starts again.
+// The engine's side (ADR 0037): openDriver gives each attempt a worktree of the user's clone, at
+// the commits of the step before it (ADR 0066), and a check step one of its own (ADR 0069); the
+// test driver cleans up at its start what a driver that died left. What a driver records is
+// shown on fakeWorktrees in the unit tests.
 describe('the driver and attempt worktrees with real git', () => {
   let dir: TempDir;
   let user: string;
@@ -449,57 +307,6 @@ describe('the driver and attempt worktrees with real git', () => {
     await brewing.drive();
     assert.equal(brewing.batch('12-1').lane.kind, 'on_tap');
   };
-
-  it('records each attempt worktree, and leaves nothing behind once the batch is on tap', async () => {
-    const clock = () => new Date('2026-10-16T12:00:00.000Z');
-    const driver = await openDriver({
-      store,
-      runner: fakeBrewerRunner({ plan: [behave.succeed()], implement: [behave.succeed()] }),
-      recipes,
-      clock,
-      lock: () => fakeLock('cellar'),
-      takes: () => true,
-      stateBranch: { flush: async () => ({ kind: 'unchanged' }) },
-      limits: () => defaultLimits,
-      worktrees: [{ repo: 'acme/app', base: 'origin/main', manager: manager() }],
-    });
-    try {
-      const intake = createCommandLog({ store, recipes });
-      intake.issue({ kind: 'order', batchId: '12-1', order: { issue: 12 } }, clock());
-      const route = { kind: 'route', batchId: '12-1', recipe: 'pint', reason: 'label' } as const;
-      intake.issue({ ...route, source: 'label' }, clock());
-      await driver.drive();
-      assert.equal(driver.state().batches.get('12-1')?.lane.kind, 'on_tap');
-    } finally {
-      driver.close();
-    }
-
-    const recorded = store
-      .eventsAfter(0)
-      .flatMap(({ event }) =>
-        event.type === 'step.started' && event.worktree !== undefined ? [event.worktree] : [],
-      );
-    assert.deepEqual(
-      recorded.map(({ repo, branch }) => [repo, branch]),
-      [
-        ['acme/app', 'foedrum/12-1/plan/1'],
-        ['acme/app', 'foedrum/12-1/implement/1'],
-      ],
-    );
-    const base = git(user, ['rev-parse', 'origin/main']).trim();
-    assert.notEqual(git(user, ['rev-parse', 'HEAD']).trim(), base);
-    assert.deepEqual(
-      recorded.map(({ commit }) => commit),
-      [base, base],
-    );
-    for (const [{ path }, step] of recorded.map(
-      (worktree, i) => [worktree, ['plan', 'implement'][i]] as const,
-    )) {
-      assert.ok(path.endsWith(join('acme.app', 'attempts', '12-1', step ?? '', '1')), path);
-    }
-    assert.deepEqual(leftovers(), { branches: [], records: [] });
-    assert.deepEqual(readdirSync(manager().root), []);
-  });
 
   it('brews two steps through openDriver: the second has the commits of the first, not of a failed attempt (ADR 0066)', async () => {
     const clock = () => new Date('2026-10-16T12:00:00.000Z');

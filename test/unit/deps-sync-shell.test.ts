@@ -1,12 +1,14 @@
-// The deps:sync shell with fake files and a fake process runner (ADR 0021). The staleness
-// decisions are in deps-sync-core.test.ts; the script itself runs in test/integration.
+// The deps:sync shell with fake files and a fake process runner (ADR 0021), and outOfDate on the
+// files a real npm ci wrote. The staleness decisions are in deps-sync-core.test.ts; the script
+// itself runs in test/integration.
 
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { describe, it } from 'node:test';
+import { afterEach, beforeEach, describe, it } from 'node:test';
 import { outOfDate, type ReadText, syncDeps } from '../../scripts/deps-sync.ts';
 import type { ProcessOutcome, RunOptions, RunProcess } from '../../scripts/process-runner.ts';
+import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 
 const root = join('/work', 'tree');
 const execPath = '/usr/local/bin/node';
@@ -159,13 +161,47 @@ describe('syncDeps', () => {
   }
 });
 
+const repo = join(import.meta.dirname, '..', '..');
+
+// The record a real npm ci wrote (npm 11.19.0 on Windows, for this repository's lock file of
+// 2026-10-18), captured in test/fixtures/deps-sync, so this checks the core against what npm writes,
+// with the optional packages of other platforms skipped, whatever state this checkout's own
+// node_modules is in (#212). The record npm writes today is read on every CI leg anyway: CI runs
+// npm ci and then npm run check, whose first step (scripts/check.ts) runs outOfDate on it.
+describe('outOfDate on a package tree npm ci installed', () => {
+  let project: TempDir;
+  beforeEach(() => {
+    project = makeTempDir('deps-sync-installed');
+  });
+  afterEach(() => project.remove());
+
+  // The captured lock file and record in the project, the record changed by `edit` first.
+  const install = (edit: (record: string) => string = (record) => record) => {
+    const captured = join(repo, 'test', 'fixtures', 'deps-sync');
+    writeFileSync(join(project.path, 'package.json'), '{"private":true}\n');
+    copyFileSync(join(captured, 'package-lock.json'), join(project.path, 'package-lock.json'));
+    mkdirSync(join(project.path, 'node_modules'));
+    const record = readFileSync(join(captured, 'installed', 'package-lock.json'), 'utf8');
+    writeFileSync(join(project.path, 'node_modules', '.package-lock.json'), edit(record));
+  };
+
+  it('finds node_modules up to date after npm ci', async () => {
+    install();
+    assert.equal(await outOfDate(project.path), undefined);
+  });
+
+  it('finds it out of date when a package the record names has another integrity', async () => {
+    install((record) => record.replace('"integrity": "sha512-v5l/', '"integrity": "sha512-xxxx'));
+    assert.notEqual(await outOfDate(project.path), undefined);
+  });
+});
+
 interface SessionStartGroup {
   matcher?: string;
   hooks?: Record<string, unknown>[];
 }
 
 describe('deps:sync wiring', () => {
-  const repo = join(import.meta.dirname, '..', '..');
   const readJson = <T>(...path: string[]): T =>
     JSON.parse(readFileSync(join(repo, ...path), 'utf8')) as T;
 

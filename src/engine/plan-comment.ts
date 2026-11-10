@@ -397,6 +397,21 @@ const orderRevision = (state: State, batch: Batch, issue: number): StatusRevisio
 };
 
 /**
+ * Whether a batch of the same Brewery issue, ordered after `batch`, has a succeeded plan: the
+ * plan the order's comment shows from then on, so `batch`'s own is never due again (ADR 0361).
+ */
+const laterPlanned = (state: State, batch: Batch, issue: number): boolean => {
+  let after = false;
+  for (const other of state.batches.values()) {
+    if (other.id === batch.id) after = true;
+    else if (after && breweryIssueOf(state, other) === issue && latestPlan(other) !== undefined) {
+      return true;
+    }
+  }
+  return false;
+};
+
+/**
  * The id of the plan comment that shows the plan of `batchId`: the one its latest recorded revision
  * made or edited, else the order's, which its earlier batch made; undefined while it has none.
  */
@@ -410,7 +425,8 @@ export const planCommentOf = (state: State, batchId: string): number | undefined
 
 /**
  * The revision of the plan comment of `batchId` that the recorded events call for: the next one
- * when its latest plan's text is not the one the comment shows, else none.
+ * when its latest plan's text is not the one the comment shows, else none; none either once a
+ * later batch of the order has a plan, so a changed text never puts an older plan back (ADR 0361).
  */
 const planDue = (
   state: State,
@@ -421,7 +437,9 @@ const planDue = (
   if (batch === undefined) return undefined;
   const issue = breweryIssueOf(state, batch);
   const latest = latestPlan(batch);
-  if (issue === undefined || latest === undefined) return undefined;
+  if (issue === undefined || latest === undefined || laterPlanned(state, batch, issue)) {
+    return undefined;
+  }
   const { next, latest: own } = revisions.latest(state, batchId);
   const previous = own ?? orderRevision(state, batch, issue);
   const { stepId, attempt, plan } = latest;
@@ -472,7 +490,8 @@ export interface PlanEffectsOptions {
 
 /**
  * The plan comment of every order whose batch has a succeeded plan, for the driver: a revision
- * whenever its text changed, edited in place, a later batch of the order editing the same comment.
+ * whenever its text changed, edited in place, a later batch of the order editing the same comment
+ * and, once it has a plan, the only one that does (ADR 0361).
  * No limit a minute: a plan changes only when a plan step succeeds (ADR 0233), its Gate when a
  * pass opens the approved plan's sub-issues, which the driver applies before it (ADR 0285), and
  * its Review when a plan lens round ends (ADR 0318).

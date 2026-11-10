@@ -1029,6 +1029,63 @@ describe('openDriver', () => {
       );
     });
 
+    it('starts the next step at the commits of the one before it, and a retry not at those of the failed attempt (ADR 0066)', async () => {
+      const { runner, end } = handRunner();
+      const planTip = '1'.repeat(40);
+      const junkTip = '2'.repeat(40);
+      const manager = fakeWorktrees({
+        tips: { 'foedrum/b1/plan/1': planTip, 'foedrum/b1/implement/1': junkTip },
+      });
+      order('b1');
+      const driver = await open({ runner, ...worktreesOf(manager) });
+      await driver.drive();
+      end(plan('b1'));
+      await driver.drive();
+      const implement = (attempt: number) => ({ batchId: 'b1', stepId: 'implement', attempt });
+      end(implement(1), { kind: 'failed', retryable: true, reason: 'tests fail' });
+      await driver.drive();
+      assert.deepStrictEqual(
+        store
+          .eventsAfter(0)
+          .flatMap(({ event }) =>
+            event.type === 'step.started' && event.worktree !== undefined
+              ? [`${event.stepId}#${event.attempt} ${event.worktree.commit}`]
+              : [],
+          ),
+        [`plan#1 ${FAKE_COMMIT}`, `implement#1 ${planTip}`, `implement#2 ${planTip}`],
+      );
+    });
+
+    it("records each attempt's worktree as its manager gave it: repository, path, branch and commit", async () => {
+      const { runner, end } = handRunner();
+      const planTip = '1'.repeat(40);
+      const manager = fakeWorktrees({ tips: { 'foedrum/b1/plan/1': planTip } });
+      order('b1');
+      const driver = await open({ runner, ...worktreesOf(manager) });
+      await driver.drive();
+      end(plan('b1'));
+      await driver.drive();
+      assert.deepStrictEqual(
+        store
+          .eventsAfter(0)
+          .flatMap(({ event }) => (event.type === 'step.started' ? [event.worktree] : [])),
+        [
+          {
+            repo: 'acme/app',
+            path: join(manager.root, 'b1', 'plan', '1'),
+            branch: 'foedrum/b1/plan/1',
+            commit: FAKE_COMMIT,
+          },
+          {
+            repo: 'acme/app',
+            path: join(manager.root, 'b1', 'implement', '1'),
+            branch: 'foedrum/b1/implement/1',
+            commit: planTip,
+          },
+        ],
+      );
+    });
+
     it('starts a Gauger sent back after the code at its own success, and the code again after the red proof (ADR 0358)', async () => {
       const { runner, end } = handRunner();
       const manager = fakeWorktrees();
