@@ -8,15 +8,20 @@ import { join, resolve } from 'node:path';
 import { describe, it } from 'node:test';
 import { type BrewRequest, runBrew } from '../../src/cli/brew.ts';
 import { diagnose } from '../../src/cli/doctor.ts';
+import { runServe } from '../../src/cli/serve.ts';
 import { type ServeSetupResult, serveSetup } from '../../src/cli/serve-config.ts';
 import { readBreweryFiles } from '../../src/engine/brewery-files.ts';
+import { createCommandLog } from '../../src/engine/command-log.ts';
 import { effectKey } from '../../src/engine/effect-key.ts';
+import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import type { Question } from '../../src/schemas/step-outcome.ts';
 import { brewFixture, request, t0 } from '../helpers/brew-fixture.ts';
 import { linux } from '../helpers/doctor-facts.ts';
 import { behave } from '../helpers/fake-brewer-runner.ts';
 import { fakeGitHubApi } from '../helpers/fake-github-api.ts';
+import { fakeLock } from '../helpers/fake-lock.ts';
 import { config, local, recipe, serveInputs } from '../helpers/serve-brewery.ts';
+import { serveFixture } from '../helpers/serve-fixture.ts';
 
 // A second recipe like stout, so the Innkeeper has two to offer beside porter and nip.
 const mild = JSON.stringify({ ...JSON.parse(recipe), name: 'mild', description: 'A mild.' });
@@ -154,6 +159,21 @@ describe('runBrew on an issue with no recipe label (ADR 0370)', () => {
     assert.deepStrictEqual(f.started, ['innkeep#1']);
   });
 
+  it('an issue with two recipe labels, or a label naming a recipe the Brewery lacks, is still refused: regression test', async () => {
+    const lines: [number, string][] = [
+      [14, 'foedrum brew: #14 carries recipe:stout and recipe:porter; give it one recipe label'],
+      [15, 'foedrum brew: #15 carries recipe:stoutt, which names no recipe of this Brewery'],
+    ];
+    for (const [issue, line] of lines) {
+      // Each brew is a process of its own, which takes the owner's lock again.
+      const again = shell(behave.succeed(), { lock: () => fakeLock('ann') });
+      assert.equal(await runBrew(ready(), again, brew(issue)), 5, f.lines.join('\n'));
+      assert.equal(f.lines.at(-1), line);
+    }
+    assert.equal(log().state().batches.size, 0);
+    assert.deepStrictEqual(f.started, []);
+  });
+
   it('a Brewery whose default cannot run says so in one line', async () => {
     const one = ready({ only: 'stout' });
     assert.equal(await runBrew(one, shell(behave.succeed()), brew(13)), 5, f.lines.join('\n'));
@@ -205,4 +225,53 @@ describe('the default recipe in foedrum.jsonc (ADR 0370)', () => {
       );
     });
   }
+
+  it('a default recipe of type mash, or none, is no problem: regression test', () => {
+    for (const fields of [{ defaultRecipe: 'mash' }, {}]) {
+      const result = defaultSetup(workRoot, { config: config(fields) });
+      assert.equal(result.kind, 'ready', JSON.stringify(result));
+    }
+  });
+});
+
+describe('runServe on an issue with no recipe label (ADR 0370)', () => {
+  const f = serveFixture();
+  const { shell } = f;
+
+  it("foedrum serve still waits for an unlabelled issue's routing deadline: regression test", async () => {
+    const result = defaultSetup(f.dir.path, { config: config({ defaultRecipe: 'mash-in' }) });
+    f.setup = result.kind === 'ready' ? result.setup : assert.fail(JSON.stringify(result));
+    const inner = openSqliteEventStore(':memory:');
+    f.store = { ...inner, close: () => {} };
+    const log = createCommandLog({ store: f.store, recipes: f.setup.recipes });
+    const by = { by: 'ann', via: 'terminal' } as const;
+    log.issue({ kind: 'order_again', batchId: '13-1', order: { issue: 13 }, ...by }, t0);
+    const github = fakeGitHubApi({
+      login: 'ann',
+      issues: {
+        'acme/brewery': [{ number: 13, labels: [], author: 'ann', title: 'Unlabelled' }],
+      },
+    });
+    let now = t0.getTime();
+    const lane = () => log.state().batches.get('13-1')?.lane;
+    const waits = {
+      clock: () => new Date(now),
+      wait: async () => {
+        // An hour a tick, past the routing deadline in a day (ADR 0032).
+        now += 3_600_000;
+        await new Promise((resolve) => setTimeout(resolve, 1));
+        if (lane()?.kind !== 'ordered' || now > t0.getTime() + 72 * 3_600_000) {
+          f.controller.abort();
+        }
+      },
+    };
+    assert.equal(await runServe(f.setup, shell({ fetch: github.fetch, ...waits })), 0);
+    const reached = lane();
+    assert.deepStrictEqual(
+      { lane: reached?.kind, reason: reached?.kind === 'stuck' ? reached.reason.kind : undefined },
+      { lane: 'stuck', reason: 'routing' },
+      f.lines.join('\n'),
+    );
+    assert.equal(log.state().batches.get('13-1')?.recipe, undefined);
+  });
 });
