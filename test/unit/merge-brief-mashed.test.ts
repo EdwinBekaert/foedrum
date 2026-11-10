@@ -729,6 +729,24 @@ describe('the merge brief of a batch mashed to a building recipe (#867)', () => 
     assert.doesNotMatch(body, /was stale/);
   });
 
+  it('says once that a repository whose first survey found its map fresh has a new one: regression test', async () => {
+    movedOff(
+      'reviewed',
+      () => {
+        run('plan', surveyed('fresh'), { commit: earlierCommit });
+        run('old-taster', tasted('the plan may be too big'));
+      },
+      'tasted',
+    );
+    run('implement', surveyed('new'), { commit: head });
+    run('new-taster', tasted('the cut was not run'), { commit: head });
+    opened();
+    const body = await briefBody();
+    assert.deepStrictEqual(body.match(/The test map of [^\n]*/g), [
+      'The test map of acme/web is new: the Maltster proposed it.',
+    ]);
+  });
+
   it("finds the merged-check step of a batch mashed to nip, in nip's own steps: regression test", () => {
     mashed('nip');
     const found = log.state().batches.get(batchId);
