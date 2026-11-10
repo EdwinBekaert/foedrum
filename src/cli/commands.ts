@@ -509,10 +509,11 @@ const readQueue = async (
       const issues = await read(`listing ${repo}`, () => tracker.issues(repo, filter));
       listings.push({ repository, issues });
     }
-    // By `<repo>#<n>` in lower case: GitHub compares repository names ignoring case.
+    // By `<repo>#<n>`: rank names a target issue by its alias, so its repository is foedrum.jsonc's,
+    // as the listing's is.
     const failures = new Map<string, string>();
     const failed = (issue: string, error: unknown): void => {
-      failures.set(issue.toLowerCase(), messageOf(error));
+      failures.set(issue, messageOf(error));
     };
     const repositories = await withLabelsAdded(state, listings, { claimant, tracker, failed });
     const authors = config.users ?? [];
@@ -521,7 +522,7 @@ const readQueue = async (
       queue,
       why: (order) => notQueued(repositories, authors, order),
       unread: ({ repo, issue }) =>
-        repo === undefined ? undefined : failures.get(`${repo}#${issue}`.toLowerCase()),
+        repo === undefined ? undefined : failures.get(`${repo}#${issue}`),
     };
   } catch (error) {
     return { refused: messageOf(error) };
