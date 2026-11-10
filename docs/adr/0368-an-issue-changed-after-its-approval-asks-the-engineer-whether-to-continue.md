@@ -16,7 +16,8 @@ The maintainer decided on 2026-11-10: when the title or the body changed, or a c
 - **A person's order** (`foedrum order`, `foedrum brew` of a target issue, ADR 0105) approves the issue as it was when they ordered it: the batch's `orderedAt`, now kept with `orderedBy` in the fold.
 - **The engineer's "continue"** approves the issue up to the latest change the question showed (`upTo`), recorded as `order.approved`. A change after that asks again.
 - **An issue with no approval at all**, such as one whose filter has no label any more, counts every change it ever had.
-- **A Brewery order** (`isBreweryOrder`) is never checked: no label approves it, and the Brewery is its users' own repository (ADR 0359). That holds for the Brewery issue of a claimed order too.
+- **A Brewery order,** a batch with no `repo`, is never checked: no label approves it, and the Brewery is its users' own repository (ADR 0359). That holds for the Brewery issue of a claimed order too.
+- **The same second:** GitHub gives its times in whole seconds, so a change in the second of a label or an order counts, as one the person who approved may not have seen; a change at the `upTo` a continue approved does not, since the question showed it.
 
 ### What counts as a change
 - **The title:** each `renamed` event after the approval.
@@ -26,7 +27,7 @@ The maintainer decided on 2026-11-10: when the title or the body changed, or a c
 - An edit, a rename or a comment by someone in `users` counts too: the maintainer decided there is no exception.
 
 ### Where the check sits
-- **The driver checks before each attempt of a claimed order starts** (`changedOrder` in `src/engine/driver.ts`), before `step.started` is recorded, so no prompt is built and no process starts. Every attempt: a brewer's, a resumed one's, a check's and an action's, since the pull request takes the issue's title (ADR 0071).
+- **The driver checks before each attempt of a claimed order that reads its issue starts** (`changedOrder` in `src/engine/driver.ts`), before `step.started` is recorded, so no prompt is built and no process starts: a brewer's, a resumed one's, and an action's, since the pull request takes the issue's title (ADR 0071). A check step's attempt reads nothing of the issue and is not checked; the next attempt that reads it is.
 - **A change parks the scheduled attempt** with the engine command `order_changed`: the batch goes Stuck with the reason `order_changed` (the step, the first five changes, how many more, and `upTo`), and its options are `answer` and `cancel`. The abandoned attempt counts against no retry, as a Stuck that abandons an attempt before it starts never does (ADR 0222).
 - **A check that cannot read the issue fails the attempt before it starts,** retryably, with `the order could not be checked for changes since its approval: <error>`. No attempt goes on unchecked.
 - **Before a batch exists, nothing changes:** the intake claims the issue as ADR 0359 has it, and the check before the first attempt asks at once. `foedrum rank` says nothing new. The claim label and the claim comment land on the target issue before the engineer can say no.
@@ -39,11 +40,11 @@ The maintainer decided on 2026-11-10: when the title or the body changed, or a c
 
 ### How it is read
 - **The events** of the issue, every page, 100 to a page, through the conditional reads (ADR 0052): who added each label and when (`created_at`, now read), and each `renamed` event. The same path ADR 0359's intake reads.
-- **The edits of the body,** which only GraphQL tells: `userContentEdits` (each edit's time and editor) and `lastEditedAt`. A title change does not set `lastEditedAt`: measured on 2026-11-10 on this repository's #902, renamed with no body edit, whose `lastEditedAt` is null. An issue with more than 100 edits counts its latest edit as by nobody known.
+- **The edits of the body,** which only GraphQL tells: the first 100 of `userContentEdits` (each edit's time and editor) and `lastEditedAt`. A title change does not set `lastEditedAt`: measured on 2026-11-10 on this repository's #902, renamed with no body edit, whose `lastEditedAt` is null. When no edit of the page has the time of `lastEditedAt`, past the page or left out of it, it counts as an edit by nobody known.
 - **The comments,** every page, 10 to a page by the same path ADR 0333's comments read, with `updated_at`, so the two share the cached answers.
 
 ### What it costs
-Counted from the code, per attempt of a claimed order:
+Counted from the code, per attempt of a claimed order that reads its issue:
 - the events: one conditional request per started 100 events, a 304 when unchanged, which does not count against the primary limit (ADR 0052);
 - the comments: one conditional request per started 10 comments, the same requests the order's comments make on a fresh attempt, so a 304 for both reads once the first is cached;
 - the edits: one GraphQL query, a POST with no conditional answer, so every one counts: one point of the GraphQL limit of 5,000 points an hour, apart from the REST limit.
