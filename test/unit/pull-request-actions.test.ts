@@ -400,6 +400,12 @@ describe('pullRequestActions: the pull request', () => {
     assert.ok(body.split('\n').includes(line), body);
   });
 
+  it('says nothing of test-first for a sub-order that skipped no step, as one that ran them before the plan could turn them off (ADR 0371)', async () => {
+    const body = await openedAfter(subOrderOff('it only rewords the help'), []);
+    assert.match(body, /\nBrewed by Foedrum with the recipe ale\.\n/);
+    assert.doesNotMatch(body, /Test-first was off/);
+  });
+
   it("writes the plan's reason on one line, linking nothing and leaving out what looks like a secret: regression test", async () => {
     // The plan's schema keeps the reason to one line; a tab is blank space that stays on it.
     const linking = await openedAfter(subOrderOff('it fixes #12\tfor @someone'), ['gauge']);
