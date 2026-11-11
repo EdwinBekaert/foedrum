@@ -60,6 +60,8 @@ export interface BrewRequest {
   take?: true;
   /** `foedrum mash`: route the batch to mash-in and drive it to its question (ADR 0232). */
   mash?: true;
+  /** `foedrum mash --override`: ask the Innkeeper again for a batch with a recipe (ADR 0374). */
+  override?: true;
   /** `foedrum lauter <issue>`: the batch whose plan a session corrects, taking it over (ADR 0286). */
   lauter?: string;
   /**
@@ -102,16 +104,18 @@ const questionLines = (state: State, stepId: string, batch: Batch): string[] => 
 
 /**
  * Why `foedrum mash` cannot route the issue's batch to mash-in (ADR 0232), or undefined: the batch
- * already started a recipe, the Brewery has no mash-in, or fewer than two recipes for it to offer.
+ * already started a recipe, unless `--override` asks again (ADR 0374), the Brewery has no mash-in,
+ * or fewer than two recipes for it to offer.
  */
 const mashRefusal = (
   setup: ServeSetup,
   latest: Batch | undefined,
+  override: boolean,
   named: string,
   called: string,
 ): string | undefined => {
-  if (latest?.recipe !== undefined) {
-    return `${named} already brews the recipe ${latest.recipe.name}; foedrum recipe ${called} <recipe> <reason> brews it with another`;
+  if (latest?.recipe !== undefined && !override) {
+    return `${named} already brews the recipe ${latest.recipe.name}; foedrum mash ${called} --override asks the Innkeeper again, or foedrum recipe ${called} <recipe> <reason> brews it with another`;
   }
   const mashIn = setup.recipes.find(MASH_IN);
   if (mashIn === undefined) return `the Brewery has no recipe ${MASH_IN}`;
@@ -122,6 +126,24 @@ const mashRefusal = (
   return only === undefined
     ? `the Brewery has no recipe to offer but ${MASH_IN}`
     : `the Brewery has one recipe to offer, ${only.name}: label ${named} recipe:${only.name} to brew it`;
+};
+
+/**
+ * The sub-orders of `order`'s approved plan that a new plan would leave with no order (ADR 0374):
+ * those its latest breakdown keeps, which are never the cancelled ones, whose batch has not ended,
+ * or is on tap with a pull request with no recorded end. One with no batch yet has no work to leave.
+ */
+const unfinishedSubOrders = (state: State, order: OrderIssue): number[] => {
+  const planned = order.repo === undefined ? state.orders.get(order.issue)?.subOrders : undefined;
+  return (planned ?? []).filter((issue) => {
+    const subOrder = state.subOrders.get(issue);
+    if (subOrder === undefined) return false;
+    const id = subOrder.batchIds.at(-1);
+    const batch = id === undefined ? undefined : state.batches.get(id);
+    if (batch === undefined) return false;
+    const { kind } = batch.lane;
+    return (kind !== 'on_tap' && kind !== 'cancelled') || unendedPullRequests(batch).length > 0;
+  });
 };
 
 /** The recipes the step `stepId` of `recipe` offers a person to choose from (ADR 0232). */
@@ -509,7 +531,7 @@ export const runBrew = async (
     const wayOn = (state: State, held: Batch): string =>
       held.lane.kind === 'on_tap' || held.lane.kind === 'cancelled'
         ? `foedrum brew ${called(state)} tries again then`
-        : `foedrum ${request.mash === true ? 'mash' : 'brew'} ${called(state)} --take takes it over now`;
+        : `foedrum ${request.mash === true ? 'mash' : 'brew'} ${called(state)}${request.override === true ? ' --override' : ''} --take takes it over now`;
     const orderAgainLine = (state: State, batch: Batch): string => {
       const { lane } = describeLane(batch, called(state));
       return `${named} is ${lane}; foedrum order ${called(state)} orders it again`;
@@ -544,6 +566,18 @@ export const runBrew = async (
         closeStillDue(log.state(), latest))
         ? latest
         : undefined;
+    // A re-mash plans the order again, which would leave its plan's unfinished sub-orders with no
+    // order (ADR 0374).
+    const override = request.override === true;
+    if (override) {
+      const unfinished = unfinishedSubOrders(log.state(), order);
+      if (unfinished.length > 0) {
+        const listed = unfinished.map((issue) => `#${issue}`).join(' ');
+        return refuse(
+          `${named}'s approved plan opened sub-orders ${listed}; a new plan would leave them with no order: brew them, or foedrum recipe <sub-order> <recipe> <reason> changes one`,
+        );
+      }
+    }
     // A lauter names a batch, whose lane its refusal names (ADR 0286).
     if (request.lauter !== undefined && latest === undefined) {
       return refuse(`${named} has no batch to correct a plan of`);
@@ -564,7 +598,11 @@ export const runBrew = async (
         );
       }
       // What an order would say, when it would be refused, in place of offering it (ADR 0339).
-      return refuse(orderRefusal(log.state(), order) ?? orderAgainLine(log.state(), latest));
+      const refused = orderRefusal(log.state(), order);
+      // A re-mash orders an ended issue again, as foedrum recipe does (ADR 0240, ADR 0374).
+      if (refused !== undefined || !override) {
+        return refuse(refused ?? orderAgainLine(log.state(), latest));
+      }
     }
     // A paused order would wait with nothing to do: it is continued first (ADR 0202).
     // A sub-order's batch waits for its order's pause, which is the one to continue.
@@ -585,9 +623,21 @@ export const runBrew = async (
     ) {
       return refuse(pausedLine(log.state(), latest));
     }
-    const leased = latest === undefined ? undefined : heldElsewhere(latest.id);
-    if (latest !== undefined && leased !== undefined && request.take !== true) {
-      return refuse(drivenBy(log.state(), leased, wayOn(log.state(), latest)));
+    // The batch it drives on: none when a re-mash orders an ended issue again (ADR 0374).
+    const live =
+      override && (latest?.lane.kind === 'on_tap' || latest?.lane.kind === 'cancelled')
+        ? undefined
+        : latest;
+    // Killing a running attempt stays a person's explicit stop (ADR 0205), before any takeover.
+    if (override && live?.lane.kind === 'brewing') {
+      const number = called(log.state());
+      return refuse(
+        `${named} is brewing; foedrum stop ${number} first, then foedrum mash ${number} --override`,
+      );
+    }
+    const leased = live === undefined ? undefined : heldElsewhere(live.id);
+    if (live !== undefined && leased !== undefined && request.take !== true) {
+      return refuse(drivenBy(log.state(), leased, wayOn(log.state(), live)));
     }
     // The person's lauter first, so a refused one takes nothing over; its session opens below as
     // every interactive step's does (ADR 0286, ADR 0222).
@@ -610,7 +660,7 @@ export const runBrew = async (
     // Whether the batch is routed to the Brewery's default recipe, for want of a label (ADR 0370).
     let byDefault = false;
     if (request.mash === true) {
-      const refused = mashRefusal(setup, latest, named, called(log.state()));
+      const refused = mashRefusal(setup, live, override, named, called(log.state()));
       if (refused !== undefined) return refuse(refused);
     } else if (!waitsForOrder && (latest === undefined || latest.lane.kind === 'ordered')) {
       const labels = githubOrderLabels(reads, setup.brewery);
@@ -652,7 +702,7 @@ export const runBrew = async (
         return refuse(decision.reason);
       }
     }
-    if (latest === undefined) {
+    if (live === undefined) {
       const claim: OrderClaim | undefined =
         repository === undefined
           ? undefined
@@ -670,9 +720,9 @@ export const runBrew = async (
       say(`ordered ${named}`);
     }
     const batch =
-      latest === undefined
+      live === undefined
         ? latestBatch(log.state().batches.values(), order.issue, order.repo)
-        : log.state().batches.get(latest.id);
+        : log.state().batches.get(live.id);
     if (batch === undefined) throw new Error(`${named} has no batch after its order`);
     batchId = batch.id;
     brewingNow = () => runningAttempts(foldedBatch(driver.state(), batch.id));
@@ -734,12 +784,16 @@ export const runBrew = async (
       recipe = setup.defaultRecipe;
       byDefault = true;
     }
-    if (request.mash === true && batch.recipe === undefined) {
+    // A re-mash restarts a batch that has a recipe on mash-in's first step, a Stuck one resumed,
+    // as foedrum recipe does (ADR 0240, ADR 0374).
+    if (request.mash === true && (batch.recipe === undefined || override)) {
       const mashIn = {
         kind: 'recipe',
         batchId,
         recipe: MASH_IN,
-        reason: 'the engineer ran foedrum mash',
+        reason: override
+          ? 'the engineer ran foedrum mash --override'
+          : 'the engineer ran foedrum mash',
         by,
         via,
       } as const;
@@ -779,8 +833,9 @@ export const runBrew = async (
       }
     };
     // A batch that waits for a session when a brew that opens one starts: the person runs it now,
-    // once; within the run the batch never retries by itself (ADR 0222).
-    const { lane: found } = batch;
+    // once; within the run the batch never retries by itself (ADR 0222). Read after a re-mash's
+    // choice, which resumes a Stuck batch on mash-in (ADR 0374).
+    const { lane: found } = foldedBatch(log.state(), batchId);
     if (
       request.noSessions === undefined &&
       found.kind === 'stuck' &&
