@@ -60,6 +60,8 @@ export interface BrewRequest {
   take?: true;
   /** `foedrum mash`: route the batch to mash-in and drive it to its question (ADR 0232). */
   mash?: true;
+  /** `foedrum mash --override`: ask the Innkeeper again for a batch with a recipe (ADR 0374). */
+  override?: true;
   /** `foedrum lauter <issue>`: the batch whose plan a session corrects, taking it over (ADR 0286). */
   lauter?: string;
   /**
