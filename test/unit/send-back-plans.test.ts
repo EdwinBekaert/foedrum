@@ -24,7 +24,13 @@ const loaded = loadRecipes(noFiles);
 assert.ok(loaded.valid, loaded.valid ? '' : loaded.problems.join('\n'));
 
 const root = join('/work', 'acme.api', 'attempts', '12-1');
-const deadlineAt = '2026-10-18T12:30:00.000Z';
+// Each step's attempt has a deadline of its own, and the batch's routing another.
+const deadlines: Record<string, string> = {
+  gauge: '2026-10-18T12:10:00.000Z',
+  implement: '2026-10-18T12:30:00.000Z',
+  fine: '2026-10-18T12:50:00.000Z',
+};
+const deadlineAt = (stepId: string): string => deadlines[stepId] ?? '2026-10-18T13:00:00.000Z';
 const gaugeStart = 'a'.repeat(40);
 const worktree = (stepId: string, commit: string) => ({
   repo: 'acme/api',
@@ -39,7 +45,7 @@ const sessions: Record<string, string> = {
 };
 const at = (stepId: string): AttemptRef => ({ batchId: '12-1', stepId, attempt: 1 });
 const started = (stepId: string, commit: string): Event[] => [
-  { type: 'step.scheduled', ...at(stepId), deadlineAt },
+  { type: 'step.scheduled', ...at(stepId), deadlineAt: deadlineAt(stepId) },
   {
     type: 'step.started',
     ...at(stepId),
@@ -48,7 +54,12 @@ const started = (stepId: string, commit: string): Event[] => [
   },
 ];
 const ordered: Event[] = [
-  { type: 'batch.ordered', batchId: '12-1', order: { issue: 12 }, routeBy: deadlineAt },
+  {
+    type: 'batch.ordered',
+    batchId: '12-1',
+    order: { issue: 12 },
+    routeBy: '2026-10-18T14:00:00.000Z',
+  },
   { type: 'batch.recipe_chosen', batchId: '12-1', recipe: 'nip', reason: 'l', source: 'label' },
 ];
 const gauged: Event[] = [
@@ -146,7 +157,7 @@ describe('createAttemptPlans: the checks before the end (ADR 0381)', () => {
       assert.deepEqual(plan.sendBack?.checks, sendBackChecks(checks, 'linux'), stepId);
       // The red step's test file, never its fixture outside the map's test area.
       assert.deepEqual(plan.sendBack?.redTests, ['test/add.test.mjs'], stepId);
-      assert.equal(plan.sendBack?.deadlineAt, deadlineAt, stepId);
+      assert.equal(plan.sendBack?.deadlineAt, deadlineAt(stepId), stepId);
       assert.equal(plan.sendBack?.unsandboxed, false, stepId);
       // claude's login is claude's alone, as for a check (ADR 0069).
       assert.equal(plan.sendBack?.env.ANTHROPIC_API_KEY, undefined, stepId);
