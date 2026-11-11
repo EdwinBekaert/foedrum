@@ -130,14 +130,14 @@ const mashRefusal = (
 
 /**
  * The sub-orders of `order`'s approved plan that a new plan would leave with no order (ADR 0374):
- * those its latest breakdown keeps whose batch has not ended, or is on tap with a pull request with
- * no recorded end. One with no batch yet has no work to leave.
+ * those its latest breakdown keeps, which are never the cancelled ones, whose batch has not ended,
+ * or is on tap with a pull request with no recorded end. One with no batch yet has no work to leave.
  */
 const unfinishedSubOrders = (state: State, order: OrderIssue): number[] => {
   const planned = order.repo === undefined ? state.orders.get(order.issue)?.subOrders : undefined;
   return (planned ?? []).filter((issue) => {
     const subOrder = state.subOrders.get(issue);
-    if (subOrder === undefined || subOrder.cancelled) return false;
+    if (subOrder === undefined) return false;
     const id = subOrder.batchIds.at(-1);
     const batch = id === undefined ? undefined : state.batches.get(id);
     if (batch === undefined) return false;
