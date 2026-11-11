@@ -4,9 +4,11 @@
 
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
+import { fold } from '../../src/engine/fold.ts';
 import { createGitHubClient } from '../../src/github/client.ts';
-import { githubOrderActivity } from '../../src/github/order-activity.ts';
+import { githubOrderActivity, githubOrderApproval } from '../../src/github/order-activity.ts';
 import { createGitHubReads } from '../../src/github/reads.ts';
+import type { Event } from '../../src/schemas/events.ts';
 import { type Answer, fakeFetch } from '../helpers/fake-fetch.ts';
 import { ghOver } from '../helpers/fake-gh.ts';
 
@@ -176,5 +178,64 @@ describe('githubOrderActivity', () => {
       { status: 200, body: [untimed] },
     ]);
     await assert.rejects(activity('acme/web', 7), /the comments of acme\/web#7/);
+  });
+});
+
+describe('githubOrderApproval reads the approval as the order check does (ADR 0373)', () => {
+  const routeBy = '2026-11-11T00:00:00.000Z';
+  const batchOf = (order: { issue: number; repo?: string }) => {
+    const batchId = order.repo === undefined ? `${order.issue}-1` : 'web-7';
+    const events = [
+      { type: 'batch.ordered', batchId, order, routeBy, at: '2026-11-10T12:00:00.000Z' },
+    ] as Event[];
+    const batch = fold(events).batches.get(batchId);
+    assert.ok(batch !== undefined);
+    return batch;
+  };
+  const approvalWith = (answers: Answer[]) => {
+    const fake = fakeFetch(answers);
+    const client = createGitHubClient({ exec: ghOver(fake.fetch).exec });
+    const approval = githubOrderApproval(createGitHubReads(client), {
+      users: ['Ada'],
+      filterOf: (repo) => (repo === 'acme/web' ? { labels: ['foedrum'] } : undefined),
+    });
+    return { approval, ...fake };
+  };
+  const labelled = (id: number, by: string, label: string, at: string) => ({
+    id,
+    event: 'labeled',
+    actor: { login: by },
+    label: { name: label },
+    created_at: at,
+  });
+
+  it("the label of someone in users approves, at its time, and a stranger's or another label's does not", async () => {
+    const { approval } = approvalWith([
+      {
+        status: 200,
+        body: [
+          labelled(1, 'mallory', 'foedrum', '2026-11-10T11:00:00Z'),
+          labelled(2, 'ada', 'foedrum', '2026-11-10T10:00:00Z'),
+          labelled(3, 'ada', 'other', '2026-11-10T11:30:00Z'),
+        ],
+      },
+    ]);
+    assert.deepEqual(await approval(batchOf({ issue: 7, repo: 'acme/web' })), {
+      at: '2026-11-10T10:00:00Z',
+      continued: false,
+    });
+  });
+
+  it('a label outside the filter approves nothing', async () => {
+    const { approval } = approvalWith([
+      { status: 200, body: [labelled(1, 'ada', 'other', '2026-11-10T10:00:00Z')] },
+    ]);
+    assert.equal(await approval(batchOf({ issue: 7, repo: 'acme/web' })), undefined);
+  });
+
+  it('a Brewery order has no approval, and reads no events', async () => {
+    const { approval, requests } = approvalWith([]);
+    assert.equal(await approval(batchOf({ issue: 12 })), undefined);
+    assert.deepEqual(requests, []);
   });
 });

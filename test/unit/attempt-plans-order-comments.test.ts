@@ -1028,6 +1028,19 @@ describe("a label-approved order's comments are those made before its approval (
     assert.ok(texts.every((text) => !(text ?? '').includes('THE-CLAIM-TEXT')));
   });
 
+  it('a comment made before the label and edited after it does not reach the brewer, until a continue approves the edit', async () => {
+    const edited = {
+      ...listed(701, 'mallory', 'NONE', '2026-11-05T09:00:00Z', 'THE-EDITED-WORDS'),
+      updated_at: '2026-11-05T10:30:00Z',
+    };
+    const kept = listed(702, 'mallory', 'NONE', '2026-11-05T09:30:00Z', 'THE-UNEDITED');
+    assert.deepEqual((await textsOf(plansWith([edited, kept], labelled))).slice(1), [
+      'THE-UNEDITED',
+    ]);
+    const continued = plansWith([edited, kept], { at: '2026-11-05T10:30:00Z', continued: true });
+    assert.deepEqual((await textsOf(continued)).slice(1), ['THE-EDITED-WORDS', 'THE-UNEDITED']);
+  });
+
   it('after continue, a comment up to what it showed reaches the brewer', async () => {
     const plans = plansWith(
       [
