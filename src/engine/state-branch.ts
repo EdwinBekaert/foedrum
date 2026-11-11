@@ -94,6 +94,29 @@ const segment = (id: string, what: string): string => {
 const batchLog = (batchId: string): string =>
   `batches/${segment(batchId, 'batch id')}/events.jsonl`;
 
+/** Where a shelved batch's folder goes on the state branch: `archive/<YYYY-MM>/<id>` (ADR 0380). */
+export const shelfFolder = (_month: string, _batchId: string): string => {
+  throw new Error('not implemented');
+};
+
+/** The months of `archive/` that an expiry before `before` (`YYYY-MM`) deletes (ADR 0380). */
+export const expiredMonths = (_months: readonly string[], _before: string): string[] => {
+  throw new Error('not implemented');
+};
+
+/**
+ * The batches a store behind the branch forgets before it catches up (ADR 0380): each with a
+ * local event already pushed, through `pushedThrough`, whose folder `branchBatches` no longer
+ * has, and no local event after it.
+ */
+export const forgottenOnBranch = (
+  _local: readonly StoredEvent[],
+  _branchBatches: ReadonlySet<string>,
+  _pushedThrough: number,
+): string[] => {
+  throw new Error('not implemented');
+};
+
 /** The log file an event belongs to: its batch's `events.jsonl`, or the top-level one. */
 export const logPathOf = (event: Event): string => {
   const batchId = batchOf(event);

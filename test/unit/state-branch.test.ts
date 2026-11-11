@@ -6,6 +6,8 @@ import {
   classifyPush,
   commitMessage,
   decideStart,
+  expiredMonths,
+  forgottenOnBranch,
   isLogPath,
   isStepBoundary,
   logPathOf,
@@ -18,6 +20,7 @@ import {
   type StartFacts,
   StateBranchStopError,
   secretRefusal,
+  shelfFolder,
   unsafeEntries,
 } from '../../src/engine/state-branch.ts';
 import type { Event } from '../../src/schemas/events.ts';
@@ -681,6 +684,55 @@ describe('commitMessage', () => {
       'Record events 5–9',
     );
     assert.equal(commitMessage([stored(5, ordered('b1'))]), 'Record event 5');
+  });
+});
+
+describe('the shelf on the state branch (ADR 0380)', () => {
+  it('puts a shelved batch under archive/ by the month it was shelved in', () => {
+    assert.equal(
+      shelfFolder('2026-11', '921-20261111143005'),
+      'archive/2026-11/921-20261111143005',
+    );
+    assert.throws(() => shelfFolder('2026-11', '../x'), /not a safe path segment/);
+    assert.throws(() => shelfFolder('../x', 'b1'), /not a month/);
+  });
+
+  it('expires the months before the given one, and nothing that is no month', () => {
+    assert.deepEqual(
+      expiredMonths(['2026-05', '2025-12', '2026-04', 'notes', '2026-4', '2026-06'], '2026-05'),
+      ['2025-12', '2026-04'],
+    );
+  });
+});
+
+describe('forgottenOnBranch (ADR 0380)', () => {
+  const local = [
+    stored(1, ordered('b1')),
+    stored(2, ordered('b2')),
+    stored(3, scheduled('b1')),
+    stored(4, ordered('b3')),
+    stored(5, scheduled('b3')),
+  ];
+
+  it('names each batch whose pushed events left batches/ on the branch', () => {
+    assert.deepEqual(forgottenOnBranch(local, new Set(['b2']), 5), ['b1', 'b3']);
+  });
+
+  it('keeps a batch with an event the branch never had: that is a divergence, not a forget', () => {
+    assert.deepEqual(forgottenOnBranch(local, new Set(['b2']), 4), ['b1']);
+  });
+
+  it('names no batch the branch still has, nor an event without a batch', () => {
+    const released: Event = {
+      type: 'release.observed',
+      repo: 'acme/lib',
+      package: 'lib',
+      version: '1.0.0',
+    };
+    assert.deepEqual(
+      forgottenOnBranch([...local, stored(6, released)], new Set(['b1', 'b2', 'b3']), 6),
+      [],
+    );
   });
 });
 

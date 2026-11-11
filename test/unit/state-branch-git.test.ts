@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import type { EventStore } from '../../src/engine/event-store.ts';
@@ -308,6 +308,29 @@ describe('openStateBranch with a fake git', () => {
         [1, 2],
       );
       assert.deepEqual(store.pushedThrough(), { eventId: 2, commit: sha(6) });
+    });
+
+    it('a store behind the branch forgets the pushed batches whose folders left batches/, then catches up (ADR 0380)', async () => {
+      append(ordered('b1'), scheduled('b1'));
+      store.withTransaction((tx) => tx.markPushed({ eventId: 2, commit: sha(4) }));
+      mkdirSync(join(worktree, 'batches', 'b1'), { recursive: true });
+      writeFileSync(join(worktree, '.git'), 'gitdir: elsewhere\n');
+      fake.head = sha(4);
+      fake.remote = sha(6);
+      // The other engine shelved b1 and ordered b2.
+      fake.answer = (args) => {
+        if (args[0] !== 'merge') return undefined;
+        rmSync(join(worktree, 'batches', 'b1'), { recursive: true });
+        mkdirSync(join(worktree, 'batches', 'b2'), { recursive: true });
+        writeFileSync(join(worktree, 'batches', 'b2', 'events.jsonl'), line(3, ordered('b2')));
+        fake.head = sha(6);
+        return ok();
+      };
+
+      assert.deepEqual(await branch().start(), { decision: 'restore' });
+
+      assert.deepEqual(store.eventsAfter(0), [{ id: 3, event: ordered('b2') }]);
+      assert.deepEqual(store.pushedThrough(), { eventId: 3, commit: sha(6) });
     });
 
     // A store that is behind keeps its events, so the worktree must hold nothing of its own.
@@ -689,6 +712,57 @@ describe('openStateBranch with a fake git', () => {
 
       assert.equal(fake.remote, sha(101));
       assert.deepEqual(store.pushedThrough(), { eventId: 2, commit: sha(101) });
+    });
+
+    it("the cleanup's shelve moves a forgotten batch's folder to archive/<month>/ on the state branch (ADR 0380)", async () => {
+      const state = await started();
+      append(ordered('b1'), ordered('b2'));
+      assert.equal((await state.flush()).kind, 'pushed');
+      writeFileSync(join(worktree, 'batches', 'b1', 'plan-1.md'), '# Plan\n');
+      store.withTransaction((tx) => tx.forget(['b1'], { month: '2026-11' }));
+
+      assert.equal((await state.flush()).kind, 'pushed');
+
+      assert.equal(existsSync(join(worktree, 'batches', 'b1')), false);
+      assert.equal(read('archive/2026-11/b1/events.jsonl'), line(1, ordered('b1')));
+      assert.equal(read('archive/2026-11/b1/plan-1.md'), '# Plan\n');
+      assert.equal(read('batches/b2/events.jsonl'), line(2, ordered('b2')));
+      assert.deepEqual(store.shelving(), []);
+    });
+
+    it('keeps the shelving while the push fails, and finds the folder moved on the retry (ADR 0380)', async () => {
+      const state = await started();
+      append(ordered('b1'));
+      assert.equal((await state.flush()).kind, 'pushed');
+      store.withTransaction((tx) => tx.forget(['b1'], { month: '2026-11' }));
+      fake.answer = (args) =>
+        args[0] === 'push' ? exit(128, 'fatal: unable to access origin\n') : undefined;
+      assert.equal((await state.flush()).kind, 'failed');
+      assert.deepEqual(store.shelving(), [{ batchId: 'b1', month: '2026-11' }]);
+      fake.answer = () => undefined;
+
+      assert.equal((await state.flush()).kind, 'pushed');
+
+      assert.equal(read('archive/2026-11/b1/events.jsonl'), line(1, ordered('b1')));
+      assert.deepEqual(store.shelving(), []);
+    });
+
+    it("expire deletes the archive's months before its month and keeps the later ones (ADR 0380)", async () => {
+      const state = await started();
+      for (const month of ['2026-04', '2026-05']) {
+        mkdirSync(join(worktree, 'archive', month, 'b9'), { recursive: true });
+        writeFileSync(
+          join(worktree, 'archive', month, 'b9', 'events.jsonl'),
+          line(9, ordered('b9')),
+        );
+      }
+      store.withTransaction((tx) => tx.expire('2026-05'));
+
+      assert.equal((await state.flush()).kind, 'pushed');
+
+      assert.equal(existsSync(join(worktree, 'archive', '2026-04')), false);
+      assert.equal(existsSync(join(worktree, 'archive', '2026-05', 'b9', 'events.jsonl')), true);
+      assert.equal(store.expiring(), undefined);
     });
 
     it('writes, commits and pushes the events after the marker, then moves the marker', async () => {
