@@ -47,7 +47,7 @@ const keptText = (text: string): string => {
 
 /**
  * A file path on one line: each line break a space and every other control character left out, so
- * a path a brewer named cannot write a line of the route input's own (ADR 0382).
+ * a path a review comment names cannot write a line of the route input's own (ADR 0382).
  */
 const onOneLine = (path: string): string =>
   path.replace(/\r\n|[\n\r\u2028\u2029]/g, ' ').replace(CONTROLS, '');
