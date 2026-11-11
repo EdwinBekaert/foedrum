@@ -1,6 +1,6 @@
 # 0372. decoction becomes deep-mash, and a batch that recorded it carries on
 
-Date: 2026-11-11 · Status: Accepted · Amends [0321](0321-mash-and-decoction-review-a-plan-through-the-plan-lenses-apart.md) (the deep planning recipe is called `deep-mash`, its label `recipe:deep-mash`) [0365](0365-a-recipe-has-a-type-mash-or-brew.md) (the default recipes of type `mash` are Mash-in, Mash and Deep-mash) and [0068](0068-the-intake-in-foedrum-serve-brewery-orders-and-routing-by-label.md) (a `recipe:<name>` label naming a default recipe's old name is refused with its new one, where it routed)
+Date: 2026-11-11 · Status: Accepted · Amends [0321](0321-mash-and-decoction-review-a-plan-through-the-plan-lenses-apart.md) (the deep planning recipe is called `deep-mash`, its label `recipe:deep-mash`) [0365](0365-a-recipe-has-a-type-mash-or-brew.md) (the default recipes of type `mash` are Mash-in, Mash and Deep-mash), [0068](0068-the-intake-in-foedrum-serve-brewery-orders-and-routing-by-label.md) (a `recipe:<name>` label naming a default recipe's old name is refused with its new one, where it routed), [0232](0232-foedrum-mash-routes-an-issue-to-the-innkeeper-whose-question-the-answer-chooses-the-recipe-by.md) (an answer that is one of the question's options is refused when it is a default recipe's old name), [0240](0240-order-and-recipe-work-by-the-brewery-issue-on-both-surfaces.md) (a person's `foedrum recipe` of a default recipe's old name is refused with its new one) and [0370](0370-foedrum-brew-runs-the-brewery-s-default-recipe-on-an-issue-with-no-recipe-label.md) (a `defaultRecipe` that names a default recipe's old name is a problem of its own line)
 
 ## Context
 The careful plan of a large order, `mash`'s steps through all seven plan lenses ([ADR 0321](0321-mash-and-decoction-review-a-plan-through-the-plan-lenses-apart.md)), was called `decoction`, which is hard to say (#931).
@@ -18,6 +18,8 @@ So with the file renamed alone, a batch that recorded `decoction` and has not en
 - **A new choice of the old name is refused in one line that names the new one.**
   `Recipes.renamed` gives the new name of an old one; `decide` refuses a route, a person's `recipe` and the answer to the Innkeeper's question that chooses it: `the recipe decoction is called deep-mash now; choose deep-mash, or label the issue recipe:deep-mash`.
   `serve`'s intake reports that line once for an issue labelled `recipe:decoction`, which stays Ordered; `foedrum brew` refuses before anything is ordered: `#12 carries recipe:decoction, a recipe called deep-mash now; label it recipe:deep-mash`.
+- **A `defaultRecipe` that names the old name is refused** by `foedrum serve`, `foedrum brew` and `foedrum doctor` as ADR 0370's problems are, in one line: `foedrum.jsonc's defaultRecipe names decoction, which is called deep-mash now: name deep-mash`.
+  It is a new choice made for every unlabelled issue, so it is refused where it is written, not at each brew with a line about a label the issue does not carry.
 - **A Brewery's own `decoction` stays its own**: a Brewery file of that name is found by it and chosen as before, with no refusal.
 - **The map stays.** A batch's events keep the name forever, and `foedrum status` and the status comment read ended batches as long as the store holds them.
 - **An ended batch needs nothing.** `foedrum status <order>` counts a `decoction` batch's planning tokens as planning by the type its choice recorded, `mash`, or, for a choice from before types, by the frozen list that holds `decoction` ([ADR 0365](0365-a-recipe-has-a-type-mash-or-brew.md)).
@@ -31,5 +33,5 @@ Rejected: a refusal only, naming the fix (cancel and brew again, or `foedrum rec
 ## Migration
 An existing Brewery:
 - relabels any issue carrying `recipe:decoction` with `recipe:deep-mash`, and renames the label if it keeps one; Foedrum's own Brewery has no issue with that label and no such label (ran, 2026-11-11);
-- renames any file of its own that names `decoction` and changes what refers to it, such as `foedrum.jsonc`'s `defaultRecipe`, which still finds `deep-mash` by the old name; a Brewery recipe file called `decoction.jsonc` keeps working as its own, under that name;
+- renames any file of its own that names `decoction` and changes what refers to it, such as `foedrum.jsonc`'s `defaultRecipe`, which `foedrum doctor` names until it says `deep-mash`; a Brewery recipe file called `decoction.jsonc` keeps working as its own, under that name;
 - does nothing for an unfinished `decoction` batch: it carries on as `deep-mash`.
