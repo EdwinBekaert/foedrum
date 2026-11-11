@@ -592,6 +592,29 @@ describe('planFlush', () => {
       assert.equal(files.at(-1)?.text, `Said:\r\n${left}\r\nAnd last:\r\n${left}`);
     });
 
+    // Made up: a key block whose body lines are each too short for the scanner, as a key's last line is.
+    const keyBlock = (end: boolean) =>
+      [
+        ['-----BEGIN', 'OPENSSH PRIVATE KEY-----'].join(' '),
+        'QUJDREVGR0hJSktMTU5PUFFSU1RVVldY',
+        'WVphYmNkZWZnaGlqa2xtbm9wcXJzdHV2',
+        ...(end ? [['-----END', 'OPENSSH PRIVATE KEY-----'].join(' ')] : []),
+      ].join('\n');
+
+    it('an out doc that quotes a private key reaches the state branch without any line of its block', () => {
+      const text = `The file held:\n${keyBlock(true)}\nThat was all.\n`;
+      const files = planFlush(new Map(), [stored(2, finished('b1'))], 1, [doc(text)]);
+      const left = '[left out: a line of plan#1 that looks like a secret]\n';
+      assert.equal(files.at(-1)?.text, `The file held:\n${left.repeat(4)}That was all.\n`);
+    });
+
+    it('leaves out the rest of an out doc whose private key block does not end', () => {
+      const text = `The file held:\n${keyBlock(false)}\nThat was all.\n`;
+      const files = planFlush(new Map(), [stored(2, finished('b1'))], 1, [doc(text)]);
+      const left = '[left out: a line of plan#1 that looks like a secret]\n';
+      assert.equal(files.at(-1)?.text, `The file held:\n${left.repeat(4)}`);
+    });
+
     it('an out doc that names a commit reaches the state branch as it is', () => {
       const text = `---\n{"status":"done"}\n---\nThe red commit is ${'0123456789'.repeat(4)}.\n`;
       const files = planFlush(new Map(), [stored(2, finished('b1'))], 1, [doc(text)]);
