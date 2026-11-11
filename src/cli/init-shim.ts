@@ -278,7 +278,6 @@ export const shimChoice = (ports: ShimPorts): ShimChoice => {
   };
 };
 
-/** Offers the `foedrum` command after asking, or says how to write it by hand (ADR 0210). */
 /**
  * The entry point beside the module at `moduleUrl`, with that module's extension: `main.ts` in
  * the checkout, `main.js` in the emitted package (ADR 0377).
@@ -288,6 +287,7 @@ export const mainBeside = (moduleUrl: string): string => {
   return join(module, '..', `main${extname(module)}`);
 };
 
+/** Offers the `foedrum` command after asking, or says how to write it by hand (ADR 0210). */
 export const offerShim = async (ports: ShimPorts, terminal: ShimTerminal): Promise<void> => {
   const { say } = terminal;
   const { windows } = shimOf(ports);

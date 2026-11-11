@@ -234,13 +234,7 @@ const runCommand = async (argv: readonly string[], context: CliContext): Promise
   const [name, ...rest] = argv;
   if (name === undefined) return usageError(`foedrum: no command given; ${SEE_HELP}`);
   if (HELP.has(name)) return usage();
-  if (name === VERSION)
-    return {
-      exitCode: 0,
-      stdout: `${context.version()}
-`,
-      stderr: '',
-    };
+  if (name === VERSION) return { exitCode: 0, stdout: `${context.version()}\n`, stderr: '' };
   if (name.startsWith('-')) {
     return usageError(`foedrum: unknown option ${JSON.stringify(name)}; ${SEE_HELP}`);
   }
