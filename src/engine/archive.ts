@@ -31,7 +31,8 @@ const rootOf = (state: State, batch: Batch): string => {
 /**
  * The batches a cleanup archives now, in the order they were ordered: each ended, with no effect
  * due, no mark and no lease, and every batch of its family (the order it was split from and its
- * sub-orders) too, since a live sub-order reads its order and its siblings.
+ * sub-orders) too, since a live sub-order reads its order and its siblings; and every earlier
+ * batch of its issue too.
  */
 export const archivable = (state: State, facts: ArchiveFacts): Batch[] => {
   const finished = (batch: Batch): boolean =>
@@ -44,11 +45,28 @@ export const archivable = (state: State, facts: ArchiveFacts): Batch[] => {
     const root = rootOf(state, batch);
     families.set(root, [...(families.get(root) ?? []), batch]);
   }
-  const kept = new Set<string>();
+  let taken = new Set<string>();
   for (const family of families.values()) {
-    if (family.every(finished)) for (const { id } of family) kept.add(id);
+    if (family.every(finished)) for (const { id } of family) taken.add(id);
   }
-  return [...state.batches.values()].filter(({ id }) => kept.has(id));
+  // A batch goes only once every earlier one of its issue goes, so the index, which later batches
+  // read by its last entry for the issue, keeps the order they were ordered in; a family a hold
+  // splits stays whole. Each round takes away, so it ends.
+  for (;;) {
+    const held = new Set<string>();
+    const kept = new Set<string>();
+    for (const batch of state.batches.values()) {
+      const issue = `${batch.repo?.toLowerCase() ?? ''}#${batch.issue}`;
+      if (held.has(issue) || !taken.has(batch.id)) held.add(issue);
+      else kept.add(batch.id);
+    }
+    for (const family of families.values()) {
+      if (!family.every(({ id }) => kept.has(id))) for (const { id } of family) kept.delete(id);
+    }
+    if (kept.size === taken.size) break;
+    taken = kept;
+  }
+  return [...state.batches.values()].filter(({ id }) => taken.has(id));
 };
 
 /** How `batch`, which ended, ended. */
