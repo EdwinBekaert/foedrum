@@ -75,9 +75,21 @@ export type ChangedPaths = (
 ) => Promise<PathsChanged>;
 
 export const changedPaths =
-  (_shared: Git): ChangedPaths =>
-  async () => {
-    throw new Error('not implemented');
+  (shared: Git): ChangedPaths =>
+  async (clone, branch, since, signal) => {
+    // No hook or fsmonitor of the clone's runs in the engine's git (ADR 0137).
+    const git = inClone(shared);
+    const refused = unsafe(since, branch);
+    if (refused !== undefined) return { kind: 'unlisted', reason: refused };
+    // -z: each path whole, never quoted, whatever characters the brewer gave it.
+    const args = ['diff', '--name-only', '-z', '--no-renames', '--diff-filter=d'];
+    const listed = await git(clone, [...args, since, `refs/heads/${branch}`], {
+      ...(signal === undefined ? {} : { signal }),
+    });
+    if (listed.code !== 0) {
+      return { kind: 'unlisted', reason: `git diff failed: ${firstLine(listed)}` };
+    }
+    return { kind: 'listed', paths: listed.stdout.split('\0').filter((path) => path !== '') };
   };
 
 /**
