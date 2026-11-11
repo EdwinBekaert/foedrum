@@ -22,8 +22,9 @@ const Identifier = z.string().regex(/^[a-z][A-Za-z0-9]*$/, 'Must be a camelCase 
 // `release`: the releases a sub-order waited for, each tag as written (ADR 0291).
 // `checks`: the checks that ran on the commit the attempt starts at, how each ended (ADR 0308).
 // `earlier-sections`: the pull request's sections an earlier attempt of the step wrote (ADR 0353).
+// `test-line`: the test line foedrum.jsonc gives the attempt's repository (ADR 0376).
 const source =
-  /^(?:order|repositories|recipes|earlier-sections|plan|plan-entry|release|checks|step:(.+)|file:(.+)|lens:(.+))$/;
+  /^(?:order|repositories|recipes|earlier-sections|plan|plan-entry|release|checks|test-line|step:(.+)|file:(.+)|lens:(.+))$/;
 
 const Input = z.strictObject({
   name: Identifier,
@@ -31,7 +32,7 @@ const Input = z.strictObject({
     .string()
     .regex(
       source,
-      'Must be "order", "repositories", "recipes", "earlier-sections", "plan", "plan-entry", "release", "checks", "step:<step id>", "file:<path in the repository>" or "lens:<folder>/<lens name>"',
+      'Must be "order", "repositories", "recipes", "earlier-sections", "plan", "plan-entry", "release", "checks", "test-line", "step:<step id>", "file:<path in the repository>" or "lens:<folder>/<lens name>"',
     )
     .refine((from) => {
       const [, step, file, lens] = source.exec(from) ?? [];

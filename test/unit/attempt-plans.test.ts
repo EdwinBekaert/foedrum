@@ -3070,3 +3070,64 @@ describe('createAttemptPlans: a recorded test name (ADR 0342)', () => {
     assert.ok(!(input?.text ?? '').includes(name), input?.text);
   });
 });
+
+describe("the Brewery's test line for the Maltster (ADR 0376)", () => {
+  /** The default brewers, with the recipe pale's step brew brewed by `brewer`. */
+  const brewedBy = (brewer: string) => {
+    const loaded = loadRecipes({
+      ...readBreweryFiles(join(FOEDRUM_DEFAULTS, 'no-such-brewery')),
+      recipes: [
+        {
+          path: 'recipes/pale.jsonc',
+          // One brewer step: no red proof to name, and a pull request for its commits.
+          text: recipeText('pale', [{ id: 'brew', brewer }, { action: 'openPullRequest' }], {
+            testFirst: false,
+          }),
+        },
+      ],
+    });
+    assert.ok(loaded.valid, loaded.valid ? '' : loaded.problems.join('\n'));
+    return loaded.brewers;
+  };
+  const line = 'node --test --test-reporter=tap test/';
+  const repoTestLine = (repo: string) => (repo === 'acme/api' ? line : 'make test');
+
+  it("the Maltster's input holds the Brewery's test line", async () => {
+    const { plans } = setup(undefined, {}, undefined, brewedBy('maltster'), { repoTestLine });
+    const { prompt } = await plans.plan(start);
+    assert.match(
+      prompt,
+      /<untrusted-input-([0-9a-f]+) source="the Brewery's test line for acme\/api" name="testLine">\nnode --test --test-reporter=tap test\/\n<\/untrusted-input-\1>/,
+    );
+  });
+
+  it("the Maltster's input names each platform's line of a test check given per platform", async () => {
+    const perPlatform = { run: 'node --test test/', windows: 'node.exe --test test/' };
+    const { plans } = setup(undefined, {}, undefined, brewedBy('maltster'), {
+      repoTestLine: () => perPlatform,
+    });
+    const { prompt } = await plans.plan(start);
+    assert.match(
+      prompt,
+      /name="testLine">\nrun: node --test test\/\nwindows: node\.exe --test test\/\n<\/untrusted-input-/,
+    );
+  });
+
+  it('the Maltster gets no test line for a repository with no test check', async () => {
+    const { plans } = setup(undefined, {}, undefined, brewedBy('maltster'), {
+      repoTestLine: () => null,
+    });
+    const { prompt } = await plans.plan(start);
+    assert.match(prompt, /# Maltster/);
+    assert.doesNotMatch(prompt, /name="testLine"/);
+  });
+
+  it('the Gauger, the Cellarman and every other brewer without the input do not get the test line', async () => {
+    for (const brewer of ['gauger', 'cellarman']) {
+      const { plans } = setup(undefined, {}, undefined, brewedBy(brewer), { repoTestLine });
+      const { prompt } = await plans.plan(start);
+      assert.match(prompt, /name="order">\nAdd a --json flag\.\n/, brewer);
+      assert.doesNotMatch(prompt, /test line|--test-reporter=tap/, brewer);
+    }
+  });
+});

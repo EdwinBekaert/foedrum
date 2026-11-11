@@ -53,7 +53,7 @@ import {
   tastingOutDocOf,
 } from '../schemas/out-doc.ts';
 import { PLAN, planOutDocOf } from '../schemas/plan.ts';
-import { parseRule } from '../schemas/primitives.ts';
+import { type Command, parseRule } from '../schemas/primitives.ts';
 import { RECIPE_CHOICE, recipeChoiceOutDocOf } from '../schemas/recipe-choice.ts';
 import type { KeptFile, MergeResult } from '../schemas/store.ts';
 import { attemptFolder } from '../workspace/attempt-worktrees.ts';
@@ -335,6 +335,20 @@ const planInput = (
   throw new Error(`the input "${name}" needs the batch's plan, which it has none of yet`);
 };
 
+/** The test line `foedrum.jsonc` gives an attempt's repository (ADR 0376). */
+export interface TestLineInput {
+  repo: string;
+  command: Command;
+}
+
+/** The test-line input's text: the line as written, or each platform's line of it, named. */
+const testLineText = (command: Command): string =>
+  typeof command === 'string'
+    ? command
+    : (['run', 'windows', 'macos', 'linux'] as const)
+        .flatMap((key) => (command[key] === undefined ? [] : [`${key}: ${command[key]}`]))
+        .join('\n');
+
 /** The recipes input `name`: one line per recipe, its name, type and description (ADR 0232, ADR 0365). */
 const recipesInput = (name: string, choices: readonly RecipeChoice[]): PlannedInput => ({
   name,
@@ -377,7 +391,8 @@ export const planLensInputs = (
  * left out when no check ran on the commit the attempt starts at (ADR 0308). `breweryIssue` is the
  * Brewery issue that is a claimed batch's order, which its order input's source names (ADR 0334).
  * The earlier-sections input's text is in `earlierSections`, left out when no earlier attempt of
- * the step wrote any (ADR 0353).
+ * the step wrote any (ADR 0353), and the test-line input's in `testLine`, left out when the
+ * attempt's repository has none (ADR 0376).
  */
 export function inputsOf(
   inputs: BrewerFrontmatter['inputs'],
@@ -394,6 +409,7 @@ export function inputsOf(
   checks?: ChecksInput,
   breweryIssue?: number,
   earlierSections?: EarlierSectionsInput,
+  testLine?: TestLineInput,
 ): PlannedInput[] {
   // A step the batch skipped, or one its recipe does not have (#774), gives the input nothing.
   const stepLeftOut = (step: string): boolean =>
@@ -407,6 +423,7 @@ export function inputsOf(
     (from === 'release' && release === undefined) ||
     (from === 'checks' && checks === undefined) ||
     (from === 'earlier-sections' && earlierSections === undefined) ||
+    (from === 'test-line' && testLine === undefined) ||
     (from.startsWith('step:') && stepLeftOut(from.slice('step:'.length)));
   return inputs
     .filter(({ from }) => !skipped(from))
@@ -446,6 +463,10 @@ export function inputsOf(
       if (from === 'earlier-sections' && earlierSections !== undefined) {
         const source = { kind: 'earlier-sections', attempt: earlierSections.attempt } as const;
         return { name, source, read: { kind: 'text', text: earlierSections.text } };
+      }
+      if (from === 'test-line' && testLine !== undefined) {
+        const source = { kind: 'test-line', repo: testLine.repo } as const;
+        return { name, source, read: { kind: 'text', text: testLineText(testLine.command) } };
       }
       if (from === 'plan') return planInput(name, batch, stepBrewer);
       if (from.startsWith('step:')) {
