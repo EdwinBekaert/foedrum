@@ -1183,9 +1183,10 @@ export const commands: readonly RegisteredCommand[] = [
     changesState: true,
     positionals: ['issue'],
     options: { as: 'name' },
-    flags: ['take'],
+    flags: ['take', 'override'],
     schema: MashCommand,
-    // brew's driver, routed to mash-in first, until the Innkeeper's question (ADR 0232).
+    // brew's driver, routed to mash-in first, until the Innkeeper's question (ADR 0232); with
+    // --override also a batch that has a recipe (ADR 0374).
     handler: async (input, context) =>
       context.brew(input, { by: context.user(), via: context.surface }),
   }),

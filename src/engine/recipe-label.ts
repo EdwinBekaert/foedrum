@@ -1,7 +1,8 @@
 // The recipe label of a batch whose recipe a person chose, by answering a step that chooses it
 // (ADR 0232) or by foedrum recipe (ADR 0240): `recipe:<name>` on its Brewery issue, or on the
-// Brewery issue that is a claimed batch's order (ADR 0156), set once per recipe through the ledger
-// as the driver's effect `[batchId, "recipe-label:<name>"]`, found on the issue before it is applied
+// Brewery issue that is a claimed batch's order (ADR 0156), set once per choice through the ledger
+// as the driver's effect `[batchId, "recipe-label:<name>"]`, `#<n>` added for a recipe's n-th
+// choice in the batch (ADR 0374), found on the issue before it is applied
 // (ADR 0033), as the lane labels are (ADR 0154): the issue's other recipe labels come off, so its
 // next order has one to route by. A label added after routing routes only the issue's next batch
 // (ADR 0068).
@@ -22,9 +23,14 @@ export interface RecipeLabelEffectsOptions {
 /** The recipe that asks which recipe brews an issue (ADR 0232): never one to route an order by. */
 export const MASH_IN = 'mash-in';
 
-const keyOf = (batchId: string, recipe: string): BatchEffectKey => ({
+/**
+ * The key of the `choice`-th time a person chose `recipe` in the batch: the first keeps the key it
+ * always had, and a later one is a key of its own, so a choice back to it labels the issue again
+ * (ADR 0374).
+ */
+const keyOf = (batchId: string, recipe: string, choice: number): BatchEffectKey => ({
   batchId,
-  effect: `recipe-label:${recipe}`,
+  effect: choice > 1 ? `recipe-label:${recipe}#${choice}` : `recipe-label:${recipe}`,
 });
 
 /** The label a recipe label's recorded result names, or undefined. */
@@ -64,13 +70,16 @@ export const recipeLabelEffects = ({ brewery, host }: RecipeLabelEffectsOptions)
       const batch = state.batches.get(batchId);
       const recipe = batch?.recipe;
       if (batch === undefined || recipe?.source !== 'human' || recipe.name === MASH_IN) return [];
-      const key = keyOf(batchId, recipe.name);
+      const choice = batch.humanChoices?.[recipe.name] ?? 1;
+      const key = keyOf(batchId, recipe.name, choice);
       const encoded = effectKey.encode(key);
-      // Once per recipe: a later choice of another recipe in the batch labels the issue again.
+      // Once per choice: a later choice in the batch, of another recipe or back to this one,
+      // labels the issue again (ADR 0240, ADR 0374).
       if (state.effects.has(encoded)) return [];
-      // An older Foedrum labelled the batch once, under `recipe-label`, with the label it recorded.
+      // An older Foedrum labelled the batch once, under `recipe-label`, with the label it recorded:
+      // a first choice of that recipe.
       const older = state.effects.get(effectKey.encode({ batchId, effect: 'recipe-label' }));
-      if (labelOf(older) === `recipe:${recipe.name}`) return [];
+      if (choice === 1 && labelOf(older) === `recipe:${recipe.name}`) return [];
       const issue = breweryIssueOf(state, batch);
       if (issue === undefined) return [];
       // Only the issue's latest batch, while it brews, labels it: an ended or older batch's choice
