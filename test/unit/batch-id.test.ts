@@ -91,6 +91,7 @@ describe('aliasOf (ADR 0144)', () => {
     ['web-7-2', 'web'],
     ['a1-123-10', 'a1'],
     [`${'a'.repeat(20)}-7`, 'a'.repeat(20)],
+    ['web-7-20261111143005', 'web'],
   ] as const) {
     it(`reads the alias ${alias} from ${id}`, () => {
       assert.equal(aliasOf(id), alias);
@@ -98,6 +99,7 @@ describe('aliasOf (ADR 0144)', () => {
   }
   for (const id of [
     '7-1',
+    '7-20261111143005',
     'web',
     'web-',
     'web-07',
@@ -106,6 +108,7 @@ describe('aliasOf (ADR 0144)', () => {
     'Web-7',
     'w_b-7',
     'web-7-2-3',
+    'web-7-20261111143005-0',
     'web-7x',
     `${'a'.repeat(21)}-7`,
   ]) {
