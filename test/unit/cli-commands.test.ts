@@ -10,10 +10,11 @@ import type { BrewerSource } from '../../src/cli/brewer-report.ts';
 import { commands } from '../../src/cli/commands.ts';
 import type { LensSource } from '../../src/cli/lens-report.ts';
 import { type CliContext, type CliResult, runCli } from '../../src/cli/run.ts';
+import { nextBatchId, targetBatchId } from '../../src/engine/batch-id.ts';
 import { createCommandLog } from '../../src/engine/command-log.ts';
 import { effectKey } from '../../src/engine/effect-key.ts';
 import type { EventStore } from '../../src/engine/event-store.ts';
-import { InvalidLogError } from '../../src/engine/fold.ts';
+import { emptyState, InvalidLogError } from '../../src/engine/fold.ts';
 import { invalidRecipes } from '../../src/engine/recipe-files.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import { BreweryConfig } from '../../src/schemas/brewery-config.ts';
@@ -26,6 +27,10 @@ import { fakeRecipe, fakeRecipes } from '../helpers/fake-recipes.ts';
 const cwd = join(sep, 'work', 'brewery');
 const storePath = join(cwd, '.foedrum', 'index.db');
 const t0 = new Date('2026-10-15T12:00:00.000Z');
+
+// Batch ids carry the time they were ordered (ADR 0380): those made at `t0`.
+const idOf = (alias: string, issue: number): string => targetBatchId(emptyState, alias, issue, t0);
+const breweryIdOf = (issue: number): string => nextBatchId(emptyState, issue, t0);
 const iso = (minutes: number): string => new Date(t0.getTime() + minutes * 60_000).toISOString();
 const SHA = '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
 const recipes = fakeRecipes({
@@ -705,7 +710,7 @@ describe('foedrum: commands that change state', () => {
       await run(['continue', '--all']);
       await run(['pause', '--all', '--why', 'release day']);
       assert.equal((await run(['order', '#99'])).exitCode, 0);
-      const replay = (await run(['replay', '99-1'])).stdout;
+      const replay = (await run(['replay', breweryIdOf(99)])).stdout;
       assert.match(replay, /order\.paused +\{"by":"ada","via":"terminal","why":"release day"\}/);
       assert.doesNotMatch(replay, /last week|order\.continued/);
     });
@@ -1978,11 +1983,11 @@ describe('foedrum order: order an issue again (ADR 0105)', () => {
   });
 
   describe('a target-repository issue', () => {
-    it('claims it again and orders it as <alias>-<n>-<k>, recorded with who and from where', async () => {
+    it('claims it again and orders it under a new id, recorded with who and from where', async () => {
       assert.deepStrictEqual(await run(['order', 'web#7']), ok(`web#7 ${ordered}\n`));
       assert.deepStrictEqual(last(), {
         type: 'batch.ordered',
-        batchId: 'web-7-2',
+        batchId: idOf('web', 7),
         order: { issue: 7, repo: 'acme/web' },
         routeBy: iso(60),
         at: t0.toISOString(),
@@ -2118,11 +2123,11 @@ describe('foedrum order: order an issue again (ADR 0105)', () => {
     };
 
     for (const issue of ['#21', '21']) {
-      it(`orders ${issue} again as <n>-<k>, without reading foedrum.jsonc or claiming`, async () => {
+      it(`orders ${issue} again under a new id, without reading foedrum.jsonc or claiming`, async () => {
         assert.deepStrictEqual(await run(['order', issue], noConfig), ok(`#21 ${ordered}\n`));
         assert.deepStrictEqual(last(), {
           type: 'batch.ordered',
-          batchId: '21-2',
+          batchId: breweryIdOf(21),
           order: { issue: 21 },
           routeBy: iso(60),
           at: t0.toISOString(),
@@ -2159,7 +2164,7 @@ describe('foedrum order: order an issue again (ADR 0105)', () => {
       assert.deepStrictEqual(await run(['order', '#40']), ok(`#40 ${ordered}\n`));
       assert.deepStrictEqual(last(), {
         type: 'batch.ordered',
-        batchId: 'web-7-2',
+        batchId: idOf('web', 7),
         order: { issue: 7, repo: 'acme/web' },
         routeBy: iso(60),
         at: t0.toISOString(),
@@ -2195,14 +2200,14 @@ describe('foedrum order: order an issue again (ADR 0105)', () => {
       const [ordering, choice] = events(before);
       assert.deepStrictEqual(ordering, {
         type: 'batch.ordered',
-        batchId: '21-2',
+        batchId: breweryIdOf(21),
         order: { issue: 21 },
         routeBy: iso(60),
         at: t0.toISOString(),
         by: 'ada',
         via: 'terminal',
       });
-      assert.deepStrictEqual(choice, chosen('21-2', 'stout'));
+      assert.deepStrictEqual(choice, chosen(breweryIdOf(21), 'stout'));
     });
 
     it('refuses an issue on tap with an open pull request, ordering nothing, and orders it with the recipe once that ended', async () => {
@@ -2224,7 +2229,7 @@ describe('foedrum order: order an issue again (ADR 0105)', () => {
       const open = await run(['recipe', '#31', 'stout', 'the plan has one sub-order'], noConfig);
       assert.equal(open.exitCode, 1);
       assert.match(open.stderr, /is on tap with a pull request with no recorded end/);
-      assert.equal(log.state().batches.has('31-2'), false);
+      assert.equal(log.state().batches.has(breweryIdOf(31)), false);
       const event = {
         type: 'pull_request.ended',
         batchId: '31-1',
@@ -2237,19 +2242,19 @@ describe('foedrum order: order an issue again (ADR 0105)', () => {
         await run(['recipe', '#31', 'stout', 'the plan has one sub-order'], noConfig),
         ok('ordered #31\n#31 brewing: analyze #1 scheduled\n'),
       );
-      assert.deepStrictEqual(events(before)[1], chosen('31-2', 'stout'));
+      assert.deepStrictEqual(events(before)[1], chosen(breweryIdOf(31), 'stout'));
     });
 
     it('says it ordered the issue when the recipe is then refused, as when the intake routed it first', async () => {
-      // The intake routes 21-2 in the first transaction that finds it ordered, before the choice.
+      // The intake routes the new batch of #21 in the first transaction that finds it ordered, before the choice.
       const intake = createCommandLog({ store, recipes });
       let routed = false;
       const racing: EventStore = {
         ...store,
         close: () => {},
         withTransaction: (use) => {
-          if (!routed && intake.state().batches.get('21-2')?.lane.kind === 'ordered') {
-            const route = { batchId: '21-2', recipe: 'pint', reason: 'label' };
+          if (!routed && intake.state().batches.get(breweryIdOf(21))?.lane.kind === 'ordered') {
+            const route = { batchId: breweryIdOf(21), recipe: 'pint', reason: 'label' };
             const decision = intake.issue({ kind: 'route', ...route, source: 'label' }, t0);
             assert.equal(decision.kind, 'accepted', JSON.stringify(decision));
             routed = true;
@@ -2265,8 +2270,7 @@ describe('foedrum order: order an issue again (ADR 0105)', () => {
         {
           exitCode: 1,
           stdout: 'ordered #21\n',
-          stderr:
-            'foedrum recipe: batch 21-2 is brewing; recipe needs it ordered, conditioning or stuck\n',
+          stderr: `foedrum recipe: batch ${breweryIdOf(21)} is brewing; recipe needs it ordered, conditioning or stuck\n`,
         },
       );
     });
