@@ -732,7 +732,7 @@ describe('foedrum status <order> (ADR 0295)', () => {
     type: 'batch.recipe_chosen',
     batchId,
     recipe,
-    recipeType: recipe === 'mash' || recipe === 'mash-in' ? 'mash' : 'brew',
+    recipeType: ['mash', 'mash-in', 'deep-mash'].includes(recipe) ? 'mash' : 'brew',
     reason: `label recipe:${recipe}`,
     source: 'label',
   });
@@ -923,6 +923,27 @@ describe('foedrum status <order> (ADR 0295)', () => {
       ...attempt('11-1', 'build', 1, [1000, 200, 5000, 100]),
     ];
     const result = await run(['status', '11'], { openStore: () => storeWith(built) });
+    assert.match(
+      result.stdout,
+      /\nplanning: none reported\nbrewing: 6,300 tokens \(1,000 input, 200 output, 5,000 cache read, 100 cache write\)\n$/,
+    );
+  });
+
+  it('status counts an attempt whose choice recorded no type as brewing, though it is named mash (ADR 0372): regression test', async () => {
+    // A choice with no recipeType, which the schema still admits: status reads no name instead.
+    const untyped: Event = {
+      type: 'batch.recipe_chosen',
+      batchId: '11-1',
+      recipe: 'mash',
+      reason: 'label recipe:mash',
+      source: 'label',
+    };
+    const events: Event[] = [
+      ordered(11),
+      untyped,
+      ...attempt('11-1', 'plan', 1, [1000, 200, 5000, 100]),
+    ];
+    const result = await run(['status', '11'], { openStore: () => storeWith(events) });
     assert.match(
       result.stdout,
       /\nplanning: none reported\nbrewing: 6,300 tokens \(1,000 input, 200 output, 5,000 cache read, 100 cache write\)\n$/,
