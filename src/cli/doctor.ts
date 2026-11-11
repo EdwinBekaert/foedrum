@@ -584,10 +584,6 @@ const catalogNotices = (
     .map(({ name, path }) => `${path}: no brewer's input names the lens "${name}" (ADR 0141)`),
 ];
 
-// The recipe and brewer files, when doctor read them: files that do not load stop every command
-// that needs recipes, with this same line (ADR 0053).
-// The defaults in use, when they load (ADR 0098); prompt sizes and notices (ADR 0141). A default
-// recipe foedrum.jsonc names that is not of type mash stops the Brewery, with serve's line (ADR 0370).
 /**
  * Whether each repository's test line saves a test report, when a recipe proves its tests red:
  * read from the line on this platform, never run (ADR 0376). A runner Foedrum knows without a
@@ -622,6 +618,10 @@ const testLinesOf = (
   return { problems, notices };
 };
 
+// The recipe and brewer files, when doctor read them: files that do not load stop every command
+// that needs recipes, with this same line (ADR 0053).
+// The defaults in use, when they load (ADR 0098); prompt sizes and notices (ADR 0141). A default
+// recipe foedrum.jsonc names that is not of type mash stops the Brewery, with serve's line (ADR 0370).
 const recipesOf = ({
   brewery,
   config,
