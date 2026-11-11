@@ -99,6 +99,16 @@ describe('sweepTemp', () => {
     assert.equal(existsSync(join(outside, 'live.txt')), true);
   });
 
+  it('keeps an empty folder made in the last 2 days, by its own change time: regression test', async () => {
+    mkdirSync(join(tmp, 'fresh'));
+    touchFolder('fresh', ago(hour));
+    mkdirSync(join(tmp, 'stale'));
+    touchFolder('stale', ago(TEMP_AGE_MS + hour));
+
+    assert.deepStrictEqual(await sweepTemp(tmp, now), { removed: ['stale'], failed: [] });
+    assert.equal(existsSync(join(tmp, 'fresh')), true);
+  });
+
   it('removes nothing when the folder is missing', async () => {
     assert.deepStrictEqual(await sweepTemp(join(dir.path, 'missing'), now), {
       removed: [],

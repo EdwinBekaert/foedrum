@@ -868,6 +868,34 @@ describe('foedrum status <order> (ADR 0295)', () => {
     });
   });
 
+  it("status of a claimed order's alias lists its archived batches only, its repository in any case: regression test (ADR 0380)", async () => {
+    const archived = (batchId: string, order: { issue: number; repo?: string }): Event => ({
+      type: 'batch.archived',
+      batchId,
+      order,
+      ...(order.repo === undefined ? { breweryIssue: order.issue } : {}),
+      ended: 'cancelled',
+    });
+    const events: Event[] = [
+      archived('7-1', { issue: 7 }),
+      archived('web-7', { issue: 7, repo: 'Acme/Web' }),
+      archived('api-7', { issue: 7, repo: 'acme/api' }),
+    ];
+    const config = () =>
+      BreweryConfig.parse({
+        repositories: {
+          'acme/web': {
+            checks: { build: null, typecheck: null, lint: null, format: null, test: null },
+            alias: 'web',
+          },
+        },
+      });
+    assert.deepEqual(
+      await run(['status', 'web#7'], { openStore: () => storeWith(events), config }),
+      { exitCode: 0, stdout: 'web#7: batch web-7 is archived (cancelled)\n', stderr: '' },
+    );
+  });
+
   it('status of a claimed order finds its batch by its Brewery issue (ADR 0329)', async () => {
     // app-11 brews acme/app#11, whose order is the Brewery issue #200 (ADR 0144); 11-1 is the
     // Brewery's own #11, which neither form names.

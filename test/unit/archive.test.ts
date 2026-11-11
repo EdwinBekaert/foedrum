@@ -62,6 +62,16 @@ describe('batchEnded (ADR 0345, ADR 0380)', () => {
     const closed = fold([applied('3-1', 'close.issue', null)], tapped);
     assert.equal(batchEnded(foldedBatch(closed, '3-1')), true);
   });
+
+  it('an on-tap batch with no pull request has not ended on its closing comment or a status revision: regression test', () => {
+    const tapped = fold([
+      ordered('3-1', { issue: 3 }),
+      onTap('3-1'),
+      applied('3-1', 'close.comment', 7),
+      applied('3-1', 'status.1', { comment: 8, digest: '0123456789abcdef' }),
+    ]);
+    assert.equal(batchEnded(foldedBatch(tapped, '3-1')), false);
+  });
 });
 
 describe('the archive in the fold (ADR 0380)', () => {
@@ -306,5 +316,20 @@ describe('archivable (ADR 0380)', () => {
     assert.deepStrictEqual(idsOf(ended), ['6-1', '61-1', '62-1']);
     // One with an effect due keeps the whole family.
     assert.deepStrictEqual(idsOf(ended, { due: (id) => id === '62-1', leased: new Set() }), []);
+  });
+
+  it('keeps a whole split family whose order an earlier batch of its issue holds back: regression test', () => {
+    const state = fold([
+      ordered('6-1', { issue: 6 }),
+      cancelled('6-1'),
+      ordered('6-2', { issue: 6 }),
+      onTap('6-2'),
+      ordered('61-1', { issue: 61 }, '6-2'),
+      onTap('61-1', pr(61)),
+      merged('61-1', pr(61)),
+      applied('6-2', 'close.issue', null),
+    ]);
+    assert.deepStrictEqual(idsOf(state, { due: (id) => id === '6-1', leased: new Set() }), []);
+    assert.deepStrictEqual(idsOf(state), ['6-1', '6-2', '61-1']);
   });
 });
