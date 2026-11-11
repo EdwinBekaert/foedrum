@@ -51,8 +51,15 @@ describe('mash-in and the Innkeeper (ADR 0232)', () => {
     );
     assert.deepEqual(
       step?.choices?.map(({ name }) => name),
-      ['decoction', 'deep-brew', 'mash', 'nip'],
+      ['deep-brew', 'deep-mash', 'mash', 'nip'],
     );
+  });
+
+  it('the Innkeeper offers deep-mash as the deep plan', () => {
+    const text = readFileSync(join(root, 'brewers', 'innkeeper.md'), 'utf8');
+    assert.match(text, /"version": 7,/);
+    assert.match(text, /`deep-mash` for a deep one/);
+    assert.doesNotMatch(text, /decoction/i);
   });
 
   it("the Innkeeper gets the Brewery's repositories as an input", () => {
@@ -63,6 +70,20 @@ describe('mash-in and the Innkeeper (ADR 0232)', () => {
       inputs?.some(({ name, from }) => name === 'repositories' && from === 'repositories'),
       JSON.stringify(inputs),
     );
+  });
+});
+
+describe('deep-mash, which was decoction (ADR 0372)', () => {
+  const loaded = loadRecipes(readBreweryFiles(join(root, '..', 'no-brewery')));
+
+  it('the default recipes hold deep-mash, of type mash, and no decoction', () => {
+    assert.ok(loaded.valid, loaded.valid ? '' : loaded.problems.join('\n'));
+    const files = readdirSync(join(root, 'recipes'));
+    assert.ok(files.includes('deep-mash.jsonc'), files.join(', '));
+    assert.ok(!files.includes('decoction.jsonc'), files.join(', '));
+    const deepMash = loaded.recipes.find('deep-mash');
+    assert.equal(deepMash?.type, 'mash');
+    assert.equal(deepMash?.children('taste')?.length, 7);
   });
 });
 
@@ -121,7 +142,7 @@ describe("the default recipes' Tasters, every finding routed (ADR 0354)", () => 
   for (const [name, children] of [
     ['mash', ['coverage', 'sizing', 'naive-reader']],
     [
-      'decoction',
+      'deep-mash',
       [
         'coverage',
         'sizing',
@@ -154,7 +175,7 @@ describe("the default recipes' Tasters, every finding routed (ADR 0354)", () => 
     );
   });
 
-  for (const name of ['mash', 'decoction']) {
+  for (const name of ['mash', 'deep-mash']) {
     it(`${name}'s plan lenses run again only on findings, none every round (ADR 0357)`, () => {
       assert.ok(loaded.valid);
       const recipe = loaded.recipes.find(name);

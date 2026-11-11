@@ -32,7 +32,7 @@ describe("the default recipes' Taster steps (#935)", () => {
   it("every Taster step of the default recipes but nip's three keeps its brewer's medium effort: regression test", () => {
     const { recipes, brewers } = valid(loadRecipes(noFiles));
     const others: string[] = [];
-    for (const name of ['nip', 'mash', 'decoction', 'mash-in']) {
+    for (const name of ['nip', 'mash', 'deep-mash', 'mash-in']) {
       for (const stepId of recipes.find(name)?.steps ?? []) {
         const found = brewers.find(name, stepId);
         if (found?.brewer.output.schema !== 'tasting') continue;
@@ -41,10 +41,10 @@ describe("the default recipes' Taster steps (#935)", () => {
         assert.equal(found.brewer.effort, 'medium', `${name}/${stepId}`);
       }
     }
-    // The plan Tasters of mash and decoction, and nip's design conformance, are among them.
+    // The plan Tasters of mash and deep-mash, and nip's design conformance, are among them.
     assert.ok(others.includes('nip/design-conformance'), others.join(', '));
     assert.ok(others.includes('mash/coverage'), others.join(', '));
-    assert.ok(others.includes('decoction/security'), others.join(', '));
+    assert.ok(others.includes('deep-mash/security'), others.join(', '));
   });
 });
 

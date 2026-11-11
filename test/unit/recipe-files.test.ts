@@ -2633,6 +2633,16 @@ describe('loadRecipes: a recipe called by another name now, decoction (ADR 0372)
     recipe(name, [{ id: 'plan', brewer: brewerName }], { type: 'mash', testFirst: false });
   const deepMash = plans('deep-mash', 'brewmaster');
 
+  it('a batch that recorded decoction finds deep-mash, its brewers too', () => {
+    const result = loadRecipes(brewery({ recipes: [pale, deepMash] }));
+    assert.ok(result.valid, result.valid ? '' : result.problems.join('\n'));
+    assert.equal(result.recipes.find('decoction')?.firstStep, 'plan');
+    assert.equal(result.brewers.find('decoction', 'plan')?.brewer.name, 'brewmaster');
+    assert.equal(result.brewers.has('decoction', 'plan'), true);
+    assert.equal(result.recipes.renamed?.('decoction'), 'deep-mash');
+    assert.equal(result.recipes.renamed?.('deep-mash'), undefined);
+  });
+
   it("a Brewery's own decoction is its own, renamed nothing: regression test", () => {
     const own = plans('decoction', 'maltster');
     const result = loadRecipes(brewery({ recipes: [pale, deepMash, own] }));

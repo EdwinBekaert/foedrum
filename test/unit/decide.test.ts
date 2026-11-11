@@ -3722,3 +3722,63 @@ describe('decide: lauter corrects a plan in a session at gate 1 (ADR 0286, #589)
     assert.equal(batch?.choosing, undefined);
   });
 });
+
+describe('decide: a recipe called by another name now, decoction (ADR 0372)', () => {
+  // decoction is wort's old name: a batch that recorded it finds wort, a new choice is refused.
+  const renamed: Context = {
+    ...context,
+    recipes: {
+      find: (name) => context.recipes.find(name === 'decoction' ? 'wort' : name),
+      renamed: (name) => (name === 'decoction' ? 'wort' : undefined),
+    },
+  };
+  const line =
+    'the recipe decoction is called wort now; choose wort, or label the issue recipe:wort';
+  const refusal = (events: Event[], command: Command) =>
+    assert.deepStrictEqual(decide(fold(events), command, renamed), {
+      kind: 'refused',
+      reason: line,
+    });
+
+  it('a route by the label recipe:decoction is told to use recipe:wort, in one line', () => {
+    const route: Command = {
+      kind: 'route',
+      batchId: 'b1',
+      recipe: 'decoction',
+      reason: 'the label recipe:decoction',
+      source: 'label',
+    };
+    refusal(lanes.ordered, route);
+  });
+
+  it("a person's choice of decoction is told to use wort, in one line", () => {
+    const recipe: Command = {
+      kind: 'recipe',
+      batchId: 'b1',
+      ...by,
+      recipe: 'decoction',
+      reason: 'r',
+    };
+    refusal(lanes.stuck, recipe);
+  });
+
+  it("the answer decoction to the Innkeeper's older question is told to use wort, in one line", () => {
+    const which = {
+      q: 'Which recipe brews #100? Suggested: decoction: three areas',
+      options: ['nip', 'decoction'],
+      recommended: 'decoction',
+      whyBlocking: 'The recipe decides what runs next',
+    };
+    const asking: Event[] = [
+      ...brewing('innkeep', 1, 'mash-in'),
+      stuckEvent({ kind: 'needs_input', stepId: 'innkeep', questions: [which] }),
+    ];
+    const answer: Command = {
+      kind: 'answer',
+      batchId: 'b1',
+      ...by,
+      answers: [{ q: which.q, answer: 'decoction' }],
+    };
+    refusal(asking, answer);
+  });
+});
