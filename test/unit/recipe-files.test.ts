@@ -2323,6 +2323,23 @@ describe('loadRecipes: a step whose answer chooses the recipe (ADR 0232)', () =>
     assert.deepEqual(offered('plans', 'planner'), ['pale', 'plans']);
   });
 
+  it('a tend recipe needs no guidance, since no step offers it: regression test (ADR 0375, ADR 0380)', () => {
+    const tidy = recipe('tidy', [{ brewer: 'brewmaster' }], { type: 'tend', guidance: undefined });
+    assert.doesNotMatch(tidy.text, /guidance/);
+    const result = loadRecipes(
+      brewery({ recipes: [pale, mashIn(), tidy], brewers: [maltster, brewmaster, innkeeper] }),
+    );
+    assert.ok(result.valid, result.valid ? '' : result.problems.join('\n'));
+    // A recipe of another type with none is still refused, as it is offered.
+    const plain = recipe('plain', [{ brewer: 'brewmaster' }], { guidance: undefined });
+    assert.equal(
+      loadRecipes(
+        brewery({ recipes: [pale, mashIn(), plain], brewers: [maltster, brewmaster, innkeeper] }),
+      ).valid,
+      false,
+    );
+  });
+
   it("marks the step, and gives its brewer the Brewery's other recipes to offer, in order", () => {
     const result = loadRecipes(files());
     assert.ok(result.valid, result.valid ? '' : result.problems.join('\n'));
