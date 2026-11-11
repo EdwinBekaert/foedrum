@@ -45,7 +45,7 @@ sequenceDiagram
   At start-up a missing or behind database is rebuilt from the branch; unpushed local events while the branch moved stop the engine with an error naming both heads.
   Foedrum never merges or rewrites state history.
 - **A push GitHub's push protection refuses** (`[remote rejected]` with push protection's words on stderr, `classifyPush`) stops the engine too, since every later commit carries the refused one: the line names the commit, the events it holds and each unblock page GitHub printed, never the secret ([ADR 0378](../../adr/0378-out-doc-lines-that-look-like-secrets-stay-off-the-state-branch-and-a-push-refused-for-one-stops-the-engine.md)).
-  The account that pushed allows the secret on that page and starts the engine again within three hours, and the same commit is pushed; else the database is moved aside and rebuilt from the branch, losing what is not on it.
+  A real secret is revoked or rotated first, since the branch keeps it for good; then the account that pushed allows it on that page and starts the engine again within three hours, and the same commit is pushed; else the database is moved aside and rebuilt from the branch, losing what is not on it.
   Any other refusal or network failure is a failed flush, reported and retried at the next tick.
 - **Rewind:** every step records the commit SHA of each repository involved.
   `/foedrum rewind <step>`, offered when a batch is Stuck, resets the batch's branches to those SHAs and appends a `batch.rewound` event that records them.
