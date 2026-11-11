@@ -91,18 +91,24 @@ const segment = (id: string, what: string): string => {
   return id;
 };
 
-const batchLog = (batchId: string): string =>
-  `batches/${segment(batchId, 'batch id')}/events.jsonl`;
+/** A batch's folder on the state branch. */
+export const batchFolder = (batchId: string): string => `batches/${segment(batchId, 'batch id')}`;
+
+const batchLog = (batchId: string): string => `${batchFolder(batchId)}/events.jsonl`;
 
 /** Where a shelved batch's folder goes on the state branch: `archive/<YYYY-MM>/<id>` (ADR 0380). */
-export const shelfFolder = (_month: string, _batchId: string): string => {
-  throw new Error('not implemented');
+export const shelfFolder = (month: string, batchId: string): string => {
+  if (!MONTH.test(month))
+    throw new Error(`Invalid month ${JSON.stringify(month)}: it is not a month`);
+  return `archive/${month}/${segment(batchId, 'batch id')}`;
 };
 
+/** A month of the shelf, as `YYYY-MM`. */
+const MONTH = /^[0-9]{4}-(?:0[1-9]|1[0-2])$/;
+
 /** The months of `archive/` that an expiry before `before` (`YYYY-MM`) deletes (ADR 0380). */
-export const expiredMonths = (_months: readonly string[], _before: string): string[] => {
-  throw new Error('not implemented');
-};
+export const expiredMonths = (months: readonly string[], before: string): string[] =>
+  months.filter((month) => MONTH.test(month) && month < before).sort();
 
 /**
  * The batches a store behind the branch forgets before it catches up (ADR 0380): each with a
@@ -110,11 +116,19 @@ export const expiredMonths = (_months: readonly string[], _before: string): stri
  * has, and no local event after it.
  */
 export const forgottenOnBranch = (
-  _local: readonly StoredEvent[],
-  _branchBatches: ReadonlySet<string>,
-  _pushedThrough: number,
+  local: readonly StoredEvent[],
+  branchBatches: ReadonlySet<string>,
+  pushedThrough: number,
 ): string[] => {
-  throw new Error('not implemented');
+  const gone = new Set<string>();
+  const unpushed = new Set<string>();
+  for (const { id, event } of local) {
+    const batchId = batchOf(event);
+    if (batchId === undefined || branchBatches.has(batchId)) continue;
+    if (id > pushedThrough) unpushed.add(batchId);
+    else gone.add(batchId);
+  }
+  return [...gone].filter((batchId) => !unpushed.has(batchId));
 };
 
 /** The log file an event belongs to: its batch's `events.jsonl`, or the top-level one. */

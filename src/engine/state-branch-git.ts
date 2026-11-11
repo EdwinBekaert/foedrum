@@ -13,9 +13,12 @@ import { replaceFile } from '../platform/replace-file.ts';
 import type { Git, GitOptions } from '../workspace/git.ts';
 import type { EventStore } from './event-store.ts';
 import {
+  batchFolder,
   classifyPush,
   commitMessage,
   decideStart,
+  expiredMonths,
+  forgottenOnBranch,
   isLogPath,
   logPathOf,
   mergeLogs,
@@ -25,6 +28,7 @@ import {
   type StartDecision,
   StateBranchStopError,
   secretRefusal,
+  shelfFolder,
   unsafeEntries,
 } from './state-branch.ts';
 
@@ -338,9 +342,20 @@ export const openStateBranch = (options: StateBranchOptions): StateBranch => {
         );
       }
     }
+    const paths = await logFiles();
     const files = await Promise.all(
-      (await logFiles()).map(async (path) => ({ path, text: (await read(path)) ?? '' })),
+      paths.map(async (path) => ({ path, text: (await read(path)) ?? '' })),
     );
+    // A batch the other engine shelved left batches/: this store forgets it too (ADR 0380).
+    const onBranch = new Set(
+      paths.flatMap((path) => {
+        const [folder, batchId] = path.split('/');
+        return folder === 'batches' && batchId !== undefined ? [batchId] : [];
+      }),
+    );
+    const marker = store.pushedThrough()?.eventId ?? 0;
+    const forgotten = forgottenOnBranch(store.eventsAfter(0), onBranch, marker);
+    if (forgotten.length > 0) store.withTransaction((tx) => tx.forget(forgotten));
     store.restore(planCatchUp(mergeLogs(files), store.eventsAfter(0)), remoteSha);
   };
 
@@ -350,8 +365,18 @@ export const openStateBranch = (options: StateBranchOptions): StateBranch => {
     const pending = store.eventsAfter(from);
     // Read after the events: the out doc of a pending step.finished was kept before it (ADR 0103).
     const outDocs = store.keptOutDocs();
+    // The cleanup's shelving and expiry go with the next flush, events or none (ADR 0380).
+    const shelving = store.shelving();
+    const expiring = store.expiring();
     // Out docs alone are pushed too: one kept after its events were pushed waits for no event.
-    if (pending.length === 0 && outDocs.length === 0) return { kind: 'unchanged' };
+    if (
+      pending.length === 0 &&
+      outDocs.length === 0 &&
+      shelving.length === 0 &&
+      expiring === undefined
+    ) {
+      return { kind: 'unchanged' };
+    }
     const through = pending.at(-1)?.id ?? from;
     const paths = new Set(pending.map((stored) => logPathOf(stored.event)));
     if (checkAll) for (const path of await logFiles()) paths.add(path);
@@ -360,6 +385,24 @@ export const openStateBranch = (options: StateBranchOptions): StateBranch => {
     );
     for (const file of planFlush(current, pending, from, outDocs)) {
       await write(file.path, file.text);
+    }
+    // A forgotten batch's folder moves to the shelf; a flush that a failed push left behind finds
+    // it moved already. Then the expired months of the shelf go (ADR 0380).
+    for (const { batchId, month } of shelving) {
+      const from = onDisk(batchFolder(batchId));
+      if (!existsSync(from)) continue;
+      const to = onDisk(shelfFolder(month, batchId));
+      await mkdir(dirname(to), { recursive: true });
+      await replaceFile(from, to);
+    }
+    if (expiring !== undefined) {
+      const months = await readdir(onDisk('archive')).catch((error: unknown) => {
+        if (errorCode(error) === 'ENOENT') return [];
+        throw error;
+      });
+      for (const month of expiredMonths(months, expiring)) {
+        await removeTree(onDisk(`archive/${month}`));
+      }
     }
     // The branch holds the same bytes on every machine, whatever core.autocrlf says.
     if (!existsSync(onDisk('.gitattributes'))) await write('.gitattributes', '* -text\n');
@@ -402,6 +445,8 @@ export const openStateBranch = (options: StateBranchOptions): StateBranch => {
           tx.markPushed({ eventId: through, commit });
           // The branch has them now; a crash before this writes them again, with the same text.
           tx.forgetOutDocs(outDocs);
+          tx.shelved(shelving.map(({ batchId }) => batchId));
+          if (expiring !== undefined) tx.expired();
         });
         return { kind: 'pushed', through, commit };
       case 'rejected': {
