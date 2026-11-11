@@ -215,9 +215,10 @@ export const mergeLogs = (files: readonly BranchFile[]): LoggedEvent[] => {
  */
 const namedCommit = (): boolean => true;
 
-// A private key's block: its body lines need not look like a secret one by one (ADR 0378).
-const KEY_BEGINS = /-----BEGIN [A-Z ]*PRIVATE KEY-----/;
-const KEY_ENDS = /-----END [A-Z ]*PRIVATE KEY-----/;
+// A private key's block, PEM's or PGP's: its body lines need not look like a secret one by one
+// (ADR 0378).
+const KEY_BEGINS = /-----BEGIN [A-Z ]*PRIVATE KEY(?: BLOCK)?-----/;
+const KEY_ENDS = /-----END [A-Z ]*PRIVATE KEY(?: BLOCK)?-----/;
 
 /**
  * `text` with each line that looks like a secret replaced where it stood by a fixed line naming
@@ -504,7 +505,7 @@ export const secretRefusal = ({
   return (
     `GitHub push protection refused the state branch: commit ${commit} ${what} holds a text it reads as a secret, ` +
     'and every later commit carries it. The engine stops; Foedrum never rewrites state history. ' +
-    `To go on, open ${page} as the account that pushed, allow the secret, and start again within three hours ` +
+    `To go on, if the secret is real, revoke or rotate it first, since the branch keeps it for good; then open ${page} as the account that pushed, allow the secret, and start again within three hours ` +
     '(without that right, ask an admin of the repository for a bypass). ' +
     'Else start again after moving the database aside, which rebuilds it from the branch and loses what is not on it.'
   );
