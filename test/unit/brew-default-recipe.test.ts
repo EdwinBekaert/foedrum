@@ -10,9 +10,11 @@ import { type BrewRequest, runBrew } from '../../src/cli/brew.ts';
 import { diagnose } from '../../src/cli/doctor.ts';
 import { runServe } from '../../src/cli/serve.ts';
 import { type ServeSetupResult, serveSetup } from '../../src/cli/serve-config.ts';
+import { nextBatchId, targetBatchId } from '../../src/engine/batch-id.ts';
 import { readBreweryFiles } from '../../src/engine/brewery-files.ts';
 import { createCommandLog } from '../../src/engine/command-log.ts';
 import { effectKey } from '../../src/engine/effect-key.ts';
+import { emptyState } from '../../src/engine/fold.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import type { Question } from '../../src/schemas/step-outcome.ts';
 import { brewFixture, request, t0 } from '../helpers/brew-fixture.ts';
@@ -22,6 +24,10 @@ import { fakeGitHubApi } from '../helpers/fake-github-api.ts';
 import { fakeLock } from '../helpers/fake-lock.ts';
 import { config, local, recipe, serveInputs } from '../helpers/serve-brewery.ts';
 import { serveFixture } from '../helpers/serve-fixture.ts';
+
+// Batch ids carry the time they were ordered (ADR 0380): those made at `t0`.
+const idOf = (alias: string, issue: number): string => targetBatchId(emptyState, alias, issue, t0);
+const breweryIdOf = (issue: number): string => nextBatchId(emptyState, issue, t0);
 
 // A second recipe like stout, so the Innkeeper has two to offer beside porter and nip.
 const mild = JSON.stringify({ ...JSON.parse(recipe), name: 'mild', description: 'A mild.' });
@@ -101,7 +107,10 @@ describe('runBrew on an issue with no recipe label (ADR 0370)', () => {
     const asks = shell(behave.needInput([which(13)]));
     assert.equal(await runBrew(ready(), asks, brew(13)), 4, f.lines.join('\n'));
     assert.deepStrictEqual(f.started, ['innkeep#1']);
-    assert.deepStrictEqual(log().state().batches.get('13-1')?.recipe, byDefault('mash-in'));
+    assert.deepStrictEqual(
+      log().state().batches.get(breweryIdOf(13))?.recipe,
+      byDefault('mash-in'),
+    );
     assert.ok(f.lines.includes('foedrum brew: ordered #13'), f.lines.join('\n'));
     assert.ok(
       f.lines.includes('foedrum brew: routed #13 to the recipe mash-in'),
@@ -120,15 +129,18 @@ describe('runBrew on an issue with no recipe label (ADR 0370)', () => {
     const asks = shell(behave.needInput([which(13)]));
     assert.equal(await runBrew(named, asks, brew(13)), 4, f.lines.join('\n'));
     assert.ok(f.lines.includes('foedrum brew: routed #13 to the recipe mash'), f.lines.join('\n'));
-    assert.deepStrictEqual(log().state().batches.get('13-1')?.recipe, byDefault('mash'));
+    assert.deepStrictEqual(log().state().batches.get(breweryIdOf(13))?.recipe, byDefault('mash'));
     assert.equal(f.started[0], 'plan#1', f.lines.join('\n'));
   });
 
   it('foedrum brew on an Ordered batch with no label runs the default recipe, ordering it not again', async () => {
-    log().issue({ kind: 'order', batchId: '13-1', order: { issue: 13 } }, t0);
+    log().issue({ kind: 'order', batchId: breweryIdOf(13), order: { issue: 13 } }, t0);
     const asks = shell(behave.needInput([which(13)]));
     assert.equal(await runBrew(ready(), asks, brew(13)), 4, f.lines.join('\n'));
-    assert.deepStrictEqual(log().state().batches.get('13-1')?.recipe, byDefault('mash-in'));
+    assert.deepStrictEqual(
+      log().state().batches.get(breweryIdOf(13))?.recipe,
+      byDefault('mash-in'),
+    );
     assert.ok(!f.lines.some((line) => line.includes('ordered #13')), f.lines.join('\n'));
   });
 
@@ -140,13 +152,16 @@ describe('runBrew on an issue with no recipe label (ADR 0370)', () => {
         'acme/web': [{ number: 7, labels: ['foedrum'], author: 'ann', title: 'Dark' }],
       },
     });
-    log().issue({ kind: 'order', batchId: 'web-7', order: { issue: 7, repo: 'acme/web' } }, t0);
-    const key = effectKey.encode({ batchId: 'web-7', effect: 'order.issue' });
+    log().issue(
+      { kind: 'order', batchId: idOf('web', 7), order: { issue: 7, repo: 'acme/web' } },
+      t0,
+    );
+    const key = effectKey.encode({ batchId: idOf('web', 7), effect: 'order.issue' });
     log().issue({ kind: 'record', event: { type: 'effect.applied', key, result: 40 } }, t0);
     const claimed = ready({ config: config({}, web) });
     const asks = shell(behave.needInput([which(40)]));
     assert.equal(await runBrew(claimed, asks, brew(40)), 4, f.lines.join('\n'));
-    assert.deepStrictEqual(log().state().batches.get('web-7')?.recipe, byDefault('mash-in'));
+    assert.deepStrictEqual(log().state().batches.get(idOf('web', 7))?.recipe, byDefault('mash-in'));
     assert.deepStrictEqual(recipeLabels('acme/brewery', 40), []);
   });
 
@@ -162,7 +177,7 @@ describe('runBrew on an issue with no recipe label (ADR 0370)', () => {
     const fresh = { ...request, target: { alias: 'web', issue: 7 } };
     assert.equal(await runBrew(claimed, asks, fresh), 4, f.lines.join('\n'));
     assert.equal(f.api.issues['acme/brewery']?.length, 1, 'its Brewery issue is opened');
-    assert.deepStrictEqual(log().state().batches.get('web-7')?.recipe, byDefault('mash-in'));
+    assert.deepStrictEqual(log().state().batches.get(idOf('web', 7))?.recipe, byDefault('mash-in'));
     assert.deepStrictEqual(f.started, ['innkeep#1']);
   });
 
@@ -296,7 +311,7 @@ describe('runServe on an issue with no recipe label (ADR 0370)', () => {
     f.store = { ...inner, close: () => {} };
     const log = createCommandLog({ store: f.store, recipes: f.setup.recipes });
     const by = { by: 'ann', via: 'terminal' } as const;
-    log.issue({ kind: 'order_again', batchId: '13-1', order: { issue: 13 }, ...by }, t0);
+    log.issue({ kind: 'order_again', batchId: breweryIdOf(13), order: { issue: 13 }, ...by }, t0);
     const github = fakeGitHubApi({
       login: 'ann',
       issues: {
@@ -304,7 +319,7 @@ describe('runServe on an issue with no recipe label (ADR 0370)', () => {
       },
     });
     let now = t0.getTime();
-    const lane = () => log.state().batches.get('13-1')?.lane;
+    const lane = () => log.state().batches.get(breweryIdOf(13))?.lane;
     const waits = {
       clock: () => new Date(now),
       wait: async () => {
@@ -323,6 +338,6 @@ describe('runServe on an issue with no recipe label (ADR 0370)', () => {
       { lane: 'stuck', reason: 'routing' },
       f.lines.join('\n'),
     );
-    assert.equal(log.state().batches.get('13-1')?.recipe, undefined);
+    assert.equal(log.state().batches.get(breweryIdOf(13))?.recipe, undefined);
   });
 });

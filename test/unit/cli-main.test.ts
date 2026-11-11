@@ -458,11 +458,10 @@ describe('foedrum order through cliFromCheckout (ADR 0105)', () => {
     const reader = openSqliteEventStore(store, { readOnly: true });
     const last = reader.eventsAfter(0).at(-1)?.event;
     reader.close();
-    assert.deepStrictEqual(last?.type === 'batch.ordered' && [last.batchId, last.by, last.via], [
-      'web-7-2',
-      userInfo().username,
-      'terminal',
-    ]);
+    assert.ok(last?.type === 'batch.ordered', JSON.stringify(last));
+    // A new id, which carries the time it was ordered on this run's clock (ADR 0380).
+    assert.match(last.batchId, /^web-7-[0-9]{14}$/);
+    assert.deepStrictEqual([last.by, last.via], [userInfo().username, 'terminal']);
   });
 
   it('says in one line when foedrum.jsonc is missing or does not pass its schema, and asks gh nothing', async () => {

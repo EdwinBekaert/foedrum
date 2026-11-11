@@ -6,12 +6,17 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { runBrew } from '../../src/cli/brew.ts';
 import { type ServeSetup, serveSetup } from '../../src/cli/serve-config.ts';
+import { targetBatchId } from '../../src/engine/batch-id.ts';
+import { emptyState } from '../../src/engine/fold.ts';
 import { brewFixture, request, t0 } from '../helpers/brew-fixture.ts';
 import { behave } from '../helpers/fake-brewer-runner.ts';
 import { ghOver } from '../helpers/fake-gh.ts';
 import { type FakeGitHubApi, fakeGitHubApi } from '../helpers/fake-github-api.ts';
 import { fakeLock } from '../helpers/fake-lock.ts';
 import { config, local, serveInputs } from '../helpers/serve-brewery.ts';
+
+// Batch ids carry the time they were ordered (ADR 0380): those made at `t0`.
+const idOf = (alias: string, issue: number): string => targetBatchId(emptyState, alias, issue, t0);
 
 /** What each command a line offers is given: `answer 40`, `brew 40`. */
 const offered = (lines: readonly string[]): string[] =>
@@ -70,7 +75,7 @@ describe('every line names the number (ADR 0329, ADR 0334)', () => {
     const number = await claim(github(), claiming());
     assert.deepStrictEqual(offered(f.lines), [`recipe ${number}`]);
     assert.ok(f.lines.at(-1)?.includes(`brew ${number},`), f.lines.join('\n'));
-    assert.ok(!f.lines.some((line) => line.includes('web-7')), f.lines.join('\n'));
+    assert.ok(!f.lines.some((line) => line.includes(idOf('web', 7))), f.lines.join('\n'));
   });
 
   it('a question on a claimed order says the Brewery number', async () => {
@@ -104,13 +109,13 @@ describe('every line names the number (ADR 0329, ADR 0334)', () => {
     const target = { ...request, target: { issue: number } };
     const asks = again(host, behave.needInput());
     assert.equal(await runBrew(brewing, asks, target), 4, f.lines.join('\n'));
-    const batch = log().state().batches.get('web-7');
+    const batch = log().state().batches.get(idOf('web', 7));
     const { lane } = batch ?? {};
     assert.ok(lane?.kind === 'stuck' && lane.reason.kind === 'needs_input');
     const answers = lane.reason.questions.map(({ q, recommended }) => ({ q, answer: recommended }));
     const answer = {
       kind: 'answer',
-      batchId: 'web-7',
+      batchId: idOf('web', 7),
       by: 'ann',
       via: 'terminal',
       answers,
@@ -123,7 +128,7 @@ describe('every line names the number (ADR 0329, ADR 0334)', () => {
     assert.deepStrictEqual([...new Set(commands)], [`answer ${number}`, `brew ${number}`]);
     // The driver's own notice of its cleanup keeps the id, with the folders it names (ADR 0334).
     const told = f.lines.filter((line) => !line.includes('cleaned batch'));
-    assert.ok(!told.some((line) => line.includes('web-7')), f.lines.join('\n'));
+    assert.ok(!told.some((line) => line.includes(idOf('web', 7))), f.lines.join('\n'));
     const said = new RegExp(`^foedrum brew: #${number} is on tap: `);
     assert.match(f.lines.at(-1) ?? '', said);
   });
