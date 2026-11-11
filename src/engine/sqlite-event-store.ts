@@ -319,6 +319,7 @@ export const openSqliteEventStore = (
       case 'pull_request.pair_checked':
       case 'pull_request.checks_pending':
       case 'pull_request.checks_finished':
+      case 'pull_request.reviews_read':
         return;
       case 'step.rescheduled':
         // A paused attempt's new deadline as its pause is lifted (ADR 0202).

@@ -148,6 +148,7 @@ export type RecordedEvent = Extract<
       | 'pull_request.pair_checked'
       | 'pull_request.checks_pending'
       | 'pull_request.checks_finished'
+      | 'pull_request.reviews_read'
       | 'effect.applied';
   }
 >;
@@ -254,12 +255,14 @@ export type EngineCommand =
 /**
  * What is wrong with an open pull request that sends its batch back: failed checks on its head
  * (ADR 0219), a failing check on its merged tree with the base at `tip` (ADR 0226), or a conflict
- * with the base at `tip` (ADR 0244).
+ * with the base at `tip` (ADR 0244), or the `reviews` of someone in the Brewery's `users` that ask for
+ * changes (ADR 0382).
  */
 export type FixCause =
   | { kind: 'checks' }
   | { kind: 'merged_check'; tip: string }
-  | { kind: 'conflict'; tip: string };
+  | { kind: 'conflict'; tip: string }
+  | { kind: 'review'; reviews: readonly number[] };
 
 /**
  * A person's pause of an order, or with no `order` of the whole Brewery and its intake, and its
@@ -924,7 +927,9 @@ function fixPullRequest(
         ? 'no failed checks'
         : cause.kind === 'conflict'
           ? `no conflict with the base at ${cause.tip}`
-          : `no failed check on its merged tree with the base at ${cause.tip}`;
+          : cause.kind === 'review'
+            ? 'no review that asks for changes and has not sent it back'
+            : `no failed check on its merged tree with the base at ${cause.tip}`;
     throw new Refusal(
       `pull request ${pullRequest} of batch ${batchId} has ${what} on ${head}, the head of the batch's latest push`,
     );
@@ -962,12 +967,40 @@ function fixPullRequest(
   });
 }
 
-const sameCause = (a: FixCause, b: FixCause): boolean =>
-  a.kind === 'checks' ? b.kind === 'checks' : b.kind === a.kind && a.tip === b.tip;
+const sameCause = (a: FixCause, b: FixCause): boolean => {
+  switch (a.kind) {
+    case 'checks':
+      return b.kind === 'checks';
+    case 'review':
+      return b.kind === 'review' && a.reviews.join(',') === b.reviews.join(',');
+    default:
+      return (
+        (b.kind === 'merged_check' || b.kind === 'conflict') && b.kind === a.kind && a.tip === b.tip
+      );
+  }
+};
 
-/** What a `pull_request` route says of `cause`: nothing for the head's checks (ADR 0226). */
-const routeCause = (cause: FixCause): { cause?: 'merged_check' | 'conflict'; tip?: string } =>
-  cause.kind === 'checks' ? {} : { cause: cause.kind, tip: cause.tip };
+/**
+ * What a `pull_request` route says of `cause`: nothing for the head's checks (ADR 0226), the ids of
+ * the reviews that ask for changes (ADR 0382).
+ */
+const routeCause = (
+  cause: FixCause | StuckCause,
+): { cause?: 'merged_check' | 'conflict' | 'review'; tip?: string; reviews?: number[] } => {
+  switch (cause.kind) {
+    case 'checks':
+      return {};
+    case 'review':
+      return {
+        cause: 'review',
+        reviews: cause.reviews.map((review) => (typeof review === 'number' ? review : review.id)),
+      };
+    default:
+      return { cause: cause.kind, tip: cause.tip };
+  }
+};
+
+type StuckCause = NonNullable<Extract<StuckReason, { kind: 'pull_request_failed' }>['cause']>;
 
 /**
  * What a batch Stuck on its pull request names of `problem`: the failed checks, the one check, or
@@ -979,6 +1012,10 @@ function stuckChecks(
   if (problem.kind === 'conflict') {
     const { branch, tip, conflicts } = problem.check;
     return { failed: [], more: 0, cause: { kind: 'conflict', branch, tip, files: [...conflicts] } };
+  }
+  if (problem.kind === 'review') {
+    const reviews = problem.reviews.map(({ id, by }) => ({ id, by }));
+    return { failed: [], more: 0, cause: { kind: 'review', reviews, more: problem.more } };
   }
   if (problem.kind === 'merged_check') {
     const { branch, tip, failed } = problem.check;

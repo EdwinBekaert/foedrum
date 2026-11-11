@@ -139,6 +139,45 @@ export const MOST_FAILED_CHECKS = 5;
 export const FailedCheck = HeadCheck.pick({ name: true, conclusion: true, url: true });
 export type FailedCheck = z.infer<typeof FailedCheck>;
 
+/**
+ * The most reviews a record of an open pull request's requests for changes keeps, and a batch
+ * Stuck on them names (ADR 0382).
+ */
+export const MOST_REVIEWS = 5;
+/** The most comments a record keeps of one review, and the longest text of a body or comment. */
+export const MOST_REVIEW_COMMENTS = 30;
+export const MAX_REVIEW_TEXT_LENGTH = 4000;
+/** The longest file path a review comment keeps. */
+export const MAX_REVIEW_PATH_LENGTH = 1000;
+
+/** A GitHub review's id: a positive whole number. */
+export const ReviewId = z.int().positive();
+
+/**
+ * A comment of a review at its file and, unless outdated or on the whole file, its line: a
+ * person's words, untrusted, read for secrets when recorded (ADR 0382).
+ */
+export const ReviewComment = z.strictObject({
+  path: z.string().min(1).max(MAX_REVIEW_PATH_LENGTH),
+  line: z.int().positive().optional(),
+  body: z.string().min(1).max(MAX_REVIEW_TEXT_LENGTH),
+});
+export type ReviewComment = z.infer<typeof ReviewComment>;
+
+/**
+ * A review that asks for changes, by `by`, someone in the Brewery's `users` (ADR 0382): its body,
+ * empty when it has none, the commit it reviewed, its comments and how many more it had.
+ */
+export const AskedReview = z.strictObject({
+  id: ReviewId,
+  by: NonEmpty,
+  commit: CommitSha.optional(),
+  body: z.string().max(MAX_REVIEW_TEXT_LENGTH),
+  comments: z.array(ReviewComment).max(MOST_REVIEW_COMMENTS),
+  more: z.int().positive().optional(),
+});
+export type AskedReview = z.infer<typeof AskedReview>;
+
 /** Where a command or answer came from (ADR 0019). */
 export const Surface = z.enum(['plugin', 'terminal', 'comment', 'dashboard']);
 export type Surface = z.infer<typeof Surface>;
@@ -214,7 +253,8 @@ export type OrderRef = z.infer<typeof OrderRef>;
  * (`onFail`) or whose brewer was blocked by findings (`onBlocked`), or from the openPullRequest
  * step whose pull request failed its checks on `head` (`onPullRequestFail`, ADR 0219), or on its
  * merged tree with the base at `tip` (`cause: 'merged_check'`, ADR 0226), or conflicts with the
- * base at `tip` (`cause: 'conflict'`, ADR 0244).
+ * base at `tip` (`cause: 'conflict'`, ADR 0244), or got changes asked for in the `reviews` of
+ * someone in the Brewery's `users` (`cause: 'review'`, ADR 0382).
  */
 export const ScheduleRoute = z.discriminatedUnion('why', [
   z.strictObject({ from: StepId, why: z.enum(['failed', 'findings']) }),
@@ -224,11 +264,18 @@ export const ScheduleRoute = z.discriminatedUnion('why', [
       why: z.literal('pull_request'),
       pullRequest: PullRequestUrl,
       head: CommitSha,
-      cause: z.enum(['merged_check', 'conflict']).optional(),
+      cause: z.enum(['merged_check', 'conflict', 'review']).optional(),
       tip: CommitSha.optional(),
+      reviews: z.array(ReviewId).min(1).max(MOST_REVIEWS).optional(),
     })
-    .refine((route) => (route.cause === undefined) === (route.tip === undefined), {
-      message: 'A route with a cause names its tip, and only it does',
+    .refine(
+      (route) =>
+        (route.cause === 'merged_check' || route.cause === 'conflict') ===
+        (route.tip !== undefined),
+      { message: 'A route with a merged_check or conflict cause names its tip, and only it does' },
+    )
+    .refine((route) => (route.cause === 'review') === (route.reviews !== undefined), {
+      message: 'A route with a review cause names its reviews, and only it does',
     }),
 ]);
 export type ScheduleRoute = z.infer<typeof ScheduleRoute>;
@@ -586,6 +633,15 @@ export const StuckReason = z.discriminatedUnion('kind', [
           branch: NonEmpty,
           tip: CommitSha,
           files: z.array(NonEmpty).min(1).max(MAX_CONFLICTS),
+        }),
+        // The reviews that asked for changes, by whom, and how many more (ADR 0382).
+        z.strictObject({
+          kind: z.literal('review'),
+          reviews: z
+            .array(z.strictObject({ id: ReviewId, by: NonEmpty }))
+            .min(1)
+            .max(MOST_REVIEWS),
+          more: Count,
         }),
       ])
       .optional(),
@@ -1034,6 +1090,17 @@ export const Event = z.discriminatedUnion('type', [
     pullRequest: PullRequestUrl,
     head: CommitSha,
     checks: z.array(HeadCheck).max(MAX_HEAD_CHECKS),
+    more: z.int().positive().optional(),
+  }),
+  // The reviews of an open pull request that ask for changes and have not sent the batch back, by
+  // someone in the Brewery's `users`, each that person's latest review that approves, asks for
+  // changes or was dismissed (ADR 0382), oldest first, and how many more; again when they change,
+  // none once they no longer ask.
+  z.strictObject({
+    type: z.literal('pull_request.reviews_read'),
+    batchId: BatchId,
+    pullRequest: PullRequestUrl,
+    reviews: z.array(AskedReview).max(MOST_REVIEWS),
     more: z.int().positive().optional(),
   }),
   // The idempotency ledger for external side effects (invariant I4).

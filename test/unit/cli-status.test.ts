@@ -33,6 +33,34 @@ describe('describeLane', () => {
     });
   });
 
+  it('says which reviews asked for changes past the rounds, and how many more (ADR 0382): regression test', () => {
+    const batch: Batch = {
+      id: '12-1',
+      issue: 12,
+      steps: new Map(),
+      rewinds: [],
+      lane: {
+        kind: 'stuck',
+        reason: {
+          kind: 'pull_request_failed',
+          stepId: 'open-pull-request',
+          pullRequest: 'https://github.com/acme/api/pull/12',
+          head: 'c'.repeat(40),
+          rounds: 2,
+          failed: [],
+          more: 0,
+          cause: { kind: 'review', reviews: [{ id: 81, by: 'ada' }], more: 2 },
+        },
+        options: ['retry', 'skip', 'recipe', 'rewind', 'cancel'],
+        remindAt: '2026-10-17T12:00:00.000Z',
+      },
+    };
+    assert.deepStrictEqual(describeLane(batch, '12'), {
+      lane: 'stuck',
+      detail: `https://github.com/acme/api/pull/12 got changes asked for on ${'c'.repeat(40)} at open-pull-request after 2 rounds: review 81 by ada, and 2 more; reminder 2026-10-17T12:00:00.000Z`,
+    });
+  });
+
   it('says which pull request fails its checks on the merged tree, with which base and check (ADR 0226)', () => {
     const batch: Batch = {
       id: '12-1',

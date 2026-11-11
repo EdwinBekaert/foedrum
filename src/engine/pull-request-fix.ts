@@ -1,14 +1,17 @@
 // What sends a batch on tap back to a fix step: the latest base check of its open pull request's
 // head, the commit of its latest push, conflicted (ADR 0244) or failed on the merged tree
 // (ADR 0226), else the latest record
-// of the checks on that head finished with a check that failed (ADR 0219). Pure: the supervisor
-// reads it to issue the command, and decide reads it again to act on it.
+// of the checks on that head finished with a check that failed (ADR 0219), else the recorded
+// reviews of someone in the Brewery's `users` that ask for changes and have not sent it back
+// (ADR 0382). Pure: the supervisor reads it to issue the command, and decide reads it again to act
+// on it.
 
-import type { GravityReading, HeadCheck } from '../schemas/events.ts';
+import type { AskedReview, GravityReading, HeadCheck } from '../schemas/events.ts';
 import type { FixCause } from './decide.ts';
 import { type BaseCheck, type Batch, baseChecksOn, orderKey, type State } from './fold.ts';
 import { orderOfBatch } from './pauses.ts';
 import { checkPassed } from './pr-checks.ts';
+import { askedOf } from './pr-reviews.ts';
 import { openOf } from './pull-request.ts';
 import type { Recipe } from './recipes.ts';
 
@@ -40,7 +43,8 @@ export const failedPullRequest = (state: State, batch: Batch): FailedPullRequest
 /**
  * The first problem of the open pull request of `batch` on the head of its latest push (ADR 0226):
  * its latest base check of that head conflicted (ADR 0244) or failed on the merged tree, else its
- * checks failed on the head. A check either conflicts or runs the merged tree, never both.
+ * checks failed on the head, else reviews ask for changes (ADR 0382). A check either conflicts or
+ * runs the merged tree, never both.
  */
 export type PullRequestProblem =
   | ({ kind: 'checks' } & FailedPullRequest)
@@ -55,6 +59,14 @@ export type PullRequestProblem =
       pullRequest: string;
       head: string;
       check: BaseCheck & { conflicts: readonly string[] };
+    }
+  | {
+      kind: 'review';
+      pullRequest: string;
+      head: string;
+      reviews: readonly AskedReview[];
+      /** How many more the record left out. */
+      more: number;
     };
 
 export const pullRequestProblem = (state: State, batch: Batch): PullRequestProblem | undefined => {
@@ -74,12 +86,26 @@ export const pullRequestProblem = (state: State, batch: Batch): PullRequestProbl
     return { kind: 'merged_check', pullRequest: open.url, head: open.head, check };
   }
   const failed = failedPullRequest(state, batch);
-  return failed === undefined ? undefined : { kind: 'checks', ...failed };
+  if (failed !== undefined) return { kind: 'checks', ...failed };
+  const { reviews, more } = askedOf(batch, open.url);
+  if (reviews.length === 0) return undefined;
+  return { kind: 'review', pullRequest: open.url, head: open.head, reviews, more };
 };
 
 /** The cause a fix command names for `problem`. */
-export const causeOf = (problem: PullRequestProblem): FixCause =>
-  problem.kind === 'checks' ? { kind: 'checks' } : { kind: problem.kind, tip: problem.check.tip };
+export const causeOf = (problem: PullRequestProblem): FixCause => {
+  switch (problem.kind) {
+    case 'checks':
+      return { kind: 'checks' };
+    case 'review':
+      return { kind: 'review', reviews: problem.reviews.map(({ id }) => id) };
+    case 'merged_check':
+    case 'conflict':
+      return { kind: problem.kind, tip: problem.check.tip };
+    default:
+      return problem satisfies never;
+  }
+};
 
 /** The pull requests whose failure has sent `batch` back to brew a fix, each once (ADR 0219). */
 export const sentBackFrom = (batch: Batch): ReadonlySet<string> => {
