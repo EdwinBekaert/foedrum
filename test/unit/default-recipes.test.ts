@@ -59,7 +59,6 @@ describe('mash-in and the Innkeeper (ADR 0232)', () => {
     const text = readFileSync(join(root, 'brewers', 'innkeeper.md'), 'utf8');
     assert.match(text, /"version": 7,/);
     assert.match(text, /`deep-mash` for a deep one/);
-    assert.doesNotMatch(text, /decoction/i);
   });
 
   it("the Innkeeper gets the Brewery's repositories as an input", () => {
@@ -73,14 +72,13 @@ describe('mash-in and the Innkeeper (ADR 0232)', () => {
   });
 });
 
-describe('deep-mash, which was decoction (ADR 0372)', () => {
+describe('deep-mash (ADR 0372)', () => {
   const loaded = loadRecipes(readBreweryFiles(join(root, '..', 'no-brewery')));
 
-  it('the default recipes hold deep-mash, of type mash, and no decoction', () => {
+  it('the default recipes hold deep-mash, of type mash', () => {
     assert.ok(loaded.valid, loaded.valid ? '' : loaded.problems.join('\n'));
     const files = readdirSync(join(root, 'recipes'));
     assert.ok(files.includes('deep-mash.jsonc'), files.join(', '));
-    assert.ok(!files.includes('decoction.jsonc'), files.join(', '));
     const deepMash = loaded.recipes.find('deep-mash');
     assert.equal(deepMash?.type, 'mash');
     assert.equal(deepMash?.children('taste')?.length, 7);
