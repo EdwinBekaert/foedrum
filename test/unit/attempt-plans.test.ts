@@ -166,10 +166,14 @@ describe('createAttemptPlans: plan', () => {
     assert.ok(choosing.valid, choosing.valid ? '' : choosing.problems.join('\n'));
     const { plans } = setup(undefined, {}, undefined, choosing.brewers);
     const { prompt } = await plans.plan(start);
-    // In the order the loader read them, each with its own description.
-    assert.match(
+    // In the order the loader read them, each with its own description and guidance (ADR 0375).
+    const guidance =
+      '  Choose when: An order a test brews\n  Not when: An order no test brews\n  Best used: In a test\n';
+    assert.ok(
+      prompt.includes(
+        `name="recipes">\n- stout (brew): The stout.\n${guidance}- ale (brew): The ale.\n${guidance}\n</`,
+      ),
       prompt,
-      /name="recipes">\n- stout \(brew\): The stout\.\n- ale \(brew\): The ale\.\n\n<\//,
     );
     const { schema } = plans.limits(ref).outDoc;
     const asking = (options: string[]) => ({
