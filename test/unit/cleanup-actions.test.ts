@@ -10,6 +10,7 @@ import type { ArchiveFacts } from '../../src/engine/archive.ts';
 import { actionsByKind, cleanupActions } from '../../src/engine/cleanup-actions.ts';
 import { type CommandLog, createCommandLog } from '../../src/engine/command-log.ts';
 import { type Driver, type DriverActions, openDriver } from '../../src/engine/driver.ts';
+import { effectKey } from '../../src/engine/effect-key.ts';
 import type { EventStore } from '../../src/engine/event-store.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import { TEMP_AGE_MS } from '../../src/engine/temp-sweep.ts';
@@ -145,5 +146,63 @@ describe('cleanupActions (ADR 0380)', () => {
 
     assert.deepStrictEqual([...new Set(asked)], ['archive', 'sweep']);
     assert.equal(log.state().batches.get('9-1')?.lane.kind, 'on_tap');
+  });
+
+  it("applies each effect with the actions whose due gave it, a pull request's never asked: regression test", async () => {
+    order('1-1', 'pint');
+    issue({ kind: 'cancel', batchId: '1-1', ...who });
+    order('9-1', 'cleanup');
+    scratch('old.txt', TEMP_AGE_MS + 60_000);
+    const refusing: DriverActions = {
+      due: () => assert.fail('no pull request step runs'),
+      target: { find: () => assert.fail('found'), apply: () => assert.fail('applied') },
+      ending: () => assert.fail('ended'),
+    };
+    const tends = cleanupActions({ recipes, log, facts: noFacts, temp, clock: () => at });
+    const actions = actionsByKind(recipes, {
+      openPullRequest: refusing,
+      archive: tends,
+      sweep: tends,
+    });
+
+    await run(await open(actions));
+
+    assert.deepStrictEqual([...log.state().archived.keys()], ['1-1']);
+    assert.equal(existsSync(join(temp, 'old.txt')), false);
+    assert.deepStrictEqual(log.state().batches.get('9-1')?.lane, {
+      kind: 'on_tap',
+      pullRequests: [],
+    });
+  });
+
+  it('records only the archives the store accepted: regression test', async () => {
+    order('1-1', 'pint');
+    issue({ kind: 'cancel', batchId: '1-1', ...who });
+    order('9-1', 'cleanup');
+    // A store that refuses every record, as when another driver archived the batch first.
+    const refusing: CommandLog = {
+      state: () => log.state(),
+      issue: () => ({ kind: 'refused', reason: 'batch 1-1 is archived' }),
+    };
+    const actions = cleanupActions({
+      recipes,
+      log: refusing,
+      facts: noFacts,
+      temp,
+      clock: () => at,
+    });
+    const key = { batchId: '9-1', stepId: 'archive', attempt: 1, effect: 'archive' };
+    const ref = { batchId: '9-1', stepId: 'archive', attempt: 1 };
+    assert.deepStrictEqual(actions.due(log.state(), ref), [key]);
+    assert.deepStrictEqual(await actions.target.apply(effectKey.encode(key)), {
+      archived: [],
+    });
+  });
+
+  it('fails an ending, retryably, whose ledger has no result of its action: regression test', () => {
+    order('9-1', 'cleanup');
+    const actions = cleanupActions({ recipes, log, facts: noFacts, temp, clock: () => at });
+    const ending = actions.ending(log.state(), { batchId: '9-1', stepId: 'sweep', attempt: 1 });
+    assert.equal(ending.kind === 'failed' && ending.retryable, true);
   });
 });
