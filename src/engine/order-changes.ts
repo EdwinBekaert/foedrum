@@ -128,6 +128,16 @@ export interface Approval {
 }
 
 /**
+ * Whether `approval` approved a change made at `at`: one before the second of a label or an order,
+ * or one up to and with what a continue showed; none when there is no approval. Every other change
+ * is one the order check asks about (ADR 0368).
+ */
+export const approves = (approval: Approval | undefined, at: string): boolean =>
+  approval !== undefined &&
+  !later(at, approval.at) &&
+  (approval.continued || later(approval.at, at));
+
+/**
  * The changes of `activity` since `approval`, or every one when it is undefined: each change of the
  * title, each edit of the body, and each comment made or changed, by anyone but Foedrum, whose
  * comments are its login's that end in an effect marker (ADR 0333). The first few by time, how
@@ -138,10 +148,7 @@ export const changesSince = (
   approval: Approval | undefined,
   login: string,
 ): OrderChanges | undefined => {
-  const after = ({ at }: { at: string }): boolean =>
-    approval === undefined ||
-    later(at, approval.at) ||
-    (!approval.continued && !later(approval.at, at));
+  const after = ({ at }: { at: string }): boolean => !approves(approval, at);
   const byOf = (by: string | undefined) => (by === undefined ? {} : { by });
   const foedrums = ({ by, body }: OrderActivity['comments'][number]): boolean =>
     by !== undefined && same(by, login) && isMarkedComment(body);
