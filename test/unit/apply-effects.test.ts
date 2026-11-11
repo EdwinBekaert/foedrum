@@ -109,7 +109,7 @@ describe('runApplyEffects (ADR 0355)', () => {
     assert.deepStrictEqual(lines, []);
     const labels = api.issue('acme/brewery', 12)?.labels ?? [];
     assert.ok(labels.includes('recipe:porter'), labels.join(', '));
-    assert.ok(labels.includes('foedrum:brewing'), labels.join(', '));
+    assert.ok(labels.includes('foedrum:running'), labels.join(', '));
     const bodies = (api.comments.get('acme/brewery#12') ?? []).map(({ body }) => body);
     assert.equal(bodies.length, 1, bodies.join('\n---\n'));
     assert.match(

@@ -6,6 +6,7 @@
 
 import { LaneLabelName, LaneLabelRevision, RetiredLaneLabel } from '../schemas/lane-label.ts';
 import type { BatchEffectKey } from '../schemas/store.ts';
+import type { BatchState } from './batch-state.ts';
 import type { IssueMarks } from './claim-effects.ts';
 import { breweryIssueOf, latestOf } from './claim-orders.ts';
 import type { DriverEffects } from './driver.ts';
@@ -25,6 +26,11 @@ export interface LaneLabelHost extends Pick<IssueMarks, 'labels' | 'addLabel' | 
   /** Makes the label in the repository; nothing when it is there already. */
   createLabel(repo: string, label: string, signal?: AbortSignal): Promise<void>;
 }
+
+/** The label of a batch in `state`: what a person sees on its issue (ADR 0379); none once done. */
+export const stateLabel = (_state: BatchState): LaneLabelName | undefined => {
+  throw new Error('not implemented');
+};
 
 /**
  * The label of `batch`'s lane: the person's action while it waits on them (ADR 0316). None for a

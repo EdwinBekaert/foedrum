@@ -110,7 +110,7 @@ describe('runServe', () => {
         f.lines.includes('foedrum serve: routed batch 12-1 to the recipe stout'),
         f.lines.join('\n'),
       );
-      assert.deepStrictEqual(seen[0], { result: { label: 'foedrum:ordered' } });
+      assert.deepStrictEqual(seen[0], { result: { label: 'foedrum:queued' } });
     });
 
     describe('a pass that waits for a tick (ADR 0316)', () => {

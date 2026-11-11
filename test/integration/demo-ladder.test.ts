@@ -228,12 +228,12 @@ describe('npm run demo -- ladder', () => {
         `demo: demo/brewery#${issue}'s labels and next step:\\n +labels: [^\\n]*${label}[^\\n]*\\n +Next: ${next}`,
       );
     const { stdout } = result;
-    assert.match(stdout, standing(1, 'foedrum:awaiting-approval', 'read the plan'));
+    assert.match(stdout, standing(1, 'foedrum:approve-plan', 'read the plan'));
     assert.match(
       stdout,
       standing(
         1,
-        'foedrum:sub-orders',
+        'foedrum:review-and-merge',
         'nothing to do; the sub-orders brew \\(#2, #3\\), and each pull request comes to you on tap\\.',
       ),
     );
@@ -241,7 +241,7 @@ describe('npm run demo -- ladder', () => {
       stdout,
       standing(
         2,
-        'foedrum:awaiting-merge',
+        'foedrum:review-and-merge',
         "wait for <https://github\\.com/demo/lib/pull/\\d+>'s merge brief: it comes once `foedrum serve` reads its checks passed on `[0-9a-f]{8}`\\.",
       ),
     );

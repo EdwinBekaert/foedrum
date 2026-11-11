@@ -1,20 +1,21 @@
-// The lane labels of a batch of a Brewery issue (#406, ADR 0154): one `foedrum:<lane>` label at a
+// The state labels of a batch of a Brewery issue (ADR 0154, ADR 0379): one `foedrum:<state>` label at a
 // time on its issue, set through the ledger by a driver as the status comment is (ADR 0072), with a
 // fake of the labels host. Nothing reaches GitHub (ADR 0021).
 
 import assert from 'node:assert/strict';
 import { afterEach, beforeEach, describe, it } from 'node:test';
+import { type BatchState, stateLine } from '../../src/engine/batch-state.ts';
 import { type CommandLog, createCommandLog } from '../../src/engine/command-log.ts';
 import type { Ending } from '../../src/engine/decide.ts';
 import { type Driver, type DriverNotice, openDriver } from '../../src/engine/driver.ts';
 import { effectKey } from '../../src/engine/effect-key.ts';
 import type { EventStore } from '../../src/engine/event-store.ts';
-import { type Batch, fold, type Lane } from '../../src/engine/fold.ts';
+import { fold } from '../../src/engine/fold.ts';
 import {
   type LaneLabelHost,
-  laneLabel,
   laneLabelEffects,
   laneLabels,
+  stateLabel,
 } from '../../src/engine/lane-labels.ts';
 import { pullRequestKey } from '../../src/engine/pull-request.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
@@ -64,130 +65,49 @@ const fakeLabels = () => {
   };
   return { host, calls, of };
 };
-
-/** Batch `7-1` in `lane`, with `fields`. */
-const batch = (lane: Lane, fields: Partial<Batch> = {}): Batch => ({
-  id: '7-1',
-  issue: 7,
-  lane,
-  steps: new Map(),
-  rewinds: [],
-  ...fields,
-});
-const stuck = (reason: Extract<Lane, { kind: 'stuck' }>['reason']): Lane => ({
-  kind: 'stuck',
-  reason,
-  options: ['retry', 'cancel'],
-  remindAt: at,
-});
-const approval = {
-  stepId: 'plan',
-  attempt: 1,
-  plan: '0123456789abcdef',
-  by: 'grace',
-  via: 'terminal',
-  at,
-} as const;
-
-describe('laneLabel', () => {
-  it('names one label for each lane, and none for a cancelled batch', () => {
-    const lanes: [Lane, string | undefined][] = [
-      [{ kind: 'ordered', routeBy: at }, 'foedrum:ordered'],
-      [{ kind: 'brewing' }, 'foedrum:brewing'],
+describe('stateLabel', () => {
+  it('names one label for each state a person reads, and none for a done batch', () => {
+    const cases: [BatchState, string | undefined][] = [
+      [{ kind: 'queued', by: { kind: 'recipe' } }, 'foedrum:queued'],
+      [{ kind: 'queued', by: { kind: 'pause' } }, 'foedrum:queued'],
+      [{ kind: 'running' }, 'foedrum:running'],
+      [{ kind: 'waiting', for: { kind: 'approve-plan' } }, 'foedrum:approve-plan'],
+      [{ kind: 'waiting', for: { kind: 'answer' } }, 'foedrum:answer'],
       [
-        { kind: 'conditioning', on: { kind: 'merge', pullRequest: pr }, remindAt: at },
-        'foedrum:conditioning',
+        { kind: 'waiting', for: { kind: 'review-and-merge', pullRequests: [pr] } },
+        'foedrum:review-and-merge',
       ],
-      [
-        {
-          kind: 'stuck',
-          reason: { kind: 'waiting_for_session', stepId: 'plan' },
-          options: ['retry'],
-          remindAt: at,
-        },
-        'foedrum:stuck',
-      ],
-      [{ kind: 'on_tap', pullRequests: [pr] }, 'foedrum:awaiting-merge'],
-      [{ kind: 'cancelled', by: 'alice', via: 'terminal' }, undefined],
+      [{ kind: 'waiting', for: { kind: 'open-session' } }, 'foedrum:open-session'],
+      [{ kind: 'waiting', for: { kind: 'choose-recipe' } }, 'foedrum:choose-recipe'],
+      [{ kind: 'waiting', for: { kind: 'look-at-failure' } }, 'foedrum:look-at-failure'],
+      [{ kind: 'done', how: 'merged' }, undefined],
+      [{ kind: 'done', how: 'cancelled' }, undefined],
     ];
-    for (const [lane, label] of lanes) assert.equal(laneLabel(batch(lane)), label, lane.kind);
+    for (const [state, label] of cases) assert.equal(stateLabel(state), label, stateLine(state));
     assert.deepEqual(
       [...laneLabels],
       [
-        'foedrum:ordered',
-        'foedrum:brewing',
-        'foedrum:conditioning',
-        'foedrum:awaiting-approval',
-        'foedrum:awaiting-answer',
-        'foedrum:stuck',
-        'foedrum:awaiting-merge',
-        'foedrum:sub-orders',
+        'foedrum:queued',
+        'foedrum:running',
+        'foedrum:approve-plan',
+        'foedrum:answer',
+        'foedrum:review-and-merge',
+        'foedrum:open-session',
+        'foedrum:choose-recipe',
+        'foedrum:look-at-failure',
       ],
     );
   });
 
-  it('a plan waiting for its review labels its issue foedrum:awaiting-approval', () => {
-    const review = stuck({ kind: 'plan_review', stepId: 'plan', attempt: 1 });
-    assert.equal(laneLabel(batch(review)), 'foedrum:awaiting-approval');
-  });
-
-  it('a question a brewer asked labels its issue foedrum:awaiting-answer', () => {
-    const question = {
-      q: 'Which flag?',
-      options: ['a', 'b'],
-      recommended: 'a',
-      whyBlocking: 'Both work.',
-    };
-    const asked = stuck({ kind: 'needs_input', stepId: 'plan', questions: [question] });
-    assert.equal(laneLabel(batch(asked)), 'foedrum:awaiting-answer');
-  });
-
-  it('a batch Stuck for another reason keeps foedrum:stuck', () => {
-    const reasons = [
-      { kind: 'waiting_for_session', stepId: 'plan' },
-      { kind: 'deadline_passed', stepId: 'plan', deadlineAt: at },
-      { kind: 'routing', deadlineAt: at },
-    ] as const;
-    for (const reason of reasons) {
-      assert.equal(laneLabel(batch(stuck(reason))), 'foedrum:stuck', reason.kind);
-    }
-  });
-
-  it('a batch on tap with an open pull request labels its issue foedrum:awaiting-merge', () => {
-    const other = 'https://github.com/alice/lib/pull/3';
-    const lane: Lane = { kind: 'on_tap', pullRequests: [pr, other] };
-    assert.equal(laneLabel(batch(lane)), 'foedrum:awaiting-merge');
-    // One of its two merged: the other still waits for the person.
-    const one = batch(lane, { pullRequestEnds: { [pr]: 'merged' } });
-    assert.equal(laneLabel(one), 'foedrum:awaiting-merge');
-  });
-
-  it('a batch on tap whose pull requests all ended has no lane label', () => {
-    const lane: Lane = { kind: 'on_tap', pullRequests: [pr] };
-    assert.equal(laneLabel(batch(lane, { pullRequestEnds: { [pr]: 'merged' } })), undefined);
-    assert.equal(laneLabel(batch(lane, { pullRequestEnds: { [pr]: 'closed' } })), undefined);
-  });
-
-  it('a split order on tap labels its issue foedrum:sub-orders', () => {
-    const approved = batch({ kind: 'on_tap', pullRequests: [] }, { approval });
-    assert.equal(laneLabel(approved), 'foedrum:sub-orders');
-  });
-
-  it('a batch on tap with no pull request and no approved plan has no lane label', () => {
-    assert.equal(laneLabel(batch({ kind: 'on_tap', pullRequests: [] })), undefined);
-  });
-
-  it('a split order whose sub-orders all merged has no lane label', () => {
-    const approved = batch({ kind: 'on_tap', pullRequests: [] }, { approval });
-    const other = 'https://github.com/alice/lib/pull/3';
-    const merged = [
-      { subOrder: 16, repo: 'alice/web', pullRequest: pr, state: 'merged' },
-      { subOrder: 15, repo: 'alice/lib', pullRequest: other, state: 'merged' },
-    ] as const;
-    assert.equal(laneLabel(approved, merged), undefined);
-    // One still open: the sub-orders brew on.
-    const open = [merged[0], { ...merged[1], state: 'open' }] as const;
-    assert.equal(laneLabel(approved, open), 'foedrum:sub-orders');
+  it("a split order's label is that of its sub-orders' most pressing state", () => {
+    assert.equal(
+      stateLabel({
+        kind: 'waiting',
+        for: { kind: 'review-and-merge', pullRequests: [pr] },
+        subOrder: 9,
+      }),
+      'foedrum:review-and-merge',
+    );
   });
 });
 
@@ -247,9 +167,9 @@ describe('laneLabelEffects', () => {
     order();
     const driver = await open();
     await driver.tick();
-    assert.deepEqual(labels.of(brewery, 7), ['foedrum:ordered']);
-    assert.ok(labels.calls.includes('create foedrum:ordered'));
-    assert.deepEqual(revision(1), { result: { label: 'foedrum:ordered' } });
+    assert.deepEqual(labels.of(brewery, 7), ['foedrum:queued']);
+    assert.ok(labels.calls.includes('create foedrum:queued'));
+    assert.deepEqual(revision(1), { result: { label: 'foedrum:queued' } });
     assert.deepEqual(notices, []);
   });
 
@@ -260,11 +180,11 @@ describe('laneLabelEffects', () => {
     await driver.tick();
     brew();
     await driver.tick();
-    assert.deepEqual(labels.of(brewery, 7), ['recipe:nip', 'foedrum:brewing']);
-    assert.deepEqual(revision(2), { result: { label: 'foedrum:brewing' } });
+    assert.deepEqual(labels.of(brewery, 7), ['recipe:nip', 'foedrum:running']);
+    assert.deepEqual(revision(2), { result: { label: 'foedrum:running' } });
     finish();
     await driver.tick();
-    assert.deepEqual(labels.of(brewery, 7), ['recipe:nip', 'foedrum:awaiting-merge']);
+    assert.deepEqual(labels.of(brewery, 7), ['recipe:nip', 'foedrum:review-and-merge']);
     assert.deepEqual(driver.held(), [], 'the batch is let go once its label shows it on tap');
   });
 
@@ -290,10 +210,10 @@ describe('laneLabelEffects', () => {
 
   it('finds a label a run before set and was killed before it recorded, and sets nothing again', async () => {
     order();
-    labels.of(brewery, 7).push('foedrum:ordered');
+    labels.of(brewery, 7).push('foedrum:queued');
     const driver = await open();
     await driver.tick();
-    assert.deepEqual(revision(1), { result: { label: 'foedrum:ordered' } });
+    assert.deepEqual(revision(1), { result: { label: 'foedrum:queued' } });
     // Found by its one read: apply, which reads again, never ran.
     assert.deepEqual(labels.calls, ['labels']);
   });
@@ -303,16 +223,16 @@ describe('laneLabelEffects', () => {
     const driver = await open();
     await driver.tick();
     // The killed run added brewing and never took ordered off, nor recorded the revision.
-    labels.of(brewery, 7).push('foedrum:brewing');
+    labels.of(brewery, 7).push('foedrum:running');
     brew();
     labels.calls.length = 0;
     await driver.tick();
-    assert.deepEqual(labels.of(brewery, 7), ['foedrum:brewing']);
+    assert.deepEqual(labels.of(brewery, 7), ['foedrum:running']);
     assert.deepEqual(
       labels.calls.filter((call) => call !== 'labels'),
-      ['remove foedrum:ordered'],
+      ['remove foedrum:queued'],
     );
-    assert.deepEqual(revision(2), { result: { label: 'foedrum:brewing' } });
+    assert.deepEqual(revision(2), { result: { label: 'foedrum:running' } });
   });
 
   it('reads lane labels without case, as GitHub does', async () => {
@@ -320,14 +240,14 @@ describe('laneLabelEffects', () => {
     labels.of(brewery, 7).push('Foedrum:Ordered');
     const driver = await open();
     await driver.tick();
-    assert.deepEqual(revision(1), { result: { label: 'foedrum:ordered' } });
+    assert.deepEqual(revision(1), { result: { label: 'foedrum:queued' } });
     assert.deepEqual(
       labels.calls.filter((call) => call !== 'labels'),
       [],
     );
     brew();
     await driver.tick();
-    assert.deepEqual(labels.of(brewery, 7), ['foedrum:brewing']);
+    assert.deepEqual(labels.of(brewery, 7), ['foedrum:running']);
   });
 
   it('labels an issue by its latest batch only, never by one it was ordered as before', async () => {
@@ -369,9 +289,9 @@ describe('laneLabelEffects', () => {
       }),
     );
     await driver.tick();
-    assert.deepEqual(labels.of(brewery, 7), ['foedrum:stuck']);
+    assert.deepEqual(labels.of(brewery, 7), ['foedrum:look-at-failure']);
     assert.ok(labels.calls.includes('remove foedrum:on-tap'));
-    assert.deepEqual(revision(2), { result: { label: 'foedrum:stuck' } });
+    assert.deepEqual(revision(2), { result: { label: 'foedrum:look-at-failure' } });
   });
 
   describe('a claimed target issue (ADR 0144)', () => {
@@ -392,17 +312,17 @@ describe('laneLabelEffects', () => {
       assert.deepEqual(labels.calls, [], 'no Brewery issue yet');
       opened('web-3');
       await driver.tick();
-      assert.deepEqual(labels.of(brewery, 20), ['foedrum:ordered']);
+      assert.deepEqual(labels.of(brewery, 20), ['foedrum:queued']);
       issue({ kind: 'route', batchId: 'web-3', recipe: 'nip', reason: 'label', source: 'label' });
       issue({
         kind: 'record',
         event: { type: 'step.started', batchId: 'web-3', stepId: 'plan', attempt: 1 },
       });
       await driver.tick();
-      assert.deepEqual(labels.of(brewery, 20), ['foedrum:brewing']);
+      assert.deepEqual(labels.of(brewery, 20), ['foedrum:running']);
       issue({ kind: 'finish', batchId: 'web-3', stepId: 'plan', attempt: 1, ending: succeeded });
       await driver.tick();
-      assert.deepEqual(labels.of(brewery, 20), ['foedrum:awaiting-merge']);
+      assert.deepEqual(labels.of(brewery, 20), ['foedrum:review-and-merge']);
       untouched();
       assert.deepEqual(notices, []);
     });
@@ -412,7 +332,7 @@ describe('laneLabelEffects', () => {
       opened('web-3');
       const driver = await open();
       await driver.tick();
-      assert.deepEqual(labels.of(brewery, 20), ['foedrum:ordered']);
+      assert.deepEqual(labels.of(brewery, 20), ['foedrum:queued']);
       issue({ kind: 'cancel', batchId: 'web-3', by: 'alice', via: 'terminal' });
       // Ordered again: web-3's release is the claim effects', which this driver does not apply.
       store.withTransaction((tx) =>
@@ -427,9 +347,9 @@ describe('laneLabelEffects', () => {
       // web-3's revision that would take the label off is never due: web-3-2 brews there now.
       assert.equal(store.findEffect({ batchId: 'web-3', effect: 'label.2' }), undefined);
       assert.deepEqual(store.findEffect({ batchId: 'web-3-2', effect: 'label.1' }), {
-        result: { label: 'foedrum:ordered' },
+        result: { label: 'foedrum:queued' },
       });
-      assert.deepEqual(labels.of(brewery, 20), ['foedrum:ordered']);
+      assert.deepEqual(labels.of(brewery, 20), ['foedrum:queued']);
       untouched();
     });
   });
@@ -527,11 +447,27 @@ describe('the lane label of a split order, through its effects (ADR 0293, ADR 03
     return key === undefined ? undefined : effects.target.apply(effectKey.encode(key));
   };
 
-  it('takes foedrum:sub-orders off once every sub-order merged: regression test', async () => {
+  it('takes the label off once every sub-order merged: regression test', async () => {
     assert.deepEqual(await next([...split, ...merged(2, lib), ...merged(3, web)]), { label: null });
   });
 
-  it('keeps foedrum:sub-orders while a sub-order has not merged: regression test', async () => {
-    assert.equal(await next([...split, ...merged(2, lib)]), undefined);
+  it('labels the order foedrum:queued while a sub-order waits for those it depends on', async () => {
+    assert.deepEqual(await next([...split, ...merged(2, lib)]), { label: 'foedrum:queued' });
+  });
+
+  it("labels the order with a brewing sub-order's state", async () => {
+    const brewing: Event[] = [
+      { type: 'batch.ordered', batchId: '3-1', order: { issue: 3 }, parentBatchId: '1-1', routeBy },
+      {
+        type: 'batch.recipe_chosen',
+        batchId: '3-1',
+        recipe: 'tdd',
+        reason: 'label',
+        source: 'label',
+      },
+    ];
+    assert.deepEqual(await next([...split, ...merged(2, lib), ...brewing]), {
+      label: 'foedrum:running',
+    });
   });
 });
