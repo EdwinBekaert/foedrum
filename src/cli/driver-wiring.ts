@@ -18,6 +18,7 @@ import type { BrewerRunner, RunningAttempt } from '../engine/brewer-runner.ts';
 import { breweryCloseEffects } from '../engine/brewery-closes.ts';
 import { claimEffects } from '../engine/claim-effects.ts';
 import { breweryIssueOf } from '../engine/claim-orders.ts';
+import { actionsByKind, cleanupActions, storeFacts } from '../engine/cleanup-actions.ts';
 import { createCommandLog } from '../engine/command-log.ts';
 import {
   type Doing,
@@ -297,12 +298,27 @@ export const wireDriver = async (
       : []),
   );
   // The login was read at the start, for the status comments (ADR 0072).
-  const actions = pullRequestActions({
+  const opens = pullRequestActions({
     brewery: setup.brewery,
     repositories: pushes,
     host: pullRequests,
     orderTitle: githubOrderTitle(reads, setup.brewery),
     visibility: visibilities.of,
+  });
+  // The Cellarer's jobs; its shelve takes no batch with an effect of these sources due (ADR 0380).
+  const tends = cleanupActions({
+    recipes: setup.recipes,
+    log: createCommandLog({ store, recipes: setup.recipes }),
+    store,
+    facts: storeFacts(effects, store, clock),
+    temp: setup.temp,
+    clock,
+  });
+  const actions = actionsByKind(setup.recipes, {
+    openPullRequest: opens,
+    shelve: tends,
+    sweep: tends,
+    expire: tends,
   });
   const tools = new Map(setup.repositories.map(({ repo, tools }) => [repo.toLowerCase(), tools]));
   let driver: Driver | undefined;

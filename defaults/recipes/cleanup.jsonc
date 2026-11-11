@@ -1,0 +1,18 @@
+// Cleanup, which tends the Brewery and builds nothing (ADR 0380). Every step is a job of the
+// Cellarer, engine code and never a model: it shelves every finished batch, which the engine then
+// forgets and whose folder moves from batches/ to archive/<month>/ on the state branch, sweeps from
+// the Brewery's .foedrum/tmp/ what nothing changed in for 2 days, and expires the shelf's months
+// older than 6 months. It leaves alone a batch at work, Stuck, or with an effect due, and the engine
+// closes its issue once it is on tap. Of type tend, it is offered to no step: a Brewery issue
+// labelled recipe:cleanup starts it.
+{
+  "$schema": "../../schemas/recipe.json",
+  "name": "cleanup",
+  "type": "tend",
+  "description": "Shelve finished batches, sweep old temporary files, expire old shelves",
+  "steps": [
+    { "id": "shelve", "cellarer": "shelve" },
+    { "id": "sweep", "cellarer": "sweep" },
+    { "id": "expire", "cellarer": "expire" }
+  ]
+}

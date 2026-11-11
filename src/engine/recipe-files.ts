@@ -317,6 +317,7 @@ function readAll<T extends { name: string }>(
 type BrewerStep = Extract<Step, { brewer: string }>;
 type CheckStep = Extract<Step, { check: unknown }>;
 type ActionStep = Extract<Step, { action: string }>;
+type CellarerStep = Extract<Step, { cellarer: string }>;
 /** A route back: where to, and how often (ADR 0064). */
 type Route = NonNullable<Extract<Step, { parallel: unknown }>['onFindings']>;
 
@@ -445,13 +446,13 @@ function holds(when: string, settings: Settings): boolean {
 }
 
 /**
- * The step, when the engine runs it (a brewer, a check or the openPullRequest action), else why it
- * does not yet, naming the ADR that says so.
+ * The step, when the engine runs it (a brewer, a check, the openPullRequest action or a job of the
+ * Cellarer), else why it does not yet, naming the ADR that says so.
  */
-function runnableStep(step: Step): BrewerStep | CheckStep | ActionStep | string {
+function runnableStep(step: Step): BrewerStep | CheckStep | ActionStep | CellarerStep | string {
   const id = stepId(step);
   const opens = 'action' in step && step.action === 'openPullRequest';
-  if (!('brewer' in step) && !('check' in step) && !opens) {
+  if (!('brewer' in step) && !('check' in step) && !('cellarer' in step) && !opens) {
     return `step "${id}" is a ${stepKind(step)} step, which the engine does not brew yet (ADR 0053)`;
   }
   const when = step.when === undefined ? undefined : unfollowedWhen(id, step.when);
@@ -801,6 +802,24 @@ function actionLine(step: ActionStep, last: boolean): StepLoad {
   return { line };
 }
 
+/**
+ * A job of the Cellarer's line (ADR 0380): engine code the driver runs as an action, anywhere in a
+ * recipe, with the action's deadline and attempts.
+ */
+function cellarerLine(step: CellarerStep): StepLoad {
+  const line: LineStep = {
+    id: step.id,
+    when: step.when,
+    deadline: ACTION_DEADLINE,
+    stall: undefined,
+    round: deliveryRound,
+    mayRetry: (attempts) => deliveryRound(attempts).length < ACTION_ATTEMPTS,
+    route: undefined,
+    action: step.cellarer,
+  };
+  return { line };
+}
+
 /** A check step's line and checks (ADR 0069). */
 function checkLine(step: CheckStep): StepLoad {
   const id = stepId(step);
@@ -978,6 +997,7 @@ function loadStep({ step, group, groupRoute }: ListedStep, last: boolean, shelf:
   const runnable = runnableStep(step);
   if (typeof runnable === 'string') return [runnable];
   if ('action' in runnable) return actionLine(runnable, last);
+  if ('cellarer' in runnable) return cellarerLine(runnable);
   if ('check' in runnable) return checkLine(runnable);
   return brewerLine(runnable, group, groupRoute, shelf);
 }
@@ -1346,7 +1366,9 @@ export function loadRecipes(breweryFiles: BreweryFiles): LoadedRecipes {
   // judges those by (ADR 0234, ADR 0321, ADR 0365).
   const choices: RecipeChoice[] = [];
   for (const { path, guidance, ...choice } of offered.values()) {
-    if (choosingSteps.has(choice.name)) continue;
+    // A tend recipe is offered to none, so it needs no guidance: only its label starts it
+    // (ADR 0380).
+    if (choosingSteps.has(choice.name) || choice.type === 'tend') continue;
     // Every recipe offered says when to choose it: a model choosing it reads that (ADR 0375).
     if (guidance === undefined) problems.push(`${path}: ${unguidedLine(choice.name)}`);
     else choices.push({ ...choice, guidance });

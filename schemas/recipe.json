@@ -14,9 +14,10 @@
       "type": "string",
       "enum": [
         "mash",
-        "brew"
+        "brew",
+        "tend"
       ],
-      "description": "mash: chooses a recipe or makes a plan, and builds nothing; brew: builds. A sub-order runs a brew recipe (ADR 0365)"
+      "description": "mash: chooses a recipe or makes a plan, and builds nothing; brew: builds; tend: keeps the Brewery and is offered to no step, so only its label starts it (ADR 0380). A sub-order runs a brew recipe (ADR 0365)"
     },
     "description": {
       "type": "string",
@@ -821,6 +822,34 @@
               "type": "string",
               "pattern": "^(?!(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\\.|$))[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$"
             },
+            "cellarer": {
+              "type": "string",
+              "enum": [
+                "shelve",
+                "sweep",
+                "expire"
+              ],
+              "description": "The Cellarer's job, which the engine runs itself (ADR 0380)"
+            },
+            "when": {
+              "description": "Run the step only when this expression is true",
+              "type": "string",
+              "pattern": "^([a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?)\\.([A-Za-z][A-Za-z0-9]*)(?:\\s*(==|!=)\\s*'([^'\\r\\n]*)')?$"
+            }
+          },
+          "required": [
+            "id",
+            "cellarer"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "pattern": "^(?!(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\\.|$))[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$"
+            },
             "fanOut": {
               "type": "object",
               "properties": {
@@ -859,7 +888,7 @@
           "additionalProperties": false
         }
       ],
-      "description": "Exactly one of brewer, check, parallel, loop, gate, action or fanOut"
+      "description": "Exactly one of brewer, check, parallel, loop, gate, action, cellarer or fanOut"
     }
   }
 }

@@ -60,6 +60,11 @@ const dueClose = (state: State, batch: Batch): DueClose | undefined => {
     const names = namesOf(end.pullRequests).join(', ');
     return { issue, body: `Every sub-order merged: ${names}. Foedrum closes this order.` };
   }
+  // A tend recipe's batch builds nothing: its work is done once it is on tap (ADR 0380).
+  if (batch.recipe?.type === 'tend') {
+    if (batch.lane.kind !== 'on_tap' || batch.lane.pullRequests.length > 0) return undefined;
+    return { issue, body: 'The cleanup is done; Foedrum closes this issue.' };
+  }
   const merged = mergedWork(batch);
   if (merged.length === 0) return undefined;
   return { issue, body: `Merged as ${namesOf(merged).join(', ')}; Foedrum closes this issue.` };

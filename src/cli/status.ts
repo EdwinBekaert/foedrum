@@ -92,6 +92,10 @@ const underWay = (batch: Batch): string[] =>
   [...batch.steps.values()].flatMap((step) => {
     const attempt = runningAttempt(step);
     if (attempt === undefined) return [];
+    // A tend recipe's steps are the Cellarer's jobs, engine code (ADR 0380).
+    if ((attempt.recipeType ?? batch.recipe?.type) === 'tend') {
+      return [`the Cellarer at ${step.id} #${attempt.attempt}`];
+    }
     return [`${step.id} #${attempt.attempt} ${attempt.phase}`];
   });
 

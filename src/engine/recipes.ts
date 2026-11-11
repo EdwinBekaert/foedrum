@@ -12,7 +12,10 @@ export type RouteWhy = ScheduleRoute['why'];
 /** A person's choice that schedules a step of its own (ADR 0286). */
 export type ChosenOption = ChosenBy;
 
-/** An action step the engine runs itself, never a brewer (brewers-and-recipes §1, ADR 0071). */
+/**
+ * An action step the engine runs itself, never a brewer (brewers-and-recipes §1, ADR 0071): the
+ * openPullRequest action, or a job of the Cellarer (ADR 0380).
+ */
 export type RecipeAction = 'openPullRequest' | CellarerJob;
 
 /** What follows a step that succeeded or was skipped. */

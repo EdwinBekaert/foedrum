@@ -4,6 +4,7 @@
 
 import { passed, settleReadings, shortCommand, testsFailing } from '../checks/gravity.ts';
 import type { IsCommit } from '../formats/secrets.ts';
+import { CellarerOutput } from '../schemas/cellarer.ts';
 import type {
   CoverageListing,
   GravityReading,
@@ -827,6 +828,28 @@ const outDocLabelled = (
   );
 };
 
+/** `n` of `one`, in the plural when it is not 1, and `none` for 0. */
+const counted = (n: number, one: string, many: string, none: string): string =>
+  n === 0 ? none : `${n} ${n === 1 ? one : many}`;
+
+/** What a job of the Cellarer did, as its step's line says it (ADR 0380). */
+const cellarerText = (job: CellarerOutput): string => {
+  switch (job.cellarer) {
+    case 'shelve':
+      return `the Cellarer shelved ${counted(job.batches.length, 'finished batch', 'finished batches', 'no finished batches')}`;
+    case 'sweep': {
+      const swept = `the Cellarer swept ${counted(job.removed.length, 'old entry', 'old entries', 'no old entries')} of .foedrum/tmp/`;
+      return job.failed.length === 0
+        ? swept
+        : `${swept}, and could not remove ${job.failed.length}`;
+    }
+    case 'expire':
+      return `the Cellarer expired the shelf's months before ${job.before}`;
+    default:
+      return job satisfies never;
+  }
+};
+
 const stepLine = (batch: Batch, stepId: string, told: Told, stateBranchUrl?: string): string => {
   const id = code(stepId);
   if (batch.skipped?.has(stepId) === true) {
@@ -855,6 +878,9 @@ const stepLine = (batch: Batch, stepId: string, told: Told, stateBranchUrl?: str
     // The out doc the step's line sums up, linked (ADR 0275): a check step and an action, as
     // openPullRequest, write none, and every out doc has its assumptions.
     case 'succeeded': {
+      // A job of the Cellarer says what it did (ADR 0380).
+      const job = CellarerOutput.safeParse(outcome.output);
+      if (job.success) return `- ✅ ${id}: ${cellarerText(job.data)}`;
       // A Taster's approval its group did not run again after a round back (ADR 0357).
       const round = keptRound(batch, stepId);
       const ran = round === undefined ? id : `${id}, from round ${round}`;

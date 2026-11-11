@@ -274,7 +274,7 @@ export function stepKind(step: Step): StepKind {
   if ('loop' in step) return 'loop';
   if ('gate' in step) return 'gate';
   if ('action' in step) return 'action';
-  if ('cellarer' in step) throw new Error('not implemented');
+  if ('cellarer' in step) return 'cellarer';
   if ('fanOut' in step) return 'fanOut';
   const unknown: never = step;
   throw new Error(`Unknown step kind: ${JSON.stringify(unknown)}`);
@@ -366,7 +366,8 @@ function misplaced(kind: Reference['kind'], from: Place, to: Place): string | un
 
 /**
  * What kind of work a recipe does (ADR 0365): `mash` chooses a recipe or makes a plan and builds
- * nothing, `brew` builds. A type arrives with the first recipe that uses it.
+ * nothing, `brew` builds, `tend` keeps the Brewery and is offered to no step, so only its label
+ * starts it (ADR 0380). A type arrives with the first recipe that uses it.
  */
 export const RecipeType = z.enum(['mash', 'brew', 'tend']);
 export type RecipeType = z.infer<typeof RecipeType>;
@@ -400,10 +401,10 @@ const RecipeFields = z.strictObject({
       error: (issue) =>
         issue.input === undefined
           ? 'a recipe needs a "type": add "type": "mash" when it chooses a recipe or makes a plan and builds nothing, or "type": "brew" when it builds (ADR 0365)'
-          : 'Must be "mash", for a recipe that chooses a recipe or makes a plan and builds nothing, or "brew", for one that builds (ADR 0365)',
+          : 'Must be "mash", for a recipe that chooses a recipe or makes a plan and builds nothing, "tend", for one that keeps the Brewery and is offered to no step (ADR 0380), or "brew", for one that builds (ADR 0365)',
     })
     .describe(
-      'mash: chooses a recipe or makes a plan, and builds nothing; brew: builds. A sub-order runs a brew recipe (ADR 0365)',
+      'mash: chooses a recipe or makes a plan, and builds nothing; brew: builds; tend: keeps the Brewery and is offered to no step, so only its label starts it (ADR 0380). A sub-order runs a brew recipe (ADR 0365)',
     ),
   description: NonEmpty,
   guidance: RecipeGuidance.optional(),
