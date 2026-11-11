@@ -12,7 +12,7 @@ import { breweryIssueOf, latestOf } from './claim-orders.ts';
 import type { DriverEffects } from './driver.ts';
 import { effectKey } from './effect-key.ts';
 import type { EffectTarget } from './effects.ts';
-import type { Batch, State } from './fold.ts';
+import { type Batch, ISSUE_CLOSE_EFFECT, type State } from './fold.ts';
 import { orderEnd, subOrderRows } from './order-end.ts';
 
 export interface BreweryClosesOptions {
@@ -22,7 +22,7 @@ export interface BreweryClosesOptions {
 }
 
 /** The effects of a close, by the name its key carries: the comment first, then the close. */
-const closeEffects = { comment: 'close.comment', issue: 'close.issue' } as const;
+const closeEffects = { comment: 'close.comment', issue: ISSUE_CLOSE_EFFECT } as const;
 
 /** A close that is due: the Brewery issue, and the comment that names what merged. */
 interface DueClose {

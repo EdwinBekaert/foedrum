@@ -74,8 +74,9 @@ export const batchOf = (event: Event): string | undefined => {
     case 'step.rescheduled':
     case 'order.approved':
       return event.batchId;
+    // Its batch's own log moves to archive/ with it (ADR 0380).
     case 'batch.archived':
-      throw new Error('not implemented');
+      return undefined;
     default: {
       const unhandled: never = event;
       throw new Error(`Unhandled event ${JSON.stringify(unhandled)}`);

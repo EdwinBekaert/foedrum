@@ -11,12 +11,16 @@ const checkIssue = (issue: number): void => {
   }
 };
 
+/** Whether a batch has `id`, in the fold or in the archive, which no later batch reuses (ADR 0380). */
+const taken = (state: State, id: string): boolean =>
+  state.batches.has(id) || state.archived.has(id);
+
 /** The id of the next batch of `issue`: `<issue>-<n>`, with the first `n` no batch uses yet. */
 export const nextBatchId = (state: State, issue: number): string => {
   checkIssue(issue);
   for (let n = 1; ; n++) {
     const id = `${issue}-${n}`;
-    if (!state.batches.has(id)) return id;
+    if (!taken(state, id)) return id;
   }
 };
 
@@ -32,10 +36,10 @@ export const targetBatchId = (state: State, alias: string, issue: number): strin
   }
   checkIssue(issue);
   const first = `${alias}-${issue}`;
-  if (!state.batches.has(first)) return first;
+  if (!taken(state, first)) return first;
   for (let n = 2; ; n++) {
     const id = `${first}-${n}`;
-    if (!state.batches.has(id)) return id;
+    if (!taken(state, id)) return id;
   }
 };
 

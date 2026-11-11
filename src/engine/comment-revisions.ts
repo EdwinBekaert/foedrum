@@ -36,8 +36,8 @@ export interface DueRevision {
   issue: number;
   text: string;
   digest: string;
-  /** The revision the comment shows now; absent before its first. */
-  previous?: StatusRevision;
+  /** The comment its latest revision made or edited; absent before its first. */
+  previous?: Pick<StatusRevision, 'comment'>;
   /** A status comment's: whether it was rendered while its batch had not ended (ADR 0345). */
   open?: boolean;
 }

@@ -5,6 +5,7 @@ import { Event, type StuckReason } from '../schemas/events.ts';
 import { z } from '../schemas/zod.ts';
 import {
   type Batch,
+  batchEnded,
   fold,
   InvalidLogError,
   type Lane,
@@ -199,8 +200,17 @@ function rule(state: State, event: Event): string | undefined {
     // A continue answers the question of a batch whose issue changed (ADR 0368).
     case 'order.approved':
       return lanes(state, event, ['stuck']);
-    case 'batch.archived':
-      throw new Error('not implemented');
+    // Only a batch that ended (ADR 0380); the fold refuses one archived already.
+    case 'batch.archived': {
+      const batch = state.batches.get(event.batchId);
+      if (batch === undefined) {
+        return state.archived.has(event.batchId)
+          ? `batch ${event.batchId} is archived`
+          : `batch ${event.batchId} was never ordered`;
+      }
+      if (batchEnded(batch)) return undefined;
+      return `batch ${event.batchId} has not ended, so it is not archived`;
+    }
     default: {
       const unhandled: never = event;
       throw new Error(`Unhandled event ${JSON.stringify(unhandled)}`);

@@ -2,8 +2,10 @@
 // state branch, and the event that records each, which keeps what later batches of its issue still
 // read. Pure: everything is read from the folded state and the facts the driver gives.
 
-import type { Event } from '../schemas/events.ts';
-import type { Batch, State } from './fold.ts';
+import type { ArchivedEnd, Event } from '../schemas/events.ts';
+import { breweryIssueLeftBy } from './claim-orders.ts';
+import { type Batch, batchEnded, type State } from './fold.ts';
+import { shownPlanComment } from './plan-comment.ts';
 
 /** What the cleanup reads beside the fold: work that the events alone do not show. */
 export interface ArchiveFacts {
@@ -15,16 +17,59 @@ export interface ArchiveFacts {
 
 export type Archived = Extract<Event, { type: 'batch.archived' }>;
 
+/** The batch at the top of `batch`'s family: the order it was split from, or itself. */
+const rootOf = (state: State, batch: Batch): string => {
+  let id = batch.id;
+  for (let parent = batch.parentBatchId; parent !== undefined; ) {
+    id = parent;
+    parent = state.batches.get(parent)?.parentBatchId;
+  }
+  return id;
+};
+
 /**
  * The batches a cleanup archives now, in the order they were ordered: each ended, with no effect
  * due, no mark and no lease, and every batch of its family (the order it was split from and its
- * sub-orders) too.
+ * sub-orders) too, since a live sub-order reads its order and its siblings.
  */
-export const archivable = (_state: State, _facts: ArchiveFacts): Batch[] => {
-  throw new Error('not implemented');
+export const archivable = (state: State, facts: ArchiveFacts): Batch[] => {
+  const finished = (batch: Batch): boolean =>
+    batchEnded(batch) &&
+    batch.failing === undefined &&
+    !facts.leased.has(batch.id) &&
+    !facts.due(batch.id);
+  const families = new Map<string, Batch[]>();
+  for (const batch of state.batches.values()) {
+    const root = rootOf(state, batch);
+    families.set(root, [...(families.get(root) ?? []), batch]);
+  }
+  const kept = new Set<string>();
+  for (const family of families.values()) {
+    if (family.every(finished)) for (const { id } of family) kept.add(id);
+  }
+  return [...state.batches.values()].filter(({ id }) => kept.has(id));
+};
+
+/** How `batch`, which ended, ended. */
+const endOf = ({ lane, pullRequestEnds }: Batch): ArchivedEnd => {
+  if (lane.kind === 'cancelled') return 'cancelled';
+  if (lane.kind !== 'on_tap') throw new Error(`a batch ${lane.kind} has not ended`);
+  if (lane.pullRequests.length === 0) return 'issue_closed';
+  return lane.pullRequests.every((url) => pullRequestEnds?.[url] === 'merged')
+    ? 'merged'
+    : 'closed';
 };
 
 /** The event that archives `batch`, with what later batches of its issue read of it. */
-export const archivedOf = (_state: State, _batch: Batch): Archived => {
-  throw new Error('not implemented');
+export const archivedOf = (state: State, batch: Batch): Archived => {
+  const breweryIssue = breweryIssueLeftBy(state, batch);
+  const planComment = shownPlanComment(state, batch);
+  return {
+    type: 'batch.archived',
+    batchId: batch.id,
+    order: { issue: batch.issue, ...(batch.repo === undefined ? {} : { repo: batch.repo }) },
+    ...(breweryIssue === undefined ? {} : { breweryIssue }),
+    ...(planComment === undefined ? {} : { planComment }),
+    ended: endOf(batch),
+  };
 };

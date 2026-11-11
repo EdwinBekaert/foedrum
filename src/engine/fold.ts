@@ -201,16 +201,21 @@ export const onFindings = (outcome: StepOutcome): boolean =>
   !outcome.retryable &&
   outcome.reason.startsWith(blockedBy('findings'));
 
+/** The effect that closes a batch's Brewery issue, by the name its key carries (ADR 0296). */
+export const ISSUE_CLOSE_EFFECT = 'close.issue';
+
 /**
- * Whether `batch` is done (ADR 0345): cancelled, or on tap with pull requests that all ended. A split
- * order on tap has none, and its rows change as its sub-orders merge. Nothing moves a batch out of
- * this: `admit` refuses a check, a send back or a stop of an ended pull request.
+ * Whether `batch` is done (ADR 0345, ADR 0380): cancelled, or on tap with pull requests that all
+ * ended, or with none once the engine closed its issue, as it closes a split order's when its
+ * sub-orders merged. Nothing moves a batch out of this but a reopen: `admit` refuses a check, a send
+ * back or a stop of an ended pull request.
  */
 export const batchEnded = (batch: Batch): boolean =>
   batch.lane.kind === 'cancelled' ||
   (batch.lane.kind === 'on_tap' &&
-    batch.lane.pullRequests.length > 0 &&
-    unendedPullRequests(batch).length === 0);
+    (batch.lane.pullRequests.length === 0
+      ? batch.issueClosed === true
+      : unendedPullRequests(batch).length === 0));
 
 /** The pull requests of an on-tap batch with no recorded end: those a merge may have ended. */
 export const unendedPullRequests = ({ lane, pullRequestEnds }: Batch): readonly string[] =>
@@ -359,6 +364,8 @@ export interface Batch {
   skips?: ReadonlyMap<string, number | undefined>;
   /** Its status comment showed it ended, and a text that differs later is no reason to edit it (ADR 0345). */
   endShown?: true;
+  /** The engine closed its Brewery issue (ADR 0296, ADR 0380); absent while it has not. */
+  issueClosed?: true;
   rewinds: readonly Rewind[];
   /** Its latest handover from one driver to another (ADR 0124); absent while it had none. */
   takeover?: Takeover;
@@ -695,7 +702,9 @@ function apply(state: State, event: Event): State {
   switch (event.type) {
     case 'batch.ordered': {
       const { batchId, order, parentBatchId, plan, routeBy, at, by } = event;
-      if (state.batches.has(batchId)) throw reject(`batch ${batchId} was already ordered`);
+      if (state.batches.has(batchId) || state.archived.has(batchId)) {
+        throw reject(`batch ${batchId} was already ordered`);
+      }
       if (parentBatchId !== undefined) batchOf(state, parentBatchId);
       const { repo } = order;
       if (repo !== undefined && parentBatchId !== undefined) {
@@ -1219,15 +1228,30 @@ function apply(state: State, event: Event): State {
       if (state.effects.has(event.key)) {
         throw reject(`effect ${event.key} was already applied`);
       }
-      const applied = { ...state, effects: put(state.effects, event.key, event.result) };
-      return showsEnd(batch, key, event.result)
+      const effects = put(state.effects, event.key, event.result);
+      const closes = !('stepId' in key) && key.effect === ISSUE_CLOSE_EFFECT;
+      const applied = closes
+        ? updateBatch({ ...state, effects }, key.batchId, (closed) => ({
+            ...closed,
+            issueClosed: true,
+          }))
+        : { ...state, effects };
+      return showsEnd(foldedBatch(applied, key.batchId), key, event.result)
         ? updateBatch(applied, key.batchId, (ended) => ({ ...ended, endShown: true }))
         : applied;
     }
     case 'order.approved':
       return updateBatch(state, event.batchId, (batch) => ({ ...batch, approvedUpTo: event.upTo }));
-    case 'batch.archived':
-      throw new Error('not implemented');
+    case 'batch.archived': {
+      const { type: _, ...archived } = event;
+      if (state.archived.has(event.batchId)) {
+        throw reject(`batch ${event.batchId} was already archived`);
+      }
+      const batch = state.batches.get(event.batchId);
+      // A store rebuilt from the state branch never read its folder (ADR 0380).
+      const left = batch === undefined ? state : withoutBatch(state, batch);
+      return { ...left, archived: put(state.archived, event.batchId, archived) };
+    }
     default:
       return unreachable(event);
   }
@@ -1260,8 +1284,79 @@ const withoutItsFailingMark = (state: State, batchId: string): State =>
 
 function batchOf(state: State, batchId: string): Batch {
   const batch = state.batches.get(batchId);
-  if (batch === undefined) throw reject(`batch ${batchId} was never ordered`);
-  return batch;
+  if (batch !== undefined) return batch;
+  // Nothing writes to an archived batch (ADR 0380).
+  if (state.archived.has(batchId)) throw reject(`batch ${batchId} is archived`);
+  throw reject(`batch ${batchId} was never ordered`);
+}
+
+/**
+ * `state` without `batch` and what its own events made, as a store rebuilt from the state branch's
+ * `batches/` folders would fold it (ADR 0380): its ledger entries, its merges, with the positions
+ * after them moved down, and its place in its order, with a breakdown no batch of the order still
+ * holds.
+ */
+function withoutBatch(state: State, batch: Batch): State {
+  const batches = new Map(state.batches);
+  batches.delete(batch.id);
+  const effects = new Map(
+    [...state.effects].filter(([key]) => effectKey.decode(key).batchId !== batch.id),
+  );
+  const gone = Object.keys(batch.pullRequestEnds ?? {})
+    .map((url) => state.merges.get(url))
+    .filter((position) => position !== undefined);
+  const moved = (position: number): number =>
+    position - gone.filter((each) => each < position).length;
+  const merges = new Map(
+    [...state.merges]
+      .filter(([url]) => batch.pullRequestEnds?.[url] === undefined)
+      .map(([url, position]) => [url, moved(position)] as const),
+  );
+  const releases = state.releases.map((release) => ({ ...release, seq: moved(release.seq) }));
+  const left: State = { ...state, batches, effects, merges, releases };
+  return batch.repo === undefined ? withoutOrdered(left, batch) : left;
+}
+
+/** `state` with `batch` gone from its order or sub-order, and that order's leftovers with it. */
+function withoutOrdered(state: State, batch: Batch): State {
+  const drop = (ids: readonly string[]) => ids.filter((id) => id !== batch.id);
+  const subOrder = state.subOrders.get(batch.issue);
+  if (subOrder !== undefined) {
+    const subOrders = put(state.subOrders, batch.issue, {
+      ...subOrder,
+      batchIds: drop(subOrder.batchIds),
+    });
+    return withoutBreakdown({ ...state, subOrders }, subOrder.order);
+  }
+  const order = state.orders.get(batch.issue);
+  if (order === undefined) return state;
+  const orders = put(state.orders, batch.issue, { ...order, batchIds: drop(order.batchIds) });
+  return withoutBreakdown({ ...state, orders }, batch.issue);
+}
+
+/**
+ * `state` without the breakdown of the order `issue` once no batch of it that recorded one is left,
+ * and without the sub-orders of it that no batch holds: what only archived batches made.
+ */
+function withoutBreakdown(state: State, issue: number): State {
+  const order = state.orders.get(issue);
+  const held = (order?.batchIds ?? []).some((id) => state.batches.get(id)?.decomposed === true);
+  const subOrders = new Map(state.subOrders);
+  for (const [subIssue, subOrder] of state.subOrders) {
+    if (
+      subOrder.order === issue &&
+      subOrder.batchIds.length === 0 &&
+      (!held || subOrder.cancelled)
+    ) {
+      subOrders.delete(subIssue);
+    }
+  }
+  const orders = new Map(state.orders);
+  if (order !== undefined && !held) {
+    if (order.batchIds.length === 0) orders.delete(issue);
+    else orders.set(issue, { ...order, subOrders: [], dependencies: [] });
+  }
+  return { ...state, orders, subOrders };
 }
 
 function stepOf(batch: Batch, stepId: string): Step {

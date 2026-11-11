@@ -384,16 +384,34 @@ export const latestPlan = (
 };
 
 /**
- * The latest revision of the order's comment before `batch`'s first: of another batch of the same
- * Brewery issue, the last in the order the batches were ordered, so an order shows one plan.
+ * The order's comment before `batch`'s first revision: the one another batch of the same Brewery
+ * issue revised last, in the order the batches were ordered, so an order shows one plan; else the
+ * one an archived batch of it showed (ADR 0380).
  */
-const orderRevision = (state: State, batch: Batch, issue: number): StatusRevision | undefined => {
-  let found: StatusRevision | undefined;
+const orderRevision = (
+  state: State,
+  batch: Batch,
+  issue: number,
+): Pick<StatusRevision, 'comment'> | undefined => {
+  let found: Pick<StatusRevision, 'comment'> | undefined;
+  for (const archived of state.archived.values()) {
+    if (archived.breweryIssue === issue && archived.planComment !== undefined) {
+      found = { comment: archived.planComment };
+    }
+  }
   for (const other of state.batches.values()) {
     if (other.id === batch.id || breweryIssueOf(state, other) !== issue) continue;
     found = revisions.latest(state, other.id).latest ?? found;
   }
   return found;
+};
+
+/** The plan comment `batch`'s order shows, which a later batch of the order edits (ADR 0380). */
+export const shownPlanComment = (state: State, batch: Batch): number | undefined => {
+  const own = revisions.latest(state, batch.id).latest?.comment;
+  if (own !== undefined) return own;
+  const issue = breweryIssueOf(state, batch);
+  return issue === undefined ? undefined : orderRevision(state, batch, issue)?.comment;
 };
 
 /**

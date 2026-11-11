@@ -32,13 +32,28 @@ const ownOrder = (state: State, batchId: string, earlier: number | undefined) =>
 const leftBy = (state: State, batchId: string, earlier: number | undefined) =>
   foundGone(state, batchId, orderEffects.close) ? undefined : ownOrder(state, batchId, earlier);
 
+/** The key of a claimed issue: `<repo in lower case>#<issue>`. */
+const claimKey = (repo: string, issue: number): string => `${repo.toLowerCase()}#${issue}`;
+
+/**
+ * The Brewery issue each claimed issue's archived batches left, by `claimKey`: they were ordered
+ * before every batch of it still in the fold (ADR 0380).
+ */
+const archivedOrders = (state: State): Map<string, number | undefined> => {
+  const orders = new Map<string, number | undefined>();
+  for (const { order, breweryIssue } of state.archived.values()) {
+    if (order.repo !== undefined) orders.set(claimKey(order.repo, order.issue), breweryIssue);
+  }
+  return orders;
+};
+
 /** The Brewery issue of the claimed batch `batchId`; none for a batch of a Brewery issue. */
 export const claimOrderOf = (state: State, batchId: string): ClaimOrder => {
   const batch = state.batches.get(batchId);
   if (batch?.repo === undefined) return {};
   const { repo, issue } = batch;
   // The batches of the issue before this one, in the order they were ordered.
-  let earlier: number | undefined;
+  let earlier = archivedOrders(state).get(claimKey(repo, issue));
   for (const other of state.batches.values()) {
     if (other.id === batchId) break;
     if (other.issue !== issue || other.repo === undefined || !same(other.repo, repo)) continue;
@@ -55,17 +70,27 @@ export const claimOrderOf = (state: State, batchId: string): ClaimOrder => {
 /** The latest claimed batch whose order is the Brewery issue `issue`, or undefined. */
 export const claimOfOrder = (state: State, issue: number): Batch | undefined => {
   // The Brewery issue each claimed issue has so far, by `<repo in lower case>#<issue>`: one pass.
-  const orders = new Map<string, number | undefined>();
+  const orders = archivedOrders(state);
   let found: Batch | undefined;
   for (const batch of state.batches.values()) {
     if (batch.repo === undefined) continue;
-    const key = `${batch.repo.toLowerCase()}#${batch.issue}`;
+    const key = claimKey(batch.repo, batch.issue);
     const earlier = orders.get(key);
     if (ownOrder(state, batch.id, earlier) === issue) found = batch;
     orders.set(key, leftBy(state, batch.id, earlier));
   }
   return found;
 };
+
+/**
+ * The Brewery issue a batch leaves for the next batch of its issue: a Brewery issue's batch's own,
+ * and a claimed batch's order unless a person deleted it (ADR 0144); what its archive keeps
+ * (ADR 0380).
+ */
+export const breweryIssueLeftBy = (state: State, batch: Batch): number | undefined =>
+  batch.repo === undefined
+    ? batch.issue
+    : leftBy(state, batch.id, claimOrderOf(state, batch.id).earlier?.issue);
 
 /**
  * The Brewery issue that routes a batch and shows its status comment and lane label: a Brewery
