@@ -50,11 +50,22 @@ export interface BreweryFiles extends FilesByKind {
   };
 }
 
-/** A recipe a step that chooses the recipe may offer: its name, type and description (ADR 0232, ADR 0365). */
+/** When to choose a recipe, when not, and how it is best used: what a model choosing it reads (ADR 0375). */
+export interface RecipeGuidance {
+  chooseWhen: string;
+  notWhen: string;
+  bestUsed: string;
+}
+
+/**
+ * A recipe a step that chooses the recipe may offer: its name, type, description and guidance
+ * (ADR 0232, ADR 0365, ADR 0375).
+ */
 export interface RecipeChoice {
   name: string;
   type: RecipeType;
   description: string;
+  guidance?: RecipeGuidance;
 }
 
 /** A lens's text, from the Brewery's `lenses/` or Foedrum's defaults (ADR 0098). */
