@@ -615,6 +615,15 @@ describe('planFlush', () => {
       assert.equal(files.at(-1)?.text, `The file held:\n${left.repeat(4)}`);
     });
 
+    it("leaves out every line of a PGP private key's block", () => {
+      const pgp = ['-----BEGIN', 'PGP PRIVATE KEY BLOCK-----'].join(' ');
+      const pgpEnd = ['-----END', 'PGP PRIVATE KEY BLOCK-----'].join(' ');
+      const text = `Key:\n${pgp}\n\nQUJDREVGR0hJSktMTU5PUFFSU1RVVldY\n=AbCd\n${pgpEnd}\nThat was all.\n`;
+      const files = planFlush(new Map(), [stored(2, finished('b1'))], 1, [doc(text)]);
+      const left = '[left out: a line of plan#1 that looks like a secret]\n';
+      assert.equal(files.at(-1)?.text, `Key:\n${left.repeat(5)}That was all.\n`);
+    });
+
     it('an out doc that names a commit reaches the state branch as it is', () => {
       const text = `---\n{"status":"done"}\n---\nThe red commit is ${'0123456789'.repeat(4)}.\n`;
       const files = planFlush(new Map(), [stored(2, finished('b1'))], 1, [doc(text)]);
@@ -1001,5 +1010,10 @@ describe('secretRefusal', () => {
   it('says out docs only when the commit holds no event', () => {
     const said = secretRefusal({ commit, from: 5, through: 4, stderr: '' });
     assert.match(said, /commit c{40} with out docs only holds/);
+  });
+
+  it('says to revoke a real secret before allowing it, since the branch keeps it for good', () => {
+    const said = secretRefusal({ commit, from: 1, through: 1, stderr: '' });
+    assert.match(said, /revoke or rotate it first.*allow the secret/);
   });
 });
