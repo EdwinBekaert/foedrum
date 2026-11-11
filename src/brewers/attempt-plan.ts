@@ -1491,13 +1491,14 @@ export type Resumed = 'retry' | 'answered' | 'turns';
 /**
  * What a resumed attempt is told: to go on in the session that holds the rest (ADR 0117), with the
  * answers below when a human answered its questions (ADR 0118), and what the comments below are
- * when maintainers made some since (ADR 0338).
+ * when some were made since (ADR 0338): a claimed issue's may be anyone's its approval approved
+ * (ADR 0373), so each source says who wrote it.
  */
 export function goOn(doc: string, why: Resumed, commentsNamed?: string): string {
   const told = goOnWith(doc, why);
   return commentsNamed === undefined
     ? told
-    : `${told} The inputs named ${commentsNamed} below are comments maintainers made on the order's issue since this session last read them: they are part of the order.`;
+    : `${told} The inputs named ${commentsNamed} below are comments made on the order's issue since this session last read them, each source saying who wrote it: they are part of the order.`;
 }
 
 function goOnWith(doc: string, why: Resumed): string {
