@@ -174,6 +174,76 @@ describe('recipeLabelEffects (ADR 0232, ADR 0240)', () => {
     ]);
   });
 
+  it('is due again for a choice back to an earlier recipe, under a key of its own: regression test (ADR 0374)', () => {
+    const effects = recipeLabelEffects({ brewery, host: fakeHost().host });
+    const applied = (effect: string, label: string): Event => ({
+      type: 'effect.applied',
+      key: effectKey.encode({ batchId: '12-1', effect }),
+      result: { label },
+    });
+    const stout = { ...chose({}), recipe: 'stout' } as Event;
+    const back: Event[] = [
+      ordered,
+      chose(),
+      applied('recipe-label:nip', 'recipe:nip'),
+      stout,
+      applied('recipe-label:stout', 'recipe:stout'),
+      chose(),
+    ];
+    assert.deepEqual(effects.due(fold(back), '12-1'), [
+      { batchId: '12-1', effect: 'recipe-label:nip#2' },
+    ]);
+  });
+
+  it('keys a choice back to a recipe named after an object property by its own count (ADR 0374)', () => {
+    const effects = recipeLabelEffects({ brewery, host: fakeHost().host });
+    const applied = (effect: string, label: string): Event => ({
+      type: 'effect.applied',
+      key: effectKey.encode({ batchId: '12-1', effect }),
+      result: { label },
+    });
+    const named = { ...chose({}), recipe: 'constructor' } as Event;
+    const back: Event[] = [
+      ordered,
+      chose(),
+      applied('recipe-label:nip', 'recipe:nip'),
+      named,
+      applied('recipe-label:constructor', 'recipe:constructor'),
+      chose(),
+      applied('recipe-label:nip#2', 'recipe:nip'),
+      named,
+    ];
+    assert.deepEqual(effects.due(fold(back), '12-1'), [
+      { batchId: '12-1', effect: 'recipe-label:constructor#2' },
+    ]);
+  });
+
+  it("counts only a person's choices toward the key, not a label's route: regression test (ADR 0374)", () => {
+    const effects = recipeLabelEffects({ brewery, host: fakeHost().host });
+    // A label's route of nip before the person's choice leaves that first choice its key.
+    const routed: Event = { ...chose({}), reason: 'label', source: 'label' } as Event;
+    assert.deepEqual(effects.due(fold([ordered, routed, chose()]), '12-1'), [key]);
+  });
+
+  it('is due again for a second choice of the recipe an older Foedrum labelled: regression test (ADR 0374)', () => {
+    const effects = recipeLabelEffects({ brewery, host: fakeHost().host });
+    const legacy: Event = {
+      type: 'effect.applied',
+      key: effectKey.encode({ batchId: '12-1', effect: 'recipe-label' }),
+      result: { label: 'recipe:nip' },
+    };
+    const stout = { ...chose({}), recipe: 'stout' } as Event;
+    const stoutApplied: Event = {
+      type: 'effect.applied',
+      key: effectKey.encode({ batchId: '12-1', effect: 'recipe-label:stout' }),
+      result: { label: 'recipe:stout' },
+    };
+    assert.deepEqual(
+      effects.due(fold([ordered, chose(), legacy, stout, stoutApplied, chose()]), '12-1'),
+      [{ batchId: '12-1', effect: 'recipe-label:nip#2' }],
+    );
+  });
+
   it('labels the recipe a person chose with foedrum recipe, as an answer does (ADR 0240)', () => {
     const effects = recipeLabelEffects({ brewery, host: fakeHost().host });
     assert.deepEqual(effects.due(fold([ordered, chose({})]), '12-1'), [key]);

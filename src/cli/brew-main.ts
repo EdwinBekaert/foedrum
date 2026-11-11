@@ -96,6 +96,7 @@ const brewOrMash = (
   ...issued,
   ...(input.take === true ? { take: true } : {}),
   ...(input.command === 'mash' ? { mash: true } : {}),
+  ...(input.command === 'mash' && input.override === true ? { override: true } : {}),
   ...(noSessions === undefined ? {} : { noSessions }),
 });
 

@@ -727,10 +727,12 @@ describe('foedrum status', () => {
 });
 
 describe('foedrum status <order> (ADR 0295)', () => {
+  // A choice of one of Foedrum's default recipes, with the type it records (ADR 0365).
   const chosen = (batchId: string, recipe: string): Event => ({
     type: 'batch.recipe_chosen',
     batchId,
     recipe,
+    recipeType: ['mash', 'mash-in', 'deep-mash'].includes(recipe) ? 'mash' : 'brew',
     reason: `label recipe:${recipe}`,
     source: 'label',
   });
@@ -921,6 +923,27 @@ describe('foedrum status <order> (ADR 0295)', () => {
       ...attempt('11-1', 'build', 1, [1000, 200, 5000, 100]),
     ];
     const result = await run(['status', '11'], { openStore: () => storeWith(built) });
+    assert.match(
+      result.stdout,
+      /\nplanning: none reported\nbrewing: 6,300 tokens \(1,000 input, 200 output, 5,000 cache read, 100 cache write\)\n$/,
+    );
+  });
+
+  it('status counts an attempt whose choice recorded no type as brewing, though it is named mash (ADR 0372): regression test', async () => {
+    // A choice with no recipeType, which the schema still admits: status reads no name instead.
+    const untyped: Event = {
+      type: 'batch.recipe_chosen',
+      batchId: '11-1',
+      recipe: 'mash',
+      reason: 'label recipe:mash',
+      source: 'label',
+    };
+    const events: Event[] = [
+      ordered(11),
+      untyped,
+      ...attempt('11-1', 'plan', 1, [1000, 200, 5000, 100]),
+    ];
+    const result = await run(['status', '11'], { openStore: () => storeWith(events) });
     assert.match(
       result.stdout,
       /\nplanning: none reported\nbrewing: 6,300 tokens \(1,000 input, 200 output, 5,000 cache read, 100 cache write\)\n$/,
@@ -1147,6 +1170,19 @@ describe('foedrum mash (ADR 0232)', () => {
     assert.deepEqual(asked, [
       { command: 'mash', issue: { issue: 13 }, as: 'ann' },
       { command: 'mash', issue: { issue: 14 }, take: true },
+    ]);
+  });
+
+  it("hands --override to the terminal's brew, as a re-mash (ADR 0374)", async () => {
+    const asked: unknown[] = [];
+    const done = { exitCode: 4, stdout: '', stderr: '' };
+    const brew = async (input: unknown) => {
+      asked.push(input);
+      return done;
+    };
+    assert.deepEqual(await run(['mash', '14', '--override', '--take'], { brew }), done);
+    assert.deepEqual(asked, [
+      { command: 'mash', issue: { issue: 14 }, take: true, override: true },
     ]);
   });
 
