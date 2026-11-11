@@ -3,6 +3,8 @@
 // one, and what a runner needs a package for. `foedrum init` writes the line with it and
 // `foedrum doctor` warns with it.
 
+import { win32 } from 'node:path';
+
 /** The test runners Foedrum knows in a test line (ADR 0376). */
 export type TestRunner = 'node' | 'vitest' | 'pytest' | 'dotnet';
 
@@ -29,6 +31,9 @@ const VITEST_REPORTS = '--reporter=default --reporter=junit --outputFile.junit=j
 
 const PYTEST_REPORT = '--junit-xml=junit.xml';
 
+const NODE_PAIRING =
+  'for a test report, add --test-reporter=junit --test-reporter-destination=junit.xml right after --test, and give every --test-reporter of the line a --test-reporter-destination of its own: node refuses a line where they do not pair up';
+
 const UNTIL = 'until then the Maltster maps it with "coverage": "none"';
 
 const COVERAGE: Readonly<Record<'vitest' | 'pytest' | 'dotnet', string>> = {
@@ -51,7 +56,7 @@ interface Word {
 
 /**
  * The words of `line`, quotes taken off, each with where it ends; `undefined` when an unquoted
- * `;`, `|` or `&` joins it to another command, which Foedrum does not read.
+ * `;`, `|`, `&` or line break joins it to another command, which Foedrum does not read.
  */
 const wordsOf = (line: string): Word[] | undefined => {
   const words: Word[] = [];
@@ -68,7 +73,7 @@ const wordsOf = (line: string): Word[] | undefined => {
     if (char === '"' || char === "'") {
       quote = char;
       inWord = true;
-    } else if (char === ';' || char === '|' || char === '&') {
+    } else if (/[;|&\r\n]/.test(char)) {
       return undefined;
     } else if (/\s/.test(char)) {
       if (inWord) words.push({ text, end: at });
@@ -83,15 +88,28 @@ const wordsOf = (line: string): Word[] | undefined => {
   return words;
 };
 
+/**
+ * The program a word names, as a shell finds it: its file name in lower case, without a folder or
+ * a Windows extension, so `"C:\Program Files\nodejs\Node.exe"` names `node`.
+ */
+const programOf = (word: string): string =>
+  win32
+    .basename(word)
+    .toLowerCase()
+    .replace(/\.(?:exe|cmd|bat)$/, '');
+
 /** The runner the words run, by the first one that names it. */
 const runnerOf = (words: readonly Word[]): TestRunner | undefined => {
   const texts = words.map(({ text }) => text);
-  if (/^node(?:\.exe)?$/.test(texts[0] ?? '') && texts.includes('--test')) return 'node';
-  if (texts.some((text) => text === 'vitest' || text.startsWith('--outputFile.junit='))) {
+  const programs = texts.map(programOf);
+  if (programs[0] === 'node' && texts.includes('--test')) return 'node';
+  if (programs.includes('vitest') || texts.some((text) => text.startsWith('--outputFile.junit='))) {
     return 'vitest';
   }
-  if (texts.includes('pytest')) return 'pytest';
-  if (texts.some((text, at) => text === 'dotnet' && texts[at + 1] === 'test')) return 'dotnet';
+  if (programs.includes('pytest')) return 'pytest';
+  if (programs.some((name, at) => name === 'dotnet' && texts[at + 1]?.toLowerCase() === 'test')) {
+    return 'dotnet';
+  }
   return undefined;
 };
 
@@ -104,16 +122,24 @@ const savesOf = (
   const has = (test: (text: string) => boolean) => texts.some(test);
   switch (runner) {
     case 'node':
+      // A JUnit or TAP reporter, and a destination that is a file.
       return {
-        report: has(
-          (text) =>
-            text.startsWith('--test-reporter-destination=') && !/=(?:stdout|stderr)$/.test(text),
-        ),
+        report:
+          has((text) => /^--test-reporter=(?:junit|tap)$/.test(text)) &&
+          has(
+            (text) =>
+              text.startsWith('--test-reporter-destination=') && !/=(?:stdout|stderr)$/.test(text),
+          ),
         coverage: has((text) => text === '--experimental-test-coverage'),
       };
     case 'vitest':
+      // A plain --outputFile is the JUnit report's only beside the junit reporter.
       return {
-        report: has((text) => text.startsWith('--outputFile')),
+        report:
+          has((text) => text.startsWith('--outputFile.junit=')) ||
+          (has((text) => text === '--outputFile' || text.startsWith('--outputFile=')) &&
+            (has((text) => text === '--reporter=junit') ||
+              texts.some((text, at) => text === '--reporter' && texts[at + 1] === 'junit'))),
         coverage: has((text) => text === '--coverage' || text.startsWith('--coverage.')),
       };
     case 'pytest':
@@ -147,6 +173,11 @@ export const readTestLine = (line: string): TestLine => {
   if (saves.report) return { runner, saves: true, advice: coverage };
   switch (runner) {
     case 'node': {
+      // node pairs each reporter with a destination, and refuses a line where they do not pair up,
+      // so a line with reporters of its own gets advice, not flags.
+      if (words.some(({ text }) => text.startsWith('--test-reporter'))) {
+        return { runner, saves: false, advice: [NODE_PAIRING] };
+      }
       // The flags go right after `--test`, before the files.
       const end = words.find(({ text }) => text === '--test')?.end ?? line.length;
       const withReport = `${line.slice(0, end)} ${NODE_REPORTS}${line.slice(end)}`;
