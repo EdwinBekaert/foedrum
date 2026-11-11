@@ -45,6 +45,13 @@ const keptText = (text: string): string => {
   return startOf(lines.join('\n'), MAX_REVIEW_TEXT_LENGTH);
 };
 
+/**
+ * A file path on one line: each line break a space and every other control character left out, so
+ * a path a brewer named cannot write a line of the route input's own (ADR 0382).
+ */
+const onOneLine = (path: string): string =>
+  path.replace(/\r\n|[\n\r\u2028\u2029]/g, ' ').replace(CONTROLS, '');
+
 /** GitHub's reviews through the cached `reads`. */
 export const githubReviewReader = (reads: GitHubReads): PullRequestReviewReader => ({
   reviews: async (url, signal) => {
@@ -82,7 +89,7 @@ export const githubReviewReader = (reads: GitHubReads): PullRequestReviewReader 
       const { path, line, body } = checked(GitHubReviewComment, item, what);
       const said = keptText(body);
       return {
-        path: startOf(path, MAX_REVIEW_PATH_LENGTH) || '(no path)',
+        path: onOneLine(startOf(path, MAX_REVIEW_PATH_LENGTH)) || '(no path)',
         // None on an outdated comment, or one on the whole file.
         ...(typeof line === 'number' && line > 0 ? { line } : {}),
         body: said.trim() === '' ? '(no text)' : said,
