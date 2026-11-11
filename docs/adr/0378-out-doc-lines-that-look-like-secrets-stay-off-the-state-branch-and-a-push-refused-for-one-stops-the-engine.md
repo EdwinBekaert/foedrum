@@ -1,6 +1,6 @@
 # 0378. Out doc lines that look like secrets stay off the state branch, and a push refused for one stops the engine
 
-Date: 2026-11-11 · Status: Accepted · Amends [0103](0103-out-docs-reach-the-state-branch-through-the-store.md) (the flush no longer writes an out doc byte for byte), [0024](0024-state-branch-layout-outbox-and-divergence.md) (a third outcome of the state branch's push) and [0094](0094-reviewers-show-their-evidence-and-mark-pre-existing-defects.md) (the pre-existing class #753's review found and left open)
+Date: 2026-11-11 · Status: Accepted · Amends [0103](0103-out-docs-reach-the-state-branch-through-the-store.md) (the flush no longer writes an out doc byte for byte), [0024](0024-state-branch-layout-outbox-and-divergence.md) (a third outcome of the state branch's push) and [0088](0088-out-doc-text-that-looks-like-a-secret-is-left-out-of-the-pull-request-and-the-status-comment.md) (out doc text that looks like a secret now also stays off the state branch, the later issue it left that to, and there a full commit hash passes)
 
 ## Context
 A flush wrote a kept out doc to the state branch as the brewer wrote it ([ADR 0103](0103-out-docs-reach-the-state-branch-through-the-store.md)); only past 256 KiB did a fixed line take its place.
@@ -15,6 +15,8 @@ No failure has been seen; the path was found in the review of #753 (security len
 - **Each out doc line that looks like a secret is replaced where it stood** by `[left out: a line of <step>#<attempt> that looks like a secret]`, with the line's own line end, in `outDocFile` (`src/engine/state-branch.ts`), after the 256 KiB check.
   Never the line, nor `findSecrets`' excerpt of it.
   The rest of the doc keeps its bytes and its line numbers, so a person reading what a brewer did sees where something was taken out.
+- **A private key's block goes whole:** from a line `findSecrets` reads as a private key's start (`-----BEGIN … PRIVATE KEY-----`) every line is replaced, through the line that ends it, or to the end of the doc without one.
+  Its body lines need not look like a secret one by one: a key's last line is often shorter than the 40 characters the base64 pattern reads, and a model may wrap them shorter still.
 - **By line, not the whole doc** as `withoutSecrets` does for the pull request: one token would otherwise turn a 256 KiB plan or review into one line.
   A match that only joining two lines makes (`password` on one, `= x` on the next) is not read for; push protection matches single tokens.
 - **A full commit hash passes** (`isCommit` answers yes, as release notes' does): out docs name the commits they made and read, and a hash is no key a brewer can choose.

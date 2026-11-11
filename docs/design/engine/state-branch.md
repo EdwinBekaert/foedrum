@@ -30,7 +30,7 @@ sequenceDiagram
   A remote branch with a symbolic link or submodule is refused before checkout.
 - **Out docs** go through the store ([ADR 0103](../../adr/0103-out-docs-reach-the-state-branch-through-the-store.md)): the runner ends an attempt with the text it read, `keepOutDocs` keeps it in the store before the driver records `step.finished`, and the flush writes it at `batches/<batch>/<step>-<attempt>.md` in the commit of that event, then forgets it with the marker.
   A kill in between leaves both on the branch, or the next flush writes the doc again; a doc kept after its events were pushed (an abandoned attempt's) is pushed alone.
-  Each line of a doc that looks like a secret (`findSecrets`, a full commit hash excepted) is written as a fixed line naming its step and attempt, never the line ([ADR 0378](../../adr/0378-out-doc-lines-that-look-like-secrets-stay-off-the-state-branch-and-a-push-refused-for-one-stops-the-engine.md)).
+  Each line of a doc that looks like a secret (`findSecrets`, a full commit hash excepted) is written as a fixed line naming its step and attempt, never the line, and so is every line of a private key's block ([ADR 0378](../../adr/0378-out-doc-lines-that-look-like-secrets-stay-off-the-state-branch-and-a-push-refused-for-one-stops-the-engine.md)).
   The text is model output: stored byte for byte but for those lines, never a log, never read back as an instruction, and past 256 KiB replaced by a fixed line.
   So its body outlives the worktree the cleanup deletes; `foedrum replay` points at it.
 - State is committed at **every step boundary** (`step.finished`, or any event that changes a batch's lane) and pushed.
