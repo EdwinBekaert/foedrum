@@ -11,4 +11,10 @@ Foedrum ships as an npm command-line program with a companion Claude Code plugin
 
 Until the package is on npm (M3), `foedrum init` offers a `foedrum` command in a user folder on the PATH that runs the checkout's `src/cli/main.ts` ([ADR 0210](../adr/0210-foedrum-init-writes-the-foedrum-command-into-a-user-folder-on-the-path.md)), and `/foedrum:init` runs that file from a checkout the engineer names until it is there ([ADR 0212](../adr/0212-foedrum-init-takes-every-answer-as-an-option-and-foedrum-init-asks-them-in-a-session.md)).
 
+The package ships the JavaScript `tsc` emits from `src/` into `dist/` (`npm run build`, `tsconfig.build.json`), not the `.ts` files, since Node strips no types under `node_modules`; development runs the `.ts` files directly ([ADR 0377](../adr/0377-the-package-ships-the-javascript-tsc-emits-and-ci-starts-the-installed-tarball.md)).
+Its `files` are `dist/`, `defaults/`, `schemas/` and the Job Object helper `src/platform/job-object.ps1`, which `tsc` does not copy; `bin` is `dist/cli/main.js`.
+A module finds a file of the package from the package root, which lies as far above `dist/<area>/` as above `src/<area>/`: the defaults, `package.json` and the helper.
+No lifecycle script builds it: CI runs `npm run build` before `npm pack`.
+CI's `package` job builds, packs and installs the tarball into an empty folder outside the checkout on Linux, Windows and macOS for every pull request, then starts the installed `foedrum` (`--version`, `--help`, `doctor`), imports every emitted module and runs it once more through `npx` with the tarball as the package; `ci-ok` needs it.
+
 The engine runs in a terminal or as a service the user sets up (documented for systemd, launchd and Task Scheduler); it never depends on an open Claude Code session.

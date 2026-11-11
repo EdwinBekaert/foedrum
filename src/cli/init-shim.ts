@@ -2,7 +2,7 @@
 // that runs this checkout's entry point with the node on the PATH, until `npx foedrum` replaces
 // it. The ports are the platform, its environment and home, the files, and the PATH lookup.
 
-import { posix, win32 } from 'node:path';
+import { extname, join, posix, win32 } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { messageOf } from '../platform/errors.ts';
 import { pathExtensions, pathFolders } from '../platform/executables.ts';
@@ -284,7 +284,8 @@ export const shimChoice = (ports: ShimPorts): ShimChoice => {
  * the checkout, `main.js` in the emitted package (ADR 0377).
  */
 export const mainBeside = (moduleUrl: string): string => {
-  throw new Error(`not implemented: ${fileURLToPath(moduleUrl)}`);
+  const module = fileURLToPath(moduleUrl);
+  return join(module, '..', `main${extname(module)}`);
 };
 
 export const offerShim = async (ports: ShimPorts, terminal: ShimTerminal): Promise<void> => {

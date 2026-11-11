@@ -15,9 +15,8 @@ export const JOB_OBJECT_FAILED = 125;
  * found from the package's root, so from `src/platform/` and from the emitted `dist/platform/`
  * alike, since tsc copies no `.ps1` (ADR 0377).
  */
-export const helperFile = (moduleUrl: string): URL => {
-  throw new Error(`not implemented: ${moduleUrl}`);
-};
+export const helperFile = (moduleUrl: string): URL =>
+  new URL('../../src/platform/job-object.ps1', moduleUrl);
 
 // The line the helper writes, alone on stdout, when it could not start the program in a job.
 const REFUSAL = 'foedrum job object: ';
@@ -76,7 +75,7 @@ let helper: string | undefined;
 
 // The helper's script without its comments and indentation, which only lengthen the command line.
 const helperScript = (): string => {
-  helper ??= readFileSync(new URL('./job-object.ps1', import.meta.url), 'utf8')
+  helper ??= readFileSync(helperFile(import.meta.url), 'utf8')
     .split(/\r?\n/)
     .map((line) => line.trim())
     .filter((line) => line !== '' && (!line.startsWith('#') || line === '# Foedrum: inputs'))

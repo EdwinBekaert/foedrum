@@ -15,6 +15,7 @@ import { githubTargetTracker } from '../github/tracker.ts';
 import { userName } from '../platform/env.ts';
 import { messageOf } from '../platform/errors.ts';
 import { stopOnSignals } from '../platform/processes.ts';
+import { z } from '../schemas/zod.ts';
 import { runGit } from '../workspace/git.ts';
 import { brewerSource } from './brewer-report.ts';
 import type { DoctorShell } from './doctor-facts.ts';
@@ -64,9 +65,13 @@ export const cliFromCheckout = async (
       surface: 'terminal',
       now: () => new Date(),
       zone: () => Intl.DateTimeFormat().resolvedOptions().timeZone,
-      version: () => {
-        throw new Error('not implemented');
-      },
+      // Foedrum's own package.json, two folders up from src/cli/ and from the emitted dist/cli/
+      // alike (ADR 0377), never the Brewery's in the working directory.
+      version: () =>
+        z
+          .object({ version: z.string() })
+          .parse(JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8')))
+          .version,
       // Through the engine's git, in each repository's clone as serve finds it (ADR 0092).
       readKeptBranches: (state, unpushed) => {
         const files = {

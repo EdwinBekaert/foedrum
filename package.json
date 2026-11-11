@@ -6,12 +6,13 @@
   "license": "AGPL-3.0-only",
   "type": "module",
   "files": [
-    "src/",
+    "dist/",
     "defaults/",
-    "schemas/"
+    "schemas/",
+    "src/platform/job-object.ps1"
   ],
   "bin": {
-    "foedrum": "src/cli/main.ts"
+    "foedrum": "dist/cli/main.js"
   },
   "engines": {
     "node": ">=24.15"
@@ -30,6 +31,7 @@
   },
   "scripts": {
     "typecheck": "tsc",
+    "build": "tsc -p tsconfig.build.json",
     "lint": "biome check",
     "test": "node scripts/with-checkout-tmp.ts --import ./scripts/test-cpu-time.ts --test --experimental-test-coverage --test-coverage-lines=90 --test-coverage-branches=85 --test-coverage-functions=90 --test-reporter=./scripts/spec-reporter.ts --test-reporter-destination=stdout --test-reporter=./scripts/test-budget-reporter.ts --test-reporter-destination=stdout \"test/{unit,property,chaos}/**/*.test.ts\"",
     "test:integration": "node scripts/with-checkout-tmp.ts --import ./scripts/lower-priority.ts --test \"test/integration/**/*.test.ts\"",
