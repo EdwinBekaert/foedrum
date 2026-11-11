@@ -6,8 +6,10 @@
 
 import assert from 'node:assert/strict';
 import { it } from 'node:test';
+import { nextBatchId, targetBatchId } from '../../src/engine/batch-id.ts';
 import { createCommandLog } from '../../src/engine/command-log.ts';
 import type { Ending } from '../../src/engine/decide.ts';
+import { emptyState } from '../../src/engine/fold.ts';
 import { createIntake, intakeQueue, type TargetTracker } from '../../src/engine/intake.ts';
 import type { Claimant, TargetIssue } from '../../src/engine/issue-claims.ts';
 import type { Limits } from '../../src/engine/limits.ts';
@@ -176,7 +178,10 @@ it('a pass orders and routes within every limit, and every entry within them whi
       let startedCount = 0;
       for (const { order, subOrder } of queue) {
         const own = subOrder?.issue ?? order.issue;
-        const batchId = order.repo === undefined ? `${own}-1` : `web-${order.issue}`;
+        const batchId =
+          order.repo === undefined
+            ? nextBatchId(emptyState, own, now)
+            : targetBatchId(emptyState, 'web', order.issue, now);
         const recipe = order.repo === undefined ? recipeOf.get(own) : undefined;
         const fresh = !subOrders.has(own);
         const limit = recipe === undefined ? undefined : concurrency[recipe];

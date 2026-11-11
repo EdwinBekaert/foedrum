@@ -6,8 +6,10 @@
 
 import assert from 'node:assert/strict';
 import { it } from 'node:test';
+import { nextBatchId } from '../../src/engine/batch-id.ts';
 import { createCommandLog } from '../../src/engine/command-log.ts';
 import type { Ending } from '../../src/engine/decide.ts';
+import { emptyState } from '../../src/engine/fold.ts';
 import { createIntake, intakeQueue, type TargetTracker } from '../../src/engine/intake.ts';
 import type { Claimant, TargetIssue } from '../../src/engine/issue-claims.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
@@ -19,6 +21,8 @@ import { forEachSeedAsync } from '../helpers/property.ts';
 
 const brewery = 'alice/brewery';
 const now = new Date('2026-10-30T09:00:00.000Z');
+// Batch ids carry the time they were ordered (ADR 0380): those made at `now`.
+const idOf = (issue: number): string => nextBatchId(emptyState, issue, now);
 const claimant: Claimant = { brewery, login: 'alice' };
 const recipes = fakeRecipes({ half: fakeRecipe({ steps: ['plan'] }) });
 const succeeded: Ending = {
@@ -106,11 +110,11 @@ it('a pass never brews two sub-orders whose touches overlap, and starts every on
         if (!random.chance(0.2)) continue;
         accept({
           kind: 'order',
-          batchId: `${number}-1`,
+          batchId: idOf(number),
           order: { issue: number },
           parentBatchId: '1-1',
         });
-        if (!unlabelled.has(number)) route(`${number}-1`);
+        if (!unlabelled.has(number)) route(idOf(number));
       }
       const listed = [1, ...plans.keys()].map(issue);
       const tracker: TargetTracker = {
@@ -169,7 +173,7 @@ it('a pass never brews two sub-orders whose touches overlap, and starts every on
           const plan = number === undefined ? undefined : plans.get(number);
           assert.ok(number !== undefined && plan !== undefined, note);
           const fits = started < slots && !blockers.some((other) => clash(plan, other));
-          assert.equal(after.batches.has(`${number}-1`), fits, `${number}-1 in ${note}`);
+          assert.equal(after.batches.has(idOf(number)), fits, `${idOf(number)} in ${note}`);
           if (!fits) continue;
           started++;
           blockers.push(plan);
@@ -190,14 +194,14 @@ it('a pass never brews two sub-orders whose touches overlap, and starts every on
           if (!random.chance(0.5)) continue;
           const event = {
             type: 'step.started',
-            batchId: `${number}-1`,
+            batchId: idOf(number),
             stepId: 'plan',
             attempt: 1,
           } as const;
           accept({ kind: 'record', event });
           accept({
             kind: 'finish',
-            batchId: `${number}-1`,
+            batchId: idOf(number),
             stepId: 'plan',
             attempt: 1,
             ending: succeeded,
