@@ -200,7 +200,7 @@ describe('batchState', () => {
     );
     assert.deepEqual(batchState(split, { subOrders: [sub(undefined, 8), sub(queued, 9)] }), {
       kind: 'queued',
-      by: { kind: 'blockers' },
+      by: { kind: 'not-ordered' },
       subOrder: 8,
     });
   });
@@ -264,8 +264,25 @@ describe('stateLine', () => {
       [{ kind: 'queued', by: { kind: 'usage-limit' } }, 'Queued: held by a usage limit'],
       [{ kind: 'queued', by: { kind: 'sub-orders' } }, 'Queued: its sub-orders are being opened'],
       [
-        { kind: 'queued', by: { kind: 'blockers' }, subOrder: 8 },
-        'Queued: sub-order #8 waits for the sub-orders it depends on',
+        { kind: 'queued', by: { kind: 'not-ordered' }, subOrder: 8 },
+        'Queued: sub-order #8 is not ordered yet',
+      ],
+      [
+        { kind: 'queued', by: { kind: 'recipe' }, subOrder: 8 },
+        'Queued: sub-order #8 waits for a recipe',
+      ],
+      [{ kind: 'queued', by: { kind: 'pause' }, subOrder: 8 }, 'Queued: sub-order #8 is paused'],
+      [
+        { kind: 'queued', by: { kind: 'usage-limit' }, subOrder: 8 },
+        'Queued: sub-order #8 is held by a usage limit',
+      ],
+      [
+        {
+          kind: 'queued',
+          by: { kind: 'wait', on: { kind: 'merge', pullRequest: pr } },
+          subOrder: 8,
+        },
+        `Queued: sub-order #8 waits for the merge of ${pr}`,
       ],
       [{ kind: 'done', how: 'merged' }, 'Done: merged'],
       [{ kind: 'done', how: 'closed without merging' }, 'Done: closed without merging'],
