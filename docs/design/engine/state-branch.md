@@ -33,6 +33,10 @@ sequenceDiagram
   Each line of a doc that looks like a secret (`findSecrets`, a full commit hash excepted) is written as a fixed line naming its step and attempt, never the line, and so is every line of a private key's block ([ADR 0378](../../adr/0378-out-doc-lines-that-look-like-secrets-stay-off-the-state-branch-and-a-push-refused-for-one-stops-the-engine.md)).
   The text is model output: stored byte for byte but for those lines, never a log, never read back as an instruction, and past 256 KiB replaced by a fixed line.
   So its body outlives the worktree the cleanup deletes; `foedrum replay` points at it.
+- **The shelf** ([ADR 0380](../../adr/0380-the-cellarer-shelves-finished-batches-off-the-store-sweeps-old-temporary-files-and-expires-the-shelf.md)): a flush moves the folder of each batch [the Cellarer](../recipes/cellarer.md) shelved from `batches/<id>/` to `archive/<YYYY-MM>/<id>/`, the month it was shelved in, and deletes each `archive/<YYYY-MM>/` before the month an `expire` recorded; it clears both records once its push went through, so a flush that failed moves and deletes again.
+  The shelf is for people: the engine never reads `archive/`, and a rebuild reads `batches/` and the top level only.
+  A store that catches up forgets each batch whose events lie at or below the pushed-through marker and whose folder is no longer in `batches/`, since another store shelved it (`forgottenOnBranch`).
+  Git history keeps what `expire` deleted.
 - State is committed at **every step boundary** (`step.finished`, or any event that changes a batch's lane) and pushed.
   SQLite is written first; a flush writes every event after the store's pushed-through marker, commits, pushes and only then moves the marker.
   The local SQLite database is an index and working store that `foedrum serve` rebuilds from the state branch on any machine.

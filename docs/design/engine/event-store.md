@@ -1,6 +1,6 @@
 # The event store
 
-The `EventStore` interface (`src/engine/event-store.ts`) hides the storage; its implementation on `node:sqlite` keeps seven tables under a schema version (`PRAGMA user_version`) with a migration per version: `events`, append-only through triggers; `leases`; `batch_leases`; `pushed`, the state branch's pushed-through marker (the last event on the remote branch and the commit that holds it; it only moves forward); `out_docs`, the out doc text of each attempt until a flush puts it on the state branch, outside the log and never folded (ADR 0103); and two indexes of the events, maintained on append, so `replay` and `restore` rebuild them from a log (ADR 0011, ADR 0024).
+The `EventStore` interface (`src/engine/event-store.ts`) hides the storage; its implementation on `node:sqlite` keeps seven tables under a schema version (`PRAGMA user_version`) with a migration per version: `events`, append-only through triggers but for the one delete the Cellarer's `forget` makes (below); `leases`; `batch_leases`; `pushed`, the state branch's pushed-through marker (the last event on the remote branch and the commit that holds it; it only moves forward); `out_docs`, the out doc text of each attempt until a flush puts it on the state branch, outside the log and never folded (ADR 0103); and two indexes of the events, maintained on append, so `replay` and `restore` rebuild them from a log (ADR 0011, ADR 0024).
 `restore` appends events read from the state branch keeping their ids, after every stored event, and marks them pushed in the same transaction:
 
 - `effects`: the idempotency ledger is the `effect.applied` events.
@@ -14,3 +14,8 @@ The `EventStore` interface (`src/engine/event-store.ts`) hides the storage; its 
 Events are validated against the zod schemas when appended and when read.
 All writes go through `withTransaction` (`BEGIN IMMEDIATE`; rolled back on any throw; not nestable), in WAL mode with a busy timeout.
 The store reads no clock: callers pass `now`.
+
+**Forgetting a shelved batch** ([ADR 0380](../../adr/0380-the-cellarer-shelves-finished-batches-off-the-store-sweeps-old-temporary-files-and-expires-the-shelf.md)): `forget` deletes a batch's events, its ledger rows, kept out docs, deadlines and leases in one transaction, and records it in `shelving` with the month it was shelved in.
+The delete triggers on `events` and the ledger refuse every delete but those of a batch in the transaction's `forgetting` table, which `forget` fills before its deletes and empties after them, so the ledger's guard (I4) holds for every batch the store keeps.
+`expire` records the month before which the shelf is deleted, in `expiring`; a flush reads both, and `shelved` and `expired` clear them once its push went through ([the state branch](state-branch.md)).
+Each forget counts in `forgets`, and a command log folds again from empty when that count changed, so the fold never holds a forgotten batch.

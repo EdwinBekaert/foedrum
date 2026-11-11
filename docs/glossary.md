@@ -19,7 +19,7 @@ Foedrum borrows its vocabulary from Belgian brewing. A *foeder* is the large oak
 | **Triage source** | Issues in target repositories configured for triage, read by Infection check and turned into Brewery orders |
 | **Rewind** | Continuing a batch from an earlier step; branches reset to that step's commits |
 | **Brewer** | A reusable agent role: prompt, in-docs, out doc, model, effort, tools, permissions, budget, guards |
-| **Recipe** | A pipeline: brewers, checks and actions in order, with loops. Its `type` says what kind of work it does: `mash` chooses a recipe or makes a plan and builds nothing (Mash-in, Mash, Deep-mash); `brew` builds (Nip); a sub-order runs a `brew` recipe ([ADR 0365](adr/0365-a-recipe-has-a-type-mash-or-brew.md)) |
+| **Recipe** | A pipeline: brewers, checks and actions in order, with loops. Its `type` says what kind of work it does: `mash` chooses a recipe or makes a plan and builds nothing (Mash-in, Mash, Deep-mash); `brew` builds (Nip); `tend` keeps the Brewery and is offered to no step (Cleanup, [ADR 0380](adr/0380-the-cellarer-shelves-finished-batches-off-the-store-sweeps-old-temporary-files-and-expires-the-shelf.md)); a sub-order runs a `brew` recipe ([ADR 0365](adr/0365-a-recipe-has-a-type-mash-or-brew.md)) |
 | **Batch** | One execution of a recipe for one order |
 | **Task tree** | Where a batch's work is: the branch its latest attempt that succeeded committed on (its own worktree's, or for a resumed attempt that of the worktree it ran in), or its latest rewind's commit, else the repository's base; each new worktree starts there, and a resumed attempt runs in the worktree of the session it continues (ADR 0066, ADR 0117) |
 | **Step** | One position in a recipe |
@@ -38,6 +38,8 @@ Foedrum borrows its vocabulary from Belgian brewing. A *foeder* is the large oak
 | **Candidate** | A lesson recorded from a review; proposed as a house-yeast rule when it recurs or a human asks |
 | **Blending** | Combining branches; conflicts go to a bounded brewer step |
 | **On tap** | Pull request opened or merged, or the recipe done without one (a recipe without the openPullRequest action, whose brewers commit nothing, ADR 0059 and ADR 0084; one with it goes on tap only with its pull request, ADR 0071); not a recipe that ends with a plan, which waits Stuck for its review (ADR 0275) until a person approves it, and then goes on tap (gate 1, ADR 0281) |
+| **Cellarer** | Engine code with no model, prompt or tokens that keeps a Brewery tidy: its jobs are recipe steps, `shelve`, `sweep` and `expire` ([ADR 0380](adr/0380-the-cellarer-shelves-finished-batches-off-the-store-sweeps-old-temporary-files-and-expires-the-shelf.md)) |
+| **Shelf** | `archive/<YYYY-MM>/` on the state branch: the folders of the finished batches the Cellarer shelved that month, which the store forgot. For people only: the engine never reads it, and `expire` deletes a month after 6 months ([ADR 0380](adr/0380-the-cellarer-shelves-finished-batches-off-the-store-sweeps-old-temporary-files-and-expires-the-shelf.md)) |
 | **Cellar** | The autonomous driver (`foedrum serve`): brews orders unattended, steered through GitHub comments and later the dashboard |
 | **Driver** | What moves a batch forward: an engineer's Claude Code session or terminal through `foedrum brew` (interactive, ADR 0123) or the Cellar (autonomous); one at a time per batch, held as a batch lease it renews |
 | **Interactive step** | A brewer step with `"interactive": true` and a `prompt`, whose attempt runs as a person's `claude` session in `foedrum brew`'s terminal, with the brewer's guards and out doc (ADR 0222) |
@@ -82,6 +84,7 @@ Choose a recipe by what the work is and what it can reach, not by its size ([ADR
 | Mash | A plan of sub-orders for an order, reviewed through three plan lenses, shown on its issue, corrected in a lauter session if the engineer chooses; nothing built |
 | Deep-mash | A careful plan of an order whose cut carries a risk: Mash through all seven plan lenses |
 | Deep-brew | A change that can reach a lot, whatever its size: every diff lens and Brett's mutants |
+| Cleanup | The Cellarer's jobs: shelve finished batches, sweep old temporary files, expire the shelf; started by the `recipe:cleanup` label |
 | Keg | Multi-repository change with release dependencies |
 | Pilot batch | Spike or research |
 | Infection check | Bug triage |

@@ -44,7 +44,7 @@ Every expired lease is released, except that of a batch's further lost attempt, 
 A batch whose reading throws gets no command that tick.
 Each command is appended in a transaction of its own, so one that throws is reported and the others go on.
 The tick then flushes the state branch, also when it failed, so events a failed push left behind do not wait for the next step boundary; flushes that fail past their deadline (default 10 minutes) are reported, and a `StateBranchStopError` makes the tick reject, so the command that runs the driver stops ([ADR 0250](../../adr/0250-the-supervisor-is-one-tick-the-commands-own-the-interval.md)).
-Engine-generated batch ids are `<issue>-<n>` (`src/engine/batch-id.ts`), which always pass `PathSafeId`.
+Engine-generated batch ids are `<issue>-<yyyymmddhhmmss>`, the time the batch was ordered to the second in UTC, with `-2`, `-3`… only when a batch in the fold already has that id (`src/engine/batch-id.ts`), so an id is never used twice although the store forgets the batches the Cellarer shelves; they always pass `PathSafeId` ([ADR 0380](../../adr/0380-the-cellarer-shelves-finished-batches-off-the-store-sweeps-old-temporary-files-and-expires-the-shelf.md)).
 
 Board lanes are these states: **Ordered · Brewing · Conditioning ⏳ · Stuck 🔔 · On tap**.
 Conditioning is waiting with a visible reason ("waiting for lib-core ≥ 2.4.0") and a reminder (default: after 2 days, then every 2 days; configurable per Brewery and recipe, for now one interval per supervisor: [ADR 0027](../../adr/0027-supervisor-lost-and-stalled-attempts.md)) — never silent, but not a failure either.

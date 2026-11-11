@@ -1,6 +1,7 @@
 # Events
 
 State is derived from an append-only event log ([ADR 0002](../../adr/0002-event-sourced-engine-on-node-sqlite.md)).
+The one exception is a finished batch [the Cellarer](../recipes/cellarer.md) shelves: the store forgets all its events, and no event records that it did ([ADR 0380](../../adr/0380-the-cellarer-shelves-finished-batches-off-the-store-sweeps-old-temporary-files-and-expires-the-shelf.md)).
 Every change takes one path: `decide` turns a command and the folded state into events or a refusal, the guard checks each event against the state the ones before it lead to, the command log appends them in the transaction it decided in, and the pure fold turns the log back into state (`createCommandLog`, `src/engine/command-log.ts`):
 
 ```mermaid
