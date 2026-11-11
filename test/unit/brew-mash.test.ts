@@ -481,6 +481,39 @@ describe('runBrew', () => {
         }
       });
 
+      it('foedrum mash --override on a batch waiting for a session asks the Innkeeper, not the session', async () => {
+        const at = new Date(t0.getTime() + 3_600_000).toISOString();
+        f.store.withTransaction((tx) => {
+          tx.append({ type: 'batch.ordered', batchId: '12-1', order: { issue: 12 }, routeBy: at });
+          tx.append({
+            type: 'batch.recipe_chosen',
+            batchId: '12-1',
+            recipe: 'stout',
+            reason: 'label',
+            source: 'label',
+          });
+          tx.append({
+            type: 'step.scheduled',
+            batchId: '12-1',
+            stepId: 'brew',
+            attempt: 1,
+            deadlineAt: at,
+          });
+          tx.append({ type: 'step.started', batchId: '12-1', stepId: 'brew', attempt: 1 });
+          tx.append({
+            type: 'batch.stuck',
+            batchId: '12-1',
+            reason: { kind: 'waiting_for_session', stepId: 'brew' },
+            options: ['retry', 'skip', 'recipe', 'rewind', 'cancel'],
+            remindAt: at,
+          });
+        });
+        const asks = steps(12, blocked);
+        assert.equal(await runBrew(mashSetup(), asks, override(12)), 4, f.lines.join('\n'));
+        assert.equal(log().state().batches.get('12-1')?.recipe?.name, 'mash-in');
+        assert.deepStrictEqual(f.started, ['innkeep#1']);
+      });
+
       it('foedrum mash --override on a Brewing batch is refused and names foedrum stop', async () => {
         log().issue({ kind: 'order', batchId: '12-1', order: { issue: 12 } }, t0);
         const route = { kind: 'route', batchId: '12-1', recipe: 'stout', reason: 'label' } as const;
