@@ -3101,6 +3101,27 @@ describe("the Brewery's test line for the Maltster (ADR 0376)", () => {
     );
   });
 
+  it("the Maltster's input names each platform's line of a test check given per platform", async () => {
+    const perPlatform = { run: 'node --test test/', windows: 'node.exe --test test/' };
+    const { plans } = setup(undefined, {}, undefined, brewedBy('maltster'), {
+      repoTestLine: () => perPlatform,
+    });
+    const { prompt } = await plans.plan(start);
+    assert.match(
+      prompt,
+      /name="testLine">\nrun: node --test test\/\nwindows: node\.exe --test test\/\n<\/untrusted-input-/,
+    );
+  });
+
+  it('the Maltster gets no test line for a repository with no test check', async () => {
+    const { plans } = setup(undefined, {}, undefined, brewedBy('maltster'), {
+      repoTestLine: () => null,
+    });
+    const { prompt } = await plans.plan(start);
+    assert.match(prompt, /# Maltster/);
+    assert.doesNotMatch(prompt, /name="testLine"/);
+  });
+
   it('the Gauger, the Cellarman and every other brewer without the input do not get the test line', async () => {
     for (const brewer of ['gauger', 'cellarman']) {
       const { plans } = setup(undefined, {}, undefined, brewedBy(brewer), { repoTestLine });

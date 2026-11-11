@@ -1474,9 +1474,9 @@ describe("diagnose: whether a test-first recipe's test line saves a report (ADR 
       fields,
     ),
   });
-  const config = (test: string) =>
+  const config = (test: unknown) =>
     `{ "repositories": { "acme/web": { "alias": "web", "checks": { "build": null, "typecheck": null, "lint": null, "format": null, "test": ${JSON.stringify(test)} } } } }`;
-  const facts = (test: string, recipes = [recipe('nip')]) => ({
+  const facts = (test: unknown, recipes = [recipe('nip')]) => ({
     ...linux(),
     config: config(test),
     brewery: { recipes, brewers: [gauger] },
@@ -1523,5 +1523,34 @@ describe("diagnose: whether a test-first recipe's test line saves a report (ADR 
       ],
     });
     assert.match(formatDiagnosis(diagnosis), /Foedrum has everything it needs\./);
+  });
+
+  it('says nothing of a repository with no test check', () => {
+    assert.deepEqual(about(diagnose(facts(null))), { problems: [], notices: [] });
+  });
+
+  it('names every test-first recipe of the Brewery', () => {
+    const both = diagnose(facts('pytest', [recipe('nip'), recipe('stout')]));
+    assert.deepEqual(
+      about(both).problems.map(({ what }) => what),
+      [
+        'the test line of acme/web saves no test report, which recipes nip, stout prove their tests with',
+      ],
+    );
+  });
+
+  it("reads a test check given per platform on doctor's own platform", () => {
+    const test = { run: 'make test', windows: 'pytest' };
+    assert.deepEqual(about(diagnose({ ...facts(test), ...windows })).problems, [
+      {
+        required: false,
+        what: 'the test line of acme/web saves no test report, which recipe nip proves its tests with',
+        fix: 'use the test line "pytest --junit-xml=junit.xml"; for coverage, add pytest-cov to the repository, then --cov --cov-report=lcov:lcov.info to the test line; until then the Maltster maps it with "coverage": "none"',
+      },
+    ]);
+    assert.match(
+      about(diagnose(facts(test))).notices.join(),
+      /\(make test\): Foedrum does not know/,
+    );
   });
 });
