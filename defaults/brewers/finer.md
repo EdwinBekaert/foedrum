@@ -2,7 +2,7 @@
 {
   "name": "finer",
   "description": "Simplifies the batch's change without changing what it does, and commits it; or says why there was nothing to simplify.",
-  "version": 5,
+  "version": 6,
   "model": "builder",
   "effort": "high",
   "inputs": [{ "name": "order", "from": "order" }],
