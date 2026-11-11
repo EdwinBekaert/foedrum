@@ -735,10 +735,54 @@ describe('runBrew', () => {
         assert.equal(f.lines.at(-1), 'foedrum mash: batch 12-1 does not offer recipe');
       });
 
+      it("foedrum mash --override refuses an order whose batch is Stuck after its plan's breakdown while a sub-order is not ended: regression test", async () => {
+        f.store.withTransaction((tx) => {
+          tx.append({ type: 'batch.ordered', batchId: '12-1', order: { issue: 12 }, routeBy });
+          tx.append({
+            type: 'batch.recipe_chosen',
+            batchId: '12-1',
+            recipe: 'stout',
+            reason: 'label',
+            source: 'label',
+          });
+          tx.append({
+            type: 'order.decomposed',
+            batchId: '12-1',
+            subOrders: [{ issue: 30, repo: 'acme/web' }],
+            dependencies: [],
+          });
+          subOrdered(tx, 30);
+          tx.append({
+            type: 'step.scheduled',
+            batchId: '12-1',
+            stepId: 'brew',
+            attempt: 1,
+            deadlineAt: routeBy,
+          });
+          tx.append({ type: 'step.started', batchId: '12-1', stepId: 'brew', attempt: 1 });
+          tx.append({
+            type: 'batch.stuck',
+            batchId: '12-1',
+            reason: { kind: 'waiting_for_session', stepId: 'brew' },
+            options: ['retry', 'skip', 'recipe', 'rewind', 'cancel'],
+            remindAt: routeBy,
+          });
+        });
+        assert.equal(log().state().batches.get('12-1')?.lane.kind, 'stuck');
+        assert.equal(await runBrew(mashSetup(), steps(12, blocked), override(12)), 5);
+        assert.deepStrictEqual(f.started, []);
+        assert.equal(log().state().batches.get('12-1')?.recipe?.name, 'stout');
+        assert.equal(
+          f.lines.at(-1),
+          "foedrum mash: #12's approved plan opened sub-orders #30; a new plan would leave them with no order: brew them, or foedrum recipe <sub-order> <recipe> <reason> changes one",
+        );
+      });
+
       it('foedrum mash --override plans an order again whose live sub-order a later plan left out', async () => {
         planned([30, 31], (tx) => {
           subOrdered(tx, 31);
-          // A later breakdown of the same plan leaves #31 out: it is marked cancelled (ADR 0211).
+          // A later breakdown of the same plan leaves #31 out: it is marked cancelled (ADR 0211), and
+          // the order's sub-orders are the latest breakdown's, which no longer lists it.
           tx.append({
             type: 'order.decomposed',
             batchId: '12-1',
