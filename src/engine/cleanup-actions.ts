@@ -116,8 +116,9 @@ export const actionsByKind = (
   return {
     due: (state, ref) => {
       const owner = ownerOf(state, ref);
-      const keys = owner?.due(state, ref) ?? [];
-      for (const key of keys) if (owner !== undefined) owners.set(effectKey.encode(key), owner);
+      if (owner === undefined) return [];
+      const keys = owner.due(state, ref);
+      for (const key of keys) owners.set(effectKey.encode(key), owner);
       return keys;
     },
     target: {

@@ -16,7 +16,7 @@ export interface ArchiveFacts {
   leased: ReadonlySet<string>;
 }
 
-export type Archived = Extract<Event, { type: 'batch.archived' }>;
+type Archived = Extract<Event, { type: 'batch.archived' }>;
 
 /** The batch at the top of `batch`'s family: the order it was split from, or itself. */
 const rootOf = (state: State, batch: Batch): string => {

@@ -589,8 +589,9 @@ function run(draft: Draft, command: Command): Event[] {
     case 'skip': {
       const { batchId, by, via } = command;
       const { reason } = stuckLane(draft.batch(batchId), 'skip');
-      if (reason.kind === 'routing') throw new Refusal(`batch ${batchId} has no step to skip`);
-      if (reason.kind === 'reopened') throw new Refusal(`batch ${batchId} has no step to skip`);
+      if (reason.kind === 'routing' || reason.kind === 'reopened') {
+        throw new Refusal(`batch ${batchId} has no step to skip`);
+      }
       draft.push({ type: 'batch.resumed', batchId, by, via, action: 'skip' });
       // A skip of a child skips the rest of its group (ADR 0168).
       const group = recipeOf(draft, draft.batch(batchId)).group(reason.stepId);
