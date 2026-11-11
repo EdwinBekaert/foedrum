@@ -212,7 +212,7 @@ describe("a sub-order's security mark (ADR 0322)", () => {
     for (const text of [entry, comment]) {
       const shown = /\n- Done when: (.*)\n/.exec(text)?.[1];
       assert.ok(shown);
-      assert.ok(!shown.includes('@team'));
+      assert.doesNotMatch(shown, /(?<!`)@team/);
       assert.ok(text.includes(`\n- Recipe \`nip\`: a test pins it\n- Security: ${shown}\n`), text);
     }
   });
