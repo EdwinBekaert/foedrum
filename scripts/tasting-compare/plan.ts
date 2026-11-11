@@ -42,7 +42,7 @@ const SEVEN = [
 /** `mash`'s three lenses (ADR 0321). */
 const MASH = ['plan/coverage', 'plan/sizing', 'plan/naive-reader'] as const;
 
-/** The lenses `decoction` runs on `planner`; the others are on the Taster's own alias (ADR 0321). */
+/** The lenses `deep-mash` runs on `planner`; the others are on the Taster's own alias (ADR 0321). */
 const ON_PLANNER: readonly string[] = ['plan/coverage', 'plan/security'];
 
 /** The setups that run, and their lenses. */
@@ -75,7 +75,7 @@ const tasterSteps = (setup: PlanSetupName): Map<string, readonly string[]> => {
  * The recipe of `setup`: the scripted plan, then its Tasters, whose findings send the plan back to
  * the scripted Brewmaster, whose next turn ends the run (ADR 0354), so a run measures one round and
  * ends after it, or at the plan's review when no Taster finds anything (ADR 0275). Each step apart names the model
- * `decoction` gives its lens; a step together is on the Taster's own model (ADR 0220).
+ * `deep-mash` gives its lens; a step together is on the Taster's own model (ADR 0220).
  */
 export const planRecipeText = (setup: PlanSetupName): string => {
   const { lenses } = PLAN_SETUPS[setup];

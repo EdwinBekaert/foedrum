@@ -3,7 +3,6 @@
 
 import { calledAs, claimOfOrder, claimOrderOf, orderName } from '../engine/claim-orders.ts';
 import {
-  attemptRecipeOf,
   attemptRecipeTypeOf,
   type Batch,
   type Failing,
@@ -254,12 +253,6 @@ export const orderBatches = (state: State, order: OrderRef): Batch[] => {
 };
 
 /**
- * The recipes that planned before a recipe had a type (ADR 0285): only for an attempt whose recipe
- * choice recorded no type, an event from before ADR 0365. Frozen: a recipe's type says it now.
- */
-const PLANNED_BEFORE_TYPES: readonly string[] = ['mash', 'mash-in', 'decoction'];
-
-/**
  * The usage of `batches`' attempts, split by the recipe each was scheduled under: a `mash`
  * recipe's is planning, any other's brewing (ADR 0365); an attempt that reported none adds nothing.
  */
@@ -276,12 +269,7 @@ const orderTokens = (state: State, batches: readonly Batch[]) => {
       for (const attempt of step.attempts.values()) {
         if (attempt.phase !== 'finished') continue;
         const ref = { batchId: batch.id, stepId: step.id, attempt: attempt.attempt };
-        const type = attemptRecipeTypeOf(state, ref);
-        const recipe = attemptRecipeOf(state, ref);
-        const planning =
-          type === undefined
-            ? recipe !== undefined && PLANNED_BEFORE_TYPES.includes(recipe)
-            : type === 'mash';
+        const planning = attemptRecipeTypeOf(state, ref) === 'mash';
         addUsage(planning ? tokens.planning : tokens.brewing, attempt.usage);
       }
     }

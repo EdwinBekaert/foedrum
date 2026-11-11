@@ -61,7 +61,7 @@ describe('recipeChoiceOutDocOf (ADR 0232)', () => {
   const refused: [string, unknown, RegExp][] = [
     ['a done', { status: 'done', summary: 'Chose mash' }, /needs_input/],
     ['a second question', needs([asked(['nip', 'mash']), asked(['nip', 'mash'])]), /one question/],
-    ['an option the Brewery lacks', needs([asked(['nip', 'decoction'])]), /decoction/],
+    ['an option the Brewery lacks', needs([asked(['nip', 'stoutt'])]), /stoutt/],
   ];
   for (const [what, doc, reason] of refused) {
     it(`refuses ${what}, naming it`, () => {
@@ -101,7 +101,7 @@ describe("attemptLimits: a recipe choice's question (ADR 0232)", () => {
 
   for (const [what, doc] of [
     ['a done', { status: 'done', summary: 'Chose mash' }],
-    ['an option the Brewery lacks', needs([asked(['nip', 'decoction'])])],
+    ['an option the Brewery lacks', needs([asked(['nip', 'stoutt'])])],
   ] as const) {
     it(`fails ${what} retryably, naming it`, () => {
       const ending = ended(doc);
