@@ -377,7 +377,7 @@ describe("foedrum with the Brewery's recipe files (ADR 0053)", () => {
     assert.equal(stderr, '');
     assert.equal(exitCode, 0);
     assert.ok(
-      stdout.includes('roaster  brewers/roaster.md\n  no attempts\n  Stuck: 12-1\n'),
+      stdout.includes('roaster  brewers/roaster.md\n  no attempts\n  Waiting for you: 12-1\n'),
       stdout,
     );
     // Foedrum's default brewers are in use too (ADR 0098).
