@@ -320,7 +320,7 @@ describe('a review that asks for changes sends the batch back (ADR 0382)', () =>
     assert.match(
       renderStatus(batch(log)),
       new RegExp(
-        `\`${OPEN}\`: <${fixPullRequest}> got changes asked for on \`dddddddd\` after 1 round: review 81 by ada`,
+        `the review of <${fixPullRequest}> still asks for changes on \`dddddddd\` after one round of fixes by step \`${OPEN}\`: review 81 by ada`,
       ),
     );
   });

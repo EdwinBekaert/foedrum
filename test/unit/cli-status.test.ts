@@ -56,9 +56,9 @@ describe('describeState', () => {
         remindAt: '2026-10-17T12:00:00.000Z',
       },
     };
-    assert.deepStrictEqual(describeLane(batch, '12'), {
-      lane: 'stuck',
-      detail: `https://github.com/acme/api/pull/12 got changes asked for on ${'c'.repeat(40)} at open-pull-request after 2 rounds: review 81 by ada, and 2 more; reminder 2026-10-17T12:00:00.000Z`,
+    assert.deepStrictEqual(describeState(batch, batchState(batch), '12'), {
+      state: 'Waiting for you: look at a failure Foedrum could not get past',
+      detail: `the review of https://github.com/acme/api/pull/12 still asks for changes on ${'c'.repeat(8)} after 2 rounds of fixes by step open-pull-request: review 81 by ada, and 2 more`,
     });
   });
 
