@@ -46,6 +46,7 @@ import {
 import { holdText, type Limits, routeHold, startTally } from './limits.ts';
 import { NEEDS_REFINEMENT, SUB_ORDER } from './plan-issues.ts';
 import { type PullRequestCheckReader, recordChecks } from './pr-checks.ts';
+import { type PullRequestReviewReader, recordReviews } from './pr-reviews.ts';
 import { sentBackFrom } from './pull-request-fix.ts';
 import { checkPairs } from './pull-request-pairs.ts';
 import { hasSubOrdersLeft, type QueuedOrder, rankQueue } from './ranks.ts';
@@ -140,6 +141,11 @@ export interface IntakeOptions {
    * finish (ADR 0213); none by default.
    */
   checks?: PullRequestCheckReader;
+  /**
+   * What reads the reviews of each open pull request, which each pass records when those of
+   * someone in `authors` that ask for changes change (ADR 0382); none by default.
+   */
+  reviews?: PullRequestReviewReader;
   /**
    * What reads the latest release of each repository a `release` blocker waits on, which each pass
    * records once it holds the blockers' merges (ADR 0223); none by default.
@@ -376,7 +382,7 @@ export const createIntake = (options: IntakeOptions): Intake => {
   const { log, brewery, tracker, claims, claimant, authors, repositories, capacity, clock } =
     options;
   const most = defaultLeaseMs / 2;
-  const { deadlineMs = most, bases = [], checks, releases, limits = NO_LIMITS } = options;
+  const { deadlineMs = most, bases = [], checks, reviews, releases, limits = NO_LIMITS } = options;
   if (!Number.isSafeInteger(deadlineMs) || deadlineMs < 1 || deadlineMs > most) {
     throw new RangeError(
       `The deadline of an intake pass must be a whole number of milliseconds up to ${most}, got ${deadlineMs}`,
@@ -612,6 +618,10 @@ export const createIntake = (options: IntakeOptions): Intake => {
     const failed = (what: string, error: unknown): void => report({ kind: 'failed', what, error });
     if (checks !== undefined && !signal.aborted) {
       await recordChecks({ log, reader: checks, clock, failed }, signal);
+    }
+    if (reviews !== undefined && !signal.aborted) {
+      const who = { users: authors, self: claimant.login };
+      await recordReviews({ log, reader: reviews, clock, failed, ...who }, signal);
     }
     if (bases.length > 0 && !signal.aborted) {
       await checkBases({ log, repositories: bases, clock, failed }, signal);

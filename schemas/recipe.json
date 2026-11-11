@@ -22,6 +22,57 @@
       "type": "string",
       "pattern": "\\S"
     },
+    "guidance": {
+      "type": "object",
+      "properties": {
+        "chooseWhen": {
+          "type": "string",
+          "maxLength": 300,
+          "allOf": [
+            {
+              "pattern": "\\S"
+            },
+            {
+              "pattern": "^[^\\r\\n\\u2028\\u2029]*$"
+            }
+          ],
+          "description": "The orders the recipe is for"
+        },
+        "notWhen": {
+          "type": "string",
+          "maxLength": 300,
+          "allOf": [
+            {
+              "pattern": "\\S"
+            },
+            {
+              "pattern": "^[^\\r\\n\\u2028\\u2029]*$"
+            }
+          ],
+          "description": "The orders it is not for, and what to choose for them"
+        },
+        "bestUsed": {
+          "type": "string",
+          "maxLength": 300,
+          "allOf": [
+            {
+              "pattern": "\\S"
+            },
+            {
+              "pattern": "^[^\\r\\n\\u2028\\u2029]*$"
+            }
+          ],
+          "description": "How it is best used"
+        }
+      },
+      "required": [
+        "chooseWhen",
+        "notWhen",
+        "bestUsed"
+      ],
+      "additionalProperties": false,
+      "description": "What a model choosing a recipe reads beside its description; required for every recipe offered as a choice, each one line of at most 300 characters (ADR 0375)"
+    },
     "match": {
       "not": {}
     },

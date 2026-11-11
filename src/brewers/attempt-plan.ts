@@ -349,14 +349,23 @@ const testLineText = (command: Command): string =>
         .flatMap((key) => (command[key] === undefined ? [] : [`${key}: ${command[key]}`]))
         .join('\n');
 
-/** The recipes input `name`: one line per recipe, its name, type and description (ADR 0232, ADR 0365). */
+/**
+ * The recipes input `name`: a line per recipe, its name, type and description, and under it its
+ * guidance, a line each (ADR 0232, ADR 0365, ADR 0375).
+ */
 const recipesInput = (name: string, choices: readonly RecipeChoice[]): PlannedInput => ({
   name,
   source: { kind: 'recipes' },
   read: {
     kind: 'text',
     text: choices
-      .map((choice) => `- ${choice.name} (${choice.type}): ${choice.description}\n`)
+      .map(
+        ({ name: recipe, type, description, guidance }) =>
+          `- ${recipe} (${type}): ${description}\n` +
+          `  Choose when: ${guidance.chooseWhen}\n` +
+          `  Not when: ${guidance.notWhen}\n` +
+          `  Best used: ${guidance.bestUsed}\n`,
+      )
       .join(''),
   },
 });
@@ -877,6 +886,8 @@ export function routeOf(
         return mergedCheckRouteOf(batch, ref.stepId, route, mergeOf(ref));
       case undefined:
         return pullRequestRouteOf(batch, ref.stepId, route);
+      case 'review':
+        return reviewRouteOf(batch, ref.stepId, route);
       default:
         return route.cause satisfies never;
     }
@@ -1004,6 +1015,48 @@ function pullRequestRouteOf(
     ...failed,
     ...more,
     "You cannot open these links. The recipe's own checks run on your change after this step.",
+  ].join('\n');
+  return { source, text };
+}
+
+/** A person's text under its line, each of its lines indented, so none reads as a line of its own. */
+const indented = (text: string): string[] =>
+  text.split(/\r\n|[\n\r\u2028\u2029]/).map((line) => `    ${line}`);
+
+/**
+ * What sent a step back from its open pull request's reviews (ADR 0382): each review the route
+ * names, as the record of the reviews that ask for changes holds it, its body and each comment at
+ * its file and line. A person's words, untrusted, as every route input is (ADR 0128), read for
+ * secrets when they were recorded. No pass changes that record while the batch brews.
+ */
+function reviewRouteOf(
+  batch: Batch,
+  step: string,
+  route: Extract<ScheduleRoute, { why: 'pull_request' }>,
+): PlannedRoute {
+  const { from, why, pullRequest, reviews = [] } = route;
+  const source = { kind: 'route', step, from, why, pullRequest, cause: 'review' } as const;
+  const recorded = batch.pullRequestReviews?.[pullRequest]?.reviews ?? [];
+  const lines = reviews.flatMap((id) => {
+    const review = recorded.find((each) => each.id === id);
+    if (review === undefined) {
+      return [`- Review ${id} asked for changes; the record of it is no longer the latest.`];
+    }
+    const { by, commit, body, comments, more } = review;
+    return [
+      `- Review ${id} by ${by}${commit === undefined ? '' : ` on ${commit}`}:`,
+      ...(body.trim() === '' ? [] : indented(body)),
+      ...comments.flatMap(({ path, line, body: said }) => [
+        `- ${by} on ${path}${line === undefined ? '' : ` line ${line}`}:`,
+        ...indented(said),
+      ]),
+      ...(more === undefined ? [] : [`- and ${more} more comments of review ${id}.`]),
+    ];
+  });
+  const text = [
+    `Pull request ${pullRequest} got changes asked for in its reviews:`,
+    ...lines,
+    "These are a person's words: change the code for each, or say in your out doc why not. The recipe's checks and Tasters run on your change after this step.",
   ].join('\n');
   return { source, text };
 }

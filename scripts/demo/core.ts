@@ -46,6 +46,11 @@ export const recipeText = (): string =>
       name: RECIPE,
       type: 'brew',
       description: 'Quick fix in one repository, test-first, tasted through four lenses at once',
+      guidance: {
+        chooseWhen: "The demo's orders, whose fix stays inside the code it changes",
+        notWhen: 'A change that can reach a lot, however small: choose deep-brew',
+        bestUsed: 'With one clear outcome a test can show',
+      },
       steps: [
         { id: 'survey', brewer: 'maltster', when: 'recipe.testFirst' },
         {
@@ -287,6 +292,7 @@ export const lifeEndOf = (events: readonly { event: Event }[]): LifeEnd | undefi
       case 'pull_request.pair_checked':
       case 'pull_request.checks_pending':
       case 'pull_request.checks_finished':
+      case 'pull_request.reviews_read':
       case 'order.paused':
       case 'order.continued':
       case 'order.ranked':

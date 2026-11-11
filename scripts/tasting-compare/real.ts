@@ -252,6 +252,11 @@ export const realRecipeText = (setup: RealSetup): string => {
     name,
     type: 'brew',
     description,
+    guidance: {
+      chooseWhen: 'A brewed head, tasted again to compare setups',
+      notWhen: 'Any new order',
+      bestUsed: 'Through node scripts/tasting-compare.ts --real',
+    },
     testFirst: false,
     steps: [
       { id: 'gauge', brewer: 'gauger', when: 'recipe.testFirst' },

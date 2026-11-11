@@ -11,8 +11,18 @@ import { recipeChoiceOutDocOf } from '../../src/schemas/recipe-choice.ts';
 import { outDoc } from '../helpers/fake-brewer-runner.ts';
 
 const choices = [
-  { name: 'nip', type: 'brew' as const, description: 'Quick fix in one repository, test-first' },
-  { name: 'mash', type: 'mash' as const, description: 'A quick plan' },
+  {
+    name: 'nip',
+    type: 'brew' as const,
+    description: 'Quick fix in one repository, test-first',
+    guidance: { chooseWhen: 'A clear fix', notWhen: 'A wide reach', bestUsed: 'With one outcome' },
+  },
+  {
+    name: 'mash',
+    type: 'mash' as const,
+    description: 'A quick plan',
+    guidance: { chooseWhen: 'A broad order', notWhen: 'A clear fix', bestUsed: 'Before nip' },
+  },
 ];
 const innkeeperFields = {
   name: 'innkeeper',
@@ -136,7 +146,11 @@ describe('inputsOf: the recipes a step may offer (ADR 0232)', () => {
       source: { kind: 'recipes' },
       read: {
         kind: 'text',
-        text: '- nip (brew): Quick fix in one repository, test-first\n- mash (mash): A quick plan\n',
+        text:
+          '- nip (brew): Quick fix in one repository, test-first\n' +
+          '  Choose when: A clear fix\n  Not when: A wide reach\n  Best used: With one outcome\n' +
+          '- mash (mash): A quick plan\n' +
+          '  Choose when: A broad order\n  Not when: A clear fix\n  Best used: Before nip\n',
       },
     });
   });

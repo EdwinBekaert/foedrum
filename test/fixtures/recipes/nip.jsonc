@@ -4,6 +4,11 @@
   "name": "nip",
   "type": "brew",
   "description": "Quick fix in one repository",
+  "guidance": {
+    "chooseWhen": "An order a test brews",
+    "notWhen": "An order no test brews",
+    "bestUsed": "In a test"
+  },
   "steps": [
     { "id": "gauge", "brewer": "gauger", "when": "recipe.testFirst" },
     {

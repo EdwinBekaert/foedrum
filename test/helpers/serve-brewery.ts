@@ -5,6 +5,7 @@
 import { resolve } from 'node:path';
 import { diagnose } from '../../src/cli/doctor.ts';
 import type { ServeInputs } from '../../src/cli/serve-config.ts';
+import { testGuidance } from './brewery-files.ts';
 import { linux } from './doctor-facts.ts';
 
 export const root = resolve('brewery');
@@ -36,6 +37,7 @@ export const recipe = JSON.stringify({
   name: 'stout',
   type: 'brew',
   description: 'Brews an order in one step and opens its pull request.',
+  guidance: testGuidance,
   steps: [{ id: 'brew', brewer: 'cellarman' }, { action: 'openPullRequest' }],
   testFirst: false,
 });
@@ -45,6 +47,7 @@ export const porter = JSON.stringify({
   name: 'porter',
   type: 'brew',
   description: 'Brews an order and reads its tests.',
+  guidance: testGuidance,
   steps: [
     { id: 'brew', brewer: 'cellarman' },
     { id: 'green', check: 'test', onFail: { goto: 'brew', maxRounds: 1 } },
