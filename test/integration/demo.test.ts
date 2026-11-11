@@ -98,7 +98,7 @@ describe('npm run demo', () => {
       `headings at ${at.join(', ')}:\n${result.stdout}`,
     );
     // The first Cellar shows status as the batch moves, up to the Gauger's attempt the kill takes.
-    assert.match(part('brewing'), /brewing +gauge #1 started/);
+    assert.match(part('brewing'), /Running +step gauge$/m);
     // The restart shows that it found the lost attempt: lost because the killed Cellar stopped, in
     // plain words without its owner or a UTC time (#277), and brewed again.
     assert.match(
@@ -108,14 +108,14 @@ describe('npm run demo', () => {
     assert.equal(result.stdout.split(LOST_LINE).length, 2, 'the lost attempt is said once');
     // The cause before the effect: the lost attempt, then the status that shows its retry (#277).
     const restart = part('restart');
-    const retried = restart.search(/brewing +gauge #2 started/);
+    const retried = restart.search(/Running +step gauge \(try 2\)$/m);
     assert.ok(retried >= 0, restart);
     assert.ok(restart.indexOf(LOST_LINE) < retried, restart);
     // The red proof reads the Gauger's test red, the first fix fails green, and the Cellarman's
     // second attempt is told why, with the failed test's own line.
     const checks = part('checks');
-    assert.match(checks, /brewing +red #1 started/);
-    assert.match(checks, /brewing +green #1 started.*brewing +implement #2 started/s);
+    assert.match(checks, /Running +step red$/m);
+    assert.match(checks, /Running +step green$.*Running +step implement \(try 2\)$/ms);
     assert.match(
       checks,
       /demo: implement #2 is told why step implement runs again: the failed checks of step green\n +not ok \d+ - greets a stranger when no name is given/,
@@ -137,10 +137,10 @@ describe('npm run demo', () => {
       /^demo: pull request #\d+ on demo\/web: /,
       statusComment,
     );
-    assert.match(statusComment, /On tap/);
+    assert.match(statusComment, /Waiting for you: review and merge the pull request/);
     assert.match(
       statusComment,
-      /^ +Path: `survey` ✅ → `survey-check` ✅ → `gauge`.*\n +→ `implement (try 2)`.*\n +→ `implement (try 3)`/m,
+      /^ +Path: `survey` ✅ → `survey-check` ✅ → `gauge`.*\n +→ `implement \(try 2\)`.*\n +→ `implement \(try 3\)`/m,
     );
     assert.equal(
       statusComment.match(/^ +- <https:\/\/github\.com\/demo\/web\/pull\/\d+>/gm)?.length,
@@ -153,7 +153,7 @@ describe('npm run demo', () => {
     // On tap: foedrum status shows the batch there, with its pull request.
     assert.match(
       part('on-tap'),
-      /\$ foedrum status\n.*on tap +https:\/\/github\.com\/demo\/web\/pull\/\d+/s,
+      /\$ foedrum status\n.*Waiting for you: review and merge the pull request +https:\/\/github\.com\/demo\/web\/pull\/\d+/s,
     );
     // foedrum lenses, through the real loader: correctness's finding the round it blocked
     // recorded, fixed; a lens of Nip's the demo's recipe never runs, with no rounds (ADR 0221).
@@ -179,9 +179,16 @@ describe('npm run demo', () => {
     assert.ok(brew.includes(`$ foedrum brew ${BREW_ORDER.number} --as ${USER}\n`), brew);
     assert.match(brew, /foedrum brew: ordered #2$/m);
     assert.match(brew, /foedrum brew: routed #2 to the recipe nip-parallel$/m);
-    assert.match(brew, /foedrum brew: #2 is on tap: https:\/\/github\.com\/demo\/web\/pull\/\d+/);
+    assert.match(
+      brew,
+      /foedrum brew: #2 is waiting for you: review and merge the pull request: https:\/\/github\.com\/demo\/web\/pull\/\d+/,
+    );
     // Once (#662).
-    assert.doesNotMatch(brew, /#2 on tap/);
+    assert.equal(
+      brew.split('#2 is waiting for you: review and merge the pull request').length,
+      2,
+      brew,
+    );
     // foedrum resume names the Cellarman's attempt and prints its line, opening nothing.
     assert.match(
       part('resume'),
@@ -192,7 +199,10 @@ describe('npm run demo', () => {
     assert.match(replay, /Batch 1-1, issue/);
     assert.match(replay, /Events +\d+, left out here: foedrum replay 1 lists them/);
     assert.doesNotMatch(replay, /batch\.on_tap/);
-    assert.match(replay, /lane +on tap/);
+    assert.match(
+      replay,
+      /state +Waiting for you: review and merge the pull request: https:\/\/github\.com\/demo\/web\/pull\/\d+/,
+    );
 
     // One pull request and one status comment per order, across both lives of the Cellar.
     const host = await codeHost(fileJournal(join(scratch, 'code-host.jsonl')));
@@ -205,7 +215,7 @@ describe('npm run demo', () => {
       const comments = host.comments(BREWERY, order.number);
       assert.equal(comments.length, 1, JSON.stringify(comments));
       // Its last revision shows the batch on tap, with the pull request.
-      assert.match(comments[0]?.body ?? '', /On tap/);
+      assert.match(comments[0]?.body ?? '', /Waiting for you: review and merge the pull request/);
     }
     assert.ok(
       host.comments(BREWERY, ORDER.number)[0]?.body.includes(`/demo/web/pull/${pulls[0]?.number}>`),
@@ -283,7 +293,7 @@ describe('npm run demo', () => {
     // While they brewed, foedrum status showed the four of them at once.
     assert.match(
       part('checks'),
-      /brewing +correctness #1 started, security #1 started, test-design #1 started, design-conformance #1 started/,
+      /Running +step correctness, step security, step test-design, step design-conformance$/m,
     );
     // Correctness's finding sends the batch back to implement, with its out doc as the route
     // input (ADR 0128), and round 2 is told the change since round 1 and that finding marked
@@ -307,7 +317,7 @@ describe('npm run demo', () => {
     );
     assert.match(
       part('checks'),
-      /brewing +correctness #2 started, security #2 started, test-design #2 started, design-conformance #2 started/,
+      /Running +step correctness \(try 2\), step security \(try 2\), step test-design \(try 2\), step design-conformance \(try 2\)$/m,
     );
     // The status comment's path has both rounds, the four lenses side by side in each and a line
     // where the batch went back to implement (#662), and each failed attempt with why (#656); every
@@ -316,10 +326,13 @@ describe('npm run demo', () => {
     assert.match(comment, /Recipe \*\*nip-parallel\*\*/);
     assert.match(
       comment,
-      /`gauge` ❌ the attempt was lost → .*`green` ❌ the check "test" failed, 1 test failing\n→ .*`green (try 2)` ✅ → `correctness` ❌ blocked \(findings\) → `security` ❌ blocked \(findings\) → `test-design` ❌ blocked \(findings\) → `design-conformance` ❌ blocked \(findings\)\n→ `implement (try 3)` ✅ → `fine (try 3)` ✅ → `green (try 3)` ✅ → `correctness (try 2)` ✅ → `security (try 2)` ✅ → `test-design (try 2)` ✅ → `design-conformance (try 2)` ✅ → `mutants` ✅ → `open-pull-request` ✅/,
+      /`gauge` ❌ the attempt was lost → .*`green` ❌ the check "test" failed, 1 test failing\n→ .*`green \(try 2\)` ✅ → `correctness` ❌ blocked \(findings\) → `security` ❌ blocked \(findings\) → `test-design` ❌ blocked \(findings\) → `design-conformance` ❌ blocked \(findings\)\n→ `implement \(try 3\)` ✅ → `fine \(try 3\)` ✅ → `green \(try 3\)` ✅ → `correctness \(try 2\)` ✅ → `security \(try 2\)` ✅ → `test-design \(try 2\)` ✅ → `design-conformance \(try 2\)` ✅ → `mutants` ✅ → `open-pull-request` ✅/,
     );
     for (const lens of ['security', 'test-design', 'design-conformance']) {
-      assert.doesNotMatch(comment, new RegExp(`^- \`${lens}\`: minor in `, 'm'));
+      assert.doesNotMatch(
+        comment,
+        new RegExp(`^- \`${lens}\`: [^\\n]*\\(([^)\\n]*, )?minor in `, 'm'),
+      );
     }
     // Brett's mutants ran in scratch trees: the one no test reaches survived, listed with its edit
     // under Findings, and the other was killed (ADR 0319).
@@ -368,7 +381,10 @@ describe('npm run demo', () => {
     const mash = part('mash');
     assert.ok(mash.includes('$ foedrum mash 3 --as ann\n'), mash);
     assert.match(mash, /foedrum mash: routed #3 to the recipe mash-in$/m);
-    assert.match(mash, /foedrum mash: #3 needs input at innkeep:$/m);
+    assert.match(
+      mash,
+      /foedrum mash: #3 is waiting for you: answer a question: step innkeep asks:$/m,
+    );
     assert.match(
       mash,
       /foedrum mash: {3}1\. Which recipe brews #3\? [^\n]*\(mash, nip-parallel; recommended: mash\)$/m,
@@ -380,12 +396,15 @@ describe('npm run demo', () => {
     assert.ok(mash.includes('$ foedrum answer 3 mash\n'), mash);
     assert.match(
       mash,
-      /foedrum brew: #3 is stuck: the plan of plan #2 is ready for your review; [^\n]*the plan: https:\/\/github\.com\/demo\/brewery\/issues\/3#issuecomment-\d+$/m,
+      /foedrum brew: #3 is waiting for you: approve the plan: the plan from step plan \(try 2\) is ready for you to read; [^\n]*the plan: https:\/\/github\.com\/demo\/brewery\/issues\/3#issuecomment-\d+$/m,
     );
     const stuck = mash.slice(mash.indexOf('$ foedrum stuck\n'));
     assert.ok(stuck.startsWith('$ foedrum stuck\n'), mash);
-    assert.match(stuck, /^ +3-1 +[^\n]*the plan of plan #2 is ready for your review(?:;|$)/m);
-    assert.match(stuck, /^ {4}next: \S/m);
+    assert.match(
+      stuck,
+      /^ +3-1 +[^\n]*the plan from step plan \(try 2\) is ready for you to read(?:;|$)/m,
+    );
+    assert.match(stuck, /^ {4}Next: \S/m);
   });
 
   it('step 12 prints the plan comment with the link to the full plan, the table, the flowchart and the Next line', () => {
@@ -408,7 +427,7 @@ describe('npm run demo', () => {
     assert.notEqual(planUrl, statusUrl);
     assert.ok(
       mash.includes(
-        `🔔 **Stuck**: the plan of \`plan\` #2 is ready for your review: [plan comment](<${planUrl}>)`,
+        `🔔 **Waiting for you: approve the plan**: the plan from step plan (try 2) is ready for you to read: [plan comment](<${planUrl}>)`,
       ),
       mash,
     );
@@ -419,9 +438,9 @@ describe('npm run demo', () => {
     // With the reason the answer recorded (ADR 0355).
     assert.match(
       mash,
-      /^ +Recipe \*\*mash\*\*, chosen by ann \(terminal\): the answer at innkeep: mash, /m,
+      /^ +Recipe \*\*mash\*\* \(the steps this batch, Foedrum's run on this issue, takes\), chosen by ann from a terminal: the answer at innkeep: mash, /m,
     );
-    assert.match(mash, /`innkeep`: asked a question, answered by ann \(terminal\): mash$/m);
+    assert.match(mash, /`innkeep`: asked a question, answered by ann from a terminal: mash$/m);
   });
 
   it("step 12 shows the three plan lenses after the plan, and the naive reader's note sending it back once (ADR 0321, ADR 0354)", () => {
@@ -470,7 +489,7 @@ describe('npm run demo', () => {
     );
     // Step 3 shows the survey's session as status sees it, and the status comment names the map's
     // module, which green did not measure.
-    assert.match(part('brewing'), /brewing +survey #1 started/);
+    assert.match(part('brewing'), /Running +step survey$/m);
     assert.match(part('pull-request'), /not measured, coverage none: greet/);
   });
 

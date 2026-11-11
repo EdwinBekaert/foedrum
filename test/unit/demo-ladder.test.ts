@@ -579,7 +579,10 @@ describe('ladderBrewers', () => {
 });
 
 describe('ladderTick', () => {
-  const ended = { kind: 'ended', line: 'demo: #2 is on tap' } as const;
+  const ended = {
+    kind: 'ended',
+    line: 'demo: #2 waits for you to review and merge its pull request',
+  } as const;
 
   it('waits while the life brews, quiet or not', () => {
     assert.equal(ladderTick({ kind: 'brewing' }, true), 'wait');

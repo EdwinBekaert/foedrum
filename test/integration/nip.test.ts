@@ -255,7 +255,7 @@ const assertBrewed = async ({ output, events, api, run }: Brewed, scratch: strin
   );
   const comments = api.comments.get(`${BREWERY}#${NIP_ORDER.number}`) ?? [];
   assert.equal(comments.length, 1, JSON.stringify(comments));
-  assert.match(comments[0]?.body ?? '', /On tap/);
+  assert.match(comments[0]?.body ?? '', /Waiting for you: review and merge the pull request/);
 
   // The bottle branch: the Maltster's test map, the Gauger's test, then the Cellarman's two fixes.
   assert.equal(pull?.base, 'main');

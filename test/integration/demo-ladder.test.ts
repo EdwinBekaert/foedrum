@@ -151,12 +151,14 @@ describe('npm run demo -- ladder', () => {
     };
     const lines: Record<string, RegExp[]> = {
       plan: [
-        /demo: #1 waits Stuck for the review of its plan/,
-        /Recipe \*\*mash\*\*, chosen by its label/,
-        /`plan #1` ✅ → `coverage #1` ✅ → `sizing #1` ✅ → `naive-reader #1` ✅/,
+        /demo: #1 waits for you to approve its plan/,
+        /Recipe \*\*mash\*\* \(the steps this batch, Foedrum's run on this issue, takes\), chosen by its label/,
+        /`plan` ✅ → `coverage` ✅ → `sizing` ✅ → `naive-reader` ✅/,
         /\| `bump`:\s.* \| `ladder` \| `greet` \(release\) \| yes \|/,
       ],
-      approve: [/\$ foedrum approve 1\n +#1 on tap: plan approved by ann via terminal/],
+      approve: [
+        /\$ foedrum approve 1\n +#1 is queued: its sub-orders are being opened: plan approved by ann from a terminal/,
+      ],
       'sub-issues': [
         /sub-issue #3 of #1: .*\n +labels: foedrum:sub-order, recipe:ladder\n +blocked by: #2\n/,
       ],
@@ -177,7 +179,10 @@ describe('npm run demo -- ladder', () => {
       web: [/demo: pull request #\d+ on demo\/web: /],
       siblings: [/demo: the body of demo\/lib#\d+ starts:\n +## Pull requests of this order/],
       merge: [/demo: ann merges demo\/web#\d+ into main as [0-9a-f]{7}/],
-      done: [/\*\*Done\*\*: every sub-order merged/, /merged, released as v1\.4\.0/],
+      done: [
+        /\*\*Done: merged\*\*: the plan was approved by ann from a terminal; its sub-issues: #2, #3/,
+        /merged, released as v1\.4\.0/,
+      ],
       closed: [
         /demo\/brewery#1 is closed/,
         /Every sub-order merged: demo\/lib#\d+, demo\/web#\d+\./,
@@ -217,11 +222,11 @@ describe('npm run demo -- ladder', () => {
     assert.deepStrictEqual(new Set(lines).size, 1, lines.join('\n'));
     assert.match(
       lines[0] ?? '',
-      /, or end it with `foedrum cancel 1`\. Its other option: `recipe`\.$/,
+      /, brew the issue with another recipe with `foedrum recipe 1 <recipe> <reason>`, or end it with `foedrum cancel 1`\.$/,
     );
   });
 
-  it("the ladder shows each issue's label and Next line at the plan review and once a sub-order is on tap (#777)", () => {
+  it("the ladder shows each issue's label and Next line at the plan review and once a sub-order waits for its review (#777)", () => {
     assert.equal(result.exitCode, 0, result.output);
     const standing = (issue: number, label: string, next: string): RegExp =>
       new RegExp(
@@ -231,11 +236,7 @@ describe('npm run demo -- ladder', () => {
     assert.match(stdout, standing(1, 'foedrum:approve-plan', 'read the plan'));
     assert.match(
       stdout,
-      standing(
-        1,
-        'foedrum:review-and-merge',
-        'nothing to do; the sub-orders brew \\(#2, #3\\), and each pull request comes to you on tap\\.',
-      ),
+      standing(1, 'foedrum:review-and-merge', 'see #2, whose own comment says what to do\\.'),
     );
     assert.match(
       stdout,

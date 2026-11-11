@@ -135,24 +135,24 @@ Commands:
   serve                                                   Run the Cellar: brew the Brewery's batches until Ctrl+C
   doctor                                                  Check the tools Foedrum needs and the isolation level
   init [--<question> <answer>]... [--no-input]            Set up a Brewery from a few questions, each answerable by its option, then run doctor
-  status [<order>] [--watch]                              List the batches and their lanes, or an order's with its planning and brewing tokens
+  status [<order>] [--watch]                              List the batches and what each is, or an order's with its planning and brewing tokens
   stuck                                                   List the batches that wait for you, with their questions and what to do next
-  brewers                                                 Report each brewer's attempts, outcomes, Stuck batches and tokens
+  brewers                                                 Report each brewer's attempts, outcomes, the batches waiting for you and tokens
   lenses                                                  Report each lens's findings, how they ended, and its tokens
   handover <issue>                                        List what a batch's brewers handed over, each line a proposal a model wrote
   replay <issue>                                          Show a batch's events and its folded state
   resume <issue> [<step>]                                 Open a brewer attempt's Claude Code session in its worktree; take a running batch over
-  retry <issue>                                           Give the step a Stuck batch stopped at another attempt
-  skip <issue>                                            Go on after the step a Stuck batch stopped at
-  answer <issue> <answers>...                             Answer a Stuck batch's questions, one answer each, in order
-  approve <issue>                                         Sign off the plan a Stuck batch waits with a review of; the batch goes on tap
-  lauter <issue> [--as <name>]                            Correct the plan a Stuck batch waits with a review of, with the Brewmaster in a session
+  retry <issue>                                           Try again the step a batch waiting for you stopped at
+  skip <issue>                                            Go past the step a batch waiting for you stopped at
+  answer <issue> <answers>...                             Answer the questions a batch waits for, one answer each, in order
+  approve <issue>                                         Approve the plan a batch waits for you to review; its sub-orders are opened
+  lauter <issue> [--as <name>]                            Correct the plan a batch waits for you to review, with the Brewmaster in a session
   recipe <target> <recipe> <reason>                       Brew a batch, or an issue's latest, with another recipe from its first step; an ended issue is ordered again
-  rewind <issue> <step> <commits>...                      Take a Stuck batch back to a step, each repository at its commit
+  rewind <issue> <step> <commits>...                      Take a batch waiting for you back to a step, each repository at its commit
   cancel <issue>                                          Cancel a batch
   pause [<order>] [--by <time>] [--why <reason>] [--all]  Pause an order, or all with --all: nothing new starts; --by stops what runs
   continue [<order>] [--all]                              Lift the pause of an order, or every pause with --all
-  stop <order> [--why <reason>]                           Stop an order now: what runs of it is killed, and its batches are Stuck until retry
+  stop <order> [--why <reason>]                           Stop an order now: what runs of it is killed, and its batches wait for you until retry
   order <issue>                                           Order an issue, or an ended one again: <alias>#<n> of a target repository, #<n> of the Brewery
   brew <issue> [--as <name>] [--take] [--new-window]      Brew an issue's batch here until it is done or waits for you
   mash <issue> [--as <name>] [--take] [--override]        Ask which recipe brews a Brewery issue, with a suggestion and its reason

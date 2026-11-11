@@ -219,9 +219,9 @@ describe('problemsOf', () => {
   const comment = [{ author: 'cellar-bot', body: 'On tap' }];
   // The mashed order's two lives: foedrum mash to the Innkeeper's question, then foedrum brew to the
   // plan, Stuck for review; and its status comment and plan comment.
-  const mashed = 'foedrum mash: #3 needs input at innkeep:\n';
+  const mashed = 'foedrum mash: #3 is waiting for you: answer a question: step innkeep asks:\n';
   const planned =
-    'foedrum brew: #3 is stuck: the plan of plan #2 is ready for your review; options: retry\n';
+    'foedrum brew: #3 is waiting for you: approve the plan: the plan from step plan (try 2) is ready for you to read\n';
   const statusComment = { author: 'cellar-bot', body: '### Foedrum · batch `3-1`\n\nStuck' };
   const planComment = { author: 'cellar-bot', body: `${PLAN_HEADING} \`3-1\`` };
   const run = (fields: Partial<DemoRun> = {}): DemoRun => ({
