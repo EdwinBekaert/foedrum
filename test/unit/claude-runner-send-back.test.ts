@@ -91,6 +91,10 @@ const setup = (
     /** The out docs claude leaves, one per start. */
     outDocs?: string[];
     withChecks?: boolean;
+    /** What the second start of claude plays; default resumed.jsonl. */
+    resumed?: string[];
+    /** Runs while a check runs, before it answers. */
+    whileChecking?: () => void;
   } = {},
 ) => {
   const starts: { args: readonly string[]; options: StreamOptions }[] = [];
@@ -102,7 +106,8 @@ const setup = (
     plan: async () => options.plan ?? plan(),
     stream: async (_file, args, streamOptions) => {
       starts.push({ args, options: streamOptions });
-      for (const line of plays[Math.min(starts.length, plays.length) - 1] ?? []) {
+      const played = [plays[0], options.resumed ?? plays[1]];
+      for (const line of played[Math.min(starts.length, played.length) - 1] ?? []) {
         streamOptions.onLine(line);
       }
       return clean;
@@ -128,6 +133,17 @@ const setup = (
       : {
           checks: async (command: string, _args: readonly string[], execOptions?: ExecOptions) => {
             checked.push({ command, options: execOptions });
+            options.whileChecking?.();
+            if (execOptions?.signal?.aborted === true) {
+              const stopped: ExecResult = {
+                exitCode: null,
+                stdout: '',
+                stderr: '',
+                output: '',
+                killed: 'stopped',
+              };
+              return stopped;
+            }
             const fails = failing(command);
             const output = fails ? `src/a.ts:3 ${command} found a problem\n` : '';
             const result: ExecResult = {
@@ -217,5 +233,57 @@ describe('claudeBrewerRunner: the checks before the end (ADR 0381)', () => {
     assert.equal(twice.session?.sessionId, sessionId);
     assert.equal(twice.receipt?.resumed, true);
     assert.ok((twice.receipt?.turns ?? 0) > (once.receipt?.turns ?? 0));
+  });
+  it('runs no checks for a plan without them, nor without a process runner for them', async () => {
+    const { sendBack: _, ...withoutChecks } = plan();
+    const without = setup({ plan: withoutChecks, failing: () => true });
+    await without.runner.start(attempt).ended;
+    assert.equal(without.starts.length, 1);
+    assert.deepEqual(without.checked, []);
+    const unwired = setup({ withChecks: false });
+    assert.equal((await unwired.runner.start(attempt).ended).ending.kind, 'succeeded');
+    assert.equal(unwired.starts.length, 1);
+  });
+
+  it('runs no checks when the session did not end done', async () => {
+    const question = { q: 'Which flag?', options: ['a', 'b'], recommended: 'a', whyBlocking: 'x' };
+    const asked = outDoc({ status: 'needs_input', summary: 'Which flag?', questions: [question] });
+    const { starts, checked, runner } = setup({ failing: () => true, outDocs: [asked] });
+    await runner.start(attempt).ended;
+    assert.equal(starts.length, 1);
+    assert.deepEqual(checked, []);
+  });
+
+  it('cancels an attempt stopped while its checks run, and starts claude no more', async () => {
+    let stop = (): void => {};
+    const { starts, runner } = setup({ failing: () => true, whileChecking: () => stop() });
+    const running = runner.start(attempt);
+    stop = running.stop;
+    const end = await running.ended;
+    assert.equal(end.ending.kind, 'cancelled');
+    assert.equal(starts.length, 1);
+  });
+
+  it('keeps the first end when the session it sends back to does not resume', async () => {
+    const { starts, runner } = setup({
+      failing: () => true,
+      resumed: fixture('resume-not-found.jsonl'),
+    });
+    const end = await runner.start(attempt).ended;
+    assert.equal(starts.length, 2);
+    assert.deepEqual(end.ending, {
+      kind: 'succeeded',
+      output: { status: 'done', summary: 'Implemented', assumptions: [] },
+    });
+    assert.equal(end.receipt?.resumed, undefined);
+  });
+
+  it('runs lint whole when git could not list the changed files', async () => {
+    const { checked, runner } = setup({ changed: { kind: 'unlisted', reason: 'git failed' } });
+    await runner.start(attempt).ended;
+    assert.deepEqual(
+      checked.map(({ command }) => command),
+      ['tsc', 'biome lint', 'node --test "test/a.test.ts"'],
+    );
   });
 });

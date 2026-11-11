@@ -4,12 +4,14 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
+  afterSendBack,
   type SendBackCheck,
   sendBackChecks,
   sendBackLines,
   sendBackMessage,
 } from '../../src/brewers/send-back.ts';
 import type { RepositoryChecks } from '../../src/checks/gravity.ts';
+import type { Receipt } from '../../src/schemas/events.ts';
 
 const all: SendBackCheck[] = [
   { check: 'build', command: 'npm run build', files: false },
@@ -132,5 +134,81 @@ describe('sendBackMessage (ADR 0381)', () => {
       tail: 'spawn ENOENT',
     });
     assert.match(unstarted, /build \(`npm run build`\) could not start/);
+  });
+});
+
+describe('afterSendBack (ADR 0381)', () => {
+  const facts = (turns: number, deniedTools: string[], outputTokens?: number) => ({
+    denials: deniedTools.length,
+    deniedTools,
+    turns,
+    lines: 10,
+    ...(outputTokens === undefined
+      ? {}
+      : { usage: { inputTokens: 1, outputTokens, cacheReadTokens: 2, cacheWriteTokens: 3 } }),
+  });
+  const receipt = (turns: number, denied: Receipt['denied'], durationMs?: number): Receipt => ({
+    complete: true,
+    turns,
+    edits: 1,
+    toolErrors: 0,
+    denied,
+    ...(durationMs === undefined ? {} : { durationMs }),
+  });
+
+  it("adds both runs' counts, each denied tool once in the order first denied, and keeps the resumed run's session figures", () => {
+    const both = afterSendBack(
+      {
+        facts: facts(3, ['Bash'], 5),
+        receipt: receipt(3, [{ tool: 'Bash', count: 1, refused: ['npm'] }], 1000),
+      },
+      {
+        facts: facts(2, ['WebFetch', 'Bash'], 7),
+        receipt: {
+          ...receipt(
+            2,
+            [
+              { tool: 'WebFetch', count: 2, refused: [] },
+              { tool: 'Bash', count: 2, refused: ['npm', 'git push'] },
+            ],
+            500,
+          ),
+          resumed: true,
+          apiDurationMs: 9000,
+        },
+      },
+    );
+    assert.deepEqual(both.facts.deniedTools, ['Bash', 'WebFetch']);
+    assert.equal(both.facts.denials, 3);
+    assert.equal(both.facts.turns, 5);
+    assert.equal(both.facts.lines, 20);
+    assert.deepEqual(both.facts.usage, {
+      inputTokens: 2,
+      outputTokens: 12,
+      cacheReadTokens: 4,
+      cacheWriteTokens: 6,
+    });
+    assert.deepEqual(both.receipt, {
+      complete: true,
+      turns: 5,
+      edits: 2,
+      toolErrors: 0,
+      durationMs: 1500,
+      resumed: true,
+      apiDurationMs: 9000,
+      denied: [
+        { tool: 'Bash', count: 3, refused: ['npm', 'git push'] },
+        { tool: 'WebFetch', count: 2, refused: [] },
+      ],
+    });
+  });
+
+  it("keeps one run's usage when the other has none, and no duration when one has none", () => {
+    const both = afterSendBack(
+      { facts: facts(1, []), receipt: receipt(1, []) },
+      { facts: facts(1, [], 7), receipt: receipt(1, [], 500) },
+    );
+    assert.equal(both.facts.usage?.outputTokens, 7);
+    assert.equal(both.receipt.durationMs, undefined);
   });
 });
