@@ -74,6 +74,8 @@ export const batchOf = (event: Event): string | undefined => {
     case 'step.rescheduled':
     case 'order.approved':
       return event.batchId;
+    case 'batch.archived':
+      throw new Error('not implemented');
     default: {
       const unhandled: never = event;
       throw new Error(`Unhandled event ${JSON.stringify(unhandled)}`);

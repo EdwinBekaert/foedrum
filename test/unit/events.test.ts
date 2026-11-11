@@ -172,6 +172,13 @@ const valid: Record<Event['type'], Event> = {
     since: '2026-10-15T12:00:00.000Z',
   },
   'batch.recovered': { type: 'batch.recovered', batchId: 'b1' },
+  'batch.archived': {
+    type: 'batch.archived',
+    batchId: 'b1',
+    order: { issue: 7, repo: 'acme/web' },
+    breweryIssue: 41,
+    ended: 'merged',
+  },
   'batch.taken_over': {
     type: 'batch.taken_over',
     batchId: 'b1',
@@ -915,6 +922,13 @@ describe('StuckReason', () => {
       since: '2026-10-15T12:00:00Z',
     },
     routing: { kind: 'routing', deadlineAt: '2026-10-15T12:00:00Z' },
+    reopened: {
+      kind: 'reopened',
+      ended: { kind: 'on_tap', pullRequests: ['https://github.com/acme/web/pull/3'] },
+      pass: 'effects',
+      summary: 'The code host refused the comment',
+      since: '2026-10-15T12:00:00Z',
+    },
     plan_review: { kind: 'plan_review', stepId: 'plan', attempt: 2 },
     stopped: { kind: 'stopped', stepId: 'brew', by: 'ada', via: 'terminal', why: 'lunch' },
     order_changed: {

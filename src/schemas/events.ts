@@ -520,6 +520,20 @@ export const OrderChange = z.discriminatedUnion('what', [
 ]);
 export type OrderChange = z.infer<typeof OrderChange>;
 
+/** How a batch ended (ADR 0380): its lane then, which a retry of its reopen returns it to. */
+export const EndedLane = z.discriminatedUnion('kind', [
+  z.strictObject({ kind: z.literal('on_tap'), pullRequests: z.array(PullRequestUrl) }),
+  z.strictObject({ kind: z.literal('cancelled'), by: NonEmpty, via: Surface }),
+]);
+export type EndedLane = z.infer<typeof EndedLane>;
+
+/**
+ * How an archived batch ended (ADR 0380): cancelled, its pull requests all merged, one of them
+ * closed without merging, or with none, its issue closed by the engine.
+ */
+export const ArchivedEnd = z.enum(['cancelled', 'merged', 'closed', 'issue_closed']);
+export type ArchivedEnd = z.infer<typeof ArchivedEnd>;
+
 export const StuckReason = z.discriminatedUnion('kind', [
   z.strictObject({
     kind: z.literal('needs_input'),
@@ -602,6 +616,15 @@ export const StuckReason = z.discriminatedUnion('kind', [
     changes: z.array(OrderChange).min(1).max(MOST_ORDER_CHANGES),
     more: Count,
     upTo: Timestamp,
+  }),
+  // A batch that had ended and whose passes then failed for an hour (ADR 0380): `ended` is the
+  // lane a retry returns it to, whose effects run again. An older Foedrum cannot read it.
+  z.strictObject({
+    kind: z.literal('reopened'),
+    ended: EndedLane,
+    pass: FailingPass,
+    summary: FailingSummary,
+    since: Timestamp,
   }),
   // A person stopped the batch's order (ADR 0205): `stepId` is the step a retry schedules again.
   z.strictObject({
@@ -965,6 +988,19 @@ export const Event = z.discriminatedUnion('type', [
   }),
   // A tick's passes went over the batch that carried the mark clean (ADR 0335).
   z.strictObject({ type: z.literal('batch.recovered'), batchId: BatchId }),
+  // A cleanup moved a finished batch's folder to `archive/` (ADR 0380): what its issue still
+  // needs of it, in the top-level log, since its own log moves with it. An older Foedrum cannot
+  // read this event.
+  z.strictObject({
+    type: z.literal('batch.archived'),
+    batchId: BatchId,
+    order: OrderRef,
+    /** The Brewery issue that was its order's, when it had one. */
+    breweryIssue: IssueNumber.optional(),
+    /** The plan comment its order showed, which a later batch of the order edits. */
+    planComment: z.int().positive().optional(),
+    ended: ArchivedEnd,
+  }),
   // A person handed the batch from the driver `from` to the driver `to` (ADR 0124). `until`: when
   // `from`'s lease would have expired, before which no driver applies an effect of the batch.
   z.strictObject({

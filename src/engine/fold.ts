@@ -607,7 +607,15 @@ export interface State {
   usageWindows: UsageWindows;
   /** Each repository's latest system map entry, by lower-case `owner/name`, and its base commit (ADR 0317). */
   systemMap: ReadonlyMap<string, { commit: string; entry: SystemMapEntry }>;
+  /**
+   * The batches a cleanup archived, by id, in the order it did (ADR 0380): what the later batches of
+   * their issues read of them. Their own events are not folded in once archived.
+   */
+  archived: ReadonlyMap<string, ArchivedBatch>;
 }
+
+/** What the fold keeps of an archived batch: its `batch.archived` event but its type. */
+export type ArchivedBatch = Omit<Extract<Event, { type: 'batch.archived' }>, 'type'>;
 
 export const emptyState: State = {
   orders: new Map(),
@@ -621,6 +629,7 @@ export const emptyState: State = {
   ranks: new Map(),
   usageWindows: {},
   systemMap: new Map(),
+  archived: new Map(),
 };
 
 /** The key of an order's pause: its repository in lower case (GitHub's are case-insensitive), and its issue. */
@@ -1217,6 +1226,8 @@ function apply(state: State, event: Event): State {
     }
     case 'order.approved':
       return updateBatch(state, event.batchId, (batch) => ({ ...batch, approvedUpTo: event.upTo }));
+    case 'batch.archived':
+      throw new Error('not implemented');
     default:
       return unreachable(event);
   }

@@ -143,6 +143,7 @@ export type RecordedEvent = Extract<
       | 'release.observed'
       | 'system.mapped'
       | 'batch.recovered'
+      | 'batch.archived'
       | 'pull_request.ended'
       | 'pull_request.base_checked'
       | 'pull_request.pair_checked'
@@ -328,6 +329,8 @@ export function stuckOptions(reason: StuckReason): StuckOption[] {
     // The one question: continue with the issue as it is, or stop (ADR 0368).
     case 'order_changed':
       return ['answer', 'cancel'];
+    case 'reopened':
+      throw new Error('not implemented');
     default: {
       const unhandled: never = reason;
       throw new Error(`Unhandled stuck reason ${JSON.stringify(unhandled)}`);
@@ -564,6 +567,7 @@ function run(draft: Draft, command: Command): Event[] {
         schedule(draft, batchId, planStep(draft, batchId, reason.stepId));
         break;
       }
+      if (reason.kind === 'reopened') throw new Error('not implemented');
       schedule(draft, batchId, reason.stepId, { retry: true });
       resumeGroup(draft, batchId, reason.stepId);
       break;
@@ -572,6 +576,7 @@ function run(draft: Draft, command: Command): Event[] {
       const { batchId, by, via } = command;
       const { reason } = stuckLane(draft.batch(batchId), 'skip');
       if (reason.kind === 'routing') throw new Refusal(`batch ${batchId} has no step to skip`);
+      if (reason.kind === 'reopened') throw new Error('not implemented');
       draft.push({ type: 'batch.resumed', batchId, by, via, action: 'skip' });
       // A skip of a child skips the rest of its group (ADR 0168).
       const group = recipeOf(draft, draft.batch(batchId)).group(reason.stepId);

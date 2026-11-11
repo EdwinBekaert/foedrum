@@ -294,6 +294,11 @@ describe('logPathOf', () => {
       'batches/b1/events.jsonl',
     ],
     'batch.recovered': [{ type: 'batch.recovered', batchId: 'b1' }, 'batches/b1/events.jsonl'],
+    // Its own log moves to archive/ with it, so it stays where the rebuild reads (ADR 0380).
+    'batch.archived': [
+      { type: 'batch.archived', batchId: 'b1', order: { issue: 6 }, ended: 'cancelled' },
+      'events.jsonl',
+    ],
     'batch.taken_over': [
       {
         type: 'batch.taken_over',

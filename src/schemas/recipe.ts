@@ -186,7 +186,7 @@ const GateStep = z.strictObject({ id: StepId, gate: z.literal('human'), when, de
 
 const ActionStep = z.strictObject({
   id: StepId.optional().describe('Defaults to the action name in kebab case'),
-  action: z.enum(['openPullRequest', 'comment', 'label', 'blend']),
+  action: z.enum(['openPullRequest', 'comment', 'label', 'blend', 'archive', 'sweep']),
   when,
   onPullRequestFail: Route.optional().describe(
     'openPullRequest only: where a failing check on the open pull request sends the batch, and how often (ADR 0219)',
@@ -333,9 +333,10 @@ function misplaced(kind: Reference['kind'], from: Place, to: Place): string | un
 
 /**
  * What kind of work a recipe does (ADR 0365): `mash` chooses a recipe or makes a plan and builds
- * nothing, `brew` builds. A type arrives with the first recipe that uses it.
+ * nothing, `brew` builds, `tend` keeps the Brewery and is offered to no step, so only its label
+ * starts it (ADR 0380). A type arrives with the first recipe that uses it.
  */
-export const RecipeType = z.enum(['mash', 'brew']);
+export const RecipeType = z.enum(['mash', 'brew', 'tend']);
 export type RecipeType = z.infer<typeof RecipeType>;
 
 const RecipeFields = z.strictObject({

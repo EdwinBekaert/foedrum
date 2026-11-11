@@ -5,13 +5,14 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { afterEach, beforeEach, describe, it } from 'node:test';
+import { archivedOf } from '../../src/engine/archive.ts';
 import { effectMarker } from '../../src/engine/claim-effects.ts';
 import { type CommandLog, createCommandLog } from '../../src/engine/command-log.ts';
 import type { Ending } from '../../src/engine/decide.ts';
 import { type Driver, openDriver } from '../../src/engine/driver.ts';
 import { effectKey } from '../../src/engine/effect-key.ts';
 import type { EventStore } from '../../src/engine/event-store.ts';
-import { fold } from '../../src/engine/fold.ts';
+import { fold, foldedBatch } from '../../src/engine/fold.ts';
 import {
   planCommentOf,
   planEffects,
@@ -989,6 +990,21 @@ describe('planEffects (ADR 0233)', () => {
     order('7-2');
     step('plan', planned(second), '7-2');
     assert.equal(planCommentOf(log.state(), '7-2'), 1);
+  });
+
+  it("a later batch of an archived batch's order edits the plan comment the archived batch made (ADR 0380)", async () => {
+    order();
+    step('plan', planned(three));
+    const driver = await open();
+    await driver.applyEffects();
+    issue({ kind: 'cancel', batchId: '7-1', by: 'ada', via: 'terminal' });
+    const ended = log.state();
+    issue({ kind: 'record', event: archivedOf(ended, foldedBatch(ended, '7-1')) });
+    order('7-2');
+    step('plan', planned(second), '7-2');
+    await driver.applyEffects();
+    assert.equal(planCommentOf(log.state(), '7-2'), 1);
+    assert.ok(only().body.startsWith(renderPlan('7-2', 'plan', second)), only().body);
   });
 
   it('names no comment for a batch without a plan, though its order has one: regression test (#656)', async () => {

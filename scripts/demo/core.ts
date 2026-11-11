@@ -296,6 +296,7 @@ export const lifeEndOf = (events: readonly { event: Event }[]): LifeEnd | undefi
       case 'usage.window_closed':
       case 'usage.window_opened':
       case 'order.approved':
+      case 'batch.archived':
         break;
       default:
         event satisfies never;
