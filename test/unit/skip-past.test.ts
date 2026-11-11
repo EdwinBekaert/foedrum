@@ -484,7 +484,7 @@ describe('a status comment once its batch ended', () => {
     assert.doesNotMatch(batch.comment(), /Next: review and merge/);
   });
 
-  it('shows a failing mark, and its recovery, on a merged batch: regression test', async () => {
+  it('shows the reopen of a merged batch whose passes fail, and its retry: regression test (ADR 0380)', async () => {
     const batch = await brewed({ implement: [cellar], correctness: [approve], ...others(1) });
     batch.merge();
     await batch.settle();
@@ -502,6 +502,10 @@ describe('a status comment once its batch ended', () => {
       },
       clock(),
     );
+    await batch.settle();
+    assert.equal(batch.writes.length, before + 1);
+    assert.match(batch.comment(), /it had ended, and then the effects pass failed for an hour/);
+    batch.log.issue({ kind: 'retry', batchId: 'b1', by: 'ada', via: 'terminal' }, clock());
     await batch.settle();
     assert.equal(batch.writes.length, before + 2);
     assert.doesNotMatch(batch.comment(), /will not close/);
