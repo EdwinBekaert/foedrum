@@ -582,6 +582,14 @@ describe('loadRecipes: a test-first recipe needs a red proof (ADR 0028, ADR 0064
     assert.equal(result.checks.redProof('elsewhere'), undefined);
   });
 
+  it("finds a renamed recipe's checks and red proof by its old name, decoction (ADR 0372): regression test", () => {
+    const result = loadRecipes(withWriters(opened('deep-mash', testFirst)));
+    assert.ok(result.valid, result.valid ? '' : result.problems.join('\n'));
+    assert.deepEqual(result.checks.find('decoction', 'red'), ['test']);
+    assert.equal(result.checks.proves('decoction', 'red'), 'gauge');
+    assert.deepEqual(result.checks.redProof('decoction'), { id: 'red', of: 'gauge' });
+  });
+
   it('runs a step whose when is a bare recipe.testFirst in a test-first recipe (review of #184)', () => {
     const result = loadRecipes(withWriters(opened('pale', testFirst)));
     assert.ok(result.valid, result.valid ? '' : result.problems.join('\n'));
