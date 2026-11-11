@@ -305,7 +305,7 @@ describe('preExistingIssueEffects (ADR 0356)', () => {
     const body = brewery.issues[0]?.body ?? '';
     assert.doesNotMatch(body, /ghp_/);
     assert.match(body, /\\\[left out: a text of step implement that looks like a secret\\\]/);
-    assert.match(body, /Ping &#64;alice about &lt;b&gt;this&lt;\/b&gt; loop/);
+    assert.match(body, /Ping `@alice` about &lt;b&gt;this&lt;\/b&gt; loop/);
   });
 
   it('opens none for a batch whose status comment showed its end before this record', async () => {

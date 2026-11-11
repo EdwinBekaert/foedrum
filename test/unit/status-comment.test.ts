@@ -160,7 +160,7 @@ describe('renderStatus', () => {
       via: 'terminal',
       why: '@team <b>stop</b>\nnow',
     });
-    assert.match(text, /: &#64;team &lt;b&gt;stop&lt;\/b&gt; now\. Nothing new starts/);
+    assert.match(text, /: `@team` &lt;b&gt;stop&lt;\/b&gt; now\. Nothing new starts/);
   });
 
   it('names the batch, and says a batch queued for a recipe has no recipe chosen yet', () => {
@@ -975,7 +975,7 @@ describe('renderStatus', () => {
     } as const;
     assert.match(
       renderStatus(batch({ recipe }), steps),
-      /^Recipe \*\*nip\*\*, chosen by bob \(terminal\): a small fix, see &#64;carol &lt;b&gt;now&lt;\/b&gt;$/m,
+      /^Recipe \*\*nip\*\*, chosen by bob \(terminal\): a small fix, see `@carol` &lt;b&gt;now&lt;\/b&gt;$/m,
     );
   });
 
@@ -1075,7 +1075,7 @@ describe('renderStatus', () => {
       steps,
     );
     const line = text.split('\n').find((each) => each.startsWith('- `plan`: '));
-    assert.equal(line, '- `plan`: \\[a\\](b) \\`c\\` \\#d \\|e \\~f \\!g \\_h');
+    assert.equal(line, '- `plan`: \\[a\\](b) \\`c\\` \\#d \\|e \\~f !g \\_h');
   });
 
   it("shows a step's assumptions from its latest attempt that succeeded, though a later one failed", () => {
@@ -1094,7 +1094,7 @@ describe('renderStatus', () => {
     );
     assert.ok(text.length <= 60_000, `${text.length} characters`);
     assert.match(text, /\n\n… the rest is cut: GitHub keeps comments shorter\.$/);
-    assert.match(text, /^- ❌ `s\d+`: failed: (&#64;)+…\n\n…/m, 'the last line kept is whole');
+    assert.match(text, /^- ❌ `s\d+`: failed: @+…\n\n…/m, 'the last line kept is whole');
   });
 
   it('says so when a batch on tap has no pull request, and points at the plan only when an attempt succeeded with one (ADR 0234)', () => {
@@ -1157,7 +1157,7 @@ describe('renderStatus', () => {
       [{ kind: 'routing', deadlineAt: at }, /no recipe was chosen by 18 Oct 09:00 UTC$/],
       [
         { kind: 'stopped', stepId: 'brew', by: 'ada', via: 'terminal', why: '@bob <b>lunch</b>' },
-        /step `brew` was stopped by ada from a terminal: &#64;bob &lt;b&gt;lunch&lt;\/b&gt;$/,
+        /step `brew` was stopped by ada from a terminal: `@bob` &lt;b&gt;lunch&lt;\/b&gt;$/,
       ],
       [
         { kind: 'stopped', stepId: 'brew', by: 'ada', via: 'plugin' },
@@ -1180,7 +1180,7 @@ describe('renderStatus', () => {
           ],
           more: 3,
         },
-        /: <https:\/\/github\.com\/acme\/api\/pull\/12> failed its checks on `c{8}` after 2 rounds of fixes by step `open-pull-request`: ci \/ test \(failure\) <https:\/\/github\.com\/acme\/api\/actions\/runs\/1\/job\/2>, &#64;bob &lt;b&gt;deploy&lt;\/b&gt; \(error\), and 3 more$/,
+        /: <https:\/\/github\.com\/acme\/api\/pull\/12> failed its checks on `c{8}` after 2 rounds of fixes by step `open-pull-request`: ci \/ test \(failure\) <https:\/\/github\.com\/acme\/api\/actions\/runs\/1\/job\/2>, `@bob` &lt;b&gt;deploy&lt;\/b&gt; \(error\), and 3 more$/,
       ],
       [
         {
@@ -1234,7 +1234,7 @@ describe('renderStatus', () => {
         .find((line) => line.startsWith('- `plan`: ')) ?? '';
     assert.equal(
       shown('@alice <b>x</b> **bold** a\\b & c'),
-      '- `plan`: &#64;alice &lt;b&gt;x&lt;/b&gt; \\*\\*bold\\*\\* a\\\\b &amp; c',
+      '- `plan`: `@alice` &lt;b&gt;x&lt;/b&gt; \\*\\*bold\\*\\* a\\\\b &amp; c',
     );
     assert.equal(shown('x'.repeat(400)), `- \`plan\`: ${'x'.repeat(199)}…`);
     assert.equal(shown('x'.repeat(200)), `- \`plan\`: ${'x'.repeat(200)}`);
@@ -2551,7 +2551,7 @@ describe('renderStatus: the sensitive paths the change touches (ADR 0201)', () =
           files: ['src/auth/<b>@alice_*x*.ts', long],
         }),
       ) ?? assert.fail('no line');
-    assert.ok(line.includes('src/auth/&lt;b&gt;&#64;alice\\_\\*x\\*.ts, '), line);
+    assert.ok(line.includes('src/auth/&lt;b&gt;`@alice_`\\*x\\*.ts, '), line);
     assert.doesNotMatch(line, /a{300}/);
     assert.match(line, /a…$/);
   });
@@ -3263,7 +3263,7 @@ describe('renderStatus: a plan that waits for its review (#658)', () => {
     assert.deepEqual(section(text).slice(1, 5), [
       '- `plan`: Use v1.2 of the API.',
       '- `plan`: Is it safe?',
-      '- `plan`: Stop\\!',
+      '- `plan`: Stop!',
       '- `plan`: No end',
     ]);
   });
@@ -3375,7 +3375,7 @@ describe('renderStatus: a plan that waits for its review (#658)', () => {
   it('escapes the text of a labelled link: regression test (#778)', () => {
     assert.equal(
       labelled('a]b *c* @d', 'https://github.example/x'),
-      '[a\\]b \\*c\\* &#64;d](<https://github.example/x>)',
+      '[a\\]b \\*c\\* `@d`](<https://github.example/x>)',
     );
   });
 
@@ -3396,7 +3396,7 @@ describe('renderStatus: a plan that waits for its review (#658)', () => {
         steps: new Map([step('plan', planned(1, ['Use [x](<y>) *now* @alice.']))]),
       }),
     );
-    assert.equal(section(text)[1], '- `plan`: Use \\[x\\](&lt;y&gt;) \\*now\\* &#64;alice.');
+    assert.equal(section(text)[1], '- `plan`: Use \\[x\\](&lt;y&gt;) \\*now\\* `@alice`.');
   });
 });
 

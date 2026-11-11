@@ -121,7 +121,7 @@ describe('renderStatus: the tests a Gauger named (ADR 0342)', () => {
     const text = render(events);
     assert.doesNotMatch(text, /ghp|A1b2/);
     const [line] = text.split('\n').filter((each) => each.includes('Not proven:'));
-    assert.ok(line?.endsWith('adds \\*\\*forged\\*\\* &#64;someone line'), line);
+    assert.ok(line?.endsWith('adds \\*\\*forged\\*\\* `@someone` line'), line);
     assert.ok(!text.includes('\n**forged'), text);
   });
 });

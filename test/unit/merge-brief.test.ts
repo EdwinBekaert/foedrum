@@ -681,7 +681,7 @@ describe('the merge brief (ADR 0225)', () => {
       const body = await brief();
       assert.match(
         body,
-        /failed with exit code 1, 1 test failing: greets &#64;someone with &lt;img src=x&gt;,/,
+        /failed with exit code 1, 1 test failing: greets `@someone` with &lt;img src=x&gt;,/,
       );
       assert.doesNotMatch(body, /@someone|<img/);
     });
@@ -1216,10 +1216,7 @@ describe('the merge brief (ADR 0225)', () => {
       const { host, comments } = fakeHost('Fix @ann <!-- x --> **now**');
       await post(effectsOf(host));
       const title = comments[0]?.body.split('\n')[0] ?? '';
-      assert.equal(
-        title,
-        '### Merge? Fix &#64;ann &lt;\\!-- x --&gt; \\*\\*now\\*\\* @ `aaaaaaaa`',
-      );
+      assert.equal(title, '### Merge? Fix `@ann` &lt;!-- x --&gt; \\*\\*now\\*\\* @ `aaaaaaaa`');
     });
 
     it('names the lens of the finding each disposition answered, from the blocked round', async () => {

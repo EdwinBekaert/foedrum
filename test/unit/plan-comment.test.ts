@@ -390,7 +390,7 @@ describe('renderPlan (ADR 0233)', () => {
       subOrders: [subOrder('api', { title: 'Say "hi" #1\n@alice ```end' }), subOrder('ui')],
     };
     const text = renderPlan('7-1', 'plan', odd);
-    assert.match(text, /\| `api`: Say "hi" \\#1 &#64;alice \\`\\`\\`end \|/);
+    assert.match(text, /\| `api`: Say "hi" \\#1 `@alice` \\`\\`\\`end \|/);
     assert.match(text, /\n {2}s1\["api: Say #quot;hi#quot; #35;1 @alice #96;#96;#96;end"\]\n/);
     // The graph's block ends only where Foedrum ends it.
     assert.equal(text.split('```').length, 3);
