@@ -355,6 +355,13 @@ export const openStateBranch = (options: StateBranchOptions): StateBranch => {
     const outDocs = store.keptOutDocs();
     // Out docs alone are pushed too: one kept after its events were pushed waits for no event.
     if (pending.length === 0 && outDocs.length === 0) return { kind: 'unchanged' };
+    // A flush cut after the archive's move, whose events the marker does not hold yet, puts the
+    // folder back first, so the batch's log is read whole and moved again (ADR 0380).
+    for (const batchId of archivedIn(pending)) {
+      const kept = onDisk(batchFolder(batchId));
+      const moved = onDisk(archiveFolder(batchId));
+      if (!existsSync(kept) && existsSync(moved)) await replaceFile(moved, kept);
+    }
     const through = pending.at(-1)?.id ?? from;
     const paths = new Set(pending.map((stored) => logPathOf(stored.event)));
     if (checkAll) for (const path of await logFiles()) paths.add(path);
@@ -364,8 +371,7 @@ export const openStateBranch = (options: StateBranchOptions): StateBranch => {
     for (const file of planFlush(current, pending, from, outDocs)) {
       await write(file.path, file.text);
     }
-    // A batch archived moves out of batches/ after its own last lines are written (ADR 0380); a
-    // flush a crash cut after the move finds it moved already.
+    // A batch archived moves out of batches/ after its own last lines are written (ADR 0380).
     for (const batchId of archivedIn(pending)) {
       const from = onDisk(batchFolder(batchId));
       if (!existsSync(from)) continue;
