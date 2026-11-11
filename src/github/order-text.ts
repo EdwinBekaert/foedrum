@@ -4,6 +4,7 @@
 
 import { isMarkedComment } from '../engine/claim-effects.ts';
 import { same } from '../engine/issue-claims.ts';
+import type { Approval } from '../engine/order-changes.ts';
 import { GitHubIssue, GitHubOrderComment } from '../schemas/github.ts';
 import type { z } from '../schemas/zod.ts';
 import { checked, GitHubRefusal, refused, repoPath } from './answers.ts';
@@ -13,6 +14,11 @@ import { type GitHubReads, pageSize } from './reads.ts';
 export interface OrderIssue {
   issue: number;
   repo?: string;
+  /**
+   * For a claimed issue, its approval (ADR 0373), null when it has none: its comments are those it
+   * approved, whoever wrote them. Without it, a maintainer's by association (ADR 0333).
+   */
+  approved?: Approval | null;
 }
 
 /** Reads an order's issue in its repository, or in `brewery` for a Brewery issue. */

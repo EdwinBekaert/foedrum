@@ -17,6 +17,7 @@ import { claimOrderOf } from '../engine/claim-orders.ts';
 import { earlierSectionsInput } from '../engine/earlier-sections.ts';
 import { attemptRecipeOf, type Batch, roundRouteOf, type State } from '../engine/fold.ts';
 import { UNREADABLE_FRONTMATTER, withoutHandover } from '../engine/handover.ts';
+import type { Approval } from '../engine/order-changes.ts';
 import { planEntryText } from '../engine/plan-comment.ts';
 import type { PlanRepository } from '../engine/plan-touches.ts';
 import { MAX_INPUT_BYTES, type StepBrewer, type StepBrewers } from '../engine/recipe-files.ts';
@@ -139,6 +140,11 @@ export interface AttemptPlansOptions {
   orderText: (order: Extract<InputRead, { kind: 'order' }>) => Promise<string>;
   /** The maintainers' comments on an order's issues, oldest first, untrusted (ADR 0333). */
   orderComments: (issues: readonly OrderIssue[]) => Promise<readonly OrderComment[]>;
+  /**
+   * When a claimed order's issue was last approved (ADR 0368), whose comments then reach its
+   * brewers (ADR 0373); without it, none of that issue's comments do.
+   */
+  approval?: (batch: Batch) => Promise<Approval | undefined>;
   /**
    * Whether a resumed attempt opens as a person's session, which no prompt reaches: `foedrum resume`
    * of a running batch's (ADR 0127), which reads no comments (ADR 0338).
