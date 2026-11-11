@@ -19,10 +19,17 @@ const EDITS = `query($owner: String!, $name: String!, $number: Int!) {
   }
 }`;
 
-/** Reads the activity of `repo#issue` the order check compares with its approval. */
-export const githubOrderActivity =
-  (reads: GitHubReads, client: Pick<GitHubClient, 'graphql'>) =>
-  async (repo: string, issue: number, signal?: AbortSignal): Promise<OrderActivity> => {
+/**
+ * Reads the events of `repo#issue`, every page: when each label was added and by whom, and each
+ * change of its title, oldest first.
+ */
+export const githubOrderEvents =
+  (reads: GitHubReads) =>
+  async (
+    repo: string,
+    issue: number,
+    signal?: AbortSignal,
+  ): Promise<Pick<OrderActivity, 'labelled' | 'renamed'>> => {
     const path = `/repos/${repoPath(repo)}/issues/${issue}`;
     const happened = `the events of ${repo}#${issue}`;
     const events = (await reads.pages(`${path}/events?per_page=100`, happened, signal))
@@ -43,6 +50,15 @@ export const githubOrderActivity =
       return { label, by, at };
     });
     const renamed = timed('renamed').map(({ by, at }) => ({ by, at }));
+    return { labelled, renamed };
+  };
+
+/** Reads the activity of `repo#issue` the order check compares with its approval. */
+export const githubOrderActivity =
+  (reads: GitHubReads, client: Pick<GitHubClient, 'graphql'>) =>
+  async (repo: string, issue: number, signal?: AbortSignal): Promise<OrderActivity> => {
+    const path = `/repos/${repoPath(repo)}/issues/${issue}`;
+    const { labelled, renamed } = await githubOrderEvents(reads)(repo, issue, signal);
 
     const editing = `the edits of ${repo}#${issue}`;
     const [owner, name] = repo.split('/');
