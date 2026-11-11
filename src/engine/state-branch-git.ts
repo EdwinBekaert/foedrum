@@ -13,6 +13,9 @@ import { replaceFile } from '../platform/replace-file.ts';
 import type { Git, GitOptions } from '../workspace/git.ts';
 import type { EventStore } from './event-store.ts';
 import {
+  archivedIn,
+  archiveFolder,
+  batchFolder,
   classifyPush,
   commitMessage,
   decideStart,
@@ -359,6 +362,15 @@ export const openStateBranch = (options: StateBranchOptions): StateBranch => {
     );
     for (const file of planFlush(current, pending, from, outDocs)) {
       await write(file.path, file.text);
+    }
+    // A batch archived moves out of batches/ after its own last lines are written (ADR 0380); a
+    // flush a crash cut after the move finds it moved already.
+    for (const batchId of archivedIn(pending)) {
+      const from = onDisk(batchFolder(batchId));
+      if (!existsSync(from)) continue;
+      const to = onDisk(archiveFolder(batchId));
+      await mkdir(dirname(to), { recursive: true });
+      await replaceFile(from, to);
     }
     // The branch holds the same bytes on every machine, whatever core.autocrlf says.
     if (!existsSync(onDisk('.gitattributes'))) await write('.gitattributes', '* -text\n');

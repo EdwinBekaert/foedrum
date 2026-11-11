@@ -13,6 +13,7 @@ import {
   noCommitSha,
   type PushedThrough,
 } from '../schemas/store.ts';
+import { z } from '../schemas/zod.ts';
 import { effectKey } from './effect-key.ts';
 import type { LoggedEvent, StoredEvent } from './event-store.ts';
 import type { State } from './fold.ts';
@@ -92,8 +93,21 @@ const segment = (id: string, what: string): string => {
   return id;
 };
 
-const batchLog = (batchId: string): string =>
-  `batches/${segment(batchId, 'batch id')}/events.jsonl`;
+/** A batch's folder in `batches/`, and where its archive moves it (ADR 0380). */
+export const batchFolder = (batchId: string): string => `batches/${segment(batchId, 'batch id')}`;
+export const archiveFolder = (batchId: string): string => `archive/${segment(batchId, 'batch id')}`;
+
+const batchLog = (batchId: string): string => `${batchFolder(batchId)}/events.jsonl`;
+
+/** An archive's batch, read from a logged event that merging the logs checked already. */
+const ArchivedRef = z.object({ type: z.literal('batch.archived'), batchId: PathSafeId });
+
+/** The batches that `events` archive, whose folders a flush of them moves to `archive/` (ADR 0380). */
+export const archivedIn = (events: readonly { event: unknown }[]): string[] =>
+  events.flatMap(({ event }) => {
+    const archived = ArchivedRef.safeParse(event);
+    return archived.success ? [archived.data.batchId] : [];
+  });
 
 /** The log file an event belongs to: its batch's `events.jsonl`, or the top-level one. */
 export const logPathOf = (event: Event): string => {
@@ -308,7 +322,11 @@ export const planCatchUp = (
   local: readonly StoredEvent[],
 ): LoggedEvent[] => {
   const onBranch = new Map(branch.map((logged) => [logged.id, logged.event]));
+  // The events of a batch the branch archived left batches/ with its folder (ADR 0380).
+  const archived = new Set(archivedIn(branch));
   for (const { id, event } of local) {
+    const batchId = batchOf(event);
+    if (batchId !== undefined && archived.has(batchId) && !onBranch.has(id)) continue;
     if (!onBranch.has(id)) throw stop(`local event ${id} is not on the state branch`);
     if (!isDeepStrictEqual(onBranch.get(id), event)) {
       throw stop(`event ${id} on the state branch differs from local event ${id}`);
