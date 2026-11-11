@@ -193,7 +193,11 @@ describe('recipeLabelEffects (ADR 0232, ADR 0240)', () => {
     assert.deepEqual(effects.due(fold(back), '12-1'), [
       { batchId: '12-1', effect: 'recipe-label:nip#2' },
     ]);
-    // Only a person's choices count: a label's route of nip before them leaves the first its key.
+  });
+
+  it("counts only a person's choices toward the key, not a label's route: regression test (ADR 0374)", () => {
+    const effects = recipeLabelEffects({ brewery, host: fakeHost().host });
+    // A label's route of nip before the person's choice leaves that first choice its key.
     const routed: Event = { ...chose({}), reason: 'label', source: 'label' } as Event;
     assert.deepEqual(effects.due(fold([ordered, routed, chose()]), '12-1'), [key]);
   });
