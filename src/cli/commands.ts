@@ -5,6 +5,7 @@
 // append its events through the command log, recorded with who issued it and from where
 // (ADR 0025).
 
+import { archivedOfOrder } from '../engine/archive.ts';
 import { nextBatchId, targetBatchId } from '../engine/batch-id.ts';
 import { defaultLeaseMs, takeOver } from '../engine/batch-leases.ts';
 import {
@@ -464,7 +465,20 @@ const orderStatus = async (target: OrderTarget, context: CliContext): Promise<Cl
         state,
         target.alias === undefined ? { issue: target.issue } : order,
       );
-      if (batches.length === 0) return none;
+      if (batches.length === 0) {
+        // What the archive kept of its batches, once a cleanup took them all (ADR 0380).
+        const archived = archivedOfOrder(
+          state,
+          target.alias === undefined ? { breweryIssue: target.issue } : { order },
+        );
+        if (archived.length === 0) return none;
+        const name = givenName(target);
+        return done(
+          archived
+            .map(({ batchId, ended }) => `${name}: batch ${batchId} is archived (${ended})\n`)
+            .join(''),
+        );
+      }
       return done(formatOrderStatus(state, batches, interactiveOwners(store, context)));
     },
     none,

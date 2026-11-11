@@ -298,6 +298,11 @@ const targetOf = (
   step: string | undefined,
 ): Target | Running | Open | Refused => {
   const batch = state.batches.get(batchId);
+  if (batch === undefined && state.archived.has(batchId)) {
+    return {
+      refused: `batch ${batchId} is archived: it ended, and a cleanup moved it to archive/ on the state branch`,
+    };
+  }
   if (batch === undefined) return { refused: `no batch ${batchId} in the event store` };
   const at = step?.lastIndexOf('#') ?? -1;
   const stepId = at < 0 ? step : step?.slice(0, at);

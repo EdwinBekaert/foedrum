@@ -2,9 +2,10 @@
 // state branch, and the event that records each, which keeps what later batches of its issue still
 // read. Pure: everything is read from the folded state and the facts the driver gives.
 
-import type { ArchivedEnd, Event } from '../schemas/events.ts';
+import type { ArchivedEnd, Event, OrderRef } from '../schemas/events.ts';
 import { breweryIssueLeftBy } from './claim-orders.ts';
-import { type Batch, batchEnded, type State } from './fold.ts';
+import { type ArchivedBatch, type Batch, batchEnded, type State } from './fold.ts';
+import { same } from './issue-claims.ts';
 import { shownPlanComment } from './plan-comment.ts';
 
 /** What the cleanup reads beside the fold: work that the events alone do not show. */
@@ -59,6 +60,23 @@ const endOf = ({ lane, pullRequestEnds }: Batch): ArchivedEnd => {
     ? 'merged'
     : 'closed';
 };
+
+/**
+ * The archived batches of an order, in the order they were archived: by the Brewery issue that was
+ * their order, or by their own order (`<alias>#<n>` of a claimed issue).
+ */
+export const archivedOfOrder = (
+  state: State,
+  by: { breweryIssue: number } | { order: OrderRef },
+): ArchivedBatch[] =>
+  [...state.archived.values()].filter((archived) =>
+    'breweryIssue' in by
+      ? archived.breweryIssue === by.breweryIssue
+      : archived.order.issue === by.order.issue &&
+        (archived.order.repo === undefined
+          ? by.order.repo === undefined
+          : by.order.repo !== undefined && same(archived.order.repo, by.order.repo)),
+  );
 
 /** The event that archives `batch`, with what later batches of its issue read of it. */
 export const archivedOf = (state: State, batch: Batch): Archived => {
