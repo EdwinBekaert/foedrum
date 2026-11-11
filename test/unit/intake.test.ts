@@ -4,11 +4,13 @@
 
 import assert from 'node:assert/strict';
 import { afterEach, beforeEach, describe, it } from 'node:test';
+import { nextBatchId, targetBatchId } from '../../src/engine/batch-id.ts';
 import { claimEffects } from '../../src/engine/claim-effects.ts';
 import { type CommandLog, createCommandLog } from '../../src/engine/command-log.ts';
 import type { Ending } from '../../src/engine/decide.ts';
 import { effectKey } from '../../src/engine/effect-key.ts';
 import type { EventStore } from '../../src/engine/event-store.ts';
+import { emptyState } from '../../src/engine/fold.ts';
 import {
   createIntake,
   freeCapacity,
@@ -42,6 +44,9 @@ const web = 'acme/web';
 const api = 'acme/api';
 const pullRequest = 'https://github.com/acme/web/pull/12';
 const now = new Date('2026-10-16T09:00:00.000Z');
+// Batch ids carry the time they were ordered (ADR 0380): those the intake makes at `now`.
+const idOf = (alias: string, issue: number): string => targetBatchId(emptyState, alias, issue, now);
+const breweryIdOf = (issue: number): string => nextBatchId(emptyState, issue, now);
 const alice: Claimant = { brewery: 'alice/brewery', login: 'alice' };
 const bob: Claimant = { brewery: 'bob/brewery', login: 'bob' };
 const recipes = fakeRecipes({
@@ -148,23 +153,25 @@ describe('createIntake', () => {
   it('claims a labelled issue and orders it as <alias>-<issue>, with a routing deadline', async () => {
     const { tracker } = fakeTracker({ [web]: [issue(7)], [api]: [] });
     await intake(tracker).poll();
-    const batch = log.state().batches.get('web-7');
+    const batch = log.state().batches.get(idOf('web', 7));
     assert.deepStrictEqual(
       { repo: batch?.repo, issue: batch?.issue, lane: batch?.lane },
       { repo: web, issue: 7, lane: { kind: 'ordered', routeBy: '2026-10-16T10:00:00.000Z' } },
     );
     assert.equal(github.refs.get(`${web}#7`), record(alice.brewery, 7));
-    assert.deepStrictEqual(notices, [{ kind: 'ordered', repo: web, issue: 7, batchId: 'web-7' }]);
+    assert.deepStrictEqual(notices, [
+      { kind: 'ordered', repo: web, issue: 7, batchId: idOf('web', 7) },
+    ]);
   });
 
   it('orders the oldest candidates first, only up to the free capacity', async () => {
     // One Brewery batch already takes one of the three places.
-    accept({ kind: 'order', batchId: '1-1', order: { issue: 1 } });
+    accept({ kind: 'order', batchId: breweryIdOf(1), order: { issue: 1 } });
     const { tracker } = fakeTracker({ [web]: [issue(9), issue(3), issue(5)], [api]: [issue(2)] });
     await intake(tracker, { capacity: 3 }).poll();
     assert.deepStrictEqual(
       batches().map(({ id }) => id),
-      ['1-1', 'api-2', 'web-3'],
+      [breweryIdOf(1), idOf('api', 2), idOf('web', 3)],
     );
     assert.equal(github.refs.has(`${web}#9`), false, 'the rest stay unclaimed');
     assert.equal(github.refs.has(`${web}#5`), false);
@@ -175,12 +182,12 @@ describe('createIntake', () => {
     await intake(tracker, { capacity: 2 }).poll();
     assert.deepStrictEqual(
       batches().map(({ id }) => id),
-      ['api-2', 'api-3'],
+      [idOf('api', 2), idOf('api', 3)],
     );
   });
 
   it('lists no issues when it has no free capacity', async () => {
-    accept({ kind: 'order', batchId: '1-1', order: { issue: 1 } });
+    accept({ kind: 'order', batchId: breweryIdOf(1), order: { issue: 1 } });
     const { tracker, asked } = fakeTracker({ [web]: [issue(7)], [api]: [] });
     await intake(tracker, { capacity: 1 }).poll();
     assert.deepStrictEqual(asked, []);
@@ -193,11 +200,11 @@ describe('createIntake', () => {
     await intake(tracker, { capacity: 1 }).poll();
     assert.deepStrictEqual(
       batches().map(({ id }) => id),
-      ['web-4'],
+      [idOf('web', 4)],
     );
     assert.deepStrictEqual(notices, [
       { kind: 'taken', repo: web, issue: 3, by: bob.brewery },
-      { kind: 'ordered', repo: web, issue: 4, batchId: 'web-4' },
+      { kind: 'ordered', repo: web, issue: 4, batchId: idOf('web', 4) },
     ]);
   });
 
@@ -209,18 +216,18 @@ describe('createIntake', () => {
     await polling.poll();
     assert.deepStrictEqual(
       batches().map(({ id }) => id),
-      ['web-7'],
+      [idOf('web', 7)],
     );
   });
 
   it('never orders an issue with a batch here again, whatever its lane, nor one of another repository', async () => {
-    accept({ kind: 'order', batchId: 'web-7', order: { issue: 7, repo: 'Acme/Web' } });
-    accept({ kind: 'cancel', batchId: 'web-7', by: 'alice', via: 'terminal' });
+    accept({ kind: 'order', batchId: idOf('web', 7), order: { issue: 7, repo: 'Acme/Web' } });
+    accept({ kind: 'cancel', batchId: idOf('web', 7), by: 'alice', via: 'terminal' });
     const { tracker } = fakeTracker({ [web]: [issue(7)], [api]: [issue(7)] });
     await intake(tracker).poll();
     assert.deepStrictEqual(
       batches().map(({ id, lane }) => `${id} ${lane}`),
-      ['web-7 cancelled', 'api-7 ordered'],
+      [`${idOf('web', 7)} cancelled`, `${idOf('api', 7)} ordered`],
     );
   });
 
@@ -233,7 +240,7 @@ describe('createIntake', () => {
       await Promise.all([intake(tracker).poll(), bobs.poll()]);
       const ours = [...log.state().batches.keys()];
       const theirs = [...bobLog.state().batches.keys()];
-      assert.deepStrictEqual([...ours, ...theirs].sort(), ['web-7', 'web-8']);
+      assert.deepStrictEqual([...ours, ...theirs].sort(), [idOf('web', 7), idOf('web', 8)]);
     } finally {
       bobStore.close();
     }
@@ -276,7 +283,7 @@ describe('createIntake', () => {
       await polling.poll();
       assert.deepStrictEqual(
         batches().map(({ id }) => id),
-        ['web-7'],
+        [idOf('web', 7)],
       );
     });
 
@@ -326,7 +333,7 @@ describe('createIntake', () => {
     await Promise.all([polling.poll(), polling.poll()]);
     assert.deepStrictEqual(
       batches().map(({ id }) => id),
-      ['web-7'],
+      [idOf('web', 7)],
     );
   });
 
@@ -342,7 +349,7 @@ describe('createIntake', () => {
     await intake(tracker, { claims: failing }).poll();
     assert.deepStrictEqual(
       batches().map(({ id }) => id),
-      ['web-1', 'web-2', 'api-2'],
+      [idOf('web', 1), idOf('web', 2), idOf('api', 2)],
     );
     const failed = notices.find((notice) => notice.kind === 'failed');
     assert.equal(failed?.kind === 'failed' ? failed.what : '', `claiming ${web}#3`);
@@ -354,7 +361,7 @@ describe('createIntake', () => {
     await intake(tracker).poll();
     assert.deepStrictEqual(
       batches().map(({ id }) => id),
-      ['api-2'],
+      [idOf('api', 2)],
     );
     assert.equal(notices[0]?.kind, 'failed');
     assert.match(notices[0]?.kind === 'failed' ? String(notices[0].error) : '', /502 listing/);
@@ -372,7 +379,7 @@ describe('createIntake', () => {
         { [`${web}#7`]: added(['foedrum', 'bob']) },
       );
       await intake(tracker).poll();
-      assert.deepStrictEqual(ordered(), ['web-7']);
+      assert.deepStrictEqual(ordered(), [idOf('web', 7)]);
     });
 
     it('an issue opened by a user and labelled by someone else is not taken', async () => {
@@ -383,7 +390,7 @@ describe('createIntake', () => {
         { [`${web}#7`]: added(['foedrum', 'mallory']) },
       );
       await intake(tracker).poll();
-      assert.deepStrictEqual(ordered(), ['web-8']);
+      assert.deepStrictEqual(ordered(), [idOf('web', 8)]);
     });
 
     it('a label a user removed and a stranger added again is not taken', async () => {
@@ -397,7 +404,7 @@ describe('createIntake', () => {
         },
       );
       await intake(tracker).poll();
-      assert.deepStrictEqual(ordered(), ['web-8']);
+      assert.deepStrictEqual(ordered(), [idOf('web', 8)]);
     });
 
     it('an issue with two intake labels needs both set by users', async () => {
@@ -412,7 +419,7 @@ describe('createIntake', () => {
       );
       const both = [{ repo: web, alias: 'web', filter: { labels } }];
       await intake(tracker, { repositories: both }).poll();
-      assert.deepStrictEqual(ordered(), ['web-8']);
+      assert.deepStrictEqual(ordered(), [idOf('web', 8)]);
     });
 
     it("a read of an issue's events that fails takes nothing", async () => {
@@ -425,7 +432,7 @@ describe('createIntake', () => {
       const twice = intake(tracker);
       await twice.poll();
       await twice.poll();
-      assert.deepStrictEqual(ordered(), ['web-8']);
+      assert.deepStrictEqual(ordered(), [idOf('web', 8)]);
       // Said once, not at every pass.
       assert.deepStrictEqual(
         notices.filter(({ kind }) => kind === 'failed'),
@@ -485,11 +492,11 @@ describe('createIntake', () => {
         { [`${web}#7`]: added(['foedrum', 'alice'], ['foedrum', undefined]) },
       );
       await intake(tracker).poll();
-      assert.deepStrictEqual(ordered(), ['web-8']);
+      assert.deepStrictEqual(ordered(), [idOf('web', 8)]);
     });
 
     it('reads the events only of an issue that passes every other check', async () => {
-      accept({ kind: 'order', batchId: 'web-5', order: { issue: 5, repo: web } });
+      accept({ kind: 'order', batchId: idOf('web', 5), order: { issue: 5, repo: web } });
       const { tracker, asked } = fakeTracker({
         [web]: [
           issue(1, { state: 'closed' }),
@@ -506,7 +513,7 @@ describe('createIntake', () => {
         asked.filter((call) => call.startsWith('labels')),
         [`labels ${web}#7`],
       );
-      assert.deepStrictEqual(ordered(), ['web-5', 'web-7']);
+      assert.deepStrictEqual(ordered(), [idOf('web', 5), idOf('web', 7)]);
     });
 
     it('says once of an issue whose labels nobody in users added who did', async () => {
@@ -547,13 +554,19 @@ describe('createIntake', () => {
   describe('the end of a pull request', () => {
     /** web-7 on tap with `pullRequest`. */
     const onTap = (): void => {
-      accept({ kind: 'order', batchId: 'web-7', order: { issue: 7, repo: web } });
-      accept({ kind: 'route', batchId: 'web-7', recipe: 'half', reason: 'label', source: 'label' });
-      const ref = { batchId: 'web-7', stepId: 'plan', attempt: 1 };
+      accept({ kind: 'order', batchId: idOf('web', 7), order: { issue: 7, repo: web } });
+      accept({
+        kind: 'route',
+        batchId: idOf('web', 7),
+        recipe: 'half',
+        reason: 'label',
+        source: 'label',
+      });
+      const ref = { batchId: idOf('web', 7), stepId: 'plan', attempt: 1 };
       accept({ kind: 'record', event: { type: 'step.started', ...ref } });
       accept({ kind: 'finish', ...ref, ending: succeeded });
     };
-    const ends = () => log.state().batches.get('web-7')?.pullRequestEnds;
+    const ends = () => log.state().batches.get(idOf('web', 7))?.pullRequestEnds;
 
     for (const state of ['merged', 'closed'] as const) {
       it(`records a pull request of a claimed batch on tap that was ${state}, and asks no more`, async () => {
@@ -585,7 +598,7 @@ describe('createIntake', () => {
       const { tracker } = fakeTracker({ [web]: [issue(8)], [api]: [] });
       await intake(tracker).poll();
       assert.equal(ends(), undefined);
-      assert.ok(log.state().batches.has('web-8'));
+      assert.ok(log.state().batches.has(idOf('web', 8)));
       const failed = notices.filter((notice) => notice.kind === 'failed');
       assert.deepStrictEqual(
         failed.map((notice) => notice.what),
@@ -595,9 +608,15 @@ describe('createIntake', () => {
     });
 
     it("records the end of a Brewery issue's pull request too, and nothing else changes for it (ADR 0198)", async () => {
-      accept({ kind: 'order', batchId: '1-1', order: { issue: 1 } });
-      accept({ kind: 'route', batchId: '1-1', recipe: 'half', reason: 'label', source: 'label' });
-      const ref = { batchId: '1-1', stepId: 'plan', attempt: 1 };
+      accept({ kind: 'order', batchId: breweryIdOf(1), order: { issue: 1 } });
+      accept({
+        kind: 'route',
+        batchId: breweryIdOf(1),
+        recipe: 'half',
+        reason: 'label',
+        source: 'label',
+      });
+      const ref = { batchId: breweryIdOf(1), stepId: 'plan', attempt: 1 };
       accept({ kind: 'record', event: { type: 'step.started', ...ref } });
       accept({ kind: 'finish', ...ref, ending: succeeded });
       const { tracker } = fakeTracker({ [web]: [], [api]: [] }, { [pullRequest]: 'merged' });
@@ -607,41 +626,41 @@ describe('createIntake', () => {
         marks: github.marks('alice'),
         claims: github.host,
       });
-      assert.deepStrictEqual(marks.due(before, '1-1'), []);
+      assert.deepStrictEqual(marks.due(before, breweryIdOf(1)), []);
       await intake(tracker).poll();
-      const batch = log.state().batches.get('1-1');
+      const batch = log.state().batches.get(breweryIdOf(1));
       assert.deepStrictEqual(batch?.pullRequestEnds, { [pullRequest]: 'merged' });
       assert.equal(batch?.lane.kind, 'on_tap');
       // No release, no claim mark: those read only a claimed batch's ends (ADR 0043).
-      assert.deepStrictEqual(marks.due(log.state(), '1-1'), []);
+      assert.deepStrictEqual(marks.due(log.state(), breweryIdOf(1)), []);
       assert.equal(github.refs.size, 0);
     });
 
     it('records the end of a pull request whose batch is brewing a fix of it (ADR 0219)', async () => {
-      const [sentBack] = fixRound('1-1', firstHead, secondHead, 2, pullRequest);
+      const [sentBack] = fixRound(breweryIdOf(1), firstHead, secondHead, 2, pullRequest);
       store.replay([
-        ...openedOnTap('1-1', 'half', firstHead, pullRequest),
-        checksFinished('1-1', firstHead, undefined, pullRequest),
+        ...openedOnTap(breweryIdOf(1), 'half', firstHead, pullRequest),
+        checksFinished(breweryIdOf(1), firstHead, undefined, pullRequest),
         ...(sentBack === undefined ? [] : [sentBack]),
       ]);
       log = createCommandLog({ store, recipes });
       const { tracker } = fakeTracker({ [web]: [], [api]: [] }, { [pullRequest]: 'merged' });
       await intake(tracker).poll();
-      const batch = log.state().batches.get('1-1');
+      const batch = log.state().batches.get(breweryIdOf(1));
       assert.deepStrictEqual(batch?.pullRequestEnds, { [pullRequest]: 'merged' });
       assert.equal(batch?.lane.kind, 'brewing');
     });
 
     it('records the end of that pull request while the batch is Stuck in the fix too (ADR 0219)', async () => {
-      const [sentBack] = fixRound('1-1', firstHead, secondHead, 2, pullRequest);
+      const [sentBack] = fixRound(breweryIdOf(1), firstHead, secondHead, 2, pullRequest);
       assert.equal(sentBack?.type === 'step.scheduled' && sentBack.route?.why, 'pull_request');
       store.replay([
-        ...openedOnTap('1-1', 'half', firstHead, pullRequest),
-        checksFinished('1-1', firstHead, undefined, pullRequest),
+        ...openedOnTap(breweryIdOf(1), 'half', firstHead, pullRequest),
+        checksFinished(breweryIdOf(1), firstHead, undefined, pullRequest),
         ...(sentBack === undefined ? [] : [sentBack]),
         {
           type: 'batch.stuck',
-          batchId: '1-1',
+          batchId: breweryIdOf(1),
           reason: { kind: 'deadline_passed', stepId: 'plan', deadlineAt: now.toISOString() },
           options: ['retry', 'skip', 'recipe', 'rewind', 'cancel'],
           remindAt: now.toISOString(),
@@ -650,7 +669,7 @@ describe('createIntake', () => {
       log = createCommandLog({ store, recipes });
       const { tracker } = fakeTracker({ [web]: [], [api]: [] }, { [pullRequest]: 'closed' });
       await intake(tracker).poll();
-      const batch = log.state().batches.get('1-1');
+      const batch = log.state().batches.get(breweryIdOf(1));
       assert.deepStrictEqual(batch?.pullRequestEnds, { [pullRequest]: 'closed' });
       assert.equal(batch?.lane.kind, 'stuck');
     });
@@ -658,8 +677,11 @@ describe('createIntake', () => {
     it('checks the open pull requests against their bases after it records the ends (ADR 0198)', async () => {
       onTap();
       for (const [key, result] of [
-        [pushKey('web-7'), { branch: 'foedrum/x/acme.web', commit: 'a'.repeat(40), from: 'start' }],
-        [pullRequestKey('web-7'), pullRequest],
+        [
+          pushKey(idOf('web', 7)),
+          { branch: 'foedrum/x/acme.web', commit: 'a'.repeat(40), from: 'start' },
+        ],
+        [pullRequestKey(idOf('web', 7)), pullRequest],
       ] as const) {
         accept({
           kind: 'record',
@@ -690,7 +712,7 @@ describe('createIntake', () => {
       const polling = intake(tracker, { bases });
       await polling.poll();
       assert.deepStrictEqual(calls, ['tip', 'merge-tree']);
-      assert.equal(log.state().batches.get('web-7')?.baseChecks?.length, 1);
+      assert.equal(log.state().batches.get(idOf('web', 7))?.baseChecks?.length, 1);
       // Merged in the next pass, and the base moved: the end is recorded first, so no check runs.
       pullRequests[pullRequest] = 'merged';
       tip = 'd'.repeat(40);
@@ -702,8 +724,8 @@ describe('createIntake', () => {
     it('checks the open pull requests against each other after their bases (ADR 0230)', async () => {
       const other = 'https://github.com/acme/web/pull/13';
       store.replay([
-        ...openedOnTap('1-1', 'half', firstHead, pullRequest),
-        ...openedOnTap('1-2', 'half', secondHead, other),
+        ...openedOnTap(breweryIdOf(1), 'half', firstHead, pullRequest),
+        ...openedOnTap(`${breweryIdOf(1)}-2`, 'half', secondHead, other),
       ]);
       log = createCommandLog({ store, recipes });
       const calls: string[] = [];
@@ -718,7 +740,8 @@ describe('createIntake', () => {
               ? { kind: 'conflicts', files: ['app.ts'] }
               : { kind: 'clean' };
           },
-          branchTip: async (branch) => (branch.includes('1-1') ? firstHead : secondHead),
+          branchTip: async (branch) =>
+            branch.includes(`/${breweryIdOf(1)}/`) ? firstHead : secondHead,
         },
       ];
       const { tracker } = fakeTracker(
@@ -727,7 +750,7 @@ describe('createIntake', () => {
       );
       await intake(tracker, { bases }).poll();
       assert.deepStrictEqual(calls, ['merge-tree c e', 'merge-tree d e', 'merge-tree c d']);
-      assert.deepStrictEqual(log.state().batches.get('1-2')?.pairChecks, {
+      assert.deepStrictEqual(log.state().batches.get(`${breweryIdOf(1)}-2`)?.pairChecks, {
         [pullRequest]: {
           pullRequest: other,
           head: secondHead,
@@ -740,8 +763,11 @@ describe('createIntake', () => {
     it('reads the checks on the open pull requests after it records the ends, and reports a failed read (ADR 0213)', async () => {
       onTap();
       for (const [key, result] of [
-        [pushKey('web-7'), { branch: 'foedrum/x/acme.web', commit: 'a'.repeat(40), from: 'start' }],
-        [pullRequestKey('web-7'), pullRequest],
+        [
+          pushKey(idOf('web', 7)),
+          { branch: 'foedrum/x/acme.web', commit: 'a'.repeat(40), from: 'start' },
+        ],
+        [pullRequestKey(idOf('web', 7)), pullRequest],
       ] as const) {
         accept({
           kind: 'record',
@@ -777,7 +803,7 @@ describe('createIntake', () => {
       checks = undefined;
       await polling.poll();
       assert.equal(
-        log.state().batches.get('web-7')?.pullRequestChecks?.[pullRequest]?.kind,
+        log.state().batches.get(idOf('web', 7))?.pullRequestChecks?.[pullRequest]?.kind,
         'pending',
       );
       // Merged in the next pass: the end is recorded first, so its checks are read no more.
@@ -799,16 +825,16 @@ describe('createIntake', () => {
     it('orders a labelled Brewery issue as <issue>-1 and routes it by its label in the same pass', async () => {
       const { tracker } = fakeTracker({ [brewery]: [labelled(12)], [web]: [], [api]: [] });
       await breweryIntake(tracker).poll();
-      assert.deepStrictEqual(lanes(), ['12-1 brewing']);
-      assert.deepStrictEqual(recipeOf('12-1'), {
+      assert.deepStrictEqual(lanes(), [`${breweryIdOf(12)} brewing`]);
+      assert.deepStrictEqual(recipeOf(breweryIdOf(12)), {
         name: 'half',
         reason: 'the label recipe:half',
         source: 'label',
         type: 'brew',
       });
       assert.deepStrictEqual(notices, [
-        { kind: 'ordered', repo: brewery, issue: 12, batchId: '12-1' },
-        { kind: 'routed', batchId: '12-1', recipe: 'half' },
+        { kind: 'ordered', repo: brewery, issue: 12, batchId: breweryIdOf(12) },
+        { kind: 'routed', batchId: breweryIdOf(12), recipe: 'half' },
       ]);
     });
 
@@ -821,29 +847,29 @@ describe('createIntake', () => {
       const { tracker } = fakeTracker({ [brewery]: [labelled(12)], [web]: [], [api]: [] });
       const pass = breweryIntake(tracker, { ordered });
       await pass.poll();
-      assert.deepStrictEqual(seen, [['12-1 ordered']]);
-      assert.deepStrictEqual(lanes(), ['12-1 brewing']);
+      assert.deepStrictEqual(seen, [[`${breweryIdOf(12)} ordered`]]);
+      assert.deepStrictEqual(lanes(), [`${breweryIdOf(12)} brewing`]);
       // Nothing waits for its route in the next pass: it does not wait for a tick.
       await pass.poll();
-      assert.deepStrictEqual(seen, [['12-1 ordered']]);
+      assert.deepStrictEqual(seen, [[`${breweryIdOf(12)} ordered`]]);
     });
 
     it('waits for no tick in a pass that orders nothing, though an Ordered batch waits for its route', async () => {
       // #7 was ordered by hand and carries no recipe label: it waits for its routing deadline.
-      accept({ kind: 'order', batchId: '7-1', order: { issue: 7 } });
+      accept({ kind: 'order', batchId: breweryIdOf(7), order: { issue: 7 } });
       let calls = 0;
       const ordered = async (): Promise<void> => {
         calls++;
       };
       const { tracker } = fakeTracker({ [brewery]: [issue(7)], [web]: [], [api]: [] });
       await breweryIntake(tracker, { ordered }).poll();
-      assert.deepStrictEqual(lanes(), ['7-1 ordered']);
+      assert.deepStrictEqual(lanes(), [`${breweryIdOf(7)} ordered`]);
       assert.equal(calls, 0);
     });
 
     it('orders only open issues an allow-listed user opened with a recipe label, never twice', async () => {
-      accept({ kind: 'order', batchId: '5-1', order: { issue: 5 } });
-      accept({ kind: 'cancel', batchId: '5-1', by: 'alice', via: 'terminal' });
+      accept({ kind: 'order', batchId: breweryIdOf(5), order: { issue: 5 } });
+      accept({ kind: 'cancel', batchId: breweryIdOf(5), by: 'alice', via: 'terminal' });
       const { tracker } = fakeTracker({
         [brewery]: [
           labelled(1, { state: 'closed' }),
@@ -857,32 +883,32 @@ describe('createIntake', () => {
         [api]: [],
       });
       await breweryIntake(tracker).poll();
-      assert.deepStrictEqual(lanes(), ['5-1 cancelled', '6-1 brewing']);
+      assert.deepStrictEqual(lanes(), [`${breweryIdOf(5)} cancelled`, `${breweryIdOf(6)} brewing`]);
     });
 
     it('the intake does not order a Brewery issue on tap again: regression test (ADR 0339)', async () => {
       store.withTransaction((tx) => {
         tx.append({
           type: 'batch.ordered',
-          batchId: '5-1',
+          batchId: breweryIdOf(5),
           order: { issue: 5 },
           routeBy: '2026-10-16T10:00:00.000Z',
         });
-        tx.append({ type: 'batch.on_tap', batchId: '5-1', pullRequests: [pullRequest] });
+        tx.append({ type: 'batch.on_tap', batchId: breweryIdOf(5), pullRequests: [pullRequest] });
       });
       const { tracker } = fakeTracker(
         { [brewery]: [labelled(5), labelled(6)], [web]: [], [api]: [] },
         { [pullRequest]: 'open' },
       );
       await breweryIntake(tracker).poll();
-      assert.deepStrictEqual(lanes(), ['5-1 on_tap', '6-1 brewing']);
+      assert.deepStrictEqual(lanes(), [`${breweryIdOf(5)} on_tap`, `${breweryIdOf(6)} brewing`]);
     });
 
     it('never orders the Brewery issue that is the order of a claimed issue, labelled or not (ADR 0144)', async () => {
-      accept({ kind: 'order', batchId: 'web-7', order: { issue: 7, repo: web } });
+      accept({ kind: 'order', batchId: idOf('web', 7), order: { issue: 7, repo: web } });
       accept({
         kind: 'record',
-        event: { type: 'effect.applied', key: '["web-7","order.issue"]', result: 12 },
+        event: { type: 'effect.applied', key: `["${idOf('web', 7)}","order.issue"]`, result: 12 },
       });
       const { tracker } = fakeTracker({
         [brewery]: [labelled(12), labelled(13)],
@@ -892,7 +918,7 @@ describe('createIntake', () => {
       await breweryIntake(tracker).poll();
       assert.deepStrictEqual(
         batches().map(({ id }) => id),
-        ['web-7', '13-1'],
+        [idOf('web', 7), breweryIdOf(13)],
       );
     });
 
@@ -905,12 +931,12 @@ describe('createIntake', () => {
       await breweryIntake(tracker, { capacity: 3 }).poll();
       assert.deepStrictEqual(
         batches().map(({ id }) => id),
-        ['web-7', 'web-8', '12-1'],
+        [idOf('web', 7), idOf('web', 8), breweryIdOf(12)],
       );
     });
 
     it('orders and claims nothing while pause --all holds the Brewery, and still routes (ADR 0202)', async () => {
-      accept({ kind: 'order', batchId: '12-1', order: { issue: 12 } });
+      accept({ kind: 'order', batchId: breweryIdOf(12), order: { issue: 12 } });
       accept({ kind: 'pause', by: 'alice', via: 'terminal' });
       const { tracker } = fakeTracker({
         [brewery]: [labelled(12), labelled(13)],
@@ -918,16 +944,20 @@ describe('createIntake', () => {
         [api]: [],
       });
       await breweryIntake(tracker).poll();
-      assert.deepStrictEqual(lanes(), ['12-1 brewing']);
+      assert.deepStrictEqual(lanes(), [`${breweryIdOf(12)} brewing`]);
       assert.equal(github.refs.size, 0);
       accept({ kind: 'continue', by: 'alice', via: 'terminal' });
       await breweryIntake(tracker).poll();
       // web#7 came before #13 (ADR 0208).
-      assert.deepStrictEqual(lanes(), ['12-1 brewing', 'web-7 ordered', '13-1 brewing']);
+      assert.deepStrictEqual(lanes(), [
+        `${breweryIdOf(12)} brewing`,
+        `${idOf('web', 7)} ordered`,
+        `${breweryIdOf(13)} brewing`,
+      ]);
     });
 
     it('orders as before while only one order is paused (ADR 0202)', async () => {
-      accept({ kind: 'order', batchId: '12-1', order: { issue: 12 } });
+      accept({ kind: 'order', batchId: breweryIdOf(12), order: { issue: 12 } });
       accept({ kind: 'pause', order: { issue: 12 }, by: 'alice', via: 'terminal' });
       const { tracker } = fakeTracker({
         [brewery]: [labelled(12), labelled(13)],
@@ -935,16 +965,24 @@ describe('createIntake', () => {
         [api]: [],
       });
       await breweryIntake(tracker).poll();
-      assert.deepStrictEqual(lanes(), ['12-1 brewing', 'web-7 ordered', '13-1 brewing']);
+      assert.deepStrictEqual(lanes(), [
+        `${breweryIdOf(12)} brewing`,
+        `${idOf('web', 7)} ordered`,
+        `${breweryIdOf(13)} brewing`,
+      ]);
     });
 
     it('routes an Ordered batch it did not order in this pass: a killed pass left it, or a retry', async () => {
-      accept({ kind: 'order', batchId: '12-1', order: { issue: 12 } });
-      accept({ kind: 'order', batchId: '13-1', order: { issue: 13 } });
+      accept({ kind: 'order', batchId: breweryIdOf(12), order: { issue: 12 } });
+      accept({ kind: 'order', batchId: breweryIdOf(13), order: { issue: 13 } });
       const later = new Date(now.getTime() + 2 * 3_600_000);
-      assert.equal(log.issue({ kind: 'unrouted', batchId: '13-1' }, later).kind, 'accepted');
       assert.equal(
-        log.issue({ kind: 'retry', batchId: '13-1', by: 'alice', via: 'terminal' }, later).kind,
+        log.issue({ kind: 'unrouted', batchId: breweryIdOf(13) }, later).kind,
+        'accepted',
+      );
+      assert.equal(
+        log.issue({ kind: 'retry', batchId: breweryIdOf(13), by: 'alice', via: 'terminal' }, later)
+          .kind,
         'accepted',
       );
       const { tracker } = fakeTracker({
@@ -953,7 +991,7 @@ describe('createIntake', () => {
         [api]: [],
       });
       await breweryIntake(tracker, { clock: () => later }).poll();
-      assert.deepStrictEqual(lanes(), ['12-1 brewing', '13-1 brewing']);
+      assert.deepStrictEqual(lanes(), [`${breweryIdOf(12)} brewing`, `${breweryIdOf(13)} brewing`]);
     });
 
     /** Records that the driver opened the Brewery issue `order` for the claimed batch (ADR 0144). */
@@ -964,16 +1002,16 @@ describe('createIntake', () => {
       });
 
     it("routes a claimed batch by its Brewery issue's recipe label, never its target issue's (ADR 0156)", async () => {
-      accept({ kind: 'order', batchId: 'web-7', order: { issue: 7, repo: web } });
-      opened('web-7', 12);
+      accept({ kind: 'order', batchId: idOf('web', 7), order: { issue: 7, repo: web } });
+      opened(idOf('web', 7), 12);
       const { tracker } = fakeTracker({
         [brewery]: [issue(12, { labels: ['recipe:nip'] })],
         [web]: [issue(7, { labels: ['foedrum', 'recipe:other'] })],
         [api]: [],
       });
       await breweryIntake(tracker).poll();
-      assert.deepStrictEqual(lanes(), ['web-7 brewing']);
-      assert.deepStrictEqual(recipeOf('web-7'), {
+      assert.deepStrictEqual(lanes(), [`${idOf('web', 7)} brewing`]);
+      assert.deepStrictEqual(recipeOf(idOf('web', 7)), {
         name: 'nip',
         reason: 'the label recipe:nip',
         source: 'label',
@@ -982,8 +1020,8 @@ describe('createIntake', () => {
     });
 
     it('leaves a claimed batch Ordered until its Brewery issue is recorded, whatever its target issue carries', async () => {
-      accept({ kind: 'order', batchId: 'web-7', order: { issue: 7, repo: web } });
-      const routeBy = log.state().batches.get('web-7')?.lane;
+      accept({ kind: 'order', batchId: idOf('web', 7), order: { issue: 7, repo: web } });
+      const routeBy = log.state().batches.get(idOf('web', 7))?.lane;
       // Brewery issue #7 is no order of web-7, though it has the target issue's number.
       const { tracker } = fakeTracker({
         [brewery]: [issue(7, { labels: ['recipe:nip'], author: 'mallory' })],
@@ -991,49 +1029,49 @@ describe('createIntake', () => {
         [api]: [],
       });
       await breweryIntake(tracker).poll();
-      assert.deepStrictEqual(lanes(), ['web-7 ordered']);
-      assert.deepStrictEqual(log.state().batches.get('web-7')?.lane, routeBy);
+      assert.deepStrictEqual(lanes(), [`${idOf('web', 7)} ordered`]);
+      assert.deepStrictEqual(log.state().batches.get(idOf('web', 7))?.lane, routeBy);
       assert.deepStrictEqual(notices, []);
     });
 
     it('reports a claimed batch whose Brewery issue carries two recipe labels, naming that issue', async () => {
-      accept({ kind: 'order', batchId: 'web-7', order: { issue: 7, repo: web } });
-      opened('web-7', 12);
+      accept({ kind: 'order', batchId: idOf('web', 7), order: { issue: 7, repo: web } });
+      opened(idOf('web', 7), 12);
       const { tracker } = fakeTracker({
         [brewery]: [issue(12, { labels: ['recipe:half', 'recipe:pint'] })],
         [web]: [issue(7)],
         [api]: [],
       });
       await breweryIntake(tracker).poll();
-      assert.deepStrictEqual(lanes(), ['web-7 ordered']);
+      assert.deepStrictEqual(lanes(), [`${idOf('web', 7)} ordered`]);
       assert.deepStrictEqual(notices, [
         {
           kind: 'unrouted',
-          batchId: 'web-7',
+          batchId: idOf('web', 7),
           reason: 'its issue #12 carries recipe:half and recipe:pint; give it one recipe label',
         },
       ]);
     });
 
     it('routes a claimed issue ordered again by the Brewery issue an earlier batch of it opened', async () => {
-      accept({ kind: 'order', batchId: 'web-7', order: { issue: 7, repo: web } });
-      opened('web-7', 12);
-      accept({ kind: 'cancel', batchId: 'web-7', by: 'alice', via: 'terminal' });
+      accept({ kind: 'order', batchId: idOf('web', 7), order: { issue: 7, repo: web } });
+      opened(idOf('web', 7), 12);
+      accept({ kind: 'cancel', batchId: idOf('web', 7), by: 'alice', via: 'terminal' });
       // The cancel's release, applied by the driver, lets the issue be ordered again (ADR 0105).
       for (const effect of ['release.label', 'release.comment', 'release.ref']) {
         accept({
           kind: 'record',
-          event: { type: 'effect.applied', key: `["web-7","${effect}"]`, result: null },
+          event: { type: 'effect.applied', key: `["${idOf('web', 7)}","${effect}"]`, result: null },
         });
       }
-      accept({ kind: 'order', batchId: 'web-7-2', order: { issue: 7, repo: web } });
+      accept({ kind: 'order', batchId: `${idOf('web', 7)}-2`, order: { issue: 7, repo: web } });
       const { tracker } = fakeTracker({
         [brewery]: [issue(12, { labels: ['recipe:nip'] })],
         [web]: [],
         [api]: [],
       });
       await breweryIntake(tracker).poll();
-      assert.equal(recipeOf('web-7-2')?.name, 'nip');
+      assert.equal(recipeOf(`${idOf('web', 7)}-2`)?.name, 'nip');
     });
 
     it('orders the oldest Brewery issue first, whatever order the listing gives', async () => {
@@ -1043,24 +1081,24 @@ describe('createIntake', () => {
         [api]: [],
       });
       await breweryIntake(tracker, { capacity: 1 }).poll();
-      assert.deepStrictEqual(lanes(), ['12-1 brewing']);
+      assert.deepStrictEqual(lanes(), [`${breweryIdOf(12)} brewing`]);
     });
 
     it('lists no repository it can neither order from nor route in', async () => {
       // Its one place is taken by a Brewing batch, and nothing waits to be routed.
       const first = fakeTracker({ [brewery]: [labelled(12)], [web]: [], [api]: [] });
       await breweryIntake(first.tracker, { capacity: 1 }).poll();
-      assert.deepStrictEqual(lanes(), ['12-1 brewing']);
+      assert.deepStrictEqual(lanes(), [`${breweryIdOf(12)} brewing`]);
       const { tracker, asked } = fakeTracker({ [brewery]: [labelled(13)], [web]: [], [api]: [] });
       await breweryIntake(tracker, { capacity: 1 }).poll();
       assert.deepStrictEqual(asked, []);
       // A claimed batch is routed by its Brewery issue: nothing is listed for it until that is
       // recorded, then only the Brewery is, never its target repository (ADR 0156).
-      accept({ kind: 'order', batchId: 'web-7', order: { issue: 7, repo: web } });
+      accept({ kind: 'order', batchId: idOf('web', 7), order: { issue: 7, repo: web } });
       const unopened = fakeTracker({ [brewery]: [], [web]: [issue(7)], [api]: [] });
       await breweryIntake(unopened.tracker, { capacity: 1 }).poll();
       assert.deepStrictEqual(unopened.asked, []);
-      opened('web-7', 14);
+      opened(idOf('web', 7), 14);
       // Its Brewery issue #14 is not listed (a person closed it): it waits, and Brewery issue #7,
       // with its target issue's number, never routes it.
       const routing = fakeTracker({
@@ -1070,46 +1108,46 @@ describe('createIntake', () => {
       });
       await breweryIntake(routing.tracker, { capacity: 1 }).poll();
       assert.deepStrictEqual(routing.asked, [`issues ${brewery}`]);
-      assert.deepStrictEqual(lanes(), ['12-1 brewing', 'web-7 ordered']);
+      assert.deepStrictEqual(lanes(), [`${breweryIdOf(12)} brewing`, `${idOf('web', 7)} ordered`]);
       assert.deepStrictEqual(notices, [
-        { kind: 'ordered', repo: brewery, issue: 12, batchId: '12-1' },
-        { kind: 'routed', batchId: '12-1', recipe: 'half' },
+        { kind: 'ordered', repo: brewery, issue: 12, batchId: breweryIdOf(12) },
+        { kind: 'routed', batchId: breweryIdOf(12), recipe: 'half' },
       ]);
     });
 
     it("lists the Brewery without free capacity for one of the Brewery's own Ordered batches alone", async () => {
-      accept({ kind: 'order', batchId: '12-1', order: { issue: 12 } });
+      accept({ kind: 'order', batchId: breweryIdOf(12), order: { issue: 12 } });
       const { tracker, asked } = fakeTracker({ [brewery]: [labelled(12)], [web]: [], [api]: [] });
       await breweryIntake(tracker, { capacity: 1 }).poll();
       assert.deepStrictEqual(asked, [`issues ${brewery}`]);
-      assert.deepStrictEqual(lanes(), ['12-1 brewing']);
+      assert.deepStrictEqual(lanes(), [`${breweryIdOf(12)} brewing`]);
     });
 
     it("routes a claimed batch whose target issue no longer passes its repository's filter, or is gone from it", async () => {
-      accept({ kind: 'order', batchId: 'web-7', order: { issue: 7, repo: web } });
-      accept({ kind: 'order', batchId: 'web-8', order: { issue: 8, repo: web } });
-      opened('web-7', 12);
-      opened('web-8', 13);
+      accept({ kind: 'order', batchId: idOf('web', 7), order: { issue: 7, repo: web } });
+      accept({ kind: 'order', batchId: idOf('web', 8), order: { issue: 8, repo: web } });
+      opened(idOf('web', 7), 12);
+      opened(idOf('web', 8), 13);
       const { tracker } = fakeTracker({
         [brewery]: [issue(12, { labels: ['recipe:half'] }), issue(13, { labels: ['recipe:half'] })],
         [web]: [issue(7, { labels: [] })],
         [api]: [],
       });
       await breweryIntake(tracker).poll();
-      assert.deepStrictEqual(lanes(), ['web-7 brewing', 'web-8 brewing']);
+      assert.deepStrictEqual(lanes(), [`${idOf('web', 7)} brewing`, `${idOf('web', 8)} brewing`]);
     });
 
     it('routes without free capacity: an Ordered batch already holds its place', async () => {
-      accept({ kind: 'order', batchId: '12-1', order: { issue: 12 } });
-      accept({ kind: 'order', batchId: 'web-7', order: { issue: 7, repo: web } });
-      opened('web-7', 13);
+      accept({ kind: 'order', batchId: breweryIdOf(12), order: { issue: 12 } });
+      accept({ kind: 'order', batchId: idOf('web', 7), order: { issue: 7, repo: web } });
+      opened(idOf('web', 7), 13);
       const { tracker } = fakeTracker({
         [brewery]: [labelled(12), labelled(13), labelled(14)],
         [web]: [issue(7), issue(8)],
         [api]: [issue(2)],
       });
       await breweryIntake(tracker, { capacity: 2 }).poll();
-      assert.deepStrictEqual(lanes(), ['12-1 brewing', 'web-7 brewing']);
+      assert.deepStrictEqual(lanes(), [`${breweryIdOf(12)} brewing`, `${idOf('web', 7)} brewing`]);
     });
 
     it('reports once a batch it cannot route: two recipe labels, or a recipe the Brewery lacks', async () => {
@@ -1124,11 +1162,11 @@ describe('createIntake', () => {
       const polling = breweryIntake(tracker);
       await polling.poll();
       await polling.poll();
-      assert.deepStrictEqual(lanes(), ['12-1 ordered', '13-1 ordered']);
+      assert.deepStrictEqual(lanes(), [`${breweryIdOf(12)} ordered`, `${breweryIdOf(13)} ordered`]);
       const unrouted = notices.flatMap((notice) => (notice.kind === 'unrouted' ? [notice] : []));
       assert.deepStrictEqual(
         unrouted.map(({ batchId }) => batchId),
-        ['12-1', '13-1'],
+        [breweryIdOf(12), breweryIdOf(13)],
       );
       assert.match(unrouted[0]?.reason ?? '', /recipe:half and recipe:pint/);
       assert.match(unrouted[1]?.reason ?? '', /pint/);
@@ -1145,27 +1183,27 @@ describe('createIntake', () => {
       const before = store.lastEventId();
       await breweryIntake(relabelled.tracker).poll();
       assert.equal(store.lastEventId(), before);
-      assert.equal(recipeOf('12-1')?.name, 'half');
+      assert.equal(recipeOf(breweryIdOf(12))?.name, 'half');
     });
 
     it('reports a Brewery it cannot list, and goes on with the target repositories', async () => {
       const { tracker } = fakeTracker({ [web]: [issue(7)], [api]: [] });
       await breweryIntake(tracker).poll();
-      assert.deepStrictEqual(lanes(), ['web-7 ordered']);
+      assert.deepStrictEqual(lanes(), [`${idOf('web', 7)} ordered`]);
       const failed = notices.find((notice) => notice.kind === 'failed');
       assert.equal(failed?.kind === 'failed' ? failed.what : '', `listing ${brewery}`);
     });
 
     it('leaves a batch without a recipe label Ordered for its deadline, without a notice', async () => {
-      accept({ kind: 'order', batchId: 'web-7', order: { issue: 7, repo: web } });
+      accept({ kind: 'order', batchId: idOf('web', 7), order: { issue: 7, repo: web } });
       const { tracker } = fakeTracker({ [brewery]: [], [web]: [issue(7)], [api]: [] });
       await breweryIntake(tracker, { capacity: 1 }).poll();
-      assert.deepStrictEqual(lanes(), ['web-7 ordered']);
+      assert.deepStrictEqual(lanes(), [`${idOf('web', 7)} ordered`]);
       assert.deepStrictEqual(notices, []);
     });
 
     it('routes nothing once the pass is past its deadline', async () => {
-      accept({ kind: 'order', batchId: '12-1', order: { issue: 12 } });
+      accept({ kind: 'order', batchId: breweryIdOf(12), order: { issue: 12 } });
       // The Brewery's listing answers only once the test lets it, after the pass was given up.
       let release = (): void => {};
       const released = new Promise<void>((resolve) => {
@@ -1190,23 +1228,23 @@ describe('createIntake', () => {
       await listed;
       // What the dead pass does with the late listing settles in the next turns.
       for (let turn = 0; turn < 5; turn++) await new Promise((resolve) => setImmediate(resolve));
-      assert.deepStrictEqual(lanes(), ['12-1 ordered']);
+      assert.deepStrictEqual(lanes(), [`${breweryIdOf(12)} ordered`]);
     });
 
     it('never orders a sub-order: its decomposition does', async () => {
-      accept({ kind: 'order', batchId: '1-1', order: { issue: 1 } });
+      accept({ kind: 'order', batchId: breweryIdOf(1), order: { issue: 1 } });
       accept({
         kind: 'record',
         event: {
           type: 'order.decomposed',
-          batchId: '1-1',
+          batchId: breweryIdOf(1),
           subOrders: [{ issue: 2, repo: web }],
           dependencies: [],
         },
       });
       const { tracker } = fakeTracker({ [brewery]: [labelled(2)], [web]: [], [api]: [] });
       await breweryIntake(tracker).poll();
-      assert.deepStrictEqual(lanes(), ['1-1 ordered']);
+      assert.deepStrictEqual(lanes(), [`${breweryIdOf(1)} ordered`]);
     });
     it('lists the Brewery with no filter, and with the pass signal', async () => {
       const calls: [string, unknown, boolean][] = [];
@@ -1231,9 +1269,16 @@ describe('freeCapacity', () => {
       const log = createCommandLog({ store, recipes });
       const accept = (command: Parameters<CommandLog['issue']>[0]): void =>
         assert.equal(log.issue(command, now).kind, 'accepted');
-      for (const n of [1, 2, 3]) accept({ kind: 'order', batchId: `${n}-1`, order: { issue: n } });
-      accept({ kind: 'route', batchId: '2-1', recipe: 'half', reason: 'label', source: 'label' });
-      accept({ kind: 'cancel', batchId: '3-1', by: 'alice', via: 'terminal' });
+      for (const n of [1, 2, 3])
+        accept({ kind: 'order', batchId: breweryIdOf(n), order: { issue: n } });
+      accept({
+        kind: 'route',
+        batchId: breweryIdOf(2),
+        recipe: 'half',
+        reason: 'label',
+        source: 'label',
+      });
+      accept({ kind: 'cancel', batchId: breweryIdOf(3), by: 'alice', via: 'terminal' });
       assert.equal(freeCapacity(log.state(), 4), 2);
       assert.equal(freeCapacity(log.state(), 1), 0);
     } finally {
@@ -1248,15 +1293,31 @@ describe('freeCapacity', () => {
       const accept = (command: Parameters<CommandLog['issue']>[0], at = now): void =>
         assert.equal(log.issue(command, at).kind, 'accepted');
       for (const n of [1, 2, 3, 4, 5])
-        accept({ kind: 'order', batchId: `${n}-1`, order: { issue: n } });
+        accept({ kind: 'order', batchId: breweryIdOf(n), order: { issue: n } });
       // 1-1 Ordered, 2-1 Stuck on routing, 3-1 Conditioning, 4-1 On Tap, 5-1 Brewing.
-      accept({ kind: 'unrouted', batchId: '2-1' }, new Date('2026-10-16T11:00:00.000Z'));
-      accept({ kind: 'wait', batchId: '3-1', on: { kind: 'sibling', batchId: '1-1' } });
-      accept({ kind: 'route', batchId: '4-1', recipe: 'half', reason: 'label', source: 'label' });
-      const ref = { batchId: '4-1', stepId: 'plan', attempt: 1 };
+      accept({ kind: 'unrouted', batchId: breweryIdOf(2) }, new Date('2026-10-16T11:00:00.000Z'));
+      accept({
+        kind: 'wait',
+        batchId: breweryIdOf(3),
+        on: { kind: 'sibling', batchId: breweryIdOf(1) },
+      });
+      accept({
+        kind: 'route',
+        batchId: breweryIdOf(4),
+        recipe: 'half',
+        reason: 'label',
+        source: 'label',
+      });
+      const ref = { batchId: breweryIdOf(4), stepId: 'plan', attempt: 1 };
       accept({ kind: 'record', event: { type: 'step.started', ...ref } });
       accept({ kind: 'finish', ...ref, ending: succeeded });
-      accept({ kind: 'route', batchId: '5-1', recipe: 'half', reason: 'label', source: 'label' });
+      accept({
+        kind: 'route',
+        batchId: breweryIdOf(5),
+        recipe: 'half',
+        reason: 'label',
+        source: 'label',
+      });
       const lanes = [...log.state().batches.values()].map(({ lane }) => lane.kind);
       assert.deepStrictEqual(lanes, ['ordered', 'stuck', 'conditioning', 'on_tap', 'brewing']);
       assert.equal(freeCapacity(log.state(), 5), 3);
