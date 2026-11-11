@@ -214,7 +214,9 @@ const waitingText = (waiting: WaitingFor, subOrder: number | undefined): string 
       if (waiting.left !== undefined && subOrder !== undefined) {
         return `look at sub-order #${subOrder}, ${waiting.left}`;
       }
-      return `look at a failure Foedrum could not get past${ofSubOrder(subOrder)}`;
+      return subOrder === undefined
+        ? 'look at a failure Foedrum could not get past'
+        : `look at a failure of sub-order #${subOrder} that Foedrum could not get past`;
     default:
       return waiting satisfies never;
   }

@@ -50,7 +50,9 @@ export const formatStuck = (state: State): string => {
     // sub-order; one that a left sub-order keeps open (closed, cancelled, needs refinement) is
     // listed itself, since nothing else would be.
     const throughSubOrder =
-      now.kind === 'waiting' && now.subOrder !== undefined && now.for.kind !== 'look-at-failure';
+      now.kind === 'waiting' &&
+      now.subOrder !== undefined &&
+      !(now.for.kind === 'look-at-failure' && now.for.left !== undefined);
     return now.kind === 'waiting' && !throughSubOrder ? [{ batch, now }] : [];
   });
   const listed = new Set(waiting.map(({ batch }) => batch.id));
