@@ -106,6 +106,9 @@ export const serveShell = (setup: ServeSetup, options: ServeShellOptions): Serve
   };
   // A repository's setup installs, so its sandbox keeps the network (ADR 0158).
   const setupExec = sandboxedChecks({ exec: execProcess, ...sandbox, network: true });
+  // A check's command line runs in the OS sandbox (ADR 0076), a check step's and those before a
+  // brewer's end alike (ADR 0381).
+  const checksExec = sandboxedChecks({ exec: execProcess, ...sandbox });
   return {
     out,
     // Ctrl+C, a kill, a closed terminal, Ctrl+Break: each stops the runs through the driver, whose
@@ -187,10 +190,11 @@ export const serveShell = (setup: ServeSetup, options: ServeShellOptions): Serve
     // In the worktree of the check attempt, git as the engine's calls in the clone (ADR 0137).
     merge: (repository) =>
       openWorktreeMerge({ git, clone: worktreeClonePath(workRoot, repository) }),
-    // A brewer attempt's setup runs before claude, in the setup's sandbox (ADR 0163).
-    runner: (claude, plan) => claudeBrewerRunner({ claude, plan, setup: setupExec }),
-    // A check's command line runs in the OS sandbox (ADR 0076).
-    exec: sandboxedChecks({ exec: execProcess, ...sandbox }),
+    // A brewer attempt's setup runs before claude, in the setup's sandbox (ADR 0163), and its
+    // checks before its end in the checks' (ADR 0381).
+    runner: (claude, plan) =>
+      claudeBrewerRunner({ claude, plan, setup: setupExec, checks: checksExec }),
+    exec: checksExec,
     setup: setupExec,
     gh: execProcess,
     git,

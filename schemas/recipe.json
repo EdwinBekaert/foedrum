@@ -311,6 +311,10 @@
                               "pattern": "^[^\\r\\n]*$"
                             }
                           ]
+                        },
+                        "files": {
+                          "type": "boolean",
+                          "const": true
                         }
                       },
                       "required": [
@@ -381,6 +385,10 @@
                                 "pattern": "^[^\\r\\n]*$"
                               }
                             ]
+                          },
+                          "files": {
+                            "type": "boolean",
+                            "const": true
                           }
                         },
                         "required": [

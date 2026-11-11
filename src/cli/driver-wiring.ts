@@ -345,6 +345,10 @@ export const wireDriver = async (
     repoSetup: (repo) => repositoryNamed(repo)?.setup,
     // The Maltster reads the test line it maps the reports of (ADR 0376).
     repoTestLine: (repo) => repositoryNamed(repo)?.checks.test,
+    // A brewer that writes code runs the quick checks before its end, the red step's tests among
+    // them (ADR 0381).
+    repoChecks: (repo) => repositoryNamed(repo)?.checks,
+    provenStep: (recipe) => setup.checks.redProof(recipe)?.of,
     // Where a commit-producing attempt's commits are counted (ADR 0074).
     clone,
     // A plan's paths are checked in each repository once it is done (ADR 0233).

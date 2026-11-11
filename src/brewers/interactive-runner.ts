@@ -284,9 +284,9 @@ export function interactiveBrewerRunnerWith(deps: InteractiveRunnerDeps): Brewer
  * through `setup` (ADR 0163).
  */
 export const headlessRunner =
-  (claude: string, setup: ExecProcess) =>
+  (claude: string, setup: ExecProcess, checks?: ExecProcess) =>
   (plan: (attempt: AttemptStart) => Promise<ClaudeAttemptPlan>): BrewerRunner =>
-    claudeBrewerRunner({ claude, plan, setup });
+    claudeBrewerRunner({ claude, plan, setup, ...(checks === undefined ? {} : { checks }) });
 
 /** The runner on the real machine: files, git and the headless runner of a fresh attempt. */
 export function interactiveBrewerRunner(
@@ -296,11 +296,13 @@ export function interactiveBrewerRunner(
   > & {
     /** The process runner every attempt's setup runs through (ADR 0158, ADR 0163). */
     setup: ExecProcess;
+    /** The process runner a headless attempt's checks before its end run through (ADR 0381). */
+    checks?: ExecProcess;
   },
 ): BrewerRunner {
   return interactiveBrewerRunnerWith({
     ...options,
-    headless: headlessRunner(options.claude, options.setup),
+    headless: headlessRunner(options.claude, options.setup, options.checks),
     files: {
       writeSettings: writeAttemptSettings,
       writeSystemPrompt: writeSystemPromptFile,

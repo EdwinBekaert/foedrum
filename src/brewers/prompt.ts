@@ -71,7 +71,9 @@ export type InputSource =
   /** The Brewery's repositories and their bases, an input `from: "repositories"` (ADR 0234). */
   | { kind: 'repositories' }
   /** The earlier rounds' findings of a lens step, with their dispositions (ADR 0191). */
-  | { kind: 'findings'; step: string };
+  | { kind: 'findings'; step: string }
+  /** The line of a check that failed once the brewer's session ended, and what it printed (ADR 0381). */
+  | { kind: 'send-back' };
 
 export interface PromptInput {
   /** The brewer's input name (`inputs[].name`, the `{variable}` in its body), when it has one. */
@@ -160,6 +162,8 @@ function describeSource(source: InputSource): string {
       return "the Brewery's repositories";
     case 'findings':
       return `the earlier rounds' findings of step ${source.step}, with what was done with them`;
+    case 'send-back':
+      return 'the line of the check that failed when your session ended, and the end of what it printed';
     default: {
       const never: never = source;
       throw new Error(`Unknown input source ${JSON.stringify(never)}`);

@@ -19,6 +19,7 @@
   "maxTurns": 80,
   "stall": { "turns": 40, "minutes": 15 },
   "maxAttempts": 2,
+  "checksBeforeEnd": true,
   "guards": ["requiresOutDoc", "requiresCommits", "testsUnchanged"]
 }
 ---
@@ -57,6 +58,7 @@ The smaller form must do exactly what the code does now. Tie every claim about w
 2. Make each simplification you are sure of. One you are unsure of stays as it is.
 3. The repository's setup, when it has one, has installed its dependencies in your worktree. Run the repository's formatter on the files you changed, then its lint and typecheck, then the tests that cover the code you changed, each with the command the repository uses (its scripts, its README, its CI). A simplification that makes one of them fail is undone, not fixed with more code. Run each that the repository's tools let you: a command they do not allow is denied, so do not try it again or another way.
 4. Commit what is left, with a message that says what you simplified.
+5. When you end done with commits, Foedrum runs the repository's build, typecheck, lint and format, and the red step's tests where its test command takes files, before your session closes. When one fails, it sends you its output once, in this session: undo the simplification that broke it, commit, and end again.
 
 Finding nothing to simplify is a good answer: do not change code to have something to report.
 

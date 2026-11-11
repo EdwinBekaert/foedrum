@@ -6,7 +6,11 @@
 import assert from 'node:assert/strict';
 import { devNull } from 'node:os';
 import { describe, it } from 'node:test';
-import { countCommits, scanAttemptCommits } from '../../src/workspace/attempt-commits-git.ts';
+import {
+  changedPaths,
+  countCommits,
+  scanAttemptCommits,
+} from '../../src/workspace/attempt-commits-git.ts';
 import { attemptBranch } from '../../src/workspace/attempt-worktrees.ts';
 import type { Git, GitOptions, GitResult } from '../../src/workspace/git.ts';
 
@@ -238,5 +242,49 @@ describe('scanAttemptCommits (ADR 0187)', () => {
       reason: '"--all" is no attempt branch',
     });
     assert.deepEqual(calls, []);
+  });
+});
+
+describe('changedPaths (ADR 0381)', () => {
+  it('lists in the clone the paths the commits after the start changed and left, whole names', async () => {
+    const { git, calls } = recordingGit({ diff: ok('src/a.ts\0src/b c.ts\0') });
+    const signal = new AbortController().signal;
+    assert.deepEqual(await changedPaths(git)(clone, branch, START, signal), {
+      kind: 'listed',
+      paths: ['src/a.ts', 'src/b c.ts'],
+    });
+    assert.deepEqual(
+      calls.map(({ cwd, args }) => [cwd, ...args]),
+      [
+        [
+          clone,
+          'diff',
+          '--name-only',
+          '-z',
+          '--no-renames',
+          '--diff-filter=d',
+          START,
+          `refs/heads/${branch}`,
+        ],
+      ],
+    );
+    assert.equal(calls[0]?.options?.signal, signal);
+    // No hook or fsmonitor of the clone's runs (ADR 0137).
+    assert.deepEqual(calls[0]?.options?.config, {
+      'core.hooksPath': devNull,
+      'core.fsmonitor': 'false',
+    });
+  });
+
+  it("gives git's first line when it fails, and runs no git for a start or branch it must not name", async () => {
+    const failing = recordingGit({ diff: exited(128, 'fatal: bad revision\n') });
+    assert.deepEqual(await changedPaths(failing.git)(clone, branch, START), {
+      kind: 'unlisted',
+      reason: 'git diff failed: fatal: bad revision',
+    });
+    const refused = recordingGit({ diff: ok('src/a.ts\0') });
+    assert.equal((await changedPaths(refused.git)(clone, '--all', START)).kind, 'unlisted');
+    assert.equal((await changedPaths(refused.git)(clone, branch, 'HEAD')).kind, 'unlisted');
+    assert.deepEqual(refused.calls, []);
   });
 });
