@@ -2,7 +2,7 @@
 // tools through PATH and read their versions through the process runner (a .cmd file through
 // cmd.exe on Windows). Every tool but node and git is a stub on a PATH of its own that prints what
 // the real tool printed (stub-tools.ts), so the report is exact on every machine, and no test asks
-// the real gh for a login or reads how fast a tool starts (#212, ADR 0070, ADR 0073). git stays
+// the real gh for a login or reads how fast a tool starts (#212). git stays
 // real, with a global configuration of the test's own and no system one; its row is checked
 // against its own path and then taken as it is. What doctor makes of other answers is in
 // test/unit/cli.test.ts.
@@ -77,7 +77,7 @@ const promptOf = (file: string) => {
   ];
 };
 const PROMPT_LINES = [
-  'Brewer prompts (instructions and lens inputs, ADR 0141):',
+  'Brewer prompts (instructions and lens inputs):',
   ...columns(
     (existsSync(join(defaultsRoot, 'brewers')) ? readdirSync(join(defaultsRoot, 'brewers')) : [])
       .filter((name) => name.endsWith('.md'))
@@ -88,12 +88,12 @@ const PROMPT_LINES = [
 ];
 // doctorHere gives doctor no denylist, so it never reads the user's own (ADR 0114).
 const DENYLIST_LINE =
-  'Denylist: none (optional; the local gate reads FOEDRUM_DENYLIST or /made-up/denylist.txt, ADR 0114)';
+  'Denylist: none (optional; the local gate reads FOEDRUM_DENYLIST or /made-up/denylist.txt)';
 // The stubs' PATH has no caffeinate or systemd-inhibit; Windows PowerShell is in System32 (ADR 0195).
 const KEEP_AWAKE_LINE =
   process.platform === 'win32'
-    ? `Keep awake: SetThreadExecutionState through ${win32.join(environmentVariable(process.env, 'SYSTEMROOT', 'win32') ?? 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe')} while an attempt runs (keepAwake: false turns it off, ADR 0195)`
-    : `Keep awake: none (no ${process.platform === 'darwin' ? 'caffeinate' : 'systemd-inhibit'} on PATH); the machine may sleep while an attempt runs (ADR 0195)`;
+    ? `Keep awake: SetThreadExecutionState through ${win32.join(environmentVariable(process.env, 'SYSTEMROOT', 'win32') ?? 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe')} while an attempt runs (keepAwake: false turns it off)`
+    : `Keep awake: none (no ${process.platform === 'darwin' ? 'caffeinate' : 'systemd-inhibit'} on PATH); the machine may sleep while an attempt runs`;
 // What each tool prints for its version, in its own format, with the versions of the captures in
 // test/unit (doctor.test.ts, doctor-facts.test.ts and cli.test.ts's report); gh's come from
 // test/helpers/canned-gh.ts. The real tools' output is no longer read here (ADR 0075).
@@ -171,21 +171,21 @@ const doctorWithStubs = async (
 };
 
 // What each level keeps from gh's login (ADR 0082, #229): the sandbox docs settle the user
-// folders, the hosts file and the token variables, not the OS keyring (ADR 0087, ADR 0160).
+// folders, the hosts file and the token variables, not the OS keyring (ADR 0087).
 const sandboxHides =
-  "hides your home folder and the other user folders from a brewer's shell commands, apart from the worktree, git's global configuration, parts of ~/.claude and the toolchain folders of serve's PATH (ADR 0162), hides gh's hosts file where an absolute GH_CONFIG_DIR or XDG_CONFIG_HOME puts it, and the token variables, and keeps them from reaching GitHub; Claude Code's docs don't say whether the sandbox stops a read from the OS keyring.";
+  "hides your home folder and the other user folders from a brewer's shell commands, apart from the worktree, git's global configuration, parts of ~/.claude and the toolchain folders of serve's PATH, hides gh's hosts file where an absolute GH_CONFIG_DIR or XDG_CONFIG_HOME puts it, and the token variables, and keeps them from reaching GitHub; Claude Code's docs don't say whether the sandbox stops a read from the OS keyring.";
 const writtenDown =
-  'A login a brewer did read is stopped at the push (ADR 0079) and left out of the pull request and the status comment (ADR 0088) when it looks like one.';
+  'A login a brewer did read is stopped at the push and left out of the pull request and the status comment when it looks like one.';
 // Where check steps run (ADR 0076): outside any sandbox only on native Windows.
 const onWindows = process.platform === 'win32';
 const keyring = (sandboxedLevel: string) =>
-  `  ${onWindows ? 'A brewer or a check step runs' : 'A brewer runs'} as you here, so it can still read gh's login from the OS keyring or its hosts file. ${sandboxedLevel} ${sandboxHides}${sandboxedLevel.startsWith('In WSL2') ? " Under WSL, the user folders include the Windows user's logins under /mnt (ADR 0160)." : ''} For brewers, the container level mounts only the worktree, which closes both. ${writtenDown} ${onWindows ? "On native Windows, check steps run outside any sandbox, so they can still read gh's login (ADR 0076)." : "Check steps run only in bubblewrap's sandbox, with no network and the home folder hidden; where it cannot start, they do not run (ADR 0076)."}`;
-const checkStepKeyring = `  The sandbox ${sandboxHides} ${writtenDown} Check steps run in an OS sandbox of their own, with no network and the home folder hidden, so they can't read gh's login (ADR 0076).`;
+  `  ${onWindows ? 'A brewer or a check step runs' : 'A brewer runs'} as you here, so it can still read gh's login from the OS keyring or its hosts file. ${sandboxedLevel} ${sandboxHides}${sandboxedLevel.startsWith('In WSL2') ? " Under WSL, the user folders include the Windows user's logins under /mnt." : ''} For brewers, the container level mounts only the worktree, which closes both. ${writtenDown} ${onWindows ? "On native Windows, check steps run outside any sandbox, so they can still read gh's login." : "Check steps run only in bubblewrap's sandbox, with no network and the home folder hidden; where it cannot start, they do not run."}`;
+const checkStepKeyring = `  The sandbox ${sandboxHides} ${writtenDown} Check steps run in an OS sandbox of their own, with no network and the home folder hidden, so they can't read gh's login.`;
 
 // The lines that differ by platform: the sandbox's tools, the isolation level, its advice and its
 // problems. The stubs have no user-mode network stack, which a Linux setup needs (ADR 0218).
 const NO_STACK =
-  "  slirp4netns or pasta (passt) not found: a repository's setup does not start without it; install slirp4netns (Debian and Ubuntu: sudo apt install slirp4netns; Fedora and Arch usually have slirp4netns or passt with Podman) (ADR 0218)";
+  "  slirp4netns or pasta (passt) not found: a repository's setup does not start without it; install slirp4netns (Debian and Ubuntu: sudo apt install slirp4netns; Fedora and Arch usually have slirp4netns or passt with Podman)";
 // The end of a report with no required problem: the optional ones, if any.
 const optional = (problems: readonly string[]) =>
   problems.length === 0
