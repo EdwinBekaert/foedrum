@@ -70,6 +70,7 @@ A type arrives with the first recipe that uses it: no other type exists yet.
 A type catches the wrong kind of recipe, not the wrong size.
 The Innkeeper is offered every recipe but those that choose one, each with its type; a plan's Brewmaster and its plan lenses are offered the `brew` ones only, and a sub-order may name only one of those.
 `foedrum status <order>` counts the tokens of a `mash` recipe's attempts as planning, by the type its `batch.recipe_chosen` event recorded; an event from before types counts `mash`, `mash-in` and `decoction` as planning, as it did.
+A default recipe that is renamed keeps its old name in the registry for the batches that recorded it, `decoction` for `deep-mash`, when the Brewery has no recipe of its own by that name; a new choice of the old name, a `recipe:<name>` label, `foedrum recipe` or an answer, is refused with one line that names the new one ([ADR 0372](../../adr/0372-decoction-becomes-deep-mash-and-a-batch-that-recorded-it-carries-on.md)).
 A recipe has no time budget: the load refuses a `budget` field with a line that says it is gone, since each step's deadline, stall limit and attempts already bound a batch ([ADR 0194](../../adr/0194-a-recipe-has-no-time-budget.md)).
 A recipe does not choose the orders it runs: the load refuses a `match` field with a line that says an order is routed by its `recipe:<name>` label or by `foedrum mash` ([routing](../intake/routing.md), [ADR 0253](../../adr/0253-a-recipe-s-match-is-refused-at-load.md)).
 
