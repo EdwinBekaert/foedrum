@@ -137,8 +137,9 @@ export const baseMergeTarget = (
 
 /**
  * The route that makes attempt `ref` of `batch` merge the base at its start: a `pull_request`
- * route with a cause, a failing check on the pull request's merged tree (ADR 0226) or its conflict
- * with the base (ADR 0244), of it or of the attempt it retries or answers.
+ * route whose cause is a failing check on the pull request's merged tree (ADR 0226) or its conflict
+ * with the base (ADR 0244), of it or of the attempt it retries or answers; never a review's, which
+ * names no base (ADR 0382).
  */
 export const mergeRouteOf = (
   batch: Batch,
@@ -148,7 +149,8 @@ export const mergeRouteOf = (
   // A retry, or an answer that starts fresh, starts as the attempt before it did (ADR 0117,
   // ADR 0118).
   const route = step === undefined ? undefined : roundRouteOf(step, ref.attempt);
-  return route?.why === 'pull_request' && route.cause !== undefined ? route : undefined;
+  if (route?.why !== 'pull_request') return undefined;
+  return route.cause === 'merged_check' || route.cause === 'conflict' ? route : undefined;
 };
 
 /** Whether attempt `ref` of `batch` merges the base at its start, keeping a conflict (ADR 0244). */

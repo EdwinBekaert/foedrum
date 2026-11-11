@@ -202,6 +202,15 @@ describe('logPathOf', () => {
       },
       'batches/b1/events.jsonl',
     ],
+    'pull_request.reviews_read': [
+      {
+        type: 'pull_request.reviews_read',
+        batchId: 'b1',
+        pullRequest: 'https://github.com/acme/api/pull/7',
+        reviews: [],
+      },
+      'batches/b1/events.jsonl',
+    ],
     'order.paused': [{ type: 'order.paused', by: 'ada', via: 'terminal' }, 'events.jsonl'],
     'order.ranked': [
       {

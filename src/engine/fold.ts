@@ -3,6 +3,7 @@
 
 import type {
   Answer,
+  AskedReview,
   CheckoutRef,
   ClaudeReport,
   CoverageListing,
@@ -408,6 +409,11 @@ export interface Batch {
    * while none was. A record names its head: it says nothing of another.
    */
   pullRequestChecks?: Readonly<Record<string, HeadChecks>>;
+  /**
+   * The latest record of the reviews of each open pull request that ask for changes and had not
+   * sent the batch back when it was read, by URL (ADR 0382), and how many more; absent while none was.
+   */
+  pullRequestReviews?: Readonly<Record<string, { reviews: readonly AskedReview[]; more?: number }>>;
   /**
    * The latest merge-tree of its open pull request's head with each other open pull request's
    * head of the Brewery's in its repository, by the other's URL (ADR 0230); absent while none was.
@@ -1262,6 +1268,16 @@ function apply(state: State, event: Event): State {
       // A store rebuilt from the state branch never read its folder (ADR 0380).
       const left = batch === undefined ? state : withoutBatch(state, batch);
       return { ...left, archived: put(state.archived, event.batchId, archived) };
+    }
+    case 'pull_request.reviews_read': {
+      const { batchId, pullRequest, reviews, more } = event;
+      return updateBatch(state, batchId, (batch) => ({
+        ...batch,
+        pullRequestReviews: {
+          ...batch.pullRequestReviews,
+          [pullRequest]: { reviews, ...(more === undefined ? {} : { more }) },
+        },
+      }));
     }
     default:
       return unreachable(event);

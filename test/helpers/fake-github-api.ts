@@ -65,6 +65,17 @@ export interface FakeApiPull {
   draft?: boolean;
   /** Its merge, once `merge` made it: the merge commit and when it merged. */
   merged?: FakeApiMerge;
+  /** Its reviews, as a person submitted them on GitHub, oldest first (ADR 0382). */
+  reviews?: FakeApiReview[];
+}
+
+/** A review of a pull request: who submitted it, its state as GitHub names it, and its comments. */
+export interface FakeApiReview {
+  id: number;
+  by: string;
+  state: 'APPROVED' | 'CHANGES_REQUESTED' | 'COMMENTED' | 'DISMISSED';
+  body: string;
+  comments: { path: string; line?: number; body: string }[];
 }
 
 /** A merge of a pull request: its merge commit, made where the test merged it, and when. */
@@ -123,6 +134,8 @@ export interface FakeGitHubApi {
   merge(repo: string, number: number, merged: FakeApiMerge): void;
   /** Releases `repo`, holding every merge of it made before. */
   release(repo: string, release: FakeApiRelease): void;
+  /** Submits `review` on the pull request `repo#number` it opened, as a person would on GitHub. */
+  review(repo: string, number: number, review: FakeApiReview): void;
 }
 
 const json = (status: number, body: unknown, headers: Record<string, string> = {}): Response =>
@@ -438,6 +451,34 @@ export const fakeGitHubApi = (options: FakeGitHubApiOptions): FakeGitHubApi => {
     return json(201, asPull(pull));
   };
 
+  // The reviews of a pull request the fake opened, and the comments of one (ADR 0382).
+  const onReviews = (method: string, repo: string, rest: string): Response => {
+    const [, number, review] = /^pulls\/(\d+)\/reviews(?:\/(\d+)\/comments)?$/.exec(rest) ?? [];
+    const pull = pulls.find(
+      (each) => each.repo === repo.toLowerCase() && each.number === Number(number),
+    );
+    if (method !== 'GET' || pull === undefined) return notFound();
+    const reviews = pull.reviews ?? [];
+    if (review === undefined) {
+      return json(
+        200,
+        reviews.map(({ id, by, state, body }) => ({
+          id,
+          user: { login: by },
+          state,
+          body,
+          commit_id: headOf(pull.number),
+        })),
+      );
+    }
+    const found = reviews.find(({ id }) => id === Number(review));
+    if (found === undefined) return notFound();
+    return json(
+      200,
+      found.comments.map(({ path, line, body }) => ({ path, line: line ?? null, body })),
+    );
+  };
+
   // The check runs and commit statuses on the head of a pull request the fake opened: none.
   const onCommit = (method: string, repo: string, rest: string): Response => {
     const [, sha, what] = /^commits\/([0-9a-f]{40})\/(check-runs|status)$/.exec(rest) ?? [];
@@ -539,6 +580,7 @@ export const fakeGitHubApi = (options: FakeGitHubApiOptions): FakeGitHubApi => {
     if (rest.startsWith('issues/')) return onIssue(method, repo, rest, body);
     if (rest.startsWith('git/')) return onGit(method, repo, rest, body);
     if (/^pulls(?:\/\d+)?$/.test(rest)) return onPulls(method, repo, url, body);
+    if (/^pulls\/\d+\/reviews/.test(rest)) return onReviews(method, repo, rest);
     if (rest.startsWith('commits/')) return onCommit(method, repo, rest);
     if (rest === 'releases/latest' || rest.startsWith('compare/')) {
       return onRelease(method, repo, rest);
@@ -585,6 +627,11 @@ export const fakeGitHubApi = (options: FakeGitHubApiOptions): FakeGitHubApi => {
       const pull = pulls.find((each) => each.repo === repo.toLowerCase() && each.number === number);
       if (pull === undefined) throw new Error(`The fake opened no pull request ${repo}#${number}`);
       pull.merged = { ...merged };
+    },
+    review: (repo, number, review) => {
+      const pull = pulls.find((each) => each.repo === repo.toLowerCase() && each.number === number);
+      if (pull === undefined) throw new Error(`The fake opened no pull request ${repo}#${number}`);
+      pull.reviews = [...(pull.reviews ?? []), review];
     },
     release: (repo, release) => {
       const key = repo.toLowerCase();

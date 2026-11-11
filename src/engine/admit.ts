@@ -13,6 +13,7 @@ import {
   type State,
   sameHeadChecks,
 } from './fold.ts';
+import { sameReviews } from './pr-reviews.ts';
 import { digestOf } from './pull-request.ts';
 import { sentBackFrom } from './pull-request-fix.ts';
 
@@ -221,6 +222,8 @@ function rule(state: State, event: Event): string | undefined {
       if (batchEnded(batch)) return undefined;
       return `batch ${event.batchId} has not ended, so it is not archived`;
     }
+    case 'pull_request.reviews_read':
+      return checkable(state, event) ?? unreviewed(state, event);
     default: {
       const unhandled: never = event;
       throw new Error(`Unhandled event ${JSON.stringify(unhandled)}`);
@@ -437,7 +440,8 @@ function checkable(
         | 'pull_request.base_checked'
         | 'pull_request.pair_checked'
         | 'pull_request.checks_pending'
-        | 'pull_request.checks_finished';
+        | 'pull_request.checks_finished'
+        | 'pull_request.reviews_read';
     }
   >,
 ): string | undefined {
@@ -468,6 +472,20 @@ function unrecorded(
       : latest.kind === 'finished' && sameHeadChecks(latest, event);
   return same
     ? `the checks on ${event.head} of ${event.pullRequest} are already recorded`
+    : undefined;
+}
+
+/**
+ * A record of the reviews that ask for changes says something new (ADR 0382): other reviews than
+ * the latest record's, or a first record that names any.
+ */
+function unreviewed(
+  state: State,
+  event: Extract<Event, { type: 'pull_request.reviews_read' }>,
+): string | undefined {
+  const latest = state.batches.get(event.batchId)?.pullRequestReviews?.[event.pullRequest];
+  return sameReviews(latest, event.reviews, event.more ?? 0)
+    ? `the reviews of ${event.pullRequest} are already recorded`
     : undefined;
 }
 

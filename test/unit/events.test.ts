@@ -234,6 +234,20 @@ const valid: Record<Event['type'], Event> = {
     ],
     more: 3,
   },
+  'pull_request.reviews_read': {
+    type: 'pull_request.reviews_read',
+    batchId: 'app-7',
+    pullRequest,
+    reviews: [
+      {
+        id: 80,
+        by: 'octocat',
+        commit: sha,
+        body: 'Please name the flag.',
+        comments: [{ path: 'src/cli.ts', line: 12, body: 'Call it --json.' }],
+      },
+    ],
+  },
   'effect.applied': {
     type: 'effect.applied',
     key: '["b1","brew",1,"pull_request"]',

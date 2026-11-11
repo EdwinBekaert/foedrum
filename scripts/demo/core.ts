@@ -292,6 +292,7 @@ export const lifeEndOf = (events: readonly { event: Event }[]): LifeEnd | undefi
       case 'pull_request.pair_checked':
       case 'pull_request.checks_pending':
       case 'pull_request.checks_finished':
+      case 'pull_request.reviews_read':
       case 'order.paused':
       case 'order.continued':
       case 'order.ranked':
