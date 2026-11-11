@@ -4,9 +4,11 @@
 import assert from 'node:assert/strict';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { formatStatus } from '../../src/cli/status.ts';
+import { nextBatchId, targetBatchId } from '../../src/engine/batch-id.ts';
 import { type CommandLog, createCommandLog } from '../../src/engine/command-log.ts';
 import type { Ending } from '../../src/engine/decide.ts';
 import type { EventStore } from '../../src/engine/event-store.ts';
+import { emptyState } from '../../src/engine/fold.ts';
 import {
   createIntake,
   type IntakeNotice,
@@ -24,6 +26,10 @@ import { addedByAuthor } from '../helpers/labels-added.ts';
 const brewery = 'alice/brewery';
 const web = 'acme/web';
 const now = new Date('2026-10-26T09:00:00.000Z');
+
+// Batch ids carry the time they were ordered (ADR 0380): those made at `now`.
+const idOf = (alias: string, issue: number): string => targetBatchId(emptyState, alias, issue, now);
+const breweryIdOf = (issue: number): string => nextBatchId(emptyState, issue, now);
 const alice: Claimant = { brewery, login: 'alice' };
 const recipes = fakeRecipes({
   nip: { ...fakeRecipe({ steps: ['plan'] }), concurrency: 1 },
@@ -124,7 +130,7 @@ describe('the limits of a pass (ADR 0217)', () => {
       const pass = intake(listed);
       await pass.poll();
       await pass.poll();
-      assert.deepStrictEqual(lanes(), ['12-1 brewing nip', '14-1 brewing half']);
+      assert.deepStrictEqual(lanes(), ['12-1 brewing nip', `${breweryIdOf(14)} brewing half`]);
       assert.deepStrictEqual(held(), [
         {
           kind: 'held',
@@ -143,13 +149,13 @@ describe('the limits of a pass (ADR 0217)', () => {
       assert.deepStrictEqual(lanes(), ['12-1 brewing nip']);
       onTap('12-1');
       await pass.poll();
-      assert.deepStrictEqual(lanes(), ['12-1 on_tap nip', '13-1 brewing nip']);
+      assert.deepStrictEqual(lanes(), ['12-1 on_tap nip', `${breweryIdOf(13)} brewing nip`]);
     });
 
     it('orders no more of a recipe than its limit in one pass, counting what it ordered before', async () => {
       const listed = { [brewery]: [issue(12, ['recipe:nip']), issue(13, ['recipe:nip'])] };
       await intake(listed).poll();
-      assert.deepStrictEqual(lanes(), ['12-1 brewing nip']);
+      assert.deepStrictEqual(lanes(), [`${breweryIdOf(12)} brewing nip`]);
     });
 
     it('counts an Ordered batch the pass will route to the recipe', async () => {
@@ -309,7 +315,7 @@ describe('the limits of a pass (ADR 0217)', () => {
         '1-1 brewing half',
         '2-1 brewing half',
         '3-1 brewing half',
-        '10-1 brewing half',
+        `${breweryIdOf(10)} brewing half`,
       ]);
       assert.equal(github.refs.size, 0);
       assert.deepStrictEqual(held(), [
@@ -337,13 +343,16 @@ describe('the limits of a pass (ADR 0217)', () => {
         ],
       };
       await intake(listed, { limits: { ...unlimited, openOrders: 2 } }).poll();
-      assert.deepStrictEqual(lanes(), ['1-1 brewing half', '2-1 brewing half']);
+      assert.deepStrictEqual(lanes(), [
+        `${breweryIdOf(1)} brewing half`,
+        `${breweryIdOf(2)} brewing half`,
+      ]);
     });
 
     it('counts a target issue it claimed as a new order of the same pass', async () => {
       const listed = { [web]: [issue(7, ['foedrum']), issue(8, ['foedrum'])] };
       await intake(listed, { limits: { ...unlimited, openOrders: 1 } }).poll();
-      assert.deepStrictEqual(lanes(), ['web-7 ordered']);
+      assert.deepStrictEqual(lanes(), [`${idOf('web', 7)} ordered`]);
       assert.deepStrictEqual([...github.refs.keys()], [`${web}#7`]);
       assert.deepStrictEqual(held(), [
         { kind: 'held', repo: web, issue: 8, reason: "1 order is open, the Brewery's openOrders" },

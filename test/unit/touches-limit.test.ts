@@ -4,9 +4,11 @@
 import assert from 'node:assert/strict';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { formatStatus } from '../../src/cli/status.ts';
+import { nextBatchId } from '../../src/engine/batch-id.ts';
 import { type CommandLog, createCommandLog } from '../../src/engine/command-log.ts';
 import type { Ending } from '../../src/engine/decide.ts';
 import type { EventStore } from '../../src/engine/event-store.ts';
+import { emptyState } from '../../src/engine/fold.ts';
 import {
   createIntake,
   type IntakeNotice,
@@ -26,6 +28,9 @@ const brewery = 'alice/brewery';
 const web = 'acme/web';
 const api = 'acme/api';
 const now = new Date('2026-10-30T09:00:00.000Z');
+
+// Batch ids carry the time they were ordered (ADR 0380): those made at `now`.
+const breweryIdOf = (issue: number): string => nextBatchId(emptyState, issue, now);
 const alice: Claimant = { brewery, login: 'alice' };
 const recipes = fakeRecipes({ half: fakeRecipe({ steps: ['plan'] }) });
 const succeeded: Ending = {
@@ -125,7 +130,7 @@ describe('two ready sub-orders whose touches overlap (#566)', () => {
   };
   /** The sub-order `number` brews already, ordered and routed by an earlier pass. */
   const brewingAlready = (number: number): void => {
-    const batchId = `${number}-1`;
+    const batchId = breweryIdOf(number);
     accept({ kind: 'order', batchId, order: { issue: number }, parentBatchId: '1-1' });
     route(batchId);
   };
@@ -133,7 +138,7 @@ describe('two ready sub-orders whose touches overlap (#566)', () => {
   const orderedAlready = (number: number): void => {
     accept({
       kind: 'order',
-      batchId: `${number}-1`,
+      batchId: breweryIdOf(number),
       order: { issue: number },
       parentBatchId: '1-1',
     });
@@ -157,7 +162,7 @@ describe('two ready sub-orders whose touches overlap (#566)', () => {
       const pass = intake(numbers);
       await pass.poll();
       await pass.poll();
-      assert.deepStrictEqual(lanes(), ['1-1 brewing', '10-1 brewing']);
+      assert.deepStrictEqual(lanes(), ['1-1 brewing', `${breweryIdOf(10)} brewing`]);
       assert.deepStrictEqual(held(), [
         { kind: 'held', repo: brewery, issue: 11, reason: heldReason(10) },
       ]);
@@ -169,7 +174,7 @@ describe('two ready sub-orders whose touches overlap (#566)', () => {
         { issue: 11, touches: ['src/engine/limits.ts'] },
       ]);
       await intake(numbers).poll();
-      assert.deepStrictEqual(lanes(), ['1-1 brewing', '10-1 brewing']);
+      assert.deepStrictEqual(lanes(), ['1-1 brewing', `${breweryIdOf(10)} brewing`]);
       assert.deepStrictEqual(held(), [
         { kind: 'held', repo: brewery, issue: 11, reason: heldReason(10) },
       ]);
@@ -181,7 +186,7 @@ describe('two ready sub-orders whose touches overlap (#566)', () => {
         { issue: 11, touches: ['src/engine'] },
       ]);
       await intake(numbers).poll();
-      assert.deepStrictEqual(lanes(), ['1-1 brewing', '10-1 brewing']);
+      assert.deepStrictEqual(lanes(), ['1-1 brewing', `${breweryIdOf(10)} brewing`]);
       assert.deepStrictEqual(held(), [
         { kind: 'held', repo: brewery, issue: 11, reason: heldReason(10) },
       ]);
@@ -194,7 +199,7 @@ describe('two ready sub-orders whose touches overlap (#566)', () => {
       ]);
       brewingAlready(11);
       await intake(numbers).poll();
-      assert.deepStrictEqual(lanes(), ['1-1 brewing', '11-1 brewing']);
+      assert.deepStrictEqual(lanes(), ['1-1 brewing', `${breweryIdOf(11)} brewing`]);
       assert.deepStrictEqual(held(), [
         { kind: 'held', repo: brewery, issue: 10, reason: heldReason(11) },
       ]);
@@ -206,7 +211,7 @@ describe('two ready sub-orders whose touches overlap (#566)', () => {
         { issue: 11, touches: ['src/engine/limits.ts'] },
       ]);
       await intake(numbers).poll();
-      assert.deepStrictEqual(lanes(), ['1-1 brewing', '10-1 brewing']);
+      assert.deepStrictEqual(lanes(), ['1-1 brewing', `${breweryIdOf(10)} brewing`]);
       assert.deepStrictEqual(held(), [
         { kind: 'held', repo: brewery, issue: 11, reason: heldReason(10) },
       ]);
@@ -218,7 +223,7 @@ describe('two ready sub-orders whose touches overlap (#566)', () => {
         { issue: 11, touches: ['src/Engine/limits.ts'] },
       ]);
       await intake(numbers).poll();
-      assert.deepStrictEqual(lanes(), ['1-1 brewing', '10-1 brewing']);
+      assert.deepStrictEqual(lanes(), ['1-1 brewing', `${breweryIdOf(10)} brewing`]);
       assert.deepStrictEqual(held(), [
         { kind: 'held', repo: brewery, issue: 11, reason: heldReason(10) },
       ]);
@@ -230,7 +235,7 @@ describe('two ready sub-orders whose touches overlap (#566)', () => {
         { issue: 11, repo: 'acme/web', touches: ['src/app.ts'] },
       ]);
       await intake(numbers).poll();
-      assert.deepStrictEqual(lanes(), ['1-1 brewing', '10-1 brewing']);
+      assert.deepStrictEqual(lanes(), ['1-1 brewing', `${breweryIdOf(10)} brewing`]);
     });
 
     it('orders the held sub-order at the next pass once the one that held it is on tap', async () => {
@@ -240,10 +245,14 @@ describe('two ready sub-orders whose touches overlap (#566)', () => {
       ]);
       const pass = intake(numbers);
       await pass.poll();
-      assert.deepStrictEqual(lanes(), ['1-1 brewing', '10-1 brewing']);
-      onTap('10-1');
+      assert.deepStrictEqual(lanes(), ['1-1 brewing', `${breweryIdOf(10)} brewing`]);
+      onTap(breweryIdOf(10));
       await pass.poll();
-      assert.deepStrictEqual(lanes(), ['1-1 brewing', '10-1 on_tap', '11-1 brewing']);
+      assert.deepStrictEqual(lanes(), [
+        '1-1 brewing',
+        `${breweryIdOf(10)} on_tap`,
+        `${breweryIdOf(11)} brewing`,
+      ]);
     });
 
     it('does not let a held sub-order hold the ones behind it', async () => {
@@ -254,7 +263,11 @@ describe('two ready sub-orders whose touches overlap (#566)', () => {
         { issue: 12, touches: ['src/b.ts'] },
       ]);
       await intake(numbers).poll();
-      assert.deepStrictEqual(lanes(), ['1-1 brewing', '10-1 brewing', '12-1 brewing']);
+      assert.deepStrictEqual(lanes(), [
+        '1-1 brewing',
+        `${breweryIdOf(10)} brewing`,
+        `${breweryIdOf(12)} brewing`,
+      ]);
       assert.deepStrictEqual(held(), [
         { kind: 'held', repo: brewery, issue: 11, reason: heldReason(10) },
       ]);
@@ -268,7 +281,11 @@ describe('two ready sub-orders whose touches overlap (#566)', () => {
         { issue: 12, touches: ['src/c.ts'] },
       ]);
       await intake(numbers, { limits: { ...unlimited, recipe: () => 3 } }).poll();
-      assert.deepStrictEqual(lanes(), ['1-1 brewing', '10-1 brewing', '12-1 brewing']);
+      assert.deepStrictEqual(lanes(), [
+        '1-1 brewing',
+        `${breweryIdOf(10)} brewing`,
+        `${breweryIdOf(12)} brewing`,
+      ]);
       assert.deepStrictEqual(held(), [
         { kind: 'held', repo: brewery, issue: 11, reason: heldReason(10) },
       ]);
@@ -282,7 +299,7 @@ describe('two ready sub-orders whose touches overlap (#566)', () => {
       ]);
       orderedAlready(10);
       await intake(numbers, {}, [10]).poll();
-      assert.deepStrictEqual(lanes(), ['1-1 brewing', '10-1 ordered']);
+      assert.deepStrictEqual(lanes(), ['1-1 brewing', `${breweryIdOf(10)} ordered`]);
       assert.deepStrictEqual(held(), [
         { kind: 'held', repo: brewery, issue: 11, reason: heldReason(10) },
       ]);
@@ -295,9 +312,16 @@ describe('two ready sub-orders whose touches overlap (#566)', () => {
       ]);
       orderedAlready(10);
       const late = new Date(now.getTime() + 24 * 60 * 60 * 1000);
-      assert.equal(log.issue({ kind: 'unrouted', batchId: '10-1' }, late).kind, 'accepted');
+      assert.equal(
+        log.issue({ kind: 'unrouted', batchId: breweryIdOf(10) }, late).kind,
+        'accepted',
+      );
       await intake(numbers, {}, [10]).poll();
-      assert.deepStrictEqual(lanes(), ['1-1 brewing', '10-1 stuck', '11-1 brewing']);
+      assert.deepStrictEqual(lanes(), [
+        '1-1 brewing',
+        `${breweryIdOf(10)} stuck`,
+        `${breweryIdOf(11)} brewing`,
+      ]);
       assert.deepStrictEqual(held(), []);
     });
 
@@ -320,7 +344,11 @@ describe('two ready sub-orders whose touches overlap (#566)', () => {
         },
       });
       await intake(numbers, {}, [10]).poll();
-      assert.deepStrictEqual(lanes(), ['1-1 brewing', '10-1 ordered', '11-1 brewing']);
+      assert.deepStrictEqual(lanes(), [
+        '1-1 brewing',
+        `${breweryIdOf(10)} ordered`,
+        `${breweryIdOf(11)} brewing`,
+      ]);
       assert.deepStrictEqual(held(), []);
     });
 
@@ -330,7 +358,11 @@ describe('two ready sub-orders whose touches overlap (#566)', () => {
         { issue: 11, touches: ['src/b.ts', 'docs/b.md'] },
       ]);
       await intake(numbers).poll();
-      assert.deepStrictEqual(lanes(), ['1-1 brewing', '10-1 brewing', '11-1 brewing']);
+      assert.deepStrictEqual(lanes(), [
+        '1-1 brewing',
+        `${breweryIdOf(10)} brewing`,
+        `${breweryIdOf(11)} brewing`,
+      ]);
       assert.deepStrictEqual(held(), []);
     });
 
@@ -340,19 +372,31 @@ describe('two ready sub-orders whose touches overlap (#566)', () => {
         { issue: 11, touches: ['src/engine-extra/limits.ts', 'src/engine.ts'] },
       ]);
       await intake(numbers).poll();
-      assert.deepStrictEqual(lanes(), ['1-1 brewing', '10-1 brewing', '11-1 brewing']);
+      assert.deepStrictEqual(lanes(), [
+        '1-1 brewing',
+        `${breweryIdOf(10)} brewing`,
+        `${breweryIdOf(11)} brewing`,
+      ]);
     });
 
     it('starts a sub-order without touches beside one that has them', async () => {
       const numbers = breakdown([{ issue: 10, touches: ['src/a.ts'] }, { issue: 11 }]);
       await intake(numbers).poll();
-      assert.deepStrictEqual(lanes(), ['1-1 brewing', '10-1 brewing', '11-1 brewing']);
+      assert.deepStrictEqual(lanes(), [
+        '1-1 brewing',
+        `${breweryIdOf(10)} brewing`,
+        `${breweryIdOf(11)} brewing`,
+      ]);
     });
 
     it('starts a sub-order with touches beside one that has none', async () => {
       const numbers = breakdown([{ issue: 10 }, { issue: 11, touches: ['src/a.ts'] }]);
       await intake(numbers).poll();
-      assert.deepStrictEqual(lanes(), ['1-1 brewing', '10-1 brewing', '11-1 brewing']);
+      assert.deepStrictEqual(lanes(), [
+        '1-1 brewing',
+        `${breweryIdOf(10)} brewing`,
+        `${breweryIdOf(11)} brewing`,
+      ]);
     });
 
     it('starts two sub-orders of different repositories that touch the same path', async () => {
@@ -361,7 +405,11 @@ describe('two ready sub-orders whose touches overlap (#566)', () => {
         { issue: 11, repo: api, touches: ['src/app.ts'] },
       ]);
       await intake(numbers).poll();
-      assert.deepStrictEqual(lanes(), ['1-1 brewing', '10-1 brewing', '11-1 brewing']);
+      assert.deepStrictEqual(lanes(), [
+        '1-1 brewing',
+        `${breweryIdOf(10)} brewing`,
+        `${breweryIdOf(11)} brewing`,
+      ]);
     });
   });
 
@@ -378,16 +426,17 @@ describe('two ready sub-orders whose touches overlap (#566)', () => {
       brewingHolder();
       assert.deepStrictEqual(limitLines(log.state(), { ...unlimited, openOrders: 1 }), [
         'open orders: 1 of 1 (#1); new orders wait',
-        'sub-order #11 waits for sub-order #10 (10-1): their touches overlap',
+        `sub-order #11 waits for sub-order #10 (${breweryIdOf(10)}): their touches overlap`,
       ]);
     });
 
     it('prints it above the board', () => {
       brewingHolder();
       const lines = limitLines(log.state(), unlimited);
-      assert.match(
-        formatStatus(log.state(), [], new Map(), lines),
-        /^sub-order #11 waits for sub-order #10 \(10-1\): their touches overlap\n\n2 batches\n/,
+      assert.ok(
+        formatStatus(log.state(), [], new Map(), lines).startsWith(
+          `sub-order #11 waits for sub-order #10 (${breweryIdOf(10)}): their touches overlap\n\n2 batches\n`,
+        ),
       );
     });
 
@@ -398,13 +447,13 @@ describe('two ready sub-orders whose touches overlap (#566)', () => {
       ]);
       orderedAlready(10);
       assert.deepStrictEqual(limitLines(log.state(), unlimited), [
-        'sub-order #11 waits for sub-order #10 (10-1): their touches overlap',
+        `sub-order #11 waits for sub-order #10 (${breweryIdOf(10)}): their touches overlap`,
       ]);
     });
 
     it('prints no such line once the sub-order that held another is on tap', () => {
       brewingHolder();
-      onTap('10-1');
+      onTap(breweryIdOf(10));
       assert.deepStrictEqual(limitLines(log.state(), unlimited), []);
     });
 
