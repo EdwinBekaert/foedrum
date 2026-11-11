@@ -1244,7 +1244,7 @@ export function loadRecipes(breweryFiles: BreweryFiles): LoadedRecipes {
   // once every recipe loaded (ADR 0232, ADR 0375).
   const offered = new Map<
     string,
-    Omit<RecipeChoice, 'guidance'> & { guidance?: RecipeGuidance; path: string }
+    Omit<RecipeChoice, 'guidance'> & { guidance: RecipeGuidance | undefined; path: string }
   >();
   const choosingSteps = new Map<string, readonly string[]>();
   for (const { path, value } of readAll(
@@ -1322,13 +1322,7 @@ export function loadRecipes(breweryFiles: BreweryFiles): LoadedRecipes {
       ),
     );
     const { name, type, description, guidance } = value;
-    offered.set(name, {
-      name,
-      type,
-      description,
-      ...(guidance === undefined ? {} : { guidance }),
-      path,
-    });
+    offered.set(name, { name, type, description, guidance, path });
     const choosing = steps.flatMap(({ line }) => (line.chooses === true ? [line.id] : []));
     if (choosing.length > 0) choosingSteps.set(value.name, choosing);
     stepBrewers.set(
@@ -1347,18 +1341,14 @@ export function loadRecipes(breweryFiles: BreweryFiles): LoadedRecipes {
   // (ADR 0232). Of those, the `brew` ones: what the recipes input of any other brewer names, such
   // as a plan's for its sub-orders, what a plan's out doc may name, and what a plan lens step
   // judges those by (ADR 0234, ADR 0321, ADR 0365).
-  const offerable = [...offered.values()].filter(({ name }) => !choosingSteps.has(name));
-  // Every recipe offered says when to choose it: a model choosing it reads that (ADR 0375).
-  const unguided = offerable.filter(({ guidance }) => guidance === undefined);
-  if (unguided.length > 0) {
-    return {
-      valid: false,
-      problems: unguided.map(({ path, name }) => `${path}: ${unguidedLine(name)}`),
-    };
+  const choices: RecipeChoice[] = [];
+  for (const { path, guidance, ...choice } of offered.values()) {
+    if (choosingSteps.has(choice.name)) continue;
+    // Every recipe offered says when to choose it: a model choosing it reads that (ADR 0375).
+    if (guidance === undefined) problems.push(`${path}: ${unguidedLine(choice.name)}`);
+    else choices.push({ ...choice, guidance });
   }
-  const choices = offerable.flatMap(({ path: _, guidance, ...choice }): RecipeChoice[] =>
-    guidance === undefined ? [] : [{ ...choice, guidance }],
-  );
+  if (problems.length > 0) return { valid: false, problems };
   const building = choices.filter(({ type }) => type === 'brew');
   for (const [recipe, steps] of stepBrewers) {
     const chooses = choosingSteps.get(recipe) ?? [];
