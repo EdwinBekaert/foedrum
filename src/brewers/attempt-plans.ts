@@ -103,6 +103,8 @@ export interface AttemptPlansOptions {
   repoTools: (repo: string) => readonly string[];
   /** A repository's setup (`foedrum.jsonc`), run before every attempt's brewer (ADR 0163). */
   repoSetup?: (repo: string) => RepositorySetup | undefined;
+  /** A repository's test line (`foedrum.jsonc`), for a brewer that asks for it (ADR 0376). */
+  repoTestLine?: (repo: string) => string | null | undefined;
   /** Whether the isolation level relies on Claude Code's sandbox (ADR 0010). */
   sandbox: boolean;
   /** Where the driver's environment moves the logins the sandbox hides (ADR 0160). */
