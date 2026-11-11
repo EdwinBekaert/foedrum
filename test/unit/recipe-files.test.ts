@@ -2303,6 +2303,53 @@ describe('loadRecipes: a step whose answer chooses the recipe (ADR 0232)', () =>
     assert.equal(offered('pale', 'maltster'), undefined);
   });
 
+  it('a tend recipe is offered to no step, neither to a step that chooses nor to a plan (ADR 0380)', () => {
+    const planner = brewer('planner', { inputs: [{ name: 'recipes', from: 'recipes' }] });
+    const result = loadRecipes(
+      brewery({
+        recipes: [
+          pale,
+          mashIn(),
+          recipe('plans', [{ brewer: 'planner' }]),
+          recipe('tidy', [{ id: 'sweep', cellarer: 'sweep' }], {
+            type: 'tend',
+            guidance: undefined,
+          }),
+        ],
+        brewers: [maltster, brewmaster, innkeeper, planner],
+      }),
+    );
+    assert.ok(result.valid, result.valid ? '' : result.problems.join('\n'));
+    const offered = (recipe: string, step: string) =>
+      result.brewers.find(recipe, step)?.choices?.map(({ name }) => name);
+    assert.deepEqual(offered('mash-in', 'innkeep'), ['pale', 'plans']);
+    assert.deepEqual(offered('plans', 'planner'), ['pale', 'plans']);
+  });
+
+  it("loads the Cellarer's steps anywhere in a recipe, each run as its job (ADR 0380)", () => {
+    const tidy = recipe(
+      'tidy',
+      [
+        { id: 'shelve', cellarer: 'shelve' },
+        { id: 'sweep', cellarer: 'sweep' },
+        { id: 'expire', cellarer: 'expire' },
+      ],
+      { type: 'tend', guidance: undefined },
+    );
+    const result = loadRecipes(brewery({ recipes: [pale, tidy] }));
+    assert.ok(result.valid, result.valid ? '' : result.problems.join('\n'));
+    const loaded = result.recipes.find('tidy');
+    assert.equal(loaded?.type, 'tend');
+    assert.deepEqual(loaded?.steps, ['shelve', 'sweep', 'expire']);
+    assert.deepEqual(
+      ['shelve', 'sweep', 'expire'].map((id) => loaded?.action(id)),
+      ['shelve', 'sweep', 'expire'],
+    );
+    const fresh = { steps: new Map(), lane: { kind: 'brewing' } } as unknown as Batch;
+    assert.deepEqual(loaded?.after(fresh, 'shelve'), { kind: 'step', stepId: 'sweep' });
+    assert.deepEqual(loaded?.after(fresh, 'expire'), { kind: 'done', pullRequests: [] });
+  });
+
   it("marks the step, and gives its brewer the Brewery's other recipes to offer, in order", () => {
     const result = loadRecipes(files());
     assert.ok(result.valid, result.valid ? '' : result.problems.join('\n'));

@@ -133,6 +133,11 @@ describe('step kinds', () => {
     loop: [{ id: 'review', loop: { maxRounds: 2, until: 'tasting.verdict', steps: [tasting] } }],
     gate: [{ id: 'approve-plan', gate: 'human', deadline: '3d' }],
     action: [{ action: 'openPullRequest' }, { id: 'merge', action: 'blend' }],
+    cellarer: [
+      { id: 'shelve', cellarer: 'shelve' },
+      { id: 'sweep', cellarer: 'sweep' },
+      { id: 'expire', cellarer: 'expire' },
+    ],
     fanOut: [{ id: 'brew', fanOut: { recipe: 'half-pint', bottling: 'perRepo' } }],
   };
   for (const [kind, steps] of Object.entries(examples)) {

@@ -193,6 +193,20 @@ const ActionStep = z.strictObject({
   ),
 });
 
+/**
+ * A job of the Cellarer, who keeps the cellar: engine code, never a model (ADR 0380). `shelve`
+ * moves every finished batch off the state the engine reads, `sweep` clears old temporary files,
+ * `expire` deletes old months of the shelf.
+ */
+export const CellarerJob = z.enum(['shelve', 'sweep', 'expire']);
+export type CellarerJob = z.infer<typeof CellarerJob>;
+
+const CellarerStep = z.strictObject({
+  id: StepId,
+  cellarer: CellarerJob.describe("The Cellarer's job, which the engine runs itself (ADR 0380)"),
+  when,
+});
+
 const FanOutStep = z.strictObject({
   id: StepId,
   fanOut: z.strictObject({
@@ -216,7 +230,17 @@ const unchosen = (input: unknown): boolean =>
 
 export const Step = z
   .xor(
-    [BrewerStep, CheckStep, RedProofStep, ParallelStep, LoopStep, GateStep, ActionStep, FanOutStep],
+    [
+      BrewerStep,
+      CheckStep,
+      RedProofStep,
+      ParallelStep,
+      LoopStep,
+      GateStep,
+      ActionStep,
+      CellarerStep,
+      FanOutStep,
+    ],
     {
       error: (issue) => {
         if (retiredSession(issue.input)) {
@@ -228,11 +252,19 @@ export const Step = z
   )
   .meta({
     id: 'step',
-    description: 'Exactly one of brewer, check, parallel, loop, gate, action or fanOut',
+    description: 'Exactly one of brewer, check, parallel, loop, gate, action, cellarer or fanOut',
   });
 export type Step = z.infer<typeof Step>;
 
-export type StepKind = 'brewer' | 'check' | 'parallel' | 'loop' | 'gate' | 'action' | 'fanOut';
+export type StepKind =
+  | 'brewer'
+  | 'check'
+  | 'parallel'
+  | 'loop'
+  | 'gate'
+  | 'action'
+  | 'cellarer'
+  | 'fanOut';
 
 /** The kind of a step: the one field that says what it does. */
 export function stepKind(step: Step): StepKind {
@@ -242,6 +274,7 @@ export function stepKind(step: Step): StepKind {
   if ('loop' in step) return 'loop';
   if ('gate' in step) return 'gate';
   if ('action' in step) return 'action';
+  if ('cellarer' in step) throw new Error('not implemented');
   if ('fanOut' in step) return 'fanOut';
   const unknown: never = step;
   throw new Error(`Unknown step kind: ${JSON.stringify(unknown)}`);
@@ -335,7 +368,7 @@ function misplaced(kind: Reference['kind'], from: Place, to: Place): string | un
  * What kind of work a recipe does (ADR 0365): `mash` chooses a recipe or makes a plan and builds
  * nothing, `brew` builds. A type arrives with the first recipe that uses it.
  */
-export const RecipeType = z.enum(['mash', 'brew']);
+export const RecipeType = z.enum(['mash', 'brew', 'tend']);
 export type RecipeType = z.infer<typeof RecipeType>;
 
 /** The longest line of a recipe's guidance, in UTF-16 units (ADR 0375). */
