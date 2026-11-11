@@ -18,6 +18,8 @@ sequenceDiagram
     T->>S: move the marker to the last pushed event, forget the pushed out docs
   else rejected, another engine wrote
     T->>C: stop the engine, never merge
+  else refused by push protection
+    T->>C: stop the engine, naming the commit and GitHub's unblock page
   end
 ```
 
@@ -28,7 +30,8 @@ sequenceDiagram
   A remote branch with a symbolic link or submodule is refused before checkout.
 - **Out docs** go through the store ([ADR 0103](../../adr/0103-out-docs-reach-the-state-branch-through-the-store.md)): the runner ends an attempt with the text it read, `keepOutDocs` keeps it in the store before the driver records `step.finished`, and the flush writes it at `batches/<batch>/<step>-<attempt>.md` in the commit of that event, then forgets it with the marker.
   A kill in between leaves both on the branch, or the next flush writes the doc again; a doc kept after its events were pushed (an abandoned attempt's) is pushed alone.
-  The text is model output: stored byte for byte, never a log, never read back as an instruction, and past 256 KiB replaced by a fixed line.
+  Each line of a doc that looks like a secret (`findSecrets`, a full commit hash excepted) is written as a fixed line naming its step and attempt, never the line ([ADR 0378](../../adr/0378-out-doc-lines-that-look-like-secrets-stay-off-the-state-branch-and-a-push-refused-for-one-stops-the-engine.md)).
+  The text is model output: stored byte for byte but for those lines, never a log, never read back as an instruction, and past 256 KiB replaced by a fixed line.
   So its body outlives the worktree the cleanup deletes; `foedrum replay` points at it.
 - State is committed at **every step boundary** (`step.finished`, or any event that changes a batch's lane) and pushed.
   SQLite is written first; a flush writes every event after the store's pushed-through marker, commits, pushes and only then moves the marker.
@@ -41,6 +44,9 @@ sequenceDiagram
 - **One active engine per Brewery:** a rejected push means another engine wrote in between; the engine stops instead of diverging.
   At start-up a missing or behind database is rebuilt from the branch; unpushed local events while the branch moved stop the engine with an error naming both heads.
   Foedrum never merges or rewrites state history.
+- **A push GitHub's push protection refuses** (`[remote rejected]` with push protection's words on stderr, `classifyPush`) stops the engine too, since every later commit carries the refused one: the line names the commit, the events it holds and each unblock page GitHub printed, never the secret ([ADR 0378](../../adr/0378-out-doc-lines-that-look-like-secrets-stay-off-the-state-branch-and-a-push-refused-for-one-stops-the-engine.md)).
+  The account that pushed allows the secret on that page and starts the engine again within three hours, and the same commit is pushed; else the database is moved aside and rebuilt from the branch, losing what is not on it.
+  Any other refusal or network failure is a failed flush, reported and retried at the next tick.
 - **Rewind:** every step records the commit SHA of each repository involved.
   `/foedrum rewind <step>`, offered when a batch is Stuck, resets the batch's branches to those SHAs and appends a `batch.rewound` event that records them.
   History is never rewritten; work continues from an earlier point.
