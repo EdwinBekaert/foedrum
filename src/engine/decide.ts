@@ -442,7 +442,7 @@ function run(draft: Draft, command: Command): Event[] {
     case 'route': {
       requireLane(draft.batch(command.batchId), 'route', ['ordered', 'conditioning']);
       const { batchId, recipe, reason, source } = command;
-      const { type: recipeType, firstStep } = find(draft, recipe);
+      const { type: recipeType, firstStep } = choiceOf(draft, recipe);
       draft.push({ type: 'batch.recipe_chosen', batchId, recipe, recipeType, reason, source });
       enter(draft, batchId, firstStep);
       break;
@@ -452,7 +452,7 @@ function run(draft: Draft, command: Command): Event[] {
       const batch = draft.batch(batchId);
       requireLane(batch, 'recipe', ['ordered', 'conditioning', 'stuck']);
       requireOffer(batch, 'recipe');
-      const { type: recipeType, firstStep } = find(draft, recipe);
+      const { type: recipeType, firstStep } = choiceOf(draft, recipe);
       draft.push({
         type: 'batch.recipe_chosen',
         batchId,
@@ -1236,7 +1236,7 @@ function chooseRecipe(
       `step ${stepId} chooses the recipe: answer one of the options: ${options.join(', ')}`,
     );
   }
-  const { type: recipeType, firstStep } = find(draft, recipe);
+  const { type: recipeType, firstStep } = choiceOf(draft, recipe);
   const taken = recipe === recommended ? 'as suggested' : `not the suggested ${recommended}`;
   draft.push({ type: 'input.received', batchId, stepId, by, via, answers: [...answers] });
   draft.push({
@@ -1621,6 +1621,20 @@ function find(draft: Draft, name: string): Recipe {
   const recipe = draft.context.recipes.find(name);
   if (recipe === undefined) throw new Refusal(`the Brewery has no recipe ${name}`);
   return recipe;
+}
+
+/**
+ * The recipe a new choice names: refused, naming the new name, when it is a name a default recipe
+ * had before, which only a batch that recorded it still finds (ADR 0372).
+ */
+function choiceOf(draft: Draft, name: string): Recipe {
+  const now = draft.context.recipes.renamed?.(name);
+  if (now !== undefined) {
+    throw new Refusal(
+      `the recipe ${name} is called ${now} now; choose ${now}, or label the issue recipe:${now}`,
+    );
+  }
+  return find(draft, name);
 }
 
 /** Refuses a step the batch's recipe does not have: its file changed under the batch. */

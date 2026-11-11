@@ -405,6 +405,13 @@ interface Settings {
 
 const SETTINGS: ReadonlySet<string> = new Set<keyof Settings>(['testFirst']);
 
+/**
+ * A default recipe's old name and the name it has now (ADR 0372): a batch that recorded the old
+ * name finds the recipe by it, unless the Brewery has a recipe of its own called that, and a new
+ * choice of it is refused, naming the new one. It stays: a batch's events keep the name forever.
+ */
+const RENAMED: ReadonlyMap<string, string> = new Map([['decoction', 'deep-mash']]);
+
 /** The parts of a `when` its schema accepted. */
 function partsOf(when: string) {
   const parts = readExpression(when);
@@ -1340,6 +1347,12 @@ export function loadRecipes(breweryFiles: BreweryFiles): LoadedRecipes {
     });
     stepBrewers.set(recipe, new Map(given));
   }
+  // The name a recipe the Brewery has, of its own or Foedrum's, had before (ADR 0372).
+  const renamed = (name: string): string | undefined => {
+    const now = RENAMED.get(name);
+    return now !== undefined && !recipes.has(name) && recipes.has(now) ? now : undefined;
+  };
+  const named = (name: string): string => renamed(name) ?? name;
   return {
     valid: true,
     defaults: defaultsInUse(breweryFiles),
@@ -1358,19 +1371,19 @@ export function loadRecipes(breweryFiles: BreweryFiles): LoadedRecipes {
       },
       stepModels,
     },
-    recipes: { find: (name) => recipes.get(name) },
+    recipes: { find: (name) => recipes.get(named(name)), renamed },
     brewers: {
-      find: (recipe, id) => stepBrewers.get(recipe)?.get(id),
-      has: (recipe, id) => recipes.get(recipe)?.has(id) ?? false,
+      find: (recipe, id) => stepBrewers.get(named(recipe))?.get(id),
+      has: (recipe, id) => recipes.get(named(recipe))?.has(id) ?? false,
     },
     checks: {
-      find: (recipe, id) => stepChecks.get(recipe)?.get(id)?.checks,
+      find: (recipe, id) => stepChecks.get(named(recipe))?.get(id)?.checks,
       any: () => [...stepChecks.values()].some((steps) => steps.size > 0),
-      proves: (recipe, id) => stepChecks.get(recipe)?.get(id)?.of,
-      redProof: (recipe) => redProofs.get(recipe),
-      surveys: (recipe, id) => stepChecks.get(recipe)?.get(id)?.surveys,
+      proves: (recipe, id) => stepChecks.get(named(recipe))?.get(id)?.of,
+      redProof: (recipe) => redProofs.get(named(recipe)),
+      surveys: (recipe, id) => stepChecks.get(named(recipe))?.get(id)?.surveys,
       surveyCheck: (recipe) => {
-        const found = [...(stepChecks.get(recipe) ?? [])].find(([, check]) => check.surveys);
+        const found = [...(stepChecks.get(named(recipe)) ?? [])].find(([, check]) => check.surveys);
         return found?.[1].surveys === undefined
           ? undefined
           : { id: found[0], of: found[1].surveys.of };

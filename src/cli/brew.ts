@@ -634,6 +634,12 @@ export const runBrew = async (
       }
       recipe = names.length === 0 ? setup.defaultRecipe : names[0];
       // Checked before anything is ordered or claimed, as the intake leaves it unrouted.
+      const now = recipe === undefined ? undefined : setup.recipes.renamed?.(recipe);
+      if (now !== undefined) {
+        return refuse(
+          `${named} carries recipe:${recipe}, a recipe called ${now} now; label it recipe:${now}`,
+        );
+      }
       if (recipe !== undefined && setup.recipes.find(recipe) === undefined) {
         return refuse(`${named} carries recipe:${recipe}, which names no recipe of this Brewery`);
       }
