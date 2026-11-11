@@ -5,6 +5,7 @@
 
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
+import type { RepositoryChecks } from '../checks/gravity.ts';
 import { checksEnv, setupRunOf } from '../checks/setup.ts';
 import { stepTests } from '../checks/step-commits.ts';
 import type { ReadTestMapAt } from '../checks/test-map.ts';
@@ -103,6 +104,13 @@ export interface AttemptPlansOptions {
   repoTools: (repo: string) => readonly string[];
   /** A repository's setup (`foedrum.jsonc`), run before every attempt's brewer (ADR 0163). */
   repoSetup?: (repo: string) => RepositorySetup | undefined;
+  /**
+   * A repository's checks (`foedrum.jsonc`): the checks before the end of a brewer that asks for
+   * them run those it has (ADR 0381).
+   */
+  repoChecks?: (repo: string) => RepositoryChecks | undefined;
+  /** The step a recipe's red proof proves, whose test files those checks run (ADR 0381). */
+  provenStep?: (recipe: string) => string | undefined;
   /** A repository's test line (`foedrum.jsonc`), for a brewer that asks for it (ADR 0376). */
   repoTestLine?: (repo: string) => Command | null | undefined;
   /** Whether the isolation level relies on Claude Code's sandbox (ADR 0010). */

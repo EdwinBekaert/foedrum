@@ -58,6 +58,28 @@ export const countCommits =
     return { kind: 'counted', count: Number(count) };
   };
 
+/** The paths an attempt's commits changed and left, or why git could not list them. */
+export type PathsChanged =
+  | { kind: 'listed'; paths: string[] }
+  | { kind: 'unlisted'; reason: string };
+
+/**
+ * Lists the paths the commits on `branch` in `clone` after `since` changed and did not delete
+ * (ADR 0381); never throws, git's failure is `unlisted`.
+ */
+export type ChangedPaths = (
+  clone: string,
+  branch: string,
+  since: string,
+  signal?: AbortSignal,
+) => Promise<PathsChanged>;
+
+export const changedPaths =
+  (_shared: Git): ChangedPaths =>
+  async () => {
+    throw new Error('not implemented');
+  };
+
 /**
  * Scans the commits on `branch` in `clone` after `since` as the push does (ADR 0079, ADR 0187);
  * never throws, git's failure is `unscanned`.

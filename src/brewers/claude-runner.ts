@@ -38,6 +38,7 @@ import type { AttemptSettings } from '../schemas/attempt-settings.ts';
 import type { GravityReading, HeardComments } from '../schemas/events.ts';
 import type { HouseYeastSelection } from '../schemas/house-yeast.ts';
 import {
+  type ChangedPaths,
   type CountCommits,
   countCommits,
   type ScanCommits,
@@ -54,6 +55,7 @@ import {
 import { type ClaudeCall, claudeArgs } from './claude-command.ts';
 import { cut, readClaudeStream, type StreamFacts, type StreamReader } from './claude-stream.ts';
 import type { BrewerPrompt } from './prompt.ts';
+import type { SendBackPlan } from './send-back.ts';
 
 /** Everything one attempt needs, prepared by the engine (its worktree, prompt and session). */
 export interface ClaudeAttemptPlan {
@@ -82,6 +84,11 @@ export interface ClaudeAttemptPlan {
    * environment, killed before the attempt's deadline (ADR 0163).
    */
   setup?: { run: SetupRun; deadlineAt: string; env: Env };
+  /**
+   * For a brewer with checks before its end (ADR 0381): the repository's quick checks, run once
+   * its session ended done with commits, and a failure sent back to that session once.
+   */
+  sendBack?: SendBackPlan;
   /** The house-yeast rules the plan gave the brewer, which its end records (ADR 0169). */
   houseYeast?: HouseYeastSelection;
   /** The highest comment id per issue the prompt holds, which its end records (ADR 0338). */
@@ -147,6 +154,13 @@ export interface ClaudeRunnerDeps {
   scan: ScanCommits;
   /** Reads which paths of a done plan exist at a commit in a repository's clone (ADR 0233). */
   touches: ReadPaths;
+  /**
+   * The process runner the checks before a brewer's end run through: the check sandbox, as green's
+   * (ADR 0076, ADR 0381). Without it, no checks run before the end.
+   */
+  checks?: ExecProcess;
+  /** The paths an attempt's commits changed, for the checks before its end (ADR 0381). */
+  changed?: ChangedPaths;
 }
 
 /**

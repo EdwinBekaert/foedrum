@@ -46,6 +46,9 @@ export const CommandObject = z.strictObject({
   windows: CommandLine.optional(),
   macos: CommandLine.optional(),
   linux: CommandLine.optional(),
+  // A check that takes paths: the checks before a brewer's end add the changed files to a lint or
+  // format line, and the red step's test files to a test line (ADR 0381).
+  files: z.literal(true).optional(),
 });
 export type CommandObject = z.infer<typeof CommandObject>;
 
