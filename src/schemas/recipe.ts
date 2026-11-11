@@ -371,7 +371,7 @@ const RecipeFields = z.strictObject({
           : 'Must be "mash", for a recipe that chooses a recipe or makes a plan and builds nothing, "tend", for one that keeps the Brewery and is offered to no step (ADR 0380), or "brew", for one that builds (ADR 0365)',
     })
     .describe(
-      'mash: chooses a recipe or makes a plan, and builds nothing; brew: builds. A sub-order runs a brew recipe (ADR 0365)',
+      'mash: chooses a recipe or makes a plan, and builds nothing; brew: builds; tend: keeps the Brewery and is offered to no step, so only its label starts it (ADR 0380). A sub-order runs a brew recipe (ADR 0365)',
     ),
   description: NonEmpty,
   guidance: RecipeGuidance.optional(),

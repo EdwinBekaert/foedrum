@@ -17,7 +17,7 @@
         "brew",
         "tend"
       ],
-      "description": "mash: chooses a recipe or makes a plan, and builds nothing; brew: builds. A sub-order runs a brew recipe (ADR 0365)"
+      "description": "mash: chooses a recipe or makes a plan, and builds nothing; brew: builds; tend: keeps the Brewery and is offered to no step, so only its label starts it (ADR 0380). A sub-order runs a brew recipe (ADR 0365)"
     },
     "description": {
       "type": "string",
