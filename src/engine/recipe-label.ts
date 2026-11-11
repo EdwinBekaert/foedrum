@@ -70,7 +70,7 @@ export const recipeLabelEffects = ({ brewery, host }: RecipeLabelEffectsOptions)
       const batch = state.batches.get(batchId);
       const recipe = batch?.recipe;
       if (batch === undefined || recipe?.source !== 'human' || recipe.name === MASH_IN) return [];
-      const choice = batch.humanChoices?.[recipe.name] ?? 1;
+      const choice = batch.humanChoices?.get(recipe.name) ?? 1;
       const key = keyOf(batchId, recipe.name, choice);
       const encoded = effectKey.encode(key);
       // Once per choice: a later choice in the batch, of another recipe or back to this one,
