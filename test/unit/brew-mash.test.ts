@@ -738,7 +738,7 @@ describe('runBrew', () => {
       it('foedrum mash --override plans an order again whose live sub-order a later plan left out', async () => {
         planned([30, 31], (tx) => {
           subOrdered(tx, 31);
-          // A later breakdown of the same plan leaves #31 out: it is marked cancelled (ADR 0014).
+          // A later breakdown of the same plan leaves #31 out: it is marked cancelled (ADR 0211).
           tx.append({
             type: 'order.decomposed',
             batchId: '12-1',

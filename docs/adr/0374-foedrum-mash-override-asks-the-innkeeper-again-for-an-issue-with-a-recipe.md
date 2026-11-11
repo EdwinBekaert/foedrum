@@ -1,6 +1,6 @@
 # 0374. `foedrum mash --override` asks the Innkeeper again for an issue with a recipe
 
-Date: 2026-11-11 · Status: Accepted · Amends [0232](0232-foedrum-mash-routes-an-issue-to-the-innkeeper-whose-question-the-answer-chooses-the-recipe-by.md) (`foedrum mash` of a batch that has a recipe asks again with `--override`, and its refusal names the flag) and [0240](0240-order-and-recipe-work-by-the-brewery-issue-on-both-surfaces.md) (the recipe label is keyed per choice, so a choice back to an earlier recipe labels the issue again)
+Date: 2026-11-11 · Status: Accepted · Amends [0232](0232-foedrum-mash-routes-an-issue-to-the-innkeeper-whose-question-the-answer-chooses-the-recipe-by.md) (`foedrum mash` of a batch that has a recipe asks again with `--override`, and its refusal names the flag), [0240](0240-order-and-recipe-work-by-the-brewery-issue-on-both-surfaces.md) (the recipe label is keyed per choice, so a choice back to an earlier recipe labels the issue again) and [0336](0336-small-rough-edges-of-the-self-brew-trial.md) (a mash with `--override` of an on-tap or cancelled batch orders the issue again, where every mash of one was refused)
 
 ## Context
 `foedrum mash <n>` asked the Innkeeper only while the issue's latest batch had no recipe ([ADR 0232](0232-foedrum-mash-routes-an-issue-to-the-innkeeper-whose-question-the-answer-chooses-the-recipe-by.md)).
@@ -12,7 +12,7 @@ What already held:
 An issue on tap whose pull request has no recorded end cannot be ordered again ([ADR 0339](0339-an-issue-has-one-live-batch-no-second-batch-while-its-pull-request-is-open.md)).
 The recipe label is due once per recipe of a batch, `[batchId, "recipe-label:<name>"]`, and takes the issue's other `recipe:*` labels off; so a batch that goes nip → stout → nip keeps `recipe:stout`, which ADR 0240 named as a consequence.
 A re-mash makes that path an ordinary one: the issue would name the wrong recipe and route its next order by it.
-A new plan's breakdown marks the sub-orders it leaves out cancelled and keeps their batches (ADR 0014), so planning an order again while its sub-orders brew would leave them with no order behind them.
+A new plan's breakdown marks the sub-orders it leaves out cancelled and keeps their batches ([ADR 0211](0211-the-intake-starts-ready-sub-orders-at-their-order-s-rank-once-their-blockers-merged.md)), so planning an order again while its sub-orders brew would leave them with no order behind them.
 
 ## Decision
 - **`foedrum mash <n> --override`** asks the Innkeeper again for an issue whose latest batch has a recipe, and the answer chooses the recipe as on a first mash (ADR 0232). `--override` is a flag of `mash` beside `--take` (`MashCommand`), and `mash` without it behaves as before.
