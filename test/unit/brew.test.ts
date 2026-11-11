@@ -20,12 +20,13 @@ import {
 import { brewOwner } from '../../src/cli/driver-owner.ts';
 import type { ServeShell } from '../../src/cli/serve.ts';
 import { serveSetup } from '../../src/cli/serve-config.ts';
+import { nextBatchId } from '../../src/engine/batch-id.ts';
 import { takeOver } from '../../src/engine/batch-leases.ts';
 import type { BrewerRunner } from '../../src/engine/brewer-runner.ts';
 import type { Ending } from '../../src/engine/decide.ts';
 import { DriverRunningError } from '../../src/engine/driver-lock.ts';
 import { effectKey } from '../../src/engine/effect-key.ts';
-import { fold } from '../../src/engine/fold.ts';
+import { emptyState, fold } from '../../src/engine/fold.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import { StateBranchStopError } from '../../src/engine/state-branch.ts';
 import { launchProcess } from '../../src/platform/processes.ts';
@@ -44,6 +45,9 @@ import { fakeLock } from '../helpers/fake-lock.ts';
 import { aborted, fakeScreen } from '../helpers/fake-screen.ts';
 import { brewer, local, serveInputs } from '../helpers/serve-brewery.ts';
 import { makeTempDir } from '../helpers/temp-dir.ts';
+
+/** The id brew orders issue's batch under, on the fixture's clock (ADR 0380). */
+const breweryIdOf = (issue: number): string => nextBatchId(emptyState, issue, t0);
 
 describe('BrewCommand', () => {
   it('takes an issue as foedrum order does, and the name of its driver', () => {
@@ -147,14 +151,14 @@ describe("brew-main's shell, request and new window (ADR 0222)", () => {
   });
 
   it('asks runBrew to lauter the issue of the batch, taking it over, for foedrum lauter (ADR 0286, #589)', () => {
-    const lauter: LauterCommand = { command: 'lauter', issue: '12-1' };
-    const found = { batchId: '12-1', target: { issue: 12 } };
+    const lauter: LauterCommand = { command: 'lauter', issue: breweryIdOf(12) };
+    const found = { batchId: breweryIdOf(12), target: { issue: 12 } };
     assert.deepStrictEqual(brewRequestOf(lauter, 'ann', issued, undefined, found), {
       target: { issue: 12 },
       owner: 'ann',
       ...issued,
       take: true,
-      lauter: '12-1',
+      lauter: breweryIdOf(12),
     });
     assert.equal('lauter' in brewRequestOf(command, 'ann', issued, undefined), false);
   });
@@ -204,22 +208,22 @@ describe("brew-main's shell, request and new window (ADR 0222)", () => {
     const dir = makeTempDir('lauter-store');
     try {
       const path = join(dir.path, 'index.db');
-      assert.deepStrictEqual(lauterTargetIn(path, '12-1', []), {
-        refused: 'there is no batch 12-1',
+      assert.deepStrictEqual(lauterTargetIn(path, breweryIdOf(12), []), {
+        refused: `there is no batch ${breweryIdOf(12)}`,
       });
       const store = openSqliteEventStore(path);
       const order = { issue: 12 };
       const routeBy = '2026-10-28T13:00:00.000Z';
       store.withTransaction((tx) =>
-        tx.append({ type: 'batch.ordered', batchId: '12-1', order, routeBy }),
+        tx.append({ type: 'batch.ordered', batchId: breweryIdOf(12), order, routeBy }),
       );
       store.close();
-      assert.deepStrictEqual(lauterTargetIn(path, '12-1', []), {
-        batchId: '12-1',
+      assert.deepStrictEqual(lauterTargetIn(path, breweryIdOf(12), []), {
+        batchId: breweryIdOf(12),
         target: { issue: 12 },
       });
-      assert.deepStrictEqual(lauterTargetIn(path, '99-1', []), {
-        refused: 'there is no batch 99-1',
+      assert.deepStrictEqual(lauterTargetIn(path, breweryIdOf(99), []), {
+        refused: `there is no batch ${breweryIdOf(99)}`,
       });
     } finally {
       dir.remove();
@@ -230,20 +234,20 @@ describe("brew-main's shell, request and new window (ADR 0222)", () => {
     const ordered = (batchId: string, order: { issue: number; repo?: string }) =>
       ({ type: 'batch.ordered', batchId, order, routeBy: '2026-10-28T13:00:00.000Z' }) as const;
     const state = fold([
-      ordered('12-1', { issue: 12 }),
+      ordered(breweryIdOf(12), { issue: 12 }),
       ordered('web-7-1', { issue: 7, repo: 'acme/web' }),
     ]);
     const repositories = [{ alias: 'web', repo: 'acme/web' }];
-    assert.deepStrictEqual(lauterTarget(state, '12-1', repositories), {
-      batchId: '12-1',
+    assert.deepStrictEqual(lauterTarget(state, breweryIdOf(12), repositories), {
+      batchId: breweryIdOf(12),
       target: { issue: 12 },
     });
     assert.deepStrictEqual(lauterTarget(state, 'web-7-1', repositories), {
       batchId: 'web-7-1',
       target: { alias: 'web', issue: 7 },
     });
-    assert.deepStrictEqual(lauterTarget(state, '99-1', repositories), {
-      refused: 'there is no batch 99-1',
+    assert.deepStrictEqual(lauterTarget(state, breweryIdOf(99), repositories), {
+      refused: `there is no batch ${breweryIdOf(99)}`,
     });
     assert.deepStrictEqual(lauterTarget(state, 'web-7-1', []), {
       refused: 'batch web-7-1 is of acme/web, which foedrum.jsonc names with no alias and intake',
@@ -393,7 +397,7 @@ describe('runBrew', () => {
     assert.equal(await runBrew(f.setup, shell(behave.succeed('Brewed')), request), 0);
     assert.deepStrictEqual(f.locked, ['ann']);
     assert.deepStrictEqual(f.started, ['brew#1']);
-    const batch = log().state().batches.get('12-1');
+    const batch = log().state().batches.get(breweryIdOf(12));
     assert.equal(batch?.lane.kind, 'on_tap');
     // The order is a person's, recorded with who ran brew and from where (ADR 0105).
     const ordered = f.store.eventsAfter(0).find(({ event }) => event.type === 'batch.ordered');
@@ -460,23 +464,23 @@ describe('runBrew', () => {
     f.api = answeringVisibility(answer);
     const routeBy = new Date(t0.getTime() + 3_600_000).toISOString();
     f.store.withTransaction((tx) => {
-      tx.append({ type: 'batch.ordered', batchId: '1-1', order: { issue: 1 }, routeBy });
+      tx.append({ type: 'batch.ordered', batchId: breweryIdOf(1), order: { issue: 1 }, routeBy });
       tx.append({
         type: 'order.decomposed',
-        batchId: '1-1',
+        batchId: breweryIdOf(1),
         subOrders: [
           { issue: 12, repo: 'acme/web' },
           { issue: 13, repo: 'acme/ledger' },
         ],
         dependencies: [],
       });
-      tx.append({ type: 'batch.on_tap', batchId: '1-1', pullRequests: [] });
+      tx.append({ type: 'batch.on_tap', batchId: breweryIdOf(1), pullRequests: [] });
       // As the intake orders a sub-order: brew refuses to order one itself.
       tx.append({
         type: 'batch.ordered',
-        batchId: '12-1',
+        batchId: breweryIdOf(12),
         order: { issue: 12 },
-        parentBatchId: '1-1',
+        parentBatchId: breweryIdOf(1),
         routeBy,
       });
     });
@@ -525,7 +529,7 @@ describe('runBrew', () => {
     const stopping = shell(behave.succeed('Brewed'), {
       signal: controller.signal,
       wait: async () => {
-        if (log().state().batches.get('12-1')?.lane.kind === 'on_tap') controller.abort();
+        if (log().state().batches.get(breweryIdOf(12))?.lane.kind === 'on_tap') controller.abort();
       },
     });
     assert.equal(await runBrew(f.setup, stopping, request), 1);
@@ -677,7 +681,7 @@ describe('runBrew', () => {
   it('prints every plain line byte for byte off a terminal, with no batch time (ADR 0179)', async () => {
     // Ordered five minutes before this run, so a batch time would differ from the attempt's.
     const ordered = new Date(t0.getTime() - 5 * 60_000);
-    log().issue({ kind: 'order', batchId: '12-1', order: { issue: 12 } }, ordered);
+    log().issue({ kind: 'order', batchId: breweryIdOf(12), order: { issue: 12 } }, ordered);
     const controller = new AbortController();
     let now = t0;
     const plain = shell(behave.hang({ ...idle, turn: 14 }), {
@@ -715,32 +719,42 @@ describe('runBrew', () => {
   });
 
   it("a lease's refusal says how to take the batch over", async () => {
-    log().issue({ kind: 'order', batchId: '12-1', order: { issue: 12 } }, t0);
+    log().issue({ kind: 'order', batchId: breweryIdOf(12), order: { issue: 12 } }, t0);
     const expiresAt = new Date(t0.getTime() + 60_000);
-    f.store.withTransaction((tx) => tx.putBatchLease({ batchId: '12-1', owner: 'bob', expiresAt }));
+    f.store.withTransaction((tx) =>
+      tx.putBatchLease({ batchId: breweryIdOf(12), owner: 'bob', expiresAt }),
+    );
     assert.equal(await runBrew(f.setup, shell(behave.succeed()), request), 5);
     const [, takes] = /; (.+) takes it over now$/.exec(f.lines.at(-1) ?? '') ?? [];
     assert.equal(takes, 'foedrum brew 12 --take');
   });
 
   it("a lease's refusal of foedrum mash names mash's own --take", async () => {
-    log().issue({ kind: 'order', batchId: '12-1', order: { issue: 12 } }, t0);
+    log().issue({ kind: 'order', batchId: breweryIdOf(12), order: { issue: 12 } }, t0);
     const expiresAt = new Date(t0.getTime() + 60_000);
-    f.store.withTransaction((tx) => tx.putBatchLease({ batchId: '12-1', owner: 'bob', expiresAt }));
+    f.store.withTransaction((tx) =>
+      tx.putBatchLease({ batchId: breweryIdOf(12), owner: 'bob', expiresAt }),
+    );
     assert.equal(await runBrew(f.setup, shell(behave.succeed()), { ...request, mash: true }), 5);
     const [, takes] = /; (.+) takes it over now$/.exec(f.lines.at(-1) ?? '') ?? [];
     assert.equal(takes, 'foedrum mash 12 --take');
   });
 
   it('refuses a batch another driver leases, naming it and when its lease ends: exit 5', async () => {
-    log().issue({ kind: 'order', batchId: '12-1', order: { issue: 12 } }, t0);
+    log().issue({ kind: 'order', batchId: breweryIdOf(12), order: { issue: 12 } }, t0);
     log().issue(
-      { kind: 'route', batchId: '12-1', recipe: 'stout', reason: 'label', source: 'label' },
+      {
+        kind: 'route',
+        batchId: breweryIdOf(12),
+        recipe: 'stout',
+        reason: 'label',
+        source: 'label',
+      },
       t0,
     );
     const expiresAt = new Date(t0.getTime() + 60_000);
     f.store.withTransaction((tx) =>
-      tx.putBatchLease({ batchId: '12-1', owner: 'cellar', expiresAt }),
+      tx.putBatchLease({ batchId: breweryIdOf(12), owner: 'cellar', expiresAt }),
     );
     assert.equal(await runBrew(f.setup, shell(behave.succeed()), request), 5);
     assert.deepStrictEqual(f.started, []);
@@ -806,17 +820,22 @@ describe('runBrew', () => {
   });
 
   it('names the order to continue when a sub-order is held by its paused order: exit 5 (ADR 0202)', async () => {
-    log().issue({ kind: 'order', batchId: '12-1', order: { issue: 12 } }, t0);
+    log().issue({ kind: 'order', batchId: breweryIdOf(12), order: { issue: 12 } }, t0);
     const subOrders = [{ issue: 30, repo: 'acme/web' }];
     const decomposed = {
       type: 'order.decomposed',
-      batchId: '12-1',
+      batchId: breweryIdOf(12),
       subOrders,
       dependencies: [],
     } as const;
     log().issue({ kind: 'record', event: { ...decomposed, subOrders, dependencies: [] } }, t0);
     log().issue(
-      { kind: 'order', batchId: '30-1', order: { issue: 30 }, parentBatchId: '12-1' },
+      {
+        kind: 'order',
+        batchId: breweryIdOf(30),
+        order: { issue: 30 },
+        parentBatchId: breweryIdOf(12),
+      },
       t0,
     );
     log().issue({ kind: 'pause', order: { issue: 12 }, by: 'ann', via: 'terminal' }, t0);
@@ -829,7 +848,7 @@ describe('runBrew', () => {
   });
 
   it('refuses a paused order, ordering nothing: exit 5 (ADR 0202)', async () => {
-    log().issue({ kind: 'order', batchId: '12-1', order: { issue: 12 } }, t0);
+    log().issue({ kind: 'order', batchId: breweryIdOf(12), order: { issue: 12 } }, t0);
     log().issue({ kind: 'pause', order: { issue: 12 }, by: 'ann', via: 'terminal' }, t0);
     assert.equal(await runBrew(f.setup, shell(behave.succeed()), request), 5);
     assert.equal(f.lines.at(-1), 'foedrum brew: #12 is paused; foedrum continue 12 lets it brew');
@@ -837,7 +856,7 @@ describe('runBrew', () => {
   });
 
   it('refuses any issue while the Brewery is paused, ordering nothing: exit 5 (ADR 0202)', async () => {
-    log().issue({ kind: 'order', batchId: '12-1', order: { issue: 12 } }, t0);
+    log().issue({ kind: 'order', batchId: breweryIdOf(12), order: { issue: 12 } }, t0);
     log().issue({ kind: 'pause', by: 'ann', via: 'terminal' }, t0);
     const other = { ...request, target: { issue: 13 } };
     assert.equal(await runBrew(f.setup, shell(behave.succeed()), other), 5);
@@ -850,8 +869,8 @@ describe('runBrew', () => {
   });
 
   it('refuses an issue whose latest batch ended: ordering it again is foedrum order: exit 5', async () => {
-    log().issue({ kind: 'order', batchId: '12-1', order: { issue: 12 } }, t0);
-    log().issue({ kind: 'cancel', batchId: '12-1', by: 'ann', via: 'terminal' }, t0);
+    log().issue({ kind: 'order', batchId: breweryIdOf(12), order: { issue: 12 } }, t0);
+    log().issue({ kind: 'cancel', batchId: breweryIdOf(12), by: 'ann', via: 'terminal' }, t0);
     assert.equal(await runBrew(f.setup, shell(behave.succeed()), request), 5);
     assert.equal(
       f.lines.at(-1),
@@ -964,10 +983,10 @@ describe('runBrew', () => {
         stateBranch: () => ({
           start: async () => ({ decision: 'ready' }),
           flush: async () => {
-            if (!retried && log().state().batches.get('12-1')?.lane.kind === 'stuck') {
+            if (!retried && log().state().batches.get(breweryIdOf(12))?.lane.kind === 'stuck') {
               retried = true;
               const by = { by: 'ann', via: 'terminal' } as const;
-              log().issue({ kind: 'retry', batchId: '12-1', ...by }, t0);
+              log().issue({ kind: 'retry', batchId: breweryIdOf(12), ...by }, t0);
             }
             return { kind: 'unchanged' };
           },
@@ -989,10 +1008,10 @@ describe('runBrew', () => {
         stateBranch: () => ({
           start: async () => ({ decision: 'ready' }),
           flush: async () => {
-            if (!retried && log().state().batches.get('12-1')?.lane.kind === 'stuck') {
+            if (!retried && log().state().batches.get(breweryIdOf(12))?.lane.kind === 'stuck') {
               retried = true;
               const by = { by: 'ann', via: 'terminal' } as const;
-              log().issue({ kind: 'retry', batchId: '12-1', ...by }, t0);
+              log().issue({ kind: 'retry', batchId: breweryIdOf(12), ...by }, t0);
             }
             return { kind: 'unchanged' };
           },
@@ -1019,7 +1038,7 @@ describe('runBrew', () => {
         openStore: () => ({
           ...f.store,
           batchesPastDeadline: (at) => {
-            if (!thrown && log().state().batches.get('12-1')?.lane.kind === 'stuck') {
+            if (!thrown && log().state().batches.get(breweryIdOf(12))?.lane.kind === 'stuck') {
               thrown = true;
               throw new Error('the store could not be read');
             }
@@ -1041,7 +1060,7 @@ describe('runBrew', () => {
         stateBranch: () => ({
           start: async () => ({ decision: 'ready' }),
           flush: async () => {
-            if (log().state().batches.get('12-1')?.lane.kind !== 'stuck') {
+            if (log().state().batches.get(breweryIdOf(12))?.lane.kind !== 'stuck') {
               return { kind: 'unchanged' };
             }
             throw new StateBranchStopError('the push was rejected: another engine wrote');
@@ -1050,7 +1069,7 @@ describe('runBrew', () => {
       });
       assert.equal(await runBrew(f.setup, stopping, request), 1);
       assert.equal(f.lines.at(-1), 'foedrum brew: the push was rejected: another engine wrote');
-      assert.equal(log().state().batches.get('12-1')?.lane.kind, 'stuck');
+      assert.equal(log().state().batches.get(breweryIdOf(12))?.lane.kind, 'stuck');
     });
   });
 
@@ -1163,9 +1182,15 @@ describe('runBrew', () => {
   });
 
   it("holds the machine awake through a check step's attempt too (ADR 0195)", async () => {
-    log().issue({ kind: 'order', batchId: '12-1', order: { issue: 12 } }, t0);
+    log().issue({ kind: 'order', batchId: breweryIdOf(12), order: { issue: 12 } }, t0);
     log().issue(
-      { kind: 'route', batchId: '12-1', recipe: 'porter', reason: 'label', source: 'label' },
+      {
+        kind: 'route',
+        batchId: breweryIdOf(12),
+        recipe: 'porter',
+        reason: 'label',
+        source: 'label',
+      },
       t0,
     );
     const held: string[] = [];
@@ -1197,17 +1222,19 @@ describe('runBrew', () => {
   it('drives its batch alone, leaving a lease its owner holds of another batch to lapse (ADR 0123)', async () => {
     // A batch this owner left Stuck in an earlier brew, its lease still live.
     const expiresAt = new Date(t0.getTime() + 60_000);
-    f.store.withTransaction((tx) => tx.putBatchLease({ batchId: '13-1', owner: 'ann', expiresAt }));
+    f.store.withTransaction((tx) =>
+      tx.putBatchLease({ batchId: breweryIdOf(13), owner: 'ann', expiresAt }),
+    );
     assert.equal(await runBrew(f.setup, shell(behave.succeed()), request), 0);
-    const other = f.store.batchLeases(t0).find(({ batchId }) => batchId === '13-1');
-    assert.deepStrictEqual(other, { batchId: '13-1', owner: 'ann', expiresAt });
+    const other = f.store.batchLeases(t0).find(({ batchId }) => batchId === breweryIdOf(13));
+    assert.deepStrictEqual(other, { batchId: breweryIdOf(13), owner: 'ann', expiresAt });
   });
 
   it('drives on when another writer routed the Ordered batch while brew read its label: exit 0', async () => {
-    log().issue({ kind: 'order', batchId: '12-1', order: { issue: 12 } }, t0);
+    log().issue({ kind: 'order', batchId: breweryIdOf(12), order: { issue: 12 } }, t0);
     const route = {
       kind: 'route',
-      batchId: '12-1',
+      batchId: breweryIdOf(12),
       recipe: 'stout',
       reason: 'label',
       source: 'label',
@@ -1215,7 +1242,7 @@ describe('runBrew', () => {
     // The Cellar's intake routes the batch while brew reads the issue's label.
     const racing: typeof globalThis.fetch = async (input, init) => {
       const read = /\/repos\/acme\/brewery\/issues\/12(?:\?|$)/i.test(String(input));
-      if (read && log().state().batches.get('12-1')?.lane.kind === 'ordered') {
+      if (read && log().state().batches.get(breweryIdOf(12))?.lane.kind === 'ordered') {
         log().issue(route, t0);
       }
       return f.api.fetch(input, init);
@@ -1226,11 +1253,11 @@ describe('runBrew', () => {
   });
 
   it('routes an Ordered batch it finds by its label, without ordering it again: exit 0', async () => {
-    log().issue({ kind: 'order', batchId: '12-1', order: { issue: 12 } }, t0);
+    log().issue({ kind: 'order', batchId: breweryIdOf(12), order: { issue: 12 } }, t0);
     assert.equal(await runBrew(f.setup, shell(behave.succeed()), request), 0);
     assert.ok(f.lines.includes('foedrum brew: routed #12 to the recipe stout'), f.lines.join('\n'));
     assert.ok(!f.lines.some((line) => line.includes('ordered #12')), f.lines.join('\n'));
-    assert.deepStrictEqual([...log().state().batches.keys()], ['12-1']);
+    assert.deepStrictEqual([...log().state().batches.keys()], [breweryIdOf(12)]);
   });
 
   it('fails with the reason, and lets the lock go, when its wiring cannot start: exit 1', async () => {
@@ -1285,7 +1312,10 @@ describe('runBrew', () => {
   it('drives on, as the same owner, the batch it left needing input once it is answered: exit 0', async () => {
     assert.equal(await runBrew(f.setup, shell(behave.needInput()), request), 4);
     const answers = [{ q: question.q, answer: 'sqlite' }];
-    log().issue({ kind: 'answer', batchId: '12-1', by: 'ann', via: 'terminal', answers }, t0);
+    log().issue(
+      { kind: 'answer', batchId: breweryIdOf(12), by: 'ann', via: 'terminal', answers },
+      t0,
+    );
     const before = f.lines.length;
     // The next process of the same owner takes the lock again.
     const again = shell(behave.succeed(), { lock: () => fakeLock('ann') });
@@ -1324,7 +1354,10 @@ describe('runBrew', () => {
     const asking = shell(behave.needInput(), { runner: () => runnerOf(behave.needInput()) });
     assert.equal(await runBrew(answering, asking, request), 4);
     const answers = [{ q: question.q, answer: 'sqlite' }];
-    log().issue({ kind: 'answer', batchId: '12-1', by: 'ann', via: 'terminal', answers }, t0);
+    log().issue(
+      { kind: 'answer', batchId: breweryIdOf(12), by: 'ann', via: 'terminal', answers },
+      t0,
+    );
     const again = shell(behave.succeed(), {
       lock: () => fakeLock('ann'),
       runner: () => runnerOf(behave.succeed()),
@@ -1366,7 +1399,7 @@ describe('runBrew', () => {
       wait: async () => {
         waits++;
         if (waits === 1) {
-          log().issue({ kind: 'cancel', batchId: '12-1', by: 'bob', via: 'terminal' }, t0);
+          log().issue({ kind: 'cancel', batchId: breweryIdOf(12), by: 'bob', via: 'terminal' }, t0);
         }
         if (waits > 20) assert.fail(`brew did not stop:\n${f.lines.join('\n')}`);
       },
@@ -1382,7 +1415,7 @@ describe('runBrew', () => {
       wait: async () => {
         // The lease of a driver that took the batch, as an expired lease of this one would let it.
         f.store.withTransaction((tx) =>
-          tx.putBatchLease({ batchId: '12-1', owner: 'cellar', expiresAt }),
+          tx.putBatchLease({ batchId: breweryIdOf(12), owner: 'cellar', expiresAt }),
         );
       },
     });
@@ -1418,7 +1451,12 @@ describe('runBrew', () => {
       wait: async () => {
         waits++;
         if (waits === 1) {
-          const handover = { batchId: '12-1', owner: 'bob', by: 'bob', via: 'terminal' } as const;
+          const handover = {
+            batchId: breweryIdOf(12),
+            owner: 'bob',
+            by: 'bob',
+            via: 'terminal',
+          } as const;
           takeOver(log(), { ...handover, now: t0, leaseMs: 300_000, resumes: 'brew' });
         }
         ending?.();
@@ -1457,7 +1495,12 @@ describe('runBrew', () => {
       wait: async () => {
         waits++;
         if (waits === 1) {
-          const handover = { batchId: '12-1', owner: 'bob', by: 'bob', via: 'terminal' } as const;
+          const handover = {
+            batchId: breweryIdOf(12),
+            owner: 'bob',
+            by: 'bob',
+            via: 'terminal',
+          } as const;
           const request = { ...handover, now, leaseMs: 300_000 };
           takeOver(log(), resumes ? { ...request, resumes: 'brew' } : request);
           after();
@@ -1496,7 +1539,12 @@ describe('runBrew', () => {
         if (waiting !== controller.signal) return aborted(waiting);
         waits.push(ms);
         if (waits.length === 1) {
-          const handover = { batchId: '12-1', owner: 'bob', by: 'bob', via: 'terminal' } as const;
+          const handover = {
+            batchId: breweryIdOf(12),
+            owner: 'bob',
+            by: 'bob',
+            via: 'terminal',
+          } as const;
           takeOver(log(), { ...handover, now, leaseMs: 300_000, resumes: 'brew' });
           drawnAtTakeover = screen.rewrites().length;
         }
@@ -1557,7 +1605,7 @@ describe('runBrew', () => {
     const until = new Date(t0.getTime() + 600_000);
     const third = () =>
       f.store.withTransaction((tx) =>
-        tx.putBatchLease({ batchId: '12-1', owner: 'session-7', expiresAt: until }),
+        tx.putBatchLease({ batchId: breweryIdOf(12), owner: 'session-7', expiresAt: until }),
       );
     assert.equal(await takenWithEndlessRun(true, third), 1);
   });
@@ -1582,7 +1630,12 @@ describe('runBrew', () => {
       wait: async () => {
         waits++;
         if (waits === 1) {
-          const handover = { batchId: '12-1', owner: 'bob', by: 'bob', via: 'terminal' } as const;
+          const handover = {
+            batchId: breweryIdOf(12),
+            owner: 'bob',
+            by: 'bob',
+            via: 'terminal',
+          } as const;
           takeOver(log(), { ...handover, now: t0, leaseMs: 300_000, resumes: 'brew' });
           failing = 2;
         }
@@ -1603,9 +1656,9 @@ describe('runBrew', () => {
     const cellarUntil = new Date(t0.getTime() + 60_000);
     // Ordered, so brew reads its label before it takes the batch over.
     beforeEach(() => {
-      log().issue({ kind: 'order', batchId: '12-1', order: { issue: 12 } }, t0);
+      log().issue({ kind: 'order', batchId: breweryIdOf(12), order: { issue: 12 } }, t0);
       f.store.withTransaction((tx) =>
-        tx.putBatchLease({ batchId: '12-1', owner: 'cellar', expiresAt: cellarUntil }),
+        tx.putBatchLease({ batchId: breweryIdOf(12), owner: 'cellar', expiresAt: cellarUntil }),
       );
     });
 
@@ -1626,7 +1679,7 @@ describe('runBrew', () => {
       assert.deepStrictEqual(handovers, [
         {
           type: 'batch.taken_over',
-          batchId: '12-1',
+          batchId: breweryIdOf(12),
           by: 'ann',
           via: 'terminal',
           from: 'cellar',
@@ -1639,15 +1692,15 @@ describe('runBrew', () => {
     });
 
     it('takes nothing over when it refuses the batch for its labels: exit 5', async () => {
-      log().issue({ kind: 'order', batchId: '14-1', order: { issue: 14 } }, t0);
+      log().issue({ kind: 'order', batchId: breweryIdOf(14), order: { issue: 14 } }, t0);
       f.store.withTransaction((tx) =>
-        tx.putBatchLease({ batchId: '14-1', owner: 'cellar', expiresAt: cellarUntil }),
+        tx.putBatchLease({ batchId: breweryIdOf(14), owner: 'cellar', expiresAt: cellarUntil }),
       );
       const two = { ...takes, target: { issue: 14 } };
       assert.equal(await runBrew(f.setup, shell(behave.succeed()), two), 5);
       assert.ok(!f.store.eventsAfter(0).some(({ event }) => event.type === 'batch.taken_over'));
       assert.equal(
-        f.store.batchLeases(t0).find(({ batchId }) => batchId === '14-1')?.owner,
+        f.store.batchLeases(t0).find(({ batchId }) => batchId === breweryIdOf(14))?.owner,
         'cellar',
       );
     });
@@ -1665,7 +1718,7 @@ describe('runBrew', () => {
 
     it("brews on, taking nothing over, when the holder's lease lapsed while it read the labels: exit 0", async () => {
       const lapsed = readingLabels(() =>
-        f.store.withTransaction((tx) => tx.releaseBatchLease('12-1')),
+        f.store.withTransaction((tx) => tx.releaseBatchLease(breweryIdOf(12))),
       );
       assert.equal(await runBrew(f.setup, shell(behave.succeed(), lapsed), takes), 0);
       assert.ok(!f.store.eventsAfter(0).some(({ event }) => event.type === 'batch.taken_over'));
@@ -1673,18 +1726,18 @@ describe('runBrew', () => {
 
     it('refuses with the reason, leaving the lease, when the takeover is refused while the holder still holds it: exit 5', async () => {
       const cancelled = readingLabels(() => {
-        log().issue({ kind: 'cancel', batchId: '12-1', by: 'bob', via: 'terminal' }, t0);
+        log().issue({ kind: 'cancel', batchId: breweryIdOf(12), by: 'bob', via: 'terminal' }, t0);
       });
       assert.equal(await runBrew(f.setup, shell(behave.succeed(), cancelled), takes), 5);
       assert.equal(
         f.lines.at(-1),
-        'foedrum brew: batch 12-1 is cancelled; take over needs it ordered, brewing, conditioning or stuck',
+        `foedrum brew: batch ${breweryIdOf(12)} is cancelled; take over needs it ordered, brewing, conditioning or stuck`,
       );
       assert.equal(leaseOf()?.owner, 'cellar');
     });
 
     it('brews as before when no other driver holds the batch, recording no handover', async () => {
-      f.store.withTransaction((tx) => tx.releaseBatchLease('12-1'));
+      f.store.withTransaction((tx) => tx.releaseBatchLease(breweryIdOf(12)));
       assert.equal(await runBrew(f.setup, shell(behave.succeed()), takes), 0);
       assert.ok(!f.store.eventsAfter(0).some(({ event }) => event.type === 'batch.taken_over'));
     });
