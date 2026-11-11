@@ -156,7 +156,7 @@ describe('foedrum status and replay on store files', () => {
     const { exitCode, stdout, stderr } = await foedrum('cancel', '12-1');
     assert.equal(stderr, '');
     assert.equal(exitCode, 0);
-    assert.equal(stdout, `#12 cancelled: by ${userInfo().username} via terminal\n`);
+    assert.equal(stdout, `#12 is done: cancelled by ${userInfo().username} from a terminal\n`);
     const reader = openSqliteEventStore(store, { readOnly: true });
     assert.deepEqual(reader.eventsAfter(1)[0]?.event, {
       type: 'batch.cancelled',
@@ -187,7 +187,7 @@ describe('foedrum status and replay on store files', () => {
     });
     assert.equal(stderr, '');
     assert.equal(exitCode, 0);
-    assert.equal(stdout, `#12 cancelled: by ${user} via terminal\n`);
+    assert.equal(stdout, `#12 is done: cancelled by ${user} from a terminal\n`);
     const reader = openSqliteEventStore(store, { readOnly: true });
     assert.deepEqual(reader.eventsAfter(1)[0]?.event, {
       type: 'batch.cancelled',
@@ -269,7 +269,10 @@ describe('foedrum status --watch through cliFromCheckout (ADR 0188)', () => {
     });
     assert.deepEqual(result, { exitCode: 0, stdout: '', stderr: '' });
     assert.equal(writes[0], '1 live batch');
-    assert.match(writes.join(''), /^1 live batch\n- +12-1 +#12 +ordered +to be routed by /);
+    assert.match(
+      writes.join(''),
+      /^1 live batch\n- +12-1 +#12 +Queued: waiting for a recipe +a recipe is chosen by /,
+    );
     assert.equal(writes.at(-1), '\n');
     assert.equal(process.listenerCount('SIGBREAK'), listeners);
   });
@@ -356,7 +359,7 @@ describe("foedrum with the Brewery's recipe files (ADR 0053)", () => {
     const { exitCode, stdout, stderr } = await foedrum('retry', '12-1');
     assert.equal(stderr, '');
     assert.equal(exitCode, 0);
-    assert.match(stdout, /^#12 brewing: roaster #1 scheduled/);
+    assert.match(stdout, /^#12 is running: step roaster is about to start/);
     const reader = openSqliteEventStore(store, { readOnly: true });
     const scheduled = reader
       .eventsAfter(0)
@@ -449,7 +452,10 @@ describe('foedrum order through cliFromCheckout (ADR 0105)', () => {
     const { exitCode, stdout, stderr } = await order(gh.exec);
     assert.equal(stderr, '');
     assert.equal(exitCode, 0);
-    assert.match(stdout, /^web#7 ordered: to be routed by \S+\n$/);
+    assert.match(
+      stdout,
+      /^web#7 is queued: waiting for a recipe: a recipe is chosen by \d{1,2} [A-Z][a-z]{2} \d{2}:\d{2} UTC\n$/,
+    );
     assert.deepStrictEqual(api.created, ['acme/web refs/foedrum/claims/issues/7']);
     assert.deepStrictEqual(
       [...new Set(gh.calls.map(({ args }) => flagValue(args, '--hostname')))],

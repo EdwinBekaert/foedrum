@@ -513,7 +513,7 @@ describe('foedrum resume (ADR 0126)', () => {
       assert.deepEqual(
         await resumeOf('23-1', 'plan#1', takes),
         refused(
-          '#23 is brewing: name the step alone, and foedrum resume continues its latest attempt',
+          '#23 is running: name the step alone, and foedrum resume continues its latest attempt',
         ),
       );
       assert.deepEqual(handed, []);
@@ -819,10 +819,10 @@ describe('foedrum resume (ADR 0126)', () => {
       });
     });
 
-    it('refuses an Ordered batch, of which no step has run', async () => {
+    it('refuses a batch queued for a recipe, of which no step has run', async () => {
       assert.deepEqual(
         await resumeOf('27-1', undefined, takes),
-        refused('#27 is ordered: no step of it has run yet'),
+        refused('#27 is queued: waiting for a recipe: no step of it has run yet'),
       );
     });
 
@@ -1148,7 +1148,7 @@ describe('foedrum resume (ADR 0126)', () => {
     };
     assert.deepEqual(
       await resume(undefined, { setup: setupWhileRetried }),
-      refused('#21 is brewing now: run foedrum resume again to take it over'),
+      refused('#21 is running now: run foedrum resume again to take it over'),
     );
     nothingOpened();
   });

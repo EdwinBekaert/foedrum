@@ -183,7 +183,7 @@ describe("a batch's receipts", () => {
     });
     assert.match(
       renderStatus(ran, ['implement']),
-      /^- `implement #2` · 2m 38s · 31 turns · 1\.34M tokens$/m,
+      /^- `implement \(try 2\)` · 2m 38s · 31 turns · 1\.34M tokens$/m,
     );
     assert.deepEqual(totalParts(ran), ['2 attempts', '5m 16s', '62 turns', '1.54M tokens']);
   });
@@ -209,8 +209,11 @@ describe("a batch's receipts", () => {
       ],
     });
     const text = renderStatus(ran, ['gauge']);
-    assert.match(text, /^- `gauge #1` · 2m 38s · 31 turns$/m);
-    assert.match(text, /^- `gauge #2` · 2m 38s · 31 turns · resumed after the turn budget$/m);
+    assert.match(text, /^- `gauge` · 2m 38s · 31 turns$/m);
+    assert.match(
+      text,
+      /^- `gauge \(try 2\)` · 2m 38s · 31 turns · resumed after the turn budget$/m,
+    );
   });
 
   it('sums them', () => {
@@ -248,8 +251,8 @@ describe("a batch's receipts", () => {
     const from = lines.indexOf('**Receipts**');
     assert.ok(from > 0, text);
     assert.deepEqual(lines.slice(from + 1, from + 3), [
-      '- `plan #1` · 20s · 5 turns · 200k tokens',
-      '- `implement #1` · 2m 38s · 31 turns · 1.34M tokens · 2 denied (Bash: git push)',
+      '- `plan` · 20s · 5 turns · 200k tokens',
+      '- `implement` · 2m 38s · 31 turns · 1.34M tokens · 2 denied (Bash: git push)',
     ]);
   });
 
@@ -273,7 +276,7 @@ describe("a batch's receipts", () => {
       }),
       ['brew'],
     );
-    const shown = text.split('\n').filter((line) => /^- `brew #\d+` · /.test(line));
+    const shown = text.split('\n').filter((line) => /^- `brew( \(try \d+\))?` · /.test(line));
     assert.equal(shown.length, 30);
     assert.match(text, /^- and 2 more$/m);
   });
@@ -300,7 +303,7 @@ describe("a batch's receipts", () => {
       .find((line) => line.trimStart().startsWith('7-1'));
     assert.match(
       row ?? '',
-      /brewing\s+implement #3 started; 2 attempts \/ 2m 58s \/ 36 turns \/ 1\.54M tokens \/ 2 denied$/,
+      /Running\s+step implement \(try 3\); 2 attempts \/ 2m 58s \/ 36 turns \/ 1\.54M tokens \/ 2 denied$/,
     );
     assert.match(row ?? '', /^[\x20-\x7e]*$/);
   });

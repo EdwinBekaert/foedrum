@@ -340,7 +340,7 @@ describe('runBrew', () => {
         );
       };
 
-      it('a brew that ends on tap says what closes its Brewery issue', async () => {
+      it('a brew that ends waiting for a review and merge says what closes its Brewery issue', async () => {
         const host = github();
         assert.equal(await brewLabelled(host, targetSetup()), 0, f.lines.join('\n'));
         const number = host.issues['acme/brewery']?.[0]?.number;
@@ -348,17 +348,23 @@ describe('runBrew', () => {
           f.lines.at(-2),
           `foedrum brew: once they merge, foedrum brew ${number} or foedrum serve closes Brewery issue #${number} and releases its claim`,
         );
-        assert.match(f.lines.at(-1) ?? '', /^foedrum brew: #\d+ is on tap: /);
+        assert.match(
+          f.lines.at(-1) ?? '',
+          /^foedrum brew: #\d+ is waiting for you: review and merge the pull request: /,
+        );
       });
 
-      it('a brew of a Brewery issue that ends on tap says what closes that issue, and names no claim', async () => {
+      it('a brew of a Brewery issue that ends waiting for a review and merge says what closes that issue, and names no claim', async () => {
         const brewing = shell(behave.succeed('Brewed'));
         assert.equal(await runBrew(f.setup, brewing, request), 0, f.lines.join('\n'));
         assert.equal(
           f.lines.at(-2),
           'foedrum brew: once they merge, foedrum brew 12 or foedrum serve closes Brewery issue #12',
         );
-        assert.match(f.lines.at(-1) ?? '', /^foedrum brew: #12 is on tap: /);
+        assert.match(
+          f.lines.at(-1) ?? '',
+          /^foedrum brew: #12 is waiting for you: review and merge the pull request: /,
+        );
       });
 
       it('records a merge, closes the Brewery issue and releases the claim: exit 0', async () => {
@@ -388,7 +394,7 @@ describe('runBrew', () => {
         assert.deepStrictEqual(host.created, [claimRef]);
         assert.equal(
           f.lines.at(-1),
-          `foedrum brew: #${number} merged: ${url(pull)}; Brewery issue #${number} closed, claim on acme/web#7 released`,
+          `foedrum brew: #${number} is done: merged: ${url(pull)}; Brewery issue #${number} closed, claim on acme/web#7 released`,
         );
       });
 
@@ -410,7 +416,7 @@ describe('runBrew', () => {
         onlyWeb7();
         assert.equal(
           f.lines.at(-1),
-          `foedrum brew: #${number} ended: ${url(pull)} not all merged; Brewery issue #${number} stays open, claim on acme/web#7 released, unassign it to make it available`,
+          `foedrum brew: #${number} is done: closed without merging: ${url(pull)}; Brewery issue #${number} stays open, claim on acme/web#7 released, unassign it to make it available`,
         );
       });
 
@@ -509,7 +515,7 @@ describe('runBrew', () => {
         assert.equal(await runBrew(targetSetup(), brewing, byNumber), 0, f.lines.join('\n'));
         const comments = host.comments.get('acme/web#7') ?? [];
         assert.match(comments.at(-1)?.body ?? '', /ended without a pull request/);
-        assert.equal(f.lines.at(-1), 'foedrum brew: #40 is on tap: no pull request');
+        assert.equal(f.lines.at(-1), 'foedrum brew: #40 is done: finished with no pull request');
       });
 
       it('fails, recording nothing, when its pull request cannot be read: exit 1', async () => {
@@ -527,7 +533,7 @@ describe('runBrew', () => {
         assert.deepStrictEqual(log().state().batches.get('web-7')?.pullRequestEnds ?? {}, {});
       });
 
-      it('one pull request merged and one closed unmerged says not all merged, and the Brewery issue stays open: exit 0', async () => {
+      it('one pull request merged and one closed unmerged says closed without merging, and the Brewery issue stays open: exit 0', async () => {
         const answers = (method: string, { pathname }: URL): Instead | undefined => {
           if (method !== 'GET') return undefined;
           if (pathname === '/repos/acme/web/pulls/101') {
@@ -552,7 +558,7 @@ describe('runBrew', () => {
         assert.equal(await runBrew(targetSetup(), brewing, byNumber), 0, f.lines.join('\n'));
         assert.equal(
           f.lines.at(-1),
-          `foedrum brew: #40 ended: ${url(101)} ${url(102)} not all merged; Brewery issue #40 stays open, claim on acme/web#7 released, unassign it to make it available`,
+          `foedrum brew: #40 is done: closed without merging: ${url(101)} merged ${url(102)} closed without merging; Brewery issue #40 stays open, claim on acme/web#7 released, unassign it to make it available`,
         );
         assert.notEqual(host.issue('acme/brewery', 40)?.state, 'closed');
       });
@@ -664,7 +670,7 @@ describe('runBrew', () => {
         assert.equal(await runBrew(f.setup, own, request), 0, f.lines.join('\n'));
         assert.equal(
           f.lines.at(-1),
-          `foedrum brew: #12 merged: ${url(90)}; Brewery issue #12 closed`,
+          `foedrum brew: #12 is done: merged: ${url(90)}; Brewery issue #12 closed`,
         );
         assert.equal(host.issue('acme/brewery', 12)?.state, 'closed');
         assert.deepStrictEqual(log().state().batches.get('12-1')?.pullRequestEnds, {
@@ -750,7 +756,7 @@ describe('runBrew', () => {
         assert.equal(await runBrew(f.setup, own, request), 0, f.lines.join('\n'));
         assert.equal(
           f.lines.at(-1),
-          `foedrum brew: #12 ended: ${url(90)} not all merged; Brewery issue #12 stays open`,
+          `foedrum brew: #12 is done: closed without merging: ${url(90)}; Brewery issue #12 stays open`,
         );
         assert.notEqual(host.issue('acme/brewery', 12)?.state, 'closed');
       });
@@ -786,7 +792,7 @@ describe('runBrew', () => {
         assert.equal(host.issue('acme/brewery', 12)?.state, 'closed');
         assert.equal(
           f.lines.at(-1),
-          `foedrum brew: #12 merged: ${url(90)}; Brewery issue #12 closed`,
+          `foedrum brew: #12 is done: merged: ${url(90)}; Brewery issue #12 closed`,
         );
         const said = host.comments.get('acme/brewery#12') ?? [];
         assert.ok(!said.some(({ body }) => body.includes('Foedrum closes this issue')));
@@ -798,7 +804,7 @@ describe('runBrew', () => {
         assert.equal(await runBrew(f.setup, own, request), 5, f.lines.join('\n'));
         assert.equal(
           f.lines.at(-1),
-          'foedrum brew: #12 is on tap; foedrum order 12 orders it again',
+          'foedrum brew: #12 is done: merged; foedrum order 12 orders it again',
         );
         assert.deepStrictEqual(
           host.requests.filter((each) => /\/pulls\/\d+/.test(each)),
@@ -823,7 +829,7 @@ describe('runBrew', () => {
         assert.equal(await runBrew(f.setup, taken, request), 5, f.lines.join('\n'));
         assert.equal(
           f.lines.at(-1),
-          `foedrum brew: #12 is driven by cellar until ${expiresAt.toISOString()}, when its lease ends by itself; foedrum brew 12 tries again then`,
+          `foedrum brew: #12 is driven by cellar until 22 Oct 12:01 UTC, when its lease ends by itself; foedrum brew 12 tries again then`,
         );
       });
 
@@ -1022,7 +1028,7 @@ describe('runBrew', () => {
         // A take-over of a batch on tap is refused (ADR 0124), so the line never offers one.
         assert.equal(
           f.lines.at(-1),
-          `foedrum brew: #${number} is driven by cellar until ${expiresAt.toISOString()}, when its lease ends by itself; foedrum brew ${number} tries again then`,
+          `foedrum brew: #${number} is driven by cellar until 22 Oct 12:01 UTC, when its lease ends by itself; foedrum brew ${number} tries again then`,
         );
         const read = host.requests.slice(asked).filter((each) => /\/pulls\/\d+/.test(each));
         assert.deepStrictEqual(read, []);
@@ -1076,7 +1082,7 @@ describe('runBrew', () => {
         assert.equal(await runBrew(targetSetup(), mashing(), mash), 5, f.lines.join('\n'));
         assert.equal(
           f.lines.at(-1),
-          'foedrum mash: #40 is on tap; its release is still due, and foedrum brew 40 finishes it',
+          'foedrum mash: #40 is done: finished with no pull request; its release is still due, and foedrum brew 40 finishes it',
         );
       });
 
@@ -1091,7 +1097,7 @@ describe('runBrew', () => {
         assert.equal(await runBrew(targetSetup(), brewing, byNumber), 5, f.lines.join('\n'));
         assert.equal(
           f.lines.at(-1),
-          'foedrum brew: #40 is cancelled; foedrum order 40 orders it again',
+          'foedrum brew: #40 is done: cancelled; foedrum order 40 orders it again',
         );
       });
 

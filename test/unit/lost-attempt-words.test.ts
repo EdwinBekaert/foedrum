@@ -85,7 +85,7 @@ describe('a lost attempt in plain words', () => {
     assert.ok(!hasEngineWords(state), state);
   });
 
-  it('foedrum stuck says why a batch whose retries a lost attempt used up is Stuck, in plain words', () => {
+  it('foedrum stuck says why a batch whose retries a lost attempt used up waits for you, in plain words', () => {
     const stuck: Event = Event.parse({
       type: 'batch.stuck',
       batchId: '1-1',
@@ -101,7 +101,7 @@ describe('a lost attempt in plain words', () => {
     const text = formatStuck(fold([...lostEvents(recorded('cellar')), stuck]));
     assert.match(
       text,
-      /attempts exhausted at gauge after 2: the attempt was lost: the Cellar running it stopped, so its lease ran out/,
+      /step gauge failed all 2 tries; the last: the attempt was lost: the Cellar running it stopped, so its lease ran out/,
     );
     assert.ok(!hasEngineWords(text), text);
   });

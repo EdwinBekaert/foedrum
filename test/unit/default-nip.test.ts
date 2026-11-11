@@ -659,10 +659,10 @@ describe('the default Nip', () => {
       );
       assert.equal(pullRequestText({ title: 'A title', reports }).draft, true);
       const comment = renderStatus(batch);
-      assert.match(comment, /`correctness #1` ❌ blocked \(findings\)/);
+      assert.match(comment, /`correctness` ❌ blocked \(findings\)/);
       assert.match(
         comment,
-        /- ❌ `correctness`: attempt 1 failed: blocked \(findings\): An Ordered sub-order holds nothing/,
+        /- ❌ `correctness`: failed: blocked \(findings\): An Ordered sub-order holds nothing/,
       );
       assert.doesNotMatch(comment, /\*\*Findings\*\*/);
       const { body } = pullRequestText({
@@ -671,7 +671,7 @@ describe('the default Nip', () => {
         attempts: brewLog(batch),
       });
       assert.doesNotMatch(body, /every Taster approved/);
-      assert.match(body, /`correctness #1` \| [^\n]*An Ordered sub-order holds nothing/);
+      assert.match(body, /`correctness` \| [^\n]*An Ordered sub-order holds nothing/);
     });
 
     it('a pull request past a skipped blocking Taster does not say every Taster approved', async () => {

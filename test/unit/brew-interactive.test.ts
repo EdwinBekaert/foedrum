@@ -123,7 +123,7 @@ describe('runBrew', () => {
           f.lines.at(-1),
           'foedrum brew: run foedrum brew 40 in a terminal to open its session',
         );
-        assert.match(f.lines.at(-2) ?? '', /foedrum brew 40 --take opens it in a terminal/);
+        assert.match(f.lines.at(-3) ?? '', /foedrum brew 40 --take opens it in a terminal/);
         const [comment] = host.comments.get('acme/brewery#40') ?? [];
         assert.match(comment?.body ?? '', /run `foedrum brew 40 --take` in a terminal/);
       });
@@ -174,9 +174,9 @@ describe('runBrew', () => {
       const piped = { ...request, noSessions: 'no-terminal' } as const;
       assert.equal(await runBrew(f.setup, shell(behave.succeed()), piped), 3);
       assert.deepStrictEqual(f.started, []);
-      assert.match(
-        f.lines.at(-2) ?? '',
-        /^foedrum brew: #12 is stuck: waiting for a session at refine: foedrum brew 12 --take opens it in a terminal; reminder [^;]+; options: retry, /,
+      assert.equal(
+        f.lines.at(-3),
+        'foedrum brew: #12 is waiting for you: open its session: step refine is done by a person in a session: foedrum brew 12 --take opens it in a terminal',
       );
       assert.equal(
         f.lines.at(-1),
@@ -184,14 +184,20 @@ describe('runBrew', () => {
       );
     });
 
-    it('opens nothing in the tick after a batch parks waiting for a session, and says Stuck once: regression test (#863)', async () => {
+    it('opens nothing in the tick after a batch parks waiting for a session, and says it waits for you once: regression test (#863)', async () => {
       assert.equal(await runBrew(f.setup, shell(behave.fail(true)), request), 3);
       assert.deepStrictEqual(f.started, ['refine#1']);
-      const stuck = f.lines.filter((line) => line.includes(' is stuck: '));
+      const stuck = f.lines.filter((line) => line.includes(' is waiting for you: '));
       assert.equal(stuck.length, 1, f.lines.join('\n'));
-      assert.match(stuck[0] ?? '', /waiting for a session at refine/);
+      assert.match(
+        stuck[0] ?? '',
+        /open its session: step refine is done by a person in a session/,
+      );
       const body = f.api.comments.get('acme/brewery#12')?.[0]?.body ?? '';
-      assert.match(body, /🔔 \*\*Stuck\*\*: `refine` waits for its session/);
+      assert.match(
+        body,
+        /🔔 \*\*Waiting for you: open its session\*\*: step `refine` is done by a person in a session/,
+      );
     });
 
     it('parks the batch inside Claude Code, and names the brew to run in a terminal: exit 3', async () => {

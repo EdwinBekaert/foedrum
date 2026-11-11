@@ -54,6 +54,30 @@ describe('stuckNext', () => {
     );
   });
 
+  it('a step done in a person session: open it, nothing failed', () => {
+    const session: StuckReason = { kind: 'waiting_for_session', stepId: 'plan' };
+    assert.equal(
+      stuckNext(session, ['retry', 'cancel'], '7', code),
+      'Next: open its session with `foedrum brew 7 --take` in a terminal, try the step again with `foedrum retry 7`, or end it with `foedrum cancel 7`.',
+    );
+  });
+
+  it('no recipe chosen: choose one, or route it again by its labels', () => {
+    const routing: StuckReason = { kind: 'routing', deadlineAt: at };
+    assert.equal(
+      stuckNext(routing, ['retry', 'recipe', 'cancel'], '7', plainCommand),
+      'Next: choose a recipe with foedrum recipe 7 <recipe> <reason>, route it again by its labels with foedrum retry 7, or end it with foedrum cancel 7.',
+    );
+  });
+
+  it('a stopped batch: go on when it should, nothing failed', () => {
+    const stopped: StuckReason = { kind: 'stopped', stepId: 'plan', by: 'ann', via: 'terminal' };
+    assert.equal(
+      stuckNext(stopped, ['retry', 'cancel'], '7', plainCommand),
+      'Next: when it should go on, try the step again with foedrum retry 7, or end it with foedrum cancel 7.',
+    );
+  });
+
   it('one option alone needs no "or"', () => {
     const passed: StuckReason = { kind: 'deadline_passed', stepId: 'plan', deadlineAt: at };
     assert.equal(

@@ -503,7 +503,7 @@ describe('pullRequestActions: the pull request', () => {
     const request = requests[0]?.request;
     assert.equal(request?.draft, true);
     assert.match(request?.body ?? '', /\nBrewed by Foedrum with the recipe ale\.\n/);
-    assert.match(request?.body ?? '', /\n\| `implement #1` \| succeeded \|\n/);
+    assert.match(request?.body ?? '', /\n\| `implement` \| succeeded \|\n/);
   });
 
   it('opens it as a draft though every Taster approved and how it works is written (ADR 0350)', async () => {
@@ -1316,7 +1316,7 @@ describe('pullRequestActions: a later round pushes to the same pull request (ADR
       assert.equal(at, url);
       assert.match(body, /implement: Fixed the test/);
       assert.doesNotMatch(body, /implement: Added --json/);
-      assert.match(body, /\| `implement #2` \| succeeded \|/);
+      assert.match(body, /\| `implement \(try 2\)` \| succeeded \|/);
       assert.doesNotMatch(body, /^Closes /m);
       const [, digest] = marker2.exec(body) ?? assert.fail(body);
       assert.deepEqual(result, { digest });

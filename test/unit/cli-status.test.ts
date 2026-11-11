@@ -1,11 +1,12 @@
-// How `foedrum status` and `foedrum stuck` describe a batch's lane: what it does or waits for.
+// How `foedrum status` and `foedrum stuck` describe a batch's state: what it does or waits for.
 
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { describeLane, formatOrderStatus, formatStatus, statusRow } from '../../src/cli/status.ts';
+import { describeState, formatOrderStatus, formatStatus, statusRow } from '../../src/cli/status.ts';
+import { batchState } from '../../src/engine/batch-state.ts';
 import { type Batch, emptyState, type State } from '../../src/engine/fold.ts';
 
-describe('describeLane', () => {
+describe('describeState', () => {
   it('says which pull request failed its checks, on which head, after how many rounds (ADR 0219)', () => {
     const batch: Batch = {
       id: '12-1',
@@ -27,9 +28,9 @@ describe('describeLane', () => {
         remindAt: '2026-10-17T12:00:00.000Z',
       },
     };
-    assert.deepStrictEqual(describeLane(batch, '12'), {
-      lane: 'stuck',
-      detail: `https://github.com/acme/api/pull/12 failed its checks on ${'c'.repeat(40)} at open-pull-request after 2 rounds; reminder 2026-10-17T12:00:00.000Z`,
+    assert.deepStrictEqual(describeState(batch, batchState(batch), '12'), {
+      state: 'Waiting for you: look at a failure Foedrum could not get past',
+      detail: `https://github.com/acme/api/pull/12 failed its checks on ${'c'.repeat(8)} after 2 rounds of fixes by step open-pull-request`,
     });
   });
 
@@ -60,9 +61,9 @@ describe('describeLane', () => {
         remindAt: '2026-10-17T12:00:00.000Z',
       },
     };
-    assert.deepStrictEqual(describeLane(batch, '12'), {
-      lane: 'stuck',
-      detail: `https://github.com/acme/api/pull/12 fails its checks on the merged tree with main at ${'e'.repeat(40)}: the check "test" (npm test), at open-pull-request after 1 round; reminder 2026-10-17T12:00:00.000Z`,
+    assert.deepStrictEqual(describeState(batch, batchState(batch), '12'), {
+      state: 'Waiting for you: look at a failure Foedrum could not get past',
+      detail: `https://github.com/acme/api/pull/12 fails its checks once merged with main at ${'e'.repeat(8)}: the check "test" (npm test), after 1 round of fixes by step open-pull-request`,
     });
   });
 
@@ -93,9 +94,9 @@ describe('describeLane', () => {
         remindAt: '2026-10-17T12:00:00.000Z',
       },
     };
-    assert.deepStrictEqual(describeLane(batch, '12'), {
-      lane: 'stuck',
-      detail: `https://github.com/acme/api/pull/12 conflicts with main at ${'e'.repeat(40)} in src/a.ts, logo.png, at open-pull-request after 2 rounds; reminder 2026-10-17T12:00:00.000Z`,
+    assert.deepStrictEqual(describeState(batch, batchState(batch), '12'), {
+      state: 'Waiting for you: look at a failure Foedrum could not get past',
+      detail: `https://github.com/acme/api/pull/12 conflicts with main at ${'e'.repeat(8)} in src/a.ts, logo.png, after 2 rounds of fixes by step open-pull-request`,
     });
   });
 });
@@ -115,7 +116,7 @@ describe('foedrum status of a batch on tap, by how its pull requests ended', () 
     ...emptyState,
     batches: new Map([[batch.id, batch]]),
   });
-  /** The detail cell of the batch's row, whose layout is id, order, lane, detail. */
+  /** The detail cell of the batch's row, whose layout is id, order, state, detail. */
   const detailOf = (batch: Batch): string => statusRow(stateOf(batch), batch)[3] ?? '';
   /** What the detail says between `url` and the next link (or its end). */
   const saidOf = (detail: string, url: string, next?: string): string => {
@@ -130,16 +131,16 @@ describe('foedrum status of a batch on tap, by how its pull requests ended', () 
     const batch = onTap([first], { [first]: 'merged' });
     const text = formatStatus(stateOf(batch));
     const row = text.split('\n').find((line) => line.includes('7-1')) ?? '';
-    assert.match(row, /^ {2}7-1 +#7 +on tap +/);
+    assert.match(row, /^ {2}7-1 +#7 +Done: merged +/);
     assert.ok(row.includes(first), row);
     assert.match(row, /\bmerged\b/);
   });
 
-  it('keeps the four cells of the row, the lane still on tap, and the link', () => {
+  it('keeps the four cells of the row, the state done: merged, and the link', () => {
     const batch = onTap([first], { [first]: 'merged' });
     const row = statusRow(stateOf(batch), batch);
     assert.equal(row.length, 4);
-    assert.deepStrictEqual(row.slice(0, 3), ['7-1', '#7', 'on tap']);
+    assert.deepStrictEqual(row.slice(0, 3), ['7-1', '#7', 'Done: merged']);
     assert.ok(row[3]?.includes(first), row[3]);
     assert.match(row[3] ?? '', /\bmerged\b/);
   });
@@ -186,15 +187,22 @@ describe('foedrum status of a batch on tap, by how its pull requests ended', () 
     const batch = onTap([first], { [first]: 'merged' });
     const text = formatOrderStatus(stateOf(batch), [batch], new Map());
     const row = text.split('\n').find((line) => line.includes('7-1')) ?? '';
-    assert.match(row, /^ {2}7-1 +#7 +on tap +/);
+    assert.match(row, /^ {2}7-1 +#7 +Done: merged +/);
     assert.match(row, /\bmerged\b/);
   });
 
-  it('keeps the pull request’s link and the lane of a batch whose pull request has not ended (regression test)', () => {
-    assert.deepStrictEqual(describeLane(onTap([first]), '7'), { lane: 'on tap', detail: first });
+  it('keeps the pull request’s link of a batch whose pull request has not ended, and says it waits for review (regression test)', () => {
     const open = onTap([first]);
+    assert.deepStrictEqual(describeState(open, batchState(open), '7'), {
+      state: 'Waiting for you: review and merge the pull request',
+      detail: first,
+    });
     const row = statusRow(stateOf(open), open);
-    assert.deepStrictEqual(row.slice(0, 3), ['7-1', '#7', 'on tap']);
+    assert.deepStrictEqual(row.slice(0, 3), [
+      '7-1',
+      '#7',
+      'Waiting for you: review and merge the pull request',
+    ]);
     assert.ok(row[3]?.startsWith(first), row[3]);
   });
 
@@ -208,14 +216,19 @@ describe('foedrum status of a batch on tap, by how its pull requests ended', () 
       at: '2026-11-06T10:00:00.000Z',
     } as const;
     const batch: Batch = { ...onTap([]), approval };
-    assert.deepStrictEqual(describeLane(batch, '7'), {
-      lane: 'on tap',
-      detail: 'plan approved by ada via terminal',
+    assert.deepStrictEqual(describeState(batch, batchState(batch), '7'), {
+      state: 'Queued: its sub-orders are being opened',
+      detail: 'plan approved by ada from a terminal',
     });
   });
 
   it('says nothing of pull requests for a batch on tap that has none (regression test)', () => {
     const batch = onTap([]);
-    assert.deepStrictEqual(statusRow(stateOf(batch), batch), ['7-1', '#7', 'on tap', '']);
+    assert.deepStrictEqual(statusRow(stateOf(batch), batch), [
+      '7-1',
+      '#7',
+      'Done: finished with no pull request',
+      '',
+    ]);
   });
 });

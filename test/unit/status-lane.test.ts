@@ -3,7 +3,8 @@
 
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { describeLane } from '../../src/cli/status.ts';
+import { describeState } from '../../src/cli/status.ts';
+import { batchState } from '../../src/engine/batch-state.ts';
 import type { Batch } from '../../src/engine/fold.ts';
 
 const remindAt = '2026-10-18T09:00:00.000Z';
@@ -22,16 +23,19 @@ const waiting = (fields: Partial<Batch> = {}): Batch => ({
   ...fields,
 });
 
-describe('describeLane: a batch waiting for a session (ADR 0222)', () => {
+describe('describeState: a batch waiting for a session (ADR 0222)', () => {
   it('names foedrum brew with --take, to run in a terminal', () => {
-    assert.deepStrictEqual(describeLane(waiting(), '7'), {
-      lane: 'stuck',
-      detail: `waiting for a session at refine: foedrum brew 7 --take opens it in a terminal; reminder ${remindAt}`,
+    const batch = waiting();
+    assert.deepStrictEqual(describeState(batch, batchState(batch), '7'), {
+      state: 'Waiting for you: open its session',
+      detail:
+        'step refine is done by a person in a session: foedrum brew 7 --take opens it in a terminal',
     });
   });
 
   it("names a target issue's order by what its caller reads from the fold (ADR 0329)", () => {
-    const { detail } = describeLane(waiting({ repo: 'acme/api' }), '40');
+    const batch = waiting({ repo: 'acme/api' });
+    const { detail } = describeState(batch, batchState(batch), '40');
     assert.match(detail, /foedrum brew 40 --take opens it in a terminal/);
   });
 });

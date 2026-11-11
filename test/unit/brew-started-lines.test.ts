@@ -15,12 +15,12 @@ describe('runBrew', () => {
   const f = brewFixture();
   const by = { by: 'ann', via: 'terminal' } as const;
 
-  /** Brews to Stuck once, with a failed `brew #1`, and retries it; the lines start over. */
+  /** Brews to Stuck once, with a failed `step brew`, and retries it; the lines start over. */
   const failedOnceThenRetried = async (): Promise<void> => {
     const first = f.shell(behave.fail(true));
     assert.equal(await runBrew(f.setup, first, request), 3, f.lines.join('\n'));
     assert.ok(
-      f.lines.some((line) => line.includes('brew #1')),
+      f.lines.some((line) => line.includes('step brew')),
       f.lines.join('\n'),
     );
     f.log().issue({ kind: 'retry', batchId: '12-1', ...by }, t0);
@@ -33,8 +33,8 @@ describe('runBrew', () => {
     const again = f.shell(behave.succeed());
     assert.equal(await runBrew(f.setup, again, request), 0, f.lines.join('\n'));
     const said = f.lines.join('\n');
-    assert.match(said, /brew #2 started/);
-    assert.doesNotMatch(said, /brew #1 started/);
+    assert.match(said, /step brew \(try 2\) started/);
+    assert.doesNotMatch(said, /step brew started/);
   });
 
   it('names no attempt of the driver it took the batch over from', async () => {
@@ -54,8 +54,8 @@ describe('runBrew', () => {
     assert.equal(await runBrew(f.setup, takes, { ...request, take: true }), 0, f.lines.join('\n'));
     const said = f.lines.join('\n');
     assert.match(said, /took #12 over from cellar/);
-    assert.match(said, /brew #2 started/);
-    assert.doesNotMatch(said, /brew #1 started/);
+    assert.match(said, /step brew \(try 2\) started/);
+    assert.doesNotMatch(said, /step brew started/);
   });
 
   it('names no attempt when it comes only to record the ends of an on-tap batch', async () => {
@@ -81,7 +81,7 @@ describe('runBrew', () => {
     const gh = ghOver(host.fetch).exec;
     assert.equal(await runBrew(f.setup, f.shell(behave.succeed(), { gh }), request), 0);
     assert.ok(
-      f.lines.some((line) => /brew #1 started/.test(line)),
+      f.lines.some((line) => /step brew started/.test(line)),
       f.lines.join('\n'),
     );
     merged = true;

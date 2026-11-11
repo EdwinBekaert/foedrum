@@ -107,10 +107,10 @@ describe('runBrew on an issue with no recipe label (ADR 0370)', () => {
       f.lines.includes('foedrum brew: routed #13 to the recipe mash-in'),
       f.lines.join('\n'),
     );
-    assert.equal(
-      f.lines.at(-1),
-      'foedrum brew: answer them in order with foedrum answer 13 <answer 1>, then brew again',
-    );
+    assert.deepStrictEqual(f.lines.slice(-2), [
+      'foedrum brew: Next: answer the questions above with foedrum answer 13 <answer 1>, try the step again with foedrum retry 13, go past the step with foedrum skip 13, brew the issue with another recipe with foedrum recipe 13 <recipe> <reason>, take it back to an earlier step with foedrum rewind 13 <step>, or end it with foedrum cancel 13.',
+      'foedrum brew: Once it is answered, foedrum brew 13 goes on.',
+    ]);
     // A router's choice labels nothing: the issue's next order is routed as it is (ADR 0370).
     assert.deepStrictEqual(recipeLabels('acme/brewery', 13), []);
   });

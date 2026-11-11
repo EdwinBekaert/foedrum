@@ -121,6 +121,17 @@ const split = (more: { issue: number; entry: PlannedSubOrder }[] = []): Event[] 
       attempt: 1,
       outcome: { kind: 'succeeded', output },
     },
+    // A plan is split only once a person signed it off (ADR 0285).
+    {
+      type: 'batch.approved',
+      batchId: '1-1',
+      stepId: 'plan',
+      attempt: 1,
+      plan: 'a'.repeat(16),
+      by: 'ann',
+      via: 'terminal',
+      at: routeBy,
+    },
     {
       type: 'order.decomposed',
       batchId: '1-1',
@@ -194,8 +205,8 @@ describe('the end of a split order (ADR 0293)', () => {
 
   it('rolls up a sub-order with no pull request by its lane', async () => {
     const lines = await statusLines(fold([...split(), ...libReleased]));
-    assert.ok(lines.includes('- #3 in acme/web: brewing, no pull request yet'), lines.join('\n'));
-    assert.ok(!lines.some((line) => line.startsWith('🍻 **Done**')), lines.join('\n'));
+    assert.ok(lines.includes('- #3 in acme/web: running, no pull request yet'), lines.join('\n'));
+    assert.ok(!lines.some((line) => line.startsWith('🍻 **Done')), lines.join('\n'));
     assert.ok(!lines.some((line) => line.startsWith('Keeps the order open')), lines.join('\n'));
   });
 
@@ -205,7 +216,10 @@ describe('the end of a split order (ADR 0293)', () => {
     assert.deepEqual(await settle(closes, fold([...split(), ...libReleased]), '1-1'), []);
     const state = fold([...split(), ...bothMerged]);
     const lines = await statusLines(state);
-    assert.ok(lines.includes('🍻 **Done**: every sub-order merged'), lines.join('\n'));
+    assert.ok(
+      lines.includes('🍻 **Done: merged**: the plan was approved by ann from a terminal'),
+      lines.join('\n'),
+    );
     await settle(closes, state, '1-1');
     const order = github.issue(brewery, 1);
     assert.equal(order.state, 'closed');
@@ -227,7 +241,7 @@ describe('the end of a split order (ADR 0293)', () => {
     const lines = await statusLines(state);
     assert.ok(lines.includes('- #4 in acme/cli: cancelled, no pull request yet'), lines.join('\n'));
     assert.ok(lines.includes('Keeps the order open: #4 (cancelled)'), lines.join('\n'));
-    assert.ok(!lines.some((line) => line.startsWith('🍻 **Done**')), lines.join('\n'));
+    assert.ok(!lines.some((line) => line.startsWith('🍻 **Done')), lines.join('\n'));
     const github = fakeGitHub();
     await settle(breweryCloseEffects({ marks: github.marks('alice'), brewery }), state, '1-1');
     assert.equal(github.issue(brewery, 1).state, undefined);
@@ -275,7 +289,10 @@ describe('the end of a split order (ADR 0293)', () => {
     };
     const state = fold([...three, again, ...bothMerged]);
     const lines = await statusLines(state);
-    assert.ok(lines.includes('🍻 **Done**: every sub-order merged'), lines.join('\n'));
+    assert.ok(
+      lines.includes('🍻 **Done: merged**: the plan was approved by ann from a terminal'),
+      lines.join('\n'),
+    );
     assert.ok(!lines.some((line) => line.includes('#4')), lines.join('\n'));
     const github = fakeGitHub();
     await settle(breweryCloseEffects({ marks: github.marks('alice'), brewery }), state, '1-1');
@@ -369,7 +386,7 @@ describe('the end of a split order (ADR 0293)', () => {
       brewing('4-2'),
     ]);
     const lines = await statusLines(state);
-    assert.ok(lines.includes('- #4 in acme/cli: brewing, no pull request yet'), lines.join('\n'));
+    assert.ok(lines.includes('- #4 in acme/cli: running, no pull request yet'), lines.join('\n'));
     assert.ok(!lines.some((line) => line.startsWith('Keeps the order open')), lines.join('\n'));
   });
 

@@ -260,7 +260,7 @@ describe('runResumeRunning (ADR 0127)', () => {
     );
   });
 
-  it('says why and lets the batch go when the stopped run left it Stuck, resuming nothing: exit 1', async () => {
+  it('says why and lets the batch go when the stopped run left it waiting for you, resuming nothing: exit 1', async () => {
     const setup = setupWith(1);
     cellarRuns(setup);
     const result = await runResumeRunning(
@@ -274,7 +274,10 @@ describe('runResumeRunning (ADR 0127)', () => {
       store.batchLeases(t0).find(({ batchId }) => batchId === '12-1'),
       undefined,
     );
-    assert.match(lines.at(-1) ?? '', /^foedrum resume: #12 is stuck: .*; nothing was resumed$/);
+    assert.match(
+      lines.at(-1) ?? '',
+      /^foedrum resume: #12 is waiting for you: look at a failure Foedrum could not get past: .*; nothing was resumed$/,
+    );
   });
 
   it('continues a retry that waits to resume the session, with no driver to take the batch from: exit 0', async () => {
@@ -313,7 +316,7 @@ describe('runResumeRunning (ADR 0127)', () => {
     assert.equal(result, 1);
     assert.equal(
       lines.at(-1),
-      `foedrum resume: #12 is driven by session-7 until ${until.toISOString()}, when its lease ends by itself; foedrum resume 12 brew takes it over now`,
+      `foedrum resume: #12 is driven by session-7 until 23 Oct 12:02 UTC, when its lease ends by itself; foedrum resume 12 brew takes it over now`,
     );
     assert.equal(resumeLease(t0), undefined);
   });

@@ -409,7 +409,7 @@ describe('runBrew', () => {
     assert.ok(f.lines.includes('foedrum brew: brewing #12 as ann'), f.lines.join('\n'));
     assert.equal(
       f.lines.at(-1),
-      `foedrum brew: #12 is on tap: https://github.com/acme/web/pull/${f.api.pulls[0]?.number}`,
+      `foedrum brew: #12 is waiting for you: review and merge the pull request: https://github.com/acme/web/pull/${f.api.pulls[0]?.number}`,
     );
     // Every effect applied, the driver let the batch go and its lock.
     assert.equal(leaseOf(), undefined);
@@ -511,16 +511,16 @@ describe('runBrew', () => {
     assert.equal(visibilityReads(), 1);
   });
 
-  it('says the batch is on tap once, in its last line (#662)', async () => {
+  it('says the batch waits for a review and merge once, in its last line (#662)', async () => {
     assert.equal(await runBrew(f.setup, shell(behave.succeed('Brewed')), request), 0);
     const url = `https://github.com/acme/web/pull/${f.api.pulls[0]?.number}`;
     assert.deepStrictEqual(
-      f.lines.filter((line) => line.includes('on tap')),
-      [`foedrum brew: #12 is on tap: ${url}`],
+      f.lines.filter((line) => line.includes('review and merge')),
+      [`foedrum brew: #12 is waiting for you: review and merge the pull request: ${url}`],
     );
   });
 
-  it('names the lane on tap when it is stopped while the batch on tap still applies its effects (#662)', async () => {
+  it('names the state when it is stopped while the batch on tap still applies its effects (#662)', async () => {
     const controller = new AbortController();
     const stopping = shell(behave.succeed('Brewed'), {
       signal: controller.signal,
@@ -530,7 +530,10 @@ describe('runBrew', () => {
     });
     assert.equal(await runBrew(f.setup, stopping, request), 1);
     const url = `https://github.com/acme/web/pull/${f.api.pulls[0]?.number}`;
-    assert.equal(f.lines.at(-1), `foedrum brew: stopped; #12 on tap: ${url}`);
+    assert.equal(
+      f.lines.at(-1),
+      `foedrum brew: stopped; #12 is waiting for you: review and merge the pull request: ${url}`,
+    );
   });
 
   it("opens the pull request on the code host in Foedrum's layout, as a draft with no Taster (ADR 0167)", async () => {
@@ -588,7 +591,7 @@ describe('runBrew', () => {
         '',
         '| Attempt | Result |',
         '|---|---|',
-        '| `brew #1` | succeeded |',
+        '| `brew` | succeeded |',
         '',
         '<details><summary>What each step reported</summary>',
         '',
@@ -631,10 +634,10 @@ describe('runBrew', () => {
       },
     });
     assert.equal(await runBrew(f.setup, ticking, request), 1);
-    const progress = f.lines.filter((line) => line.includes('running for'));
+    const progress = f.lines.filter((line) => line.includes(' so far'));
     assert.deepStrictEqual(progress, [
-      'foedrum brew: #12 brewing: brew #1 running for 30s',
-      'foedrum brew: #12 brewing: brew #1 running for 1m 0s',
+      'foedrum brew: #12 is running: step brew, for 30s so far',
+      'foedrum brew: #12 is running: step brew, for 1m 0s so far',
     ]);
   });
 
@@ -660,10 +663,10 @@ describe('runBrew', () => {
     assert.equal(await runBrew(f.setup, plain, request), 1);
     assert.ok(waits.length > 0 && waits.every((ms) => ms === 5_000), waits.join(' '));
     assert.deepStrictEqual(
-      f.lines.filter((line) => line.includes('running for')),
+      f.lines.filter((line) => line.includes(' so far')),
       [
-        'foedrum brew: #12 brewing: brew #1 running for 30s',
-        'foedrum brew: #12 brewing: brew #1 running for 1m 0s',
+        'foedrum brew: #12 is running: step brew, for 30s so far',
+        'foedrum brew: #12 is running: step brew, for 1m 0s so far',
       ],
     );
     assert.ok(
@@ -693,10 +696,10 @@ describe('runBrew', () => {
       'foedrum brew: routed #12 to the recipe stout',
       'foedrum brew: brewing #12 as ann',
       'foedrum brew: status comment: https://github.com/Acme/Brewery/issues/12#issuecomment-1',
-      'foedrum brew: #12 brewing: brew #1 started',
-      'foedrum brew: #12 brewing: brew #1 running for 30s',
-      'foedrum brew: #12 brewing: brew #1 running for 1m 0s',
-      'foedrum brew: stopped; #12 brewing: brew #1 started',
+      'foedrum brew: #12 is running: step brew',
+      'foedrum brew: #12 is running: step brew, for 30s so far',
+      'foedrum brew: #12 is running: step brew, for 1m 0s so far',
+      'foedrum brew: stopped; #12 is running: step brew',
     ]);
   });
 
@@ -746,7 +749,7 @@ describe('runBrew', () => {
     assert.deepStrictEqual(f.started, []);
     assert.equal(
       f.lines.at(-1),
-      `foedrum brew: #12 is driven by cellar until ${expiresAt.toISOString()}, when its lease ends by itself; foedrum brew 12 --take takes it over now`,
+      `foedrum brew: #12 is driven by cellar until 22 Oct 12:01 UTC, when its lease ends by itself; foedrum brew 12 --take takes it over now`,
     );
     assert.equal(leaseOf()?.owner, 'cellar');
     assert.equal(f.lock.held, false);
@@ -760,13 +763,14 @@ describe('runBrew', () => {
       whyBlocking: 'Scripts will depend on it',
     };
     assert.equal(await runBrew(f.setup, shell(behave.needInput([question, second])), request), 4);
-    assert.deepStrictEqual(f.lines.slice(-6), [
-      'foedrum brew: #12 needs input at brew:',
+    assert.deepStrictEqual(f.lines.slice(-7), [
+      'foedrum brew: #12 is waiting for you: answer a question: step brew asks:',
       'foedrum brew:   1. Which database should the cache use? (sqlite, redis; recommended: sqlite)',
       'foedrum brew:      why it blocks: The two need different migrations',
       'foedrum brew:   2. Which flag name? (--json, --format=json; recommended: --json)',
       'foedrum brew:      why it blocks: Scripts will depend on it',
-      'foedrum brew: answer them in order with foedrum answer 12 <answer 1> <answer 2>, then brew again',
+      'foedrum brew: Next: answer the questions above with foedrum answer 12 <answer 1> <answer 2>, try the step again with foedrum retry 12, go past the step with foedrum skip 12, brew the issue with another recipe with foedrum recipe 12 <recipe> <reason>, take it back to an earlier step with foedrum rewind 12 <step>, or end it with foedrum cancel 12.',
+      'foedrum brew: Once it is answered, foedrum brew 12 goes on.',
     ]);
     // The batch stays this driver's while its engineer answers (ADR 0044); the lock goes.
     assert.equal(leaseOf()?.owner, 'ann');
@@ -855,22 +859,28 @@ describe('runBrew', () => {
     assert.equal(await runBrew(f.setup, shell(behave.succeed()), request), 5);
     assert.equal(
       f.lines.at(-1),
-      'foedrum brew: #12 is cancelled; foedrum order 12 orders it again',
+      'foedrum brew: #12 is done: cancelled; foedrum order 12 orders it again',
     );
   });
 
-  it('stops with the reason and the options when the batch is Stuck on anything but questions: exit 3', async () => {
+  it('stops with the reason and the options when the batch waits for you on anything but questions: exit 3', async () => {
     const blocked = behave.blocked('findings', 'The tests fail');
     assert.equal(await runBrew(f.setup, shell(blocked), request), 3);
+    assert.equal(
+      f.lines.at(-2),
+      'foedrum brew: #12 is waiting for you: look at a failure Foedrum could not get past: step brew could not go on, as the review found problems that are still open: The tests fail',
+    );
     assert.match(
       f.lines.at(-1) ?? '',
-      /^foedrum brew: #12 is stuck: blocked at brew \(findings\): The tests fail; reminder [^;]+; options: retry, /,
+      /^foedrum brew: Next: look at what failed above, then try the step again with foedrum retry 12, /,
     );
   });
 
-  describe('the status comment a run that ends Stuck leaves (#863)', () => {
+  describe('the status comment a run that ends waiting for you leaves (#863)', () => {
     const shown = (): string => f.api.comments.get('acme/brewery#12')?.[0]?.body ?? '';
-    const stuckLines = (): string[] => f.lines.filter((line) => line.includes(' is stuck: '));
+    // Each time brew says a batch waits for you, it says what to do next on a line of its own.
+    const stuckLines = (): string[] =>
+      f.lines.filter((line) => line.startsWith('foedrum brew: Next: '));
     /**
      * A runner whose attempt ends with `ending` at the first wait, so the first tick has made the
      * comment, on a clock that stands still: the batch goes Stuck within a minute of that edit.
@@ -895,10 +905,13 @@ describe('runBrew', () => {
     };
     const blocked: Ending = { kind: 'blocked', blockerKind: 'findings', summary: 'The tests fail' };
 
-    it('a run of foedrum brew that ends Stuck has posted the comment with that lane', async () => {
+    it('a run of foedrum brew that ends waiting for you has posted the comment with that state', async () => {
       const brew = shell(behave.succeed(), endsAfterFirstTick(blocked));
       assert.equal(await runBrew(f.setup, brew, request), 3);
-      assert.match(shown(), /🔔 \*\*Stuck\*\*: `brew` is blocked \(findings\): The tests fail/);
+      assert.match(
+        shown(),
+        /🔔 \*\*Waiting for you: look at a failure Foedrum could not get past\*\*: step `brew` could not go on, as the review found problems that are still open: The tests fail/,
+      );
       assert.match(shown(), /Next:/);
       assert.equal(stuckLines().length, 1, f.lines.join('\n'));
     });
@@ -908,11 +921,11 @@ describe('runBrew', () => {
       const brew = shell(behave.succeed(), endsAfterFirstTick(asking));
       const exit = await runBrew(f.setup, brew, request);
       assert.equal(exit, 4, f.lines.join('\n'));
-      assert.match(shown(), /🔔 \*\*Stuck\*\*/);
+      assert.match(shown(), /🔔 \*\*Waiting for you: answer a question\*\*/);
       assert.ok(shown().includes(question.q), shown());
     });
 
-    it('a run whose pull request action is refused has posted the comment with the Stuck that ended it, and tries it once', async () => {
+    it('a run whose pull request action is refused has posted the comment with the wait for you that ended it, and tries it once', async () => {
       let scans = 0;
       const refused = shell(behave.succeed('Brewed'), {
         push: () => ({
@@ -929,14 +942,17 @@ describe('runBrew', () => {
         }),
       });
       assert.equal(await runBrew(f.setup, refused, request), 3);
-      assert.match(shown(), /🔔 \*\*Stuck\*\*/);
+      assert.match(
+        shown(),
+        /🔔 \*\*Waiting for you: look at a failure Foedrum could not get past\*\*/,
+      );
       assert.match(shown(), /Next:/);
       assert.deepStrictEqual(f.started, ['brew#1']);
       assert.equal(scans, 1);
       assert.equal(stuckLines().length, 1, f.lines.join('\n'));
     });
 
-    it('a run whose last edit fails still exits Stuck, and says the effect failed', async () => {
+    it('a run whose last edit fails still exits waiting for you, and says the effect failed', async () => {
       const gh = ghOver(f.api.fetch).exec;
       const failing = shell(behave.succeed(), {
         ...endsAfterFirstTick(blocked),
@@ -946,12 +962,12 @@ describe('runBrew', () => {
             : gh(file, args, options),
       });
       assert.equal(await runBrew(f.setup, failing, request), 3);
-      assert.doesNotMatch(shown(), /Stuck/);
+      assert.doesNotMatch(shown(), /Waiting for you/);
       assert.ok(
         f.lines.some((line) => line.includes('status.2') && line.includes('GitHub is down')),
         f.lines.join('\n'),
       );
-      assert.match(f.lines.at(-1) ?? '', /^foedrum brew: #12 is stuck: /);
+      assert.match(f.lines.at(-2) ?? '', /^foedrum brew: #12 is waiting for you: /);
     });
 
     it('goes on brewing when a person moves the batch during the tick after it stuck, and says no Stuck', async () => {
@@ -1009,11 +1025,14 @@ describe('runBrew', () => {
       });
       assert.equal(await runBrew(f.setup, again, request), 3);
       assert.equal(retried, true);
-      assert.match(shown(), /🔔 \*\*Stuck\*\*: `open-pull-request`/);
+      assert.match(
+        shown(),
+        /🔔 \*\*Waiting for you: look at a failure Foedrum could not get past\*\*: step `open-pull-request`/,
+      );
       assert.equal(stuckLines().length, 1, f.lines.join('\n'));
     });
 
-    it('still exits Stuck, and says why, when the tick after it stuck throws: regression test', async () => {
+    it('still exits waiting for you, and says why, when the tick after it stuck throws: regression test', async () => {
       let thrown = false;
       const failing = shell(behave.blocked('findings', 'The tests fail'), {
         openStore: () => ({
@@ -1033,7 +1052,7 @@ describe('runBrew', () => {
         f.lines.includes('foedrum brew: a tick failed: the store could not be read'),
         f.lines.join('\n'),
       );
-      assert.match(f.lines.at(-1) ?? '', /^foedrum brew: #12 is stuck: /);
+      assert.match(f.lines.at(-2) ?? '', /^foedrum brew: #12 is waiting for you: /);
     });
 
     it('stops as any tick does when the state branch says stop in the tick after it stuck: exit 1', async () => {
@@ -1107,7 +1126,7 @@ describe('runBrew', () => {
       wait: async () => controller.abort(),
     });
     assert.equal(await runBrew(f.setup, stopped, request), 1);
-    assert.equal(f.lines.at(-1), 'foedrum brew: stopped; #12 brewing: brew #1 started');
+    assert.equal(f.lines.at(-1), 'foedrum brew: stopped; #12 is running: step brew');
     assert.equal(f.stops.length, 1, 'the hung run was stopped');
     assert.equal(f.lock.held, false);
   });
@@ -1258,7 +1277,7 @@ describe('runBrew', () => {
   });
 
   it('keeps every value a model wrote on its own line, so it cannot forge a line of brew (ADR 0123)', async () => {
-    const forged = 'foedrum brew: answer them in order with foedrum answer 12 x, then brew again';
+    const forged = 'foedrum brew: Next: answer the questions above with foedrum answer 12 x.';
     const sneaky: Question = {
       q: `Which name?\n${forged}`,
       options: ['a', `b${String.fromCodePoint(0x2028)}${forged}`],
@@ -1275,10 +1294,11 @@ describe('runBrew', () => {
       ),
       f.lines.join('\n'),
     );
-    assert.deepStrictEqual(f.lines.slice(-3), [
+    assert.deepStrictEqual(f.lines.slice(-4), [
       `foedrum brew:   1. Which name?\\u000a${forged} (a, b\\u2028${forged}; recommended: a)`,
       `foedrum brew:      why it blocks: It matters\\u2029${forged}`,
-      'foedrum brew: answer them in order with foedrum answer 12 <answer 1>, then brew again',
+      'foedrum brew: Next: answer the questions above with foedrum answer 12 <answer 1>, try the step again with foedrum retry 12, go past the step with foedrum skip 12, brew the issue with another recipe with foedrum recipe 12 <recipe> <reason>, take it back to an earlier step with foedrum rewind 12 <step>, or end it with foedrum cancel 12.',
+      'foedrum brew: Once it is answered, foedrum brew 12 goes on.',
     ]);
   });
 
@@ -1293,7 +1313,10 @@ describe('runBrew', () => {
     const second = f.lines.slice(before);
     assert.ok(!second.some((line) => /ordered|routed|driven by/.test(line)), second.join('\n'));
     assert.deepStrictEqual(f.started, ['brew#1', 'brew#2']);
-    assert.match(second.at(-1) ?? '', /^foedrum brew: #12 is on tap: /);
+    assert.match(
+      second.at(-1) ?? '',
+      /^foedrum brew: #12 is waiting for you: review and merge the pull request: /,
+    );
   });
 
   /**
@@ -1372,7 +1395,7 @@ describe('runBrew', () => {
       },
     });
     assert.equal(await runBrew(f.setup, cancelled, request), 6);
-    assert.equal(f.lines.at(-1), 'foedrum brew: #12 was cancelled by bob via terminal');
+    assert.equal(f.lines.at(-1), 'foedrum brew: #12 was cancelled by bob from a terminal');
   });
 
   it('refuses the batch, naming its new driver, when another driver takes it while it brews: exit 5', async () => {
@@ -1389,7 +1412,7 @@ describe('runBrew', () => {
     assert.equal(await runBrew(f.setup, taken, request), 5);
     assert.equal(
       f.lines.at(-1),
-      `foedrum brew: #12 is driven by cellar until ${expiresAt.toISOString()}, when its lease ends by itself; foedrum brew 12 --take takes it over now`,
+      `foedrum brew: #12 is driven by cellar until 22 Oct 12:01 UTC, when its lease ends by itself; foedrum brew 12 --take takes it over now`,
     );
   });
 

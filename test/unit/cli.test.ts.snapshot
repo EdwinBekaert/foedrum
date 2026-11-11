@@ -77,7 +77,7 @@ Events
   12  effect.applied       {"key":"[\\"12-1\\",\\"implement\\",1,\\"push\\"]","result":{"commit":"4b825dc642cb6eb9a060e54bf8d69288fbee4904"}}
 
 State
-  lane    brewing: implement #1 started
+  state   Running: step implement
   recipe  feature, chosen by label: label recipe:feature
   out docs  on the state branch at batches/12-1/<step>-<attempt>.md
   steps
@@ -97,9 +97,9 @@ Events
   19  batch.rewound        {"toStepId":"plan","by":"alice","via":"plugin","shas":{"acme/app":"4b825dc642cb6eb9a060e54bf8d69288fbee4904"}}
 
 State
-  lane    brewing: between steps
+  state   Running: between steps
   parent  12-1
-  recipe  bugfix, chosen by alice via terminal: a smaller fix will do
+  recipe  bugfix, chosen by alice from a terminal: a smaller fix will do
   steps
     plan  #1 scheduled, abandoned
   rewinds
@@ -107,24 +107,24 @@ State
 
 `;
 
-exports[`foedrum status > lists every batch with its issue, lane and what it waits for 1`] = `
+exports[`foedrum status > lists every batch with its issue, state and what it waits for 1`] = `
 15 batches
 
-  11-1  #11  ordered       to be routed by 2026-12-31T00:00:00.000Z
-  12-1  #12  brewing       implement #1 started
-  13-1  #13  conditioning  waiting for @acme/lib 2.4.0 or later in acme/lib; reminder 2026-10-17T09:00:00.000Z
-  14-1  #14  brewing       between steps
-  15-1  #15  stuck         needs input at plan; reminder 2026-10-17T09:00:00.000Z
-  16-1  #16  on tap        https://github.com/acme/app/pull/7 open
-  17-1  #17  cancelled     by bob via comment
-  18-1  #18  conditioning  waiting for the merge of https://github.com/acme/app/pull/8; reminder 2026-10-17T09:00:00.000Z
-  19-1  #19  conditioning  waiting for batch 13-1; reminder 2026-10-17T09:00:00.000Z
-  20-1  #20  stuck         blocked at review (environment): denied Bash(curl); reminder 2026-10-17T09:00:00.000Z
-  21-1  #21  stuck         attempts exhausted at test after 3: tests fail; reminder 2026-10-17T09:00:00.000Z
-  22-1  #22  stuck         waiting for a session at analyze: foedrum brew 22 --take opens it in a terminal; reminder 2026-10-17T09:00:00.000Z
-  23-1  #23  stuck         stalled at implement since 2026-10-15T11:00:00.000Z; reminder 2026-10-17T09:00:00.000Z
-  24-1  #24  stuck         deadline passed at plan (2026-10-15T10:00:00.000Z); reminder 2026-10-17T09:00:00.000Z
-  25-1  #25  stuck         not routed by 2026-10-15T10:00:00.000Z; reminder 2026-10-17T09:00:00.000Z
+  11-1  #11  Queued: waiting for a recipe                                         a recipe is chosen by 31 Dec 00:00 UTC
+  12-1  #12  Running                                                              step implement
+  13-1  #13  Queued: waiting for @acme/lib 2.4.0 or later in acme/lib
+  14-1  #14  Running                                                              between steps
+  15-1  #15  Waiting for you: answer a question                                   step plan asks a question
+  16-1  #16  Waiting for you: review and merge the pull request                   https://github.com/acme/app/pull/7 open
+  17-1  #17  Done: cancelled                                                      by bob in a comment
+  18-1  #18  Queued: waiting for the merge of https://github.com/acme/app/pull/8
+  19-1  #19  Queued: waiting for batch 13-1
+  20-1  #20  Waiting for you: look at a failure Foedrum could not get past        step review could not go on, as something it needs outside the change is missing: denied Bash(curl)
+  21-1  #21  Waiting for you: look at a failure Foedrum could not get past        step test failed all 3 tries; the last: tests fail
+  22-1  #22  Waiting for you: open its session                                    step analyze is done by a person in a session: foedrum brew 22 --take opens it in a terminal
+  23-1  #23  Waiting for you: look at a failure Foedrum could not get past        step implement made no progress since 15 Oct 11:00 UTC
+  24-1  #24  Waiting for you: look at a failure Foedrum could not get past        step plan ran past its deadline, 15 Oct 10:00 UTC
+  25-1  #25  Waiting for you: choose a recipe                                     no recipe was chosen by 15 Oct 10:00 UTC
 
 `;
 

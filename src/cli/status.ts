@@ -1,6 +1,7 @@
 // `foedrum status`: every batch with its issue and lane (architecture §4.3), and what it is doing
 // or waiting for, and what its attempts took. The lane's words are shared with replay.
 
+import type { BatchState } from '../engine/batch-state.ts';
 import { calledAs, claimOfOrder, claimOrderOf, orderName } from '../engine/claim-orders.ts';
 import {
   attemptRecipeTypeOf,
@@ -305,4 +306,14 @@ export const formatOrderStatus = (
     `planning: ${usageText(planning)}`,
     `brewing: ${usageText(brewing)}`,
   ].join('\n')}\n`;
+};
+
+/** A batch's state as a person reads it (ADR 0379), and what it is doing or waiting for. */
+export const describeState = (
+  _batch: Batch,
+  _now: BatchState,
+  _called: string,
+  _withEnds = false,
+): { state: string; detail: string } => {
+  throw new Error('not implemented');
 };

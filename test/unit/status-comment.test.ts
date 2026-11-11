@@ -23,10 +23,7 @@ import {
 import type { SubOrderRow } from '../../src/engine/order-end.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import {
-  code,
   labelled,
-  planNextLine,
-  planNextStep,
   renderStatus,
   type StatusComments,
   statusEffects,
@@ -87,7 +84,7 @@ const stuck = (reason: StuckReason, remindAt = at): Lane => ({
 const steps = ['plan', 'brew', 'taste'];
 /** The line of `text` that names the step `id`. */
 const lineOf = (text: string, id: string): string =>
-  text.split('\n').find((line) => line.includes(`\`${id}\``)) ?? '';
+  text.split('\n').find((line) => line.startsWith('- ') && line.includes(`\`${id}\``)) ?? '';
 
 describe('renderStatus', () => {
   it('says a paused batch is Paused, with who, from where, why and when what runs is stopped (ADR 0202)', () => {
@@ -98,16 +95,16 @@ describe('renderStatus', () => {
       stopAt: { at: '2026-10-18T15:30:00.000Z', zone: 'Europe/Brussels' },
     } as const;
     const lines = renderStatus(batch(), steps, undefined, pause).split('\n');
-    const lane = lines.indexOf('🍺 **Brewing**');
+    const lane = lines.indexOf('⏳ **Queued: paused**');
     assert.ok(lane > 0);
     assert.equal(
       lines[lane + 1],
-      '⏸️ **Paused** by ada (terminal): end of the day. Nothing new starts; what runs ends at its next convenient point, and what still runs at 15:30 UTC (17:30 Europe/Brussels, 18 October) is stopped.',
+      '⏸️ **Paused** by ada from a terminal: end of the day. Nothing new starts; what runs ends at its next convenient point, and what still runs at 15:30 UTC (17:30 Europe/Brussels, 18 October) is stopped.',
     );
     const plain = renderStatus(batch(), steps, undefined, { by: 'ada', via: 'plugin' });
     assert.match(
       plain,
-      /⏸️ \*\*Paused\*\* by ada \(plugin\)\. Nothing new starts; what runs ends at its next convenient point\.\n/,
+      /⏸️ \*\*Paused\*\* by ada from Claude Code\. Nothing new starts; what runs ends at its next convenient point\.\n/,
     );
     assert.doesNotMatch(renderStatus(batch(), steps), /Paused/);
   });
@@ -122,18 +119,18 @@ describe('renderStatus', () => {
     const lines = renderStatus(batch(), steps, undefined, undefined, undefined, {
       all: closed,
     }).split('\n');
-    const lane = lines.indexOf('🍺 **Brewing**');
+    const lane = lines.indexOf('⏳ **Queued: held by a usage limit**');
     assert.ok(lane > 0);
     assert.equal(
       lines[lane + 1],
-      '⏳ Usage window closed: claude hit its weekly limit, which resets Mon 12:00am; brewers wait until 23:05 UTC, 25 October.',
+      '⏳ Usage window closed: claude hit its weekly limit, which resets Mon 12:00am; brewers wait until 25 Oct 23:05 UTC.',
     );
     const unread = renderStatus(batch(), steps, undefined, undefined, undefined, {
       all: { ...closed, resets: 'soon <b>', read: false },
     });
     assert.match(
       unread,
-      /⏳ Usage window closed: claude hit its weekly limit, which resets soon &lt;b&gt;; brewers try again at 23:05 UTC, 25 October\./,
+      /⏳ Usage window closed: claude hit its weekly limit, which resets soon &lt;b&gt;; brewers try again at 25 Oct 23:05 UTC\./,
     );
     assert.doesNotMatch(
       renderStatus(ordered(), undefined, undefined, undefined, undefined, { all: closed }),
@@ -149,11 +146,11 @@ describe('renderStatus', () => {
       all: { ...window, limit: 'session' },
       Opus: { ...window, limit: 'Opus' },
     }).split('\n');
-    const lane = lines.indexOf('🍺 **Brewing**');
+    const lane = lines.indexOf('⏳ **Queued: held by a usage limit**');
     assert.deepStrictEqual(lines.slice(lane + 1, lane + 4), [
-      '⏳ Usage window closed: claude hit its session limit, which resets 3:45pm; brewers wait until 23:05 UTC, 25 October.',
-      '⏳ Opus usage window closed: claude hit its Opus limit, which resets 3:45pm; brewers on Opus wait until 23:05 UTC, 25 October.',
-      '⏳ Sonnet usage window closed: claude hit its Sonnet limit, which resets 3:45pm; brewers on Sonnet wait until 23:05 UTC, 25 October.',
+      '⏳ Usage window closed: claude hit its session limit, which resets 3:45pm; brewers wait until 25 Oct 23:05 UTC.',
+      '⏳ Opus usage window closed: claude hit its Opus limit, which resets 3:45pm; brewers on Opus wait until 25 Oct 23:05 UTC.',
+      '⏳ Sonnet usage window closed: claude hit its Sonnet limit, which resets 3:45pm; brewers on Sonnet wait until 25 Oct 23:05 UTC.',
     ]);
   });
 
@@ -166,10 +163,10 @@ describe('renderStatus', () => {
     assert.match(text, /: &#64;team &lt;b&gt;stop&lt;\/b&gt; now\. Nothing new starts/);
   });
 
-  it('names the batch, and says an Ordered batch has no recipe chosen yet', () => {
+  it('names the batch, and says a batch queued for a recipe has no recipe chosen yet', () => {
     const text = renderStatus(ordered(), undefined);
     assert.match(text, /`7-1`/);
-    assert.match(text, /Ordered/);
+    assert.match(text, /Queued: waiting for a recipe/);
     assert.match(text, /no recipe is chosen yet/i);
   });
 
@@ -182,7 +179,7 @@ describe('renderStatus', () => {
     );
     assert.match(text, /\*\*nip\*\*/);
     assert.match(lineOf(text, 'plan'), /✅/);
-    assert.match(lineOf(text, 'brew'), /▶️.*attempt 2/);
+    assert.match(lineOf(text, 'brew'), /▶️ `brew`: running, try 2$/);
     assert.match(lineOf(text, 'taste'), /⬜/);
     const order = steps.map((id) => text.indexOf(`\`${id}\``));
     assert.deepEqual(
@@ -212,15 +209,12 @@ describe('renderStatus', () => {
       session: { id, resumes: id, worktree: 'work/7-1/brew/1' },
     };
     const text = renderStatus(batch({ steps: new Map([step('brew', overran, resumed)]) }), steps);
-    assert.equal(
-      lineOf(text, 'brew'),
-      '- ▶️ `brew`: brewing, attempt 2, resumed after the turn budget',
-    );
+    assert.equal(lineOf(text, 'brew'), '- ▶️ `brew`: running, try 2, resumed after the turn budget');
     const crashed = renderStatus(
       batch({ steps: new Map([step('brew', failed(1, 'crash'), resumed)]) }),
       steps,
     );
-    assert.equal(lineOf(crashed, 'brew'), '- ▶️ `brew`: brewing, attempt 2');
+    assert.equal(lineOf(crashed, 'brew'), '- ▶️ `brew`: running, try 2');
   });
 
   it("says since when an interactive step's session is open, as the wait it is (ADR 0222)", () => {
@@ -236,7 +230,7 @@ describe('renderStatus', () => {
     );
     assert.equal(
       lineOf(text, 'brew'),
-      '- ▶️ `brew`: session open since 2026-10-18T09:30:00.000Z, attempt 2',
+      "- ▶️ `brew`: a person's session, open since 18 Oct 09:30 UTC, try 2",
     );
   });
 
@@ -258,7 +252,7 @@ describe('renderStatus', () => {
     assert.match(lineOf(text, 'brew'), /🔔/);
   });
 
-  it('says one attempt in the singular when a round used only one (ADR 0325)', () => {
+  it('says one try in the singular when a round used only one (ADR 0325)', () => {
     const text = renderStatus(
       batch({
         lane: stuck({
@@ -271,10 +265,10 @@ describe('renderStatus', () => {
       }),
       steps,
     );
-    assert.ok(text.includes('used its 1 attempt; the last: crash'), text);
+    assert.ok(text.includes('failed its one try; the last: crash'), text);
   });
 
-  it('says why a batch whose lost attempts used its retries is Stuck in plain words, without the owner of the lease or a UTC time (#277)', () => {
+  it('says why a batch whose lost attempts used its retries waits for you in plain words, without the owner of the lease or a UTC time (#277)', () => {
     const lost = lostReason(expiredLeaseReason('cellar', new Date('2026-10-31T14:05:04.640Z')));
     const text = renderStatus(
       batch({
@@ -285,7 +279,7 @@ describe('renderStatus', () => {
     );
     assert.ok(
       text.includes(
-        'used its 2 attempts; the last: the attempt was lost: the Cellar running it stopped, so its lease ran out',
+        'failed all 2 tries; the last: the attempt was lost: the Cellar running it stopped, so its lease ran out',
       ),
       text,
     );
@@ -297,7 +291,7 @@ describe('renderStatus', () => {
     const text = renderStatus(batch({ steps: new Map([step('plan', failed(1, lost))]) }), steps);
     assert.match(
       lineOf(text, 'plan'),
-      /attempt 1 failed: the attempt was lost: the Cellar running it stopped, so its lease ran out/,
+      /failed: the attempt was lost: the Cellar running it stopped, so its lease ran out/,
     );
     assert.ok(!text.includes('lease of') && !text.includes('14:05:04'), text);
   });
@@ -319,7 +313,7 @@ describe('renderStatus', () => {
       ['gauge', 'red', 'implement'],
     );
     const lines = text.split('\n');
-    const path = lines.indexOf('Path: `gauge #1` ✅ → `red #1` ❌ passes → `gauge #2` 🔔');
+    const path = lines.indexOf('Path: `gauge` ✅ → `red` ❌ passes → `gauge (try 2)` 🔔');
     assert.ok(path >= 0, text);
     const firstStep = lines.findIndex((line) => line.startsWith('- ') && line.includes('`gauge`'));
     assert.ok(path < firstStep, 'the path comes before the steps');
@@ -348,10 +342,10 @@ describe('renderStatus', () => {
       }),
       steps,
     );
-    assert.ok(text.split('\n').includes('Path: `plan #1` ❓ → `brew #1` ⏹️ → `taste #1` ▶️'), text);
+    assert.ok(text.split('\n').includes('Path: `plan` ❓ → `brew` ⏹️ → `taste` ▶️'), text);
   });
 
-  it('ends the path where the batch is Stuck, though that attempt never started (#406)', () => {
+  it('ends the path where the batch waits for you, though that attempt never started (#406)', () => {
     const scheduled: Attempt = { phase: 'scheduled', attempt: 2, deadlineAt: at };
     const text = renderStatus(
       batch({
@@ -361,7 +355,7 @@ describe('renderStatus', () => {
       }),
       ['gauge'],
     );
-    assert.ok(text.split('\n').includes('Path: `gauge #1` ✅ → `gauge #2` 🔔'), text);
+    assert.ok(text.split('\n').includes('Path: `gauge` ✅ → `gauge (try 2)` 🔔'), text);
   });
 
   const which = { q: 'Which?', options: ['a', 'b'], recommended: 'a', whyBlocking: 'x' };
@@ -398,7 +392,7 @@ describe('renderStatus', () => {
     );
     assert.equal(
       pathOf(text),
-      'Path: `innkeep #1` ❓ → mash (by ann via terminal) → `plan #1` ❌ the out doc plan.md is invalid → `plan #2` ▶️',
+      'Path: `innkeep` ❓ → mash (by ann from a terminal) → `plan` ❌ the out doc plan.md is invalid → `plan (try 2)` ▶️',
     );
   });
 
@@ -420,7 +414,7 @@ describe('renderStatus', () => {
     );
     assert.equal(
       pathOf(text),
-      `Path: \`plan #1\` ❓ → second (by ann via terminal) → \`plan #2\` ❓ → \\*${'x'.repeat(37)}… (by ann via terminal) → \`plan #3\` ▶️`,
+      `Path: \`plan\` ❓ → second (by ann from a terminal) → \`plan (try 2)\` ❓ → \\*${'x'.repeat(37)}… (by ann from a terminal) → \`plan (try 3)\` ▶️`,
     );
   });
 
@@ -432,7 +426,7 @@ describe('renderStatus', () => {
     );
     assert.equal(
       lineOf(text, 'innkeep'),
-      '- ❓ `innkeep`: attempt 1 asked for input, answered by ann (terminal): mash',
+      '- ❓ `innkeep`: asked a question, answered by ann from a terminal: mash',
     );
   });
 
@@ -457,7 +451,7 @@ describe('renderStatus', () => {
     );
     assert.equal(
       pathOf(text),
-      'Path: `gauge #1` ❌ the attempt was lost → `gauge #2` ✅ → `green #1` ❌ the check "tests" failed with exit code 1 → `green #2` ✅ → `correctness #1` ❌ blocked (findings) → `correctness #2` ✅',
+      'Path: `gauge` ❌ the attempt was lost → `gauge (try 2)` ✅ → `green` ❌ the check "tests" failed with exit code 1 → `green (try 2)` ✅ → `correctness` ❌ blocked (findings) → `correctness (try 2)` ✅',
     );
   });
 
@@ -473,7 +467,7 @@ describe('renderStatus', () => {
       }),
       ['gauge'],
     );
-    assert.equal(pathOf(text), 'Path: `gauge #1` ❌ the attempt was lost → `gauge #2` ✅');
+    assert.equal(pathOf(text), 'Path: `gauge` ❌ the attempt was lost → `gauge (try 2)` ✅');
   });
 
   describe('a batch sent back, a line per round (#662)', () => {
@@ -516,9 +510,9 @@ describe('renderStatus', () => {
         ['implement', 'green', 'taste'],
       );
       assert.deepEqual(pathLines(text), [
-        'Path: `implement #1` ✅ → `green #1` ❌ the check "t" failed with exit code 1',
-        '→ `implement #2` ✅ → `green #2` ✅ → `taste #1` ❌ blocked (findings)',
-        '→ `implement #3` ✅ → `green #3` ✅ → `taste #2` ✅',
+        'Path: `implement` ✅ → `green` ❌ the check "t" failed with exit code 1',
+        '→ `implement (try 2)` ✅ → `green (try 2)` ✅ → `taste` ❌ blocked (findings)',
+        '→ `implement (try 3)` ✅ → `green (try 3)` ✅ → `taste (try 2)` ✅',
       ]);
     });
 
@@ -542,8 +536,8 @@ describe('renderStatus', () => {
         ['fix', 'docs', 'taste'],
       );
       assert.deepEqual(pathLines(text), [
-        'Path: `fix #1` ✅ → `docs #1` ✅ → `taste #1` ❌ blocked (findings)',
-        '→ `fix #2` ✅ → `docs #2` ✅',
+        'Path: `fix` ✅ → `docs` ✅ → `taste` ❌ blocked (findings)',
+        '→ `fix (try 2)` ✅ → `docs (try 2)` ✅',
       ]);
     });
 
@@ -561,7 +555,11 @@ describe('renderStatus', () => {
         }),
         ['fix'],
       );
-      assert.deepEqual(pathLines(text), ['Path: `fix #1` ✅', '→ `fix #2` ✅', '→ `fix #3` ✅']);
+      assert.deepEqual(pathLines(text), [
+        'Path: `fix` ✅',
+        '→ `fix (try 2)` ✅',
+        '→ `fix (try 3)` ✅',
+      ]);
     });
 
     it('keeps one line for a batch that was retried and never sent back (regression test)', () => {
@@ -581,7 +579,7 @@ describe('renderStatus', () => {
         ['green'],
       );
       assert.deepEqual(pathLines(text), [
-        'Path: `green #1` ❌ the check "t" failed with exit code 1 → `green #2` ✅',
+        'Path: `green` ❌ the check "t" failed with exit code 1 → `green (try 2)` ✅',
       ]);
     });
   });
@@ -600,7 +598,7 @@ describe('renderStatus', () => {
     );
     assert.equal(
       pathOf(text),
-      'Path: `plan #1` ❌ the brewer wrote no out doc before its turns… → `plan #2` ▶️',
+      'Path: `plan` ❌ the brewer wrote no out doc before its turns… → `plan (try 2)` ▶️',
     );
   });
 
@@ -616,7 +614,7 @@ describe('renderStatus', () => {
       }),
       ['plan'],
     );
-    assert.equal(pathOf(text), `Path: \`plan #1\` ❌ ${word.slice(0, 47)}… → \`plan #2\` ▶️`);
+    assert.equal(pathOf(text), `Path: \`plan\` ❌ ${word.slice(0, 47)}… → \`plan (try 2)\` ▶️`);
   });
 
   it('drops a parenthesised part of a long reason whole, though another is nested in it (#656)', () => {
@@ -633,7 +631,7 @@ describe('renderStatus', () => {
     );
     assert.equal(
       pathOf(text),
-      'Path: `green #1` ❌ the check "test" failed with exit code 1 → `green #2` ▶️',
+      'Path: `green` ❌ the check "test" failed with exit code 1 → `green (try 2)` ▶️',
     );
   });
 
@@ -677,7 +675,7 @@ describe('renderStatus', () => {
     };
     assert.equal(
       checkedPath(reading),
-      'Path: `green #1` ❌ the check "test" failed, 5 tests failing → `green #2` ▶️',
+      'Path: `green` ❌ the check "test" failed, 5 tests failing → `green (try 2)` ▶️',
     );
   });
 
@@ -692,7 +690,7 @@ describe('renderStatus', () => {
     };
     assert.equal(
       checkedPath(reading),
-      'Path: `green #1` ❌ the check "node --test --test-name-pattern="a:… → `green #2` ▶️',
+      'Path: `green` ❌ the check "node --test --test-name-pattern="a:… → `green (try 2)` ▶️',
     );
   });
 
@@ -708,7 +706,7 @@ describe('renderStatus', () => {
     const reason = 'the test map the survey proposed disagrees with a run of acme/api: x';
     assert.equal(
       checkedPath(reading, reason),
-      'Path: `green #1` ❌ the test map the survey proposed disagrees… → `green #2` ▶️',
+      'Path: `green` ❌ the test map the survey proposed disagrees… → `green (try 2)` ▶️',
     );
   });
 
@@ -729,33 +727,33 @@ describe('renderStatus', () => {
   it('keeps a long reason whole, cut at a word, when a parenthesis in it is never closed (#656)', () => {
     assert.equal(
       failedPath('the check "x" (echo "(") failed with exit code 1 and more'),
-      'Path: `green #1` ❌ the check "x" (echo "(") failed with exit code… → `green #2` ▶️',
+      'Path: `green` ❌ the check "x" (echo "(") failed with exit code… → `green (try 2)` ▶️',
     );
   });
 
   it('keeps a reason of exactly 48 characters whole: regression test (#656)', () => {
     const reason = `${'word '.repeat(9)}abc`;
     assert.equal(reason.length, 48);
-    assert.equal(failedPath(reason), `Path: \`green #1\` ❌ ${reason} → \`green #2\` ▶️`);
+    assert.equal(failedPath(reason), `Path: \`green\` ❌ ${reason} → \`green (try 2)\` ▶️`);
   });
 
   it('keeps the parenthesised part of a reason of exactly 48 characters: regression test (#656)', () => {
     const reason = `${'word '.repeat(7)}(npm test) ab`;
     assert.equal(reason.length, 48);
-    assert.equal(failedPath(reason), `Path: \`green #1\` ❌ ${reason} → \`green #2\` ▶️`);
+    assert.equal(failedPath(reason), `Path: \`green\` ❌ ${reason} → \`green (try 2)\` ▶️`);
   });
 
   it('keeps a reason whole once its parenthesised part goes and 48 characters are left: regression test (#656)', () => {
     const kept = `${'word '.repeat(8)}word abc`;
     assert.equal(kept.length, 48);
     const reason = `${'word '.repeat(8)}word (npm test) abc`;
-    assert.equal(failedPath(reason), `Path: \`green #1\` ❌ ${kept} → \`green #2\` ▶️`);
+    assert.equal(failedPath(reason), `Path: \`green\` ❌ ${kept} → \`green (try 2)\` ▶️`);
   });
 
   it('keeps a stray closing parenthesis of a long reason: regression test (#656)', () => {
     assert.equal(
       failedPath('the check "x" (a) b) failed with exit code 1 and more'),
-      'Path: `green #1` ❌ the check "x" b) failed with exit code 1 and… → `green #2` ▶️',
+      'Path: `green` ❌ the check "x" b) failed with exit code 1 and… → `green (try 2)` ▶️',
     );
   });
 
@@ -771,25 +769,22 @@ describe('renderStatus', () => {
       ['gauge'],
     );
     noToken(text);
-    assert.match(
-      pathOf(text),
-      new RegExp(`^Path: \`gauge #1\` ❌ ${escaped(leftOut('gauge'))} → `),
-    );
+    assert.match(pathOf(text), new RegExp(`^Path: \`gauge\` ❌ ${escaped(leftOut('gauge'))} → `));
   });
 
   it('keeps the bare mark of an open question: regression test (#656)', () => {
     const steps = new Map([step('plan', asking(1))]);
     const path = [{ stepId: 'plan', attempt: 1 }];
-    assert.equal(pathOf(renderStatus(batch({ steps, path }), ['plan'])), 'Path: `plan #1` ❓');
+    assert.equal(pathOf(renderStatus(batch({ steps, path }), ['plan'])), 'Path: `plan` ❓');
   });
 
-  it('keeps the bell where the batch is Stuck on an open question: regression test (#656)', () => {
+  it('keeps the bell where the batch waits for your answer to an open question: regression test (#656)', () => {
     const steps = new Map([step('plan', asking(1))]);
     const path = [{ stepId: 'plan', attempt: 1 }];
     const reason: StuckReason = { kind: 'needs_input', stepId: 'plan', questions: [which] };
     assert.equal(
       pathOf(renderStatus(batch({ lane: stuck(reason), steps, path }), ['plan'])),
-      'Path: `plan #1` 🔔',
+      'Path: `plan` 🔔',
     );
   });
 
@@ -798,7 +793,7 @@ describe('renderStatus', () => {
       batch({ steps: new Map([step('plan', done(1))]), path: [{ stepId: 'plan', attempt: 1 }] }),
       ['plan'],
     );
-    assert.equal(pathOf(text), 'Path: `plan #1` ✅');
+    assert.equal(pathOf(text), 'Path: `plan` ✅');
     assert.equal(lineOf(text, 'plan'), '- ✅ `plan`');
   });
 
@@ -807,7 +802,7 @@ describe('renderStatus', () => {
     assert.match(lineOf(text, 'mash'), /✅/);
   });
 
-  it('says why a Stuck batch is stuck, at which step, and what gets it moving', () => {
+  it('says why a batch waits for you, at which step, and what gets it moving', () => {
     const text = renderStatus(
       batch({
         lane: stuck({
@@ -820,11 +815,11 @@ describe('renderStatus', () => {
       }),
       steps,
     );
-    assert.match(text, /Stuck/);
-    assert.match(text, /environment/);
+    assert.match(text, /Waiting for you/);
+    assert.match(text, /something it needs outside the change is missing/);
     assert.match(text, /npm is missing/);
     assert.match(lineOf(text, 'brew'), /🔔/);
-    assert.match(text, /`retry`.*`cancel`/);
+    assert.match(text, /`foedrum retry 7`.*`foedrum cancel 7`/);
   });
 
   // An event written before ADR 0192, or by a step with no findings route, has no roundsOut.
@@ -838,8 +833,8 @@ describe('renderStatus', () => {
     const lines = renderStatus(batch({ lane: stuck(reason) }), steps).split('\n');
     const at_ = lines.findIndex((line) => line.startsWith('🔔'));
     assert.deepStrictEqual(lines.slice(at_, at_ + 3), [
-      '🔔 **Stuck**: `taste` is blocked (findings): the Taster asks for changes: no deadline',
-      'Next: get it moving with `retry`, `cancel`.',
+      '🔔 **Waiting for you: look at a failure Foedrum could not get past**: step `taste` could not go on, as the review found problems that are still open: the Taster asks for changes: no deadline',
+      'Next: look at what failed above, then try the step again with `foedrum retry 7`, or end it with `foedrum cancel 7`.',
       '',
     ]);
   });
@@ -869,14 +864,14 @@ describe('renderStatus', () => {
     const lines = renderStatus(batch({ lane: stuck(reason) }), steps).split('\n');
     const at_ = lines.findIndex((line) => line.startsWith('🔔'));
     assert.deepStrictEqual(lines.slice(at_, at_ + 9), [
-      '🔔 **Stuck**: `taste` is blocked (findings): the Taster asks for changes: no deadline',
+      '🔔 **Waiting for you: look at a failure Foedrum could not get past**: step `taste` could not go on, as the review found problems that are still open: the Taster asks for changes: no deadline',
       'Still open after 2 rounds:',
       '- `taste`: major in src/a\\_b.ts:3: no \\# deadline',
       `- \`taste\`: minor, there before the change: ${'x'.repeat(199)}…`,
       `- \`taste\`: blocker: ${leftOut('taste')}`,
       '- `taste`: and 4 more',
       'Another round is unlikely to help: plan the order again, or split it.',
-      'Next: get it moving with `retry`, `cancel`.',
+      'Next: look at what failed above, then try the step again with `foedrum retry 7`, or end it with `foedrum cancel 7`.',
       '',
     ]);
     noToken(lines.join('\n'));
@@ -895,12 +890,12 @@ describe('renderStatus', () => {
     assert.deepStrictEqual(lines.slice(at_ + 1, at_ + 4), [
       'Still open after 1 round: no finding was recorded.',
       'Another round is unlikely to help: plan the order again, or split it.',
-      'Next: get it moving with `retry`, `cancel`.',
+      'Next: look at what failed above, then try the step again with `foedrum retry 7`, or end it with `foedrum cancel 7`.',
     ]);
   });
 
   // #238, ADR 0091: the reset is claude's text, shown as plain text like any summary (ADR 0072).
-  it('says which usage limit a batch is Stuck on and when it resets, as plain text', () => {
+  it('says which usage limit a batch waits for you on and when it resets, as plain text', () => {
     const summary = 'claude hit its session limit, which resets 3:45pm: retry the step after that';
     const text = renderStatus(
       batch({
@@ -909,7 +904,11 @@ describe('renderStatus', () => {
       }),
       steps,
     );
-    assert.ok(text.includes(`\`brew\` is blocked (environment): ${summary}`));
+    assert.ok(
+      text.includes(
+        `step \`brew\` could not go on, as something it needs outside the change is missing: ${summary}`,
+      ),
+    );
   });
 
   it('lists the questions of a batch Stuck for input', () => {
@@ -935,20 +934,20 @@ describe('renderStatus', () => {
     );
   });
 
-  it('says what a Conditioning batch waits for', () => {
+  it('says what a queued batch waits for', () => {
     const text = renderStatus(
       batch({
         lane: { kind: 'conditioning', on: { kind: 'merge', pullRequest: pr }, remindAt: at },
       }),
       steps,
     );
-    assert.match(text, /Conditioning/);
+    assert.match(text, /⏳ \*\*Queued\*\*: waiting for the merge of /);
     assert.ok(text.includes(pr));
   });
 
-  it('lists the pull requests of a batch on tap', () => {
+  it('lists the pull requests of a batch waiting for their review', () => {
     const text = renderStatus(batch({ lane: { kind: 'on_tap', pullRequests: [pr] } }), steps);
-    assert.match(text, /On tap/);
+    assert.match(text, /Waiting for you: review and merge the pull request/);
     assert.ok(text.includes(pr));
   });
 
@@ -1015,9 +1014,9 @@ describe('renderStatus', () => {
       }),
       steps,
     );
-    assert.match(lineOf(text, 'plan'), /❓.*asked for input/);
-    assert.match(lineOf(text, 'brew'), /⏹️.*attempt 1 stopped/);
-    assert.match(lineOf(text, 'taste'), /⏹️.*attempt 2 stopped/);
+    assert.match(lineOf(text, 'plan'), /❓ `plan`: asked a question$/);
+    assert.match(lineOf(text, 'brew'), /⏹️.*stopped/);
+    assert.match(lineOf(text, 'taste'), /⏹️.*stopped, try 2/);
   });
 
   it('writes a pull request URL as an autolink of its normalized form, so it mentions no one', () => {
@@ -1094,11 +1093,7 @@ describe('renderStatus', () => {
     );
     assert.ok(text.length <= 60_000, `${text.length} characters`);
     assert.match(text, /\n\n… the rest is cut: GitHub keeps comments shorter\.$/);
-    assert.match(
-      text,
-      /^- ❌ `s\d+`: attempt 1 failed: (&#64;)+…\n\n…/m,
-      'the last line kept is whole',
-    );
+    assert.match(text, /^- ❌ `s\d+`: failed: (&#64;)+…\n\n…/m, 'the last line kept is whole');
   });
 
   it('says so when a batch on tap has no pull request, and points at the plan only when an attempt succeeded with one (ADR 0234)', () => {
@@ -1140,35 +1135,32 @@ describe('renderStatus', () => {
     }
   });
 
-  it('says the reason of every kind of Stuck on its line', () => {
+  it('says the reason of every kind of wait for you on its line', () => {
     const cases: [StuckReason, RegExp][] = [
       [
         { kind: 'attempts_exhausted', stepId: 'brew', attempts: 2, lastReason: 'crash' },
-        /`brew` used its 2 attempts; the last: crash/,
+        /step `brew` failed all 2 tries; the last: crash/,
       ],
       [
         { kind: 'deadline_passed', stepId: 'brew', deadlineAt: at },
-        /`brew` passed its deadline of 2026-10-18T09:00:00\.000Z/,
+        /step `brew` ran past its deadline, 18 Oct 09:00 UTC$/,
       ],
       [
         { kind: 'waiting_for_session', stepId: 'brew' },
-        /`brew` waits for its session: run `foedrum brew 7 --take` in a terminal \(ADR 0222\)$/,
+        /step `brew` is done by a person in a session: run `foedrum brew 7 --take` in a terminal$/,
       ],
       [
         { kind: 'stalled', stepId: 'brew', lastProgressAt: at, turnsWithoutProgress: 30 },
-        /`brew` stalled: .* since 2026-10-18T09:00:00\.000Z, for 30 turns/,
+        /step `brew` made no progress: .* since 18 Oct 09:00 UTC, for 30 turns/,
       ],
-      [
-        { kind: 'routing', deadlineAt: at },
-        /no recipe was chosen by its routing deadline, 2026-10-18T09:00:00\.000Z/,
-      ],
+      [{ kind: 'routing', deadlineAt: at }, /no recipe was chosen by 18 Oct 09:00 UTC$/],
       [
         { kind: 'stopped', stepId: 'brew', by: 'ada', via: 'terminal', why: '@bob <b>lunch</b>' },
-        /`brew` was stopped by ada \(terminal\): &#64;bob &lt;b&gt;lunch&lt;\/b&gt;$/,
+        /step `brew` was stopped by ada from a terminal: &#64;bob &lt;b&gt;lunch&lt;\/b&gt;$/,
       ],
       [
         { kind: 'stopped', stepId: 'brew', by: 'ada', via: 'plugin' },
-        /`brew` was stopped by ada \(plugin\)$/,
+        /step `brew` was stopped by ada from Claude Code$/,
       ],
       [
         {
@@ -1187,7 +1179,7 @@ describe('renderStatus', () => {
           ],
           more: 3,
         },
-        /`open-pull-request`: <https:\/\/github\.com\/acme\/api\/pull\/12> failed its checks on `c{40}` after 2 rounds: ci \/ test \(failure\) <https:\/\/github\.com\/acme\/api\/actions\/runs\/1\/job\/2>, &#64;bob &lt;b&gt;deploy&lt;\/b&gt; \(error\), and 3 more$/,
+        /: <https:\/\/github\.com\/acme\/api\/pull\/12> failed its checks on `c{8}` after 2 rounds of fixes by step `open-pull-request`: ci \/ test \(failure\) <https:\/\/github\.com\/acme\/api\/actions\/runs\/1\/job\/2>, &#64;bob &lt;b&gt;deploy&lt;\/b&gt; \(error\), and 3 more$/,
       ],
       [
         {
@@ -1205,7 +1197,7 @@ describe('renderStatus', () => {
             check: 'the check "<b>test</b>" (npm test)',
           },
         },
-        /`open-pull-request`: <https:\/\/github\.com\/acme\/api\/pull\/12> fails its checks on the merged tree with `main` at `eeeeeeee` after 2 rounds: the check "&lt;b&gt;test&lt;\/b&gt;" \(npm test\)$/,
+        /: <https:\/\/github\.com\/acme\/api\/pull\/12> fails its checks once merged with `main` at `eeeeeeee` after 2 rounds of fixes by step `open-pull-request`: the check "&lt;b&gt;test&lt;\/b&gt;" \(npm test\)$/,
       ],
       // The files are the repository's names, shown as plain text (ADR 0244).
       [
@@ -1224,12 +1216,12 @@ describe('renderStatus', () => {
             files: ['src/a.ts', '<b>x</b>.ts'],
           },
         },
-        /`open-pull-request`: <https:\/\/github\.com\/acme\/api\/pull\/12> conflicts with `main` at `eeeeeeee` after 2 rounds: src\/a\.ts, &lt;b&gt;x&lt;\/b&gt;\.ts$/,
+        /: <https:\/\/github\.com\/acme\/api\/pull\/12> conflicts with `main` at `eeeeeeee` after 2 rounds of fixes by step `open-pull-request`: src\/a\.ts, &lt;b&gt;x&lt;\/b&gt;\.ts$/,
       ],
     ];
     for (const [reason, said] of cases) {
       const text = renderStatus(batch({ lane: stuck(reason) }), steps);
-      const line = text.split('\n').find((each) => each.includes('**Stuck**')) ?? '';
+      const line = text.split('\n').find((each) => each.startsWith('🔔 **Waiting for you')) ?? '';
       assert.match(line, said, reason.kind);
     }
   });
@@ -1252,7 +1244,7 @@ describe('renderStatus', () => {
       batch({ lane: { kind: 'cancelled', by: 'bob', via: 'terminal' } }),
       steps,
     );
-    assert.match(text, /Cancelled/);
+    assert.match(text, /Done: cancelled\*\*: by bob from a terminal/);
     assert.match(text, /bob/);
   });
 
@@ -1546,7 +1538,7 @@ describe('renderStatus', () => {
       ],
     };
     const text = renderStatus(batch({ steps: new Map([step('mutants', blocked)]) }), ['mutants']);
-    assert.match(text, /`mutants`: attempt 1 failed: blocked \(findings\)/);
+    assert.match(text, /`mutants`: failed: blocked \(findings\)/);
     assert.doesNotMatch(text, /survived:|1 mutant/);
   });
 
@@ -1796,7 +1788,10 @@ describe('renderStatus: out doc text that looks like a secret (#235)', () => {
       }),
       steps,
     );
-    assert.match(text, new RegExp(`is blocked \\(findings\\): ${escaped(leftOut('brew'))}`));
+    assert.match(
+      text,
+      new RegExp(`the review found problems that are still open: ${escaped(leftOut('brew'))}`),
+    );
     noToken(text);
   });
 
@@ -1981,7 +1976,7 @@ describe('statusEffects', () => {
     const comment = only();
     assert.equal(comment.repo, brewery);
     assert.equal(comment.issue, 7);
-    assert.match(comment.body, /Ordered/);
+    assert.match(comment.body, /Queued: waiting for a recipe/);
     assert.ok(comment.body.endsWith(marker(1)), comment.body);
     assert.deepEqual(notices, []);
   });
@@ -2018,12 +2013,14 @@ describe('statusEffects', () => {
     await driver.tick();
     const bodies = comments.comments.map(({ body }) => body);
     assert.ok(
-      bodies.some((body) => /Next: get it moving with `foedrum [a-z]+ 7-1`/.test(body)),
+      bodies.some((body) =>
+        /Next: look at what failed above, then [a-z ]+ with `foedrum [a-z]+ 7-1`/.test(body),
+      ),
       bodies.join('\n---\n'),
     );
   });
 
-  it("names a latest batch's options alone, since the comment says its number: regression test (ADR 0334)", () => {
+  it("names a latest batch's options by its number, which the comment says: regression test (ADR 0334)", () => {
     const lane = stuck({
       kind: 'attempts_exhausted',
       stepId: 'plan',
@@ -2033,15 +2030,10 @@ describe('statusEffects', () => {
     const next = renderStatus(batch({ lane }), ['plan'])
       .split('\n')
       .find((line) => line.startsWith('Next:'));
-    assert.match(next ?? '', /^Next: get it moving with `[a-z]+`/);
-  });
-
-  it("offers a plan's other option by the whole command only for an older batch: regression test (ADR 0334)", () => {
     assert.match(
-      planNextLine('7-1', ['recipe'], '7-1'),
-      /Its other option: `foedrum recipe 7-1`\.$/,
+      next ?? '',
+      /^Next: look at what failed above, then [a-z ]+ with `foedrum [a-z]+ 7`/,
     );
-    assert.match(planNextLine('7', ['recipe'], '7-1'), /Its other option: `recipe`\.$/);
   });
 
   it('records each revision: the comment, and the digest of the text it shows', async () => {
@@ -2060,24 +2052,24 @@ describe('statusEffects', () => {
     await driver.tick();
     later(minute - 1);
     await driver.tick();
-    assert.match(only().body, /Ordered/, 'not edited within the minute');
+    assert.match(only().body, /Queued: waiting for a recipe/, 'not edited within the minute');
     assert.equal(revision(2), undefined);
     later(1);
     await driver.tick();
-    assert.match(only().body, /Brewing/);
+    assert.match(only().body, /🍺 \*\*Running\*\*/);
     assert.match(only().body, /`plan`/);
     assert.ok(only().body.endsWith(marker(2)));
     assert.equal(comments.calls.filter((call) => call === 'create').length, 1);
   });
 
-  it('shows the batch on tap at once, with its pull request, and lets the batch go', async () => {
+  it('shows the batch waiting for its review at once, with its pull request, and lets the batch go', async () => {
     order();
     const driver = await open();
     await driver.tick();
     brew();
     finish();
     await driver.tick();
-    assert.match(only().body, /On tap/);
+    assert.match(only().body, /Waiting for you: review and merge the pull request/);
     assert.ok(only().body.includes(pr));
     assert.match(only().body, /Port 8080 is free/);
     assert.deepEqual(driver.held(), []);
@@ -2094,7 +2086,7 @@ describe('statusEffects', () => {
     issue({ kind: 'pause', order: { issue: 7 }, by: 'ada', via: 'terminal', why: 'lunch' });
     later(minute);
     await driver.tick();
-    assert.match(only().body, /Paused\*\* by ada \(terminal\): lunch\./);
+    assert.match(only().body, /Paused\*\* by ada from a terminal: lunch\./);
     issue({ kind: 'continue', order: { issue: 7 }, by: 'ada', via: 'terminal' });
     later(minute);
     await driver.tick();
@@ -2124,7 +2116,7 @@ describe('statusEffects', () => {
     await driver.tick();
     assert.match(
       only().body,
-      /Usage window closed: claude hit its session limit, which resets 3:45pm; brewers wait until 14:50 UTC, 18 October\./,
+      /Usage window closed: claude hit its session limit, which resets 3:45pm; brewers wait until 18 Oct 14:50 UTC\./,
     );
   });
 
@@ -2150,7 +2142,7 @@ describe('statusEffects', () => {
     await driver.tick();
     const comment = only();
     assert.equal(comment.id, 2);
-    assert.match(comment.body, /Brewing/);
+    assert.match(comment.body, /🍺 \*\*Running\*\*/);
     assert.deepEqual(revision(2)?.result, {
       comment: 2,
       digest: digest(comment.body.slice(0, -marker(2).length).trimEnd()),
@@ -2158,7 +2150,11 @@ describe('statusEffects', () => {
     });
     finish();
     await driver.tick();
-    assert.match(only().body, /On tap/, 'the next revision edits the new comment');
+    assert.match(
+      only().body,
+      /Waiting for you: review and merge the pull request/,
+      'the next revision edits the new comment',
+    );
   });
 
   it('finds a comment a run before made again for a deleted one, by its marker, and makes no other', async () => {
@@ -2188,7 +2184,7 @@ describe('statusEffects', () => {
     });
     later(minute);
     await driver.tick();
-    assert.match(only().body, /Ordered/, 'its stale text is replaced');
+    assert.match(only().body, /Queued: waiting for a recipe/, 'its stale text is replaced');
   });
 
   it('finds an edit a run before made, and records the digest of what the comment shows', async () => {
@@ -2206,7 +2202,7 @@ describe('statusEffects', () => {
     });
     later(minute);
     await driver.tick();
-    assert.match(only().body, /Brewing/);
+    assert.match(only().body, /🍺 \*\*Running\*\*/);
     assert.ok(only().body.endsWith(marker(3)));
   });
 
@@ -2243,18 +2239,18 @@ describe('statusEffects', () => {
     await driver.tick();
     issue({ kind: 'cancel', batchId: '7-1', by: 'bob', via: 'terminal' });
     await driver.tick();
-    assert.match(only().body, /Cancelled/);
+    assert.match(only().body, /Done: cancelled/);
     assert.deepEqual(driver.held(), []);
   });
 
-  it('a batch that goes Stuck within a minute of its last edit has its revision due at once', async () => {
+  it('a batch that comes to wait for you within a minute of its last edit has its revision due at once', async () => {
     order();
     const driver = await open();
     await driver.tick();
     brew();
     later(minute);
     await driver.tick();
-    assert.match(only().body, /Brewing/);
+    assert.match(only().body, /🍺 \*\*Running\*\*/);
     later(minute - 1);
     issue({
       kind: 'finish',
@@ -2264,7 +2260,10 @@ describe('statusEffects', () => {
       ending: { kind: 'blocked', blockerKind: 'findings', summary: 'The tests fail' },
     });
     await driver.tick();
-    assert.match(only().body, /🔔 \*\*Stuck\*\*: `plan` is blocked \(findings\): The tests fail/);
+    assert.match(
+      only().body,
+      /🔔 \*\*Waiting for you: look at a failure Foedrum could not get past\*\*: step `plan` could not go on, as the review found problems that are still open: The tests fail/,
+    );
     assert.match(only().body, /Next:/);
     assert.ok(only().body.endsWith(marker(3)));
   });
@@ -2283,17 +2282,17 @@ describe('statusEffects', () => {
     assert.match(only().body, /Paused/);
     now = new Date(deadline);
     await driver.tick();
-    assert.match(only().body, /🔔 \*\*Stuck\*\*/);
+    assert.match(only().body, /🔔 \*\*Waiting for you/);
   });
 
-  it('a Brewing batch stays limited to one edit a minute: regression test', async () => {
+  it('a running batch stays limited to one edit a minute: regression test', async () => {
     order();
     const driver = await open();
     await driver.tick();
     brew();
     later(minute);
     await driver.tick();
-    assert.match(lineOf(only().body, 'plan'), /attempt 1/);
+    assert.match(lineOf(only().body, 'plan'), /▶️ `plan`: running$/);
     issue({ kind: 'finish', batchId: '7-1', stepId: 'plan', attempt: 1, ending: succeeded });
     issue({
       kind: 'record',
@@ -2305,10 +2304,10 @@ describe('statusEffects', () => {
     later(1);
     await driver.tick();
     assert.ok(only().body.endsWith(marker(3)));
-    assert.match(lineOf(only().body, 'brew'), /attempt 1/);
+    assert.match(lineOf(only().body, 'brew'), /▶️ `brew`: running$/);
   });
 
-  it('a reminder of a Stuck batch edits nothing, and its due revision is applied once: regression test', async () => {
+  it('a reminder of a batch that waits for you edits nothing, and its due revision is applied once: regression test', async () => {
     order();
     const driver = await open();
     await driver.tick();
@@ -2322,7 +2321,7 @@ describe('statusEffects', () => {
     });
     later(minute);
     await driver.tick();
-    assert.match(only().body, /Stuck/);
+    assert.match(only().body, /🔔 \*\*Waiting for you/);
     const calls = [...comments.calls];
     const lane = log.state().batches.get('7-1')?.lane;
     const remindAt = lane?.kind === 'stuck' ? lane.remindAt : assert.fail('it is Stuck');
@@ -2379,7 +2378,7 @@ describe('statusEffects', () => {
     // One comment, on the Brewery issue #20: never on the Brewery's #7 or the target issue.
     const comment = only();
     assert.deepEqual([comment.repo, comment.issue], [brewery, 20]);
-    assert.match(comment.body, /Brewing/);
+    assert.match(comment.body, /🍺 \*\*Running\*\*/);
     assert.ok(
       comment.body.endsWith(
         effectMarker(effectKey.encode({ batchId: 'web-7', effect: 'status.2' })),
@@ -3064,7 +3063,12 @@ describe('renderStatus: a plan that waits for its review (#658)', () => {
       output: { status: 'done', summary: 'Planned', assumptions, subOrders: [subOrder] },
     },
   });
-  const review = stuck({ kind: 'plan_review', stepId: 'plan', attempt: 2 });
+  const review: Lane = {
+    kind: 'stuck',
+    reason: { kind: 'plan_review', stepId: 'plan', attempt: 2 },
+    options: ['approve', 'lauter', 'retry', 'cancel'],
+    remindAt: at,
+  };
   const rendered = (batched: Batch): string =>
     renderStatus(
       batched,
@@ -3093,7 +3097,7 @@ describe('renderStatus: a plan that waits for its review (#658)', () => {
     return lines.slice(from, to < 0 ? undefined : to);
   };
 
-  it('says the batch is Stuck with its plan ready for review, not on tap, with the next step by hand', () => {
+  it('says the batch waits for you with its plan ready for review, not queued or done, with the next step by hand', () => {
     const text = rendered(
       batch({
         lane: review,
@@ -3101,16 +3105,16 @@ describe('renderStatus: a plan that waits for its review (#658)', () => {
       }),
     );
     const lines = text.split('\n');
-    const lane = lines.findIndex((line) => line.startsWith('🔔 **Stuck**'));
+    const lane = lines.findIndex((line) => line.startsWith('🔔 **Waiting for you'));
     assert.deepEqual(lines.slice(lane, lane + 3), [
-      `🔔 **Stuck**: the plan of \`plan\` #2 is ready for your review: [plan comment](<${planComment}>)`,
-      'Next: read the plan and its assumptions; sign it off with `foedrum approve 7`, correct it in a session with `foedrum lauter 7`, plan it again with `foedrum retry 7`, or end it with `foedrum cancel 7`.',
+      `🔔 **Waiting for you: approve the plan**: the plan from step plan (try 2) is ready for you to read: [plan comment](<${planComment}>)`,
+      'Next: read the plan and its assumptions, then sign it off with `foedrum approve 7`, correct it with the Brewmaster in a session with `foedrum lauter 7`, plan it again with `foedrum retry 7`, or end it with `foedrum cancel 7`.',
       '',
     ]);
-    assert.doesNotMatch(text, /On tap|No pull request/);
+    assert.doesNotMatch(text, /Queued|Done|No pull request/);
   });
 
-  it('says on tap who approved the plan, and from where (#588)', () => {
+  it('says on its state line who approved the plan, and from where (#588)', () => {
     const text = rendered(
       batch({
         lane: { kind: 'on_tap', pullRequests: [] },
@@ -3125,11 +3129,18 @@ describe('renderStatus: a plan that waits for its review (#658)', () => {
         },
       }),
     );
-    assert.ok(text.split('\n').includes('🍻 **On tap**: plan approved by grace (plugin)'), text);
-    assert.doesNotMatch(text, /Stuck/);
+    assert.ok(
+      text
+        .split('\n')
+        .includes(
+          '⏳ **Queued: its sub-orders are being opened**: the plan was approved by grace from Claude Code',
+        ),
+      text,
+    );
+    assert.doesNotMatch(text, /Waiting for you/);
   });
 
-  it('names on tap the sub-issues an approved plan opened, once all are (ADR 0285)', () => {
+  it('names on its state line the sub-issues an approved plan opened, once all are (ADR 0285)', () => {
     const approved = batch({
       lane: { kind: 'on_tap', pullRequests: [] },
       steps: new Map([step('plan', planned(2, ['Kept the flag.']))]),
@@ -3161,11 +3172,17 @@ describe('renderStatus: a plan that waits for its review (#658)', () => {
     assert.ok(
       withSubIssues([8, 9, 10])
         .split('\n')
-        .includes('🍻 **On tap**: plan approved by grace (plugin); sub-issues #8, #9, #10'),
+        .includes(
+          '⏳ **Queued: its sub-orders are being opened**: the plan was approved by grace from Claude Code; its sub-issues: #8, #9, #10',
+        ),
       withSubIssues([8, 9, 10]),
     );
     assert.ok(
-      withSubIssues().split('\n').includes('🍻 **On tap**: plan approved by grace (plugin)'),
+      withSubIssues()
+        .split('\n')
+        .includes(
+          '⏳ **Queued: its sub-orders are being opened**: the plan was approved by grace from Claude Code',
+        ),
     );
   });
 
@@ -3200,7 +3217,10 @@ describe('renderStatus: a plan that waits for its review (#658)', () => {
       [],
       stateBranchUrl,
     );
-    assert.match(text, /^🔔 \*\*Stuck\*\*: the plan of `plan` #2 is ready for your review$/m);
+    assert.match(
+      text,
+      /^🔔 \*\*Waiting for you: approve the plan\*\*: the plan from step plan \(try 2\) is ready for you to read$/m,
+    );
     assert.equal(
       section(text).at(-1),
       `- \`plan\`: full plan: [7-1/plan-2.md](<${stateBranchUrl}/batches/7-1/plan-2.md>)`,
@@ -3294,7 +3314,7 @@ describe('renderStatus: a plan that waits for its review (#658)', () => {
       stepOf(text, 'plan'),
       `- ✅ \`plan\`: out doc: [7-1/plan-2.md](<${stateBranchUrl}/batches/7-1/plan-2.md>)`,
     );
-    assert.equal(stepOf(text, 'brew'), '- ❌ `brew`: attempt 3 failed: no');
+    assert.equal(stepOf(text, 'brew'), '- ❌ `brew`: failed, try 3: no');
     assert.equal(
       stepOf(text, 'taste'),
       `- ✅ \`taste\`: out doc: [7-1/taste-1.md](<${stateBranchUrl}/batches/7-1/taste-1.md?plain=1>)`,
@@ -3318,7 +3338,7 @@ describe('renderStatus: a plan that waits for its review (#658)', () => {
     );
   });
 
-  it('the plan_review Stuck line links the plan comment by name', () => {
+  it("the state line of a plan's review links the plan comment by name", () => {
     const text = rendered(
       batch({ lane: review, steps: new Map([step('plan', planned(2, ['Kept the flag.']))]) }),
     );
@@ -3326,7 +3346,7 @@ describe('renderStatus: a plan that waits for its review (#658)', () => {
       text
         .split('\n')
         .includes(
-          `🔔 **Stuck**: the plan of \`plan\` #2 is ready for your review: [plan comment](<${planComment}>)`,
+          `🔔 **Waiting for you: approve the plan**: the plan from step plan (try 2) is ready for you to read: [plan comment](<${planComment}>)`,
         ),
       text,
     );
@@ -3428,12 +3448,12 @@ describe('the Next line of a status comment that waits on the person (#777)', ()
     ];
     assert.equal(
       nextOf(render(split, rows)),
-      'Next: nothing to do; the sub-orders brew (#16, #15), and each pull request comes to you on tap.',
+      'Next: nothing to do now: the sub-orders brew (#16, #15), and each pull request comes to you to review and merge.',
     );
     // Before the rows are read, the sub-issues the plan opened.
     assert.equal(
       nextOf(render(split, [], [8, 9])),
-      'Next: nothing to do; the sub-orders brew (#8, #9), and each pull request comes to you on tap.',
+      'Next: nothing to do now: the sub-orders brew (#8, #9), and each pull request comes to you to review and merge.',
     );
     // A sub-order that keeps the order open waits on the person; a done order on nobody.
     const left: SubOrderRow[] = [
@@ -3467,7 +3487,7 @@ describe('the Next line of a status comment that waits on the person (#777)', ()
     };
     assert.equal(
       nextOf(render(batch({ lane }))),
-      'Next: answer the questions above with `foedrum answer 7 <answer 1> <answer 2>`, or get it moving with `retry`, `cancel`.',
+      'Next: answer the questions above with `foedrum answer 7 <answer 1> <answer 2>`, try the step again with `foedrum retry 7`, or end it with `foedrum cancel 7`.',
     );
   });
 
@@ -3485,7 +3505,7 @@ describe('the Next line of a status comment that waits on the person (#777)', ()
     );
   });
 
-  it("a plan waiting for its review names on its Next line the options the plan's commands leave out", () => {
+  it('a plan waiting for its review names on its Next line every option of its lane, as a command', () => {
     const lane: Lane = {
       kind: 'stuck',
       reason: { kind: 'plan_review', stepId: 'plan', attempt: 1 },
@@ -3494,11 +3514,11 @@ describe('the Next line of a status comment that waits on the person (#777)', ()
     };
     assert.equal(
       nextOf(render(batch({ lane }))),
-      `Next: ${planNextStep('7', code)} Its other option: \`recipe\`.`,
+      'Next: read the plan and its assumptions, then sign it off with `foedrum approve 7`, correct it with the Brewmaster in a session with `foedrum lauter 7`, plan it again with `foedrum retry 7`, brew the issue with another recipe with `foedrum recipe 7 <recipe> <reason>`, or end it with `foedrum cancel 7`.',
     );
   });
 
-  it('names every option the plan commands leave out, in the plural: regression test', () => {
+  it('names an option the plan commands did not name before, skip among them: regression test', () => {
     const lane: Lane = {
       kind: 'stuck',
       reason: { kind: 'plan_review', stepId: 'plan', attempt: 1 },
@@ -3507,7 +3527,7 @@ describe('the Next line of a status comment that waits on the person (#777)', ()
     };
     assert.equal(
       nextOf(render(batch({ lane }))),
-      `Next: ${planNextStep('7', code)} Its other options: \`recipe\`, \`skip\`.`,
+      'Next: read the plan and its assumptions, then sign it off with `foedrum approve 7`, correct it with the Brewmaster in a session with `foedrum lauter 7`, plan it again with `foedrum retry 7`, brew the issue with another recipe with `foedrum recipe 7 <recipe> <reason>`, go past the step with `foedrum skip 7`, or end it with `foedrum cancel 7`.',
     );
   });
 
@@ -3515,7 +3535,7 @@ describe('the Next line of a status comment that waits on the person (#777)', ()
     const split = batch({ lane: { kind: 'on_tap', pullRequests: [] }, approval });
     assert.equal(
       nextOf(render(split)),
-      'Next: nothing to do; the sub-orders brew, and each pull request comes to you on tap.',
+      'Next: nothing to do now: the sub-orders brew, and each pull request comes to you to review and merge.',
     );
   });
 
@@ -3534,7 +3554,10 @@ describe('the Next line of a status comment that waits on the person (#777)', ()
       many,
     );
     assert.match(text, /the rest is cut/);
-    assert.equal(nextOf(text), 'Next: get it moving with `retry`, `cancel`.');
+    assert.equal(
+      nextOf(text),
+      'Next: open its session with `foedrum brew 7 --take` in a terminal, try the step again with `foedrum retry 7`, or end it with `foedrum cancel 7`.',
+    );
   });
 });
 
@@ -3645,7 +3668,10 @@ describe('renderStatus: a parallel group that ran in part after a round back (AD
   const shown = renderStatus(partial, ['implement', 'correctness', 'security']);
 
   it('shows the round back as a line of the path with only the children that ran: regression test', () => {
-    assert.ok(shown.split('\n').includes('→ `implement #2` ✅ → `security #2` ✅'), shown);
+    assert.ok(
+      shown.split('\n').includes('→ `implement (try 2)` ✅ → `security (try 2)` ✅'),
+      shown,
+    );
   });
 
   it("says a Taster's step that did not run again is from the round it ran in, and only that step", () => {

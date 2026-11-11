@@ -275,20 +275,24 @@ describe('one number per piece of work (ADR 0329)', () => {
       }),
     );
     const { stdout } = await run(['stuck']);
-    const runAs = stdout.split('\n').filter((line) => line.includes('run as:'));
-    assert.deepStrictEqual(runAs, ['  run as: foedrum <option> web-8']);
+    const next = stdout
+      .split('\n')
+      .filter((line) => line.includes('Next:') && line.includes('web-8'));
+    assert.deepStrictEqual(next, [
+      '  Next: answer the questions above with foedrum answer web-8 <answer 1>, try the step again with foedrum retry web-8, go past the step with foedrum skip web-8, brew the issue with another recipe with foedrum recipe web-8 <recipe> <reason>, take it back to an earlier step with foedrum rewind web-8 <step>, or end it with foedrum cancel web-8.',
+    ]);
   });
 
   it("a command's line on a claimed order leads with the number", async () => {
     const result = await run(['retry', '40']);
-    assert.equal(result.stdout, '#40 brewing: plan #2 scheduled\n');
+    assert.equal(result.stdout, '#40 is running: step plan (try 2) is about to start\n');
   });
 
   it("foedrum stuck's next step on a claimed order's plan uses the number", async () => {
     const { stdout } = await run(['stuck']);
     assert.ok(
       stdout.includes(
-        'sign it off with foedrum approve 42, correct it in a session with foedrum lauter 42, plan it again with foedrum retry 42, or end it with foedrum cancel 42.',
+        'sign it off with foedrum approve 42, correct it with the Brewmaster in a session with foedrum lauter 42, plan it again with foedrum retry 42, brew the issue with another recipe with foedrum recipe 42 <recipe> <reason>, or end it with foedrum cancel 42.',
       ),
       stdout,
     );

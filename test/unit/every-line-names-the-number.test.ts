@@ -82,12 +82,18 @@ describe('every line names the number (ADR 0329, ADR 0334)', () => {
     const asks = again(host, behave.needInput());
     assert.equal(await runBrew(brewing, asks, target), 4, f.lines.join('\n'));
     assert.ok(
-      f.lines.includes(`foedrum brew: #${number} needs input at brew:`),
+      f.lines.includes(
+        `foedrum brew: #${number} is waiting for you: answer a question: step brew asks:`,
+      ),
       f.lines.join('\n'),
     );
     assert.equal(
+      f.lines.at(-2),
+      `foedrum brew: Next: answer the questions above with foedrum answer ${number} <answer 1>, try the step again with foedrum retry ${number}, go past the step with foedrum skip ${number}, brew the issue with another recipe with foedrum recipe ${number} <recipe> <reason>, take it back to an earlier step with foedrum rewind ${number} <step>, or end it with foedrum cancel ${number}.`,
+    );
+    assert.equal(
       f.lines.at(-1),
-      `foedrum brew: answer them in order with foedrum answer ${number} <answer 1>, then brew again`,
+      `foedrum brew: Once it is answered, foedrum brew ${number} goes on.`,
     );
     const comments = host.comments.get(`acme/brewery#${number}`) ?? [];
     assert.ok(
@@ -120,11 +126,24 @@ describe('every line names the number (ADR 0329, ADR 0334)', () => {
     assert.equal(await runBrew(brewing, again(host), target), 0, f.lines.join('\n'));
     // `foedrum serve closes` names no issue: the other way a merge is read.
     const commands = offered(f.lines).filter((each) => !each.startsWith('serve '));
-    assert.deepStrictEqual([...new Set(commands)], [`answer ${number}`, `brew ${number}`]);
+    assert.deepStrictEqual(
+      [...new Set(commands)],
+      [
+        `answer ${number}`,
+        `retry ${number},`,
+        `skip ${number},`,
+        `recipe ${number}`,
+        `rewind ${number}`,
+        `cancel ${number}.`,
+        `brew ${number}`,
+      ],
+    );
     // The driver's own notice of its cleanup keeps the id, with the folders it names (ADR 0334).
     const told = f.lines.filter((line) => !line.includes('cleaned batch'));
     assert.ok(!told.some((line) => line.includes('web-7')), f.lines.join('\n'));
-    const said = new RegExp(`^foedrum brew: #${number} is on tap: `);
+    const said = new RegExp(
+      `^foedrum brew: #${number} is waiting for you: review and merge the pull request: `,
+    );
     assert.match(f.lines.at(-1) ?? '', said);
   });
 });

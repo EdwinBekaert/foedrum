@@ -89,7 +89,7 @@ describe('runBrew', () => {
         seconds: 5,
         progress: { ...idle, turn: 3, lastTool },
       });
-      const attempt = screen.rewrites().filter((drawn) => drawn.includes('brew #1'));
+      const attempt = screen.rewrites().filter((drawn) => drawn.includes('step brew'));
       assert.ok(
         attempt.some((drawn) => drawn.includes('\\u28fe src/a.ts')),
         screen.rewrites().join('\n'),
@@ -107,7 +107,7 @@ describe('runBrew', () => {
         columns: 40,
         progress: { ...idle, turn: 3, lastTool },
       });
-      const full = screen.rewrites().filter((drawn) => drawn.includes('brew #1'));
+      const full = screen.rewrites().filter((drawn) => drawn.includes('step brew'));
       assert.ok(full.length > 0, screen.rewrites().join('\n'));
       for (const drawn of full) assert.equal(drawn.length, 39, drawn);
     });
@@ -232,7 +232,10 @@ describe('runBrew', () => {
         wait: timeline.wait,
       };
       assert.equal(await runBrew(f.setup, live, request), 0, f.lines.join('\n'));
-      assert.ok(f.lines.at(-1)?.includes('is on tap'), f.lines.join('\n'));
+      assert.ok(
+        f.lines.at(-1)?.includes('is waiting for you: review and merge the pull request'),
+        f.lines.join('\n'),
+      );
     });
 
     it('keeps a resize from throwing when its redraw fails', async () => {

@@ -514,7 +514,7 @@ describe('planIssueEffects (ADR 0285)', () => {
       const driver = await open(api.fetch, comments, () => true);
       await driver.tick();
       assert.ok(planOf(texts()).startsWith(PLAN_HEADING), 'the plan comment is written');
-      assert.match(statusOf(texts()), /On tap/);
+      assert.match(statusOf(texts()), /Queued: its sub-orders are being opened/);
       assert.doesNotMatch(planOf(texts()), /Sub-issues:/);
       assert.deepStrictEqual(opened(), []);
       assert.deepStrictEqual(decomposed(), []);
@@ -529,7 +529,7 @@ describe('planIssueEffects (ADR 0285)', () => {
       const driver = await open(api.fetch, comments, () => unreadable);
       await driver.tick();
       assert.doesNotMatch(statusOf(texts()), /sub-issues/);
-      assert.match(statusOf(texts()), /On tap/);
+      assert.match(statusOf(texts()), /Queued: its sub-orders are being opened/);
       unreadable = false;
       await driver.tick();
       assert.deepStrictEqual(opened(), created);
@@ -538,11 +538,11 @@ describe('planIssueEffects (ADR 0285)', () => {
         planOf(texts()).includes('Sub-issues: `api` #8, `ui` #9, `cli` #10.'),
         planOf(texts()),
       );
-      assert.ok(statusOf(texts()).includes('sub-issues #8, #9, #10'), statusOf(texts()));
+      assert.ok(statusOf(texts()).includes('its sub-issues: #8, #9, #10'), statusOf(texts()));
     });
   });
 
-  it('names the sub-issues in the plan comment and on the On tap line of the status comment: regression test', async () => {
+  it('names the sub-issues in the plan comment and on the state line of the status comment: regression test', async () => {
     approved();
     const bodies = new Map<number, { issue: number; body: string }>();
     let ids = 0;
@@ -570,7 +570,8 @@ describe('planIssueEffects (ADR 0285)', () => {
     const plan = texts.find((body) => body.startsWith(PLAN_HEADING)) ?? '';
     assert.ok(plan.includes('\n\nSub-issues: `api` #8, `ui` #9, `cli` #10.\n'), plan);
     const status = texts.find((body) => !body.startsWith(PLAN_HEADING)) ?? '';
-    const onTap = '🍻 **On tap**: plan approved by grace (terminal); sub-issues #8, #9, #10';
-    assert.ok(status.split('\n').includes(onTap), status);
+    const stateLine =
+      '⏳ **Queued: its sub-orders are being opened**: the plan was approved by grace from a terminal; its sub-issues: #8, #9, #10';
+    assert.ok(status.split('\n').includes(stateLine), status);
   });
 });

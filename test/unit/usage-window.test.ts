@@ -751,22 +751,22 @@ describe('usageWindowText (ADR 0206)', () => {
   it('names the limit, the reset as claude wrote it, and when brewers start again in UTC', () => {
     assert.equal(
       usageWindowText(window),
-      'Usage window closed: claude hit its session limit, which resets 3:45pm; brewers wait until 14:50 UTC, 26 October',
+      'Usage window closed: claude hit its session limit, which resets 3:45pm; brewers wait until 26 Oct 14:50 UTC',
     );
     assert.equal(
       usageWindowText({ ...window, read: false }),
-      'Usage window closed: claude hit its session limit, which resets 3:45pm; brewers try again at 14:50 UTC, 26 October',
+      'Usage window closed: claude hit its session limit, which resets 3:45pm; brewers try again at 26 Oct 14:50 UTC',
     );
   });
 
   it("names a family's window and the brewers on it (ADR 0215)", () => {
     assert.equal(
       usageWindowText({ ...window, limit: 'Opus' }),
-      'Opus usage window closed: claude hit its Opus limit, which resets 3:45pm; brewers on Opus wait until 14:50 UTC, 26 October',
+      'Opus usage window closed: claude hit its Opus limit, which resets 3:45pm; brewers on Opus wait until 26 Oct 14:50 UTC',
     );
     assert.equal(
       usageWindowText({ ...window, limit: 'Sonnet', read: false }),
-      'Sonnet usage window closed: claude hit its Sonnet limit, which resets 3:45pm; brewers on Sonnet try again at 14:50 UTC, 26 October',
+      'Sonnet usage window closed: claude hit its Sonnet limit, which resets 3:45pm; brewers on Sonnet try again at 26 Oct 14:50 UTC',
     );
   });
 });
@@ -782,7 +782,7 @@ describe('formatStatus with the usage window closed (ADR 0206)', () => {
   it('shows the window above No batches. too', () => {
     assert.equal(
       formatStatus({ ...emptyState, usageWindows: { all: session } }),
-      'Usage window closed: claude hit its session limit, which resets 3:45pm; brewers wait until 14:50 UTC, 26 October\n\nNo batches.\n',
+      'Usage window closed: claude hit its session limit, which resets 3:45pm; brewers wait until 26 Oct 14:50 UTC\n\nNo batches.\n',
     );
   });
 
@@ -792,8 +792,8 @@ describe('formatStatus with the usage window closed (ADR 0206)', () => {
     assert.equal(
       formatStatus({ ...emptyState, usageWindows: { Sonnet: sonnet, Opus: opus } }),
       [
-        'Opus usage window closed: claude hit its Opus limit, which resets 5:45pm; brewers on Opus wait until 14:50 UTC, 26 October',
-        'Sonnet usage window closed: claude hit its Sonnet limit, which resets 3:45pm; brewers on Sonnet wait until 16:50 UTC, 26 October',
+        'Opus usage window closed: claude hit its Opus limit, which resets 5:45pm; brewers on Opus wait until 26 Oct 14:50 UTC',
+        'Sonnet usage window closed: claude hit its Sonnet limit, which resets 3:45pm; brewers on Sonnet wait until 26 Oct 16:50 UTC',
         '',
         'No batches.',
         '',

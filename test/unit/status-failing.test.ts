@@ -3,8 +3,9 @@
 
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { describeLane, formatOrderStatus, formatStatus } from '../../src/cli/status.ts';
+import { describeState, formatOrderStatus, formatStatus } from '../../src/cli/status.ts';
 import { formatStuck } from '../../src/cli/stuck.ts';
+import { batchState } from '../../src/engine/batch-state.ts';
 import { type Batch, emptyState, type Failing, type State } from '../../src/engine/fold.ts';
 import { renderStatus } from '../../src/engine/status-comment.ts';
 
@@ -54,12 +55,15 @@ describe('foedrum status', () => {
     const text = formatStatus(stateOf(batch('1-1', 1, { failing })));
     assert.match(
       text,
-      /failing in effects since 2026-11-06T11:00:00\.000Z: the plan could not be read/,
+      /Foedrum's effects pass has failed on it since 6 Nov 11:00 UTC: the plan could not be read/,
     );
   });
 
-  it('adds it to the row of the lane it stays in, and nothing to a batch with no mark', () => {
-    assert.match(formatStatus(stateOf(batch('1-1', 1, { failing }))), /on tap +failing in effects/);
+  it('adds it to the row of the state it stays in, and nothing to a batch with no mark', () => {
+    assert.match(
+      formatStatus(stateOf(batch('1-1', 1, { failing }))),
+      /Done: finished with no pull request +Foedrum's effects pass has failed on it/,
+    );
     assert.doesNotMatch(formatStatus(stateOf(batch('1-1', 1))), /failing/);
   });
 
@@ -67,7 +71,7 @@ describe('foedrum status', () => {
     const text = formatStatus(stateOf(unreadable('1-1', 1, { failing })));
     assert.match(text, /1-1/);
     assert.match(text, /cannot be read/);
-    assert.match(text, /failing in effects since 2026-11-06T11:00:00\.000Z/);
+    assert.match(text, /Foedrum's effects pass has failed on it since 6 Nov 11:00 UTC/);
   });
 
   it('does not fail for the other batches when one batch’s rendering throws', () => {
@@ -92,10 +96,12 @@ describe('foedrum status', () => {
     assert.equal(text.match(/the plan could not be read/g)?.length, 1);
   });
 
-  it('describes the lane of a batch Stuck on failing', () => {
-    assert.deepStrictEqual(describeLane(stuckFailing('1-1', 1), '1'), {
-      lane: 'stuck',
-      detail: `failing at plan in effects since 2026-11-06T11:00:00.000Z: the plan could not be read; reminder ${remindAt}`,
+  it('describes the state of a batch that waits for you on failing', () => {
+    const stuck = stuckFailing('1-1', 1);
+    assert.deepStrictEqual(describeState(stuck, batchState(stuck), '1'), {
+      state: 'Waiting for you: look at a failure Foedrum could not get past',
+      detail:
+        "step plan could not go on: Foedrum's effects pass has failed since 6 Nov 11:00 UTC: the plan could not be read",
     });
   });
 });
@@ -106,13 +112,16 @@ describe('a batch whose rendering throws', () => {
     const broken: State = { ...stateOf(stuckFailing('1-1', 1)), pauses: null as never };
     const text = formatStatus(broken);
     assert.match(text, /cannot be read/);
-    assert.match(text, /failing in effects since 2026-11-06T11:00:00\.000Z/);
+    assert.match(text, /Foedrum's effects pass has failed on it since 6 Nov 11:00 UTC/);
   });
 
   it('shows the lane and the mark in foedrum stuck', () => {
     const broken = { ...stuckUnreadable('1-1', 1), failing };
     const text = formatStuck(stateOf(broken));
-    assert.match(text, /1-1.*stuck.*cannot be read.*failing in effects since/);
+    assert.match(
+      text,
+      /1-1.*Waiting for you: look at a failure Foedrum could not get past.*cannot be read.*Foedrum's effects pass has failed on it since/,
+    );
   });
 
   it('keeps the message on its line, so what it quotes cannot forge a row', () => {
@@ -135,13 +144,19 @@ describe('foedrum stuck', () => {
         remindAt,
       },
     });
-    assert.match(formatStuck(stateOf(stopped)), /1-1.*stopped.*failing in effects since/);
+    assert.match(
+      formatStuck(stateOf(stopped)),
+      /1-1.*was stopped by ada from a terminal; Foedrum's effects pass has failed on it since/,
+    );
   });
 
-  it('lists a marked batch that is not Stuck beside one that is', () => {
+  it('lists a marked batch that waits for no one beside one that waits for you', () => {
     const text = formatStuck(stateOf(stuckFailing('1-1', 1), batch('2-1', 2, { failing })));
-    assert.match(text, /1 Stuck batch/);
-    assert.match(text, /2-1 {2}#2 {2}on_tap: failing in effects/);
+    assert.match(text, /1 batch waits for you/);
+    assert.match(
+      text,
+      /2-1 {2}#2 {2}Done: finished with no pull request: Foedrum's effects pass has failed on it/,
+    );
   });
 
   it('lists the others when the open findings of one cannot be rendered (regression test)', () => {
@@ -160,46 +175,49 @@ describe('foedrum stuck', () => {
       },
     });
     const text = formatStuck(stateOf(broken, stuckFailing('2-1', 2)));
-    assert.match(text, /options: cancel/);
-    assert.match(text, /2-1.*failing at plan/);
+    assert.match(text, /Next: look at what failed above, then end it with foedrum cancel 1\./);
+    assert.match(text, /2-1.*step plan could not go on: Foedrum's effects pass has failed since/);
   });
 
-  it('lists a batch Stuck on failing with its options', () => {
+  it('lists a batch that waits for you on failing with its Next line', () => {
     const text = formatStuck(stateOf(stuckFailing('1-1', 1)));
-    assert.match(text, /1 Stuck batch/);
-    assert.match(text, /failing at plan in effects/);
-    assert.match(text, /options: retry, skip, recipe, rewind, cancel/);
+    assert.match(text, /1 batch waits for you/);
+    assert.match(text, /step plan could not go on: Foedrum's effects pass has failed since/);
+    assert.match(
+      text,
+      /Next: look at what failed above, then try the step again with foedrum retry 1, go past the step with foedrum skip 1, brew the issue with another recipe with foedrum recipe 1 <recipe> <reason>, take it back to an earlier step with foedrum rewind 1 <step>, or end it with foedrum cancel 1\./,
+    );
   });
 
-  it('lists a marked batch that is not Stuck apart, so an on-tap mark shows here too', () => {
+  it("lists a marked batch that waits for no one apart, so a done batch's mark shows here too", () => {
     const text = formatStuck(stateOf(batch('1-1', 1, { failing })));
-    assert.match(text, /No Stuck batches\./);
-    assert.match(text, /1-1.*failing in effects since 2026-11-06T11:00:00\.000Z/);
+    assert.match(text, /Nothing waits for you\./);
+    assert.match(text, /1-1.*Foedrum's effects pass has failed on it since 6 Nov 11:00 UTC/);
   });
 
-  it('prints only the line it always did with no Stuck batch and no mark, while a mark adds its own', () => {
+  it('prints only the line it always did with no batch waiting and no mark, while a mark adds its own', () => {
     const bare = `${formatStuck(stateOf(batch('1-1', 1)))}`;
-    assert.equal(bare.trimEnd(), 'No Stuck batches.');
+    assert.equal(bare.trimEnd(), 'Nothing waits for you.');
     assert.equal(bare.split('\n').length, 2);
     assert.notEqual(formatStuck(stateOf(batch('1-1', 1, { failing }))), bare);
   });
 
-  it('shows a Stuck batch whose rendering throws, and the others', () => {
+  it('shows a waiting batch whose rendering throws, and the others', () => {
     const text = formatStuck(stateOf(stuckUnreadable('1-1', 1), stuckFailing('2-1', 2)));
-    assert.match(text, /2 Stuck batches/);
+    assert.match(text, /2 batches wait for you/);
     assert.match(text, /1-1.*cannot be read/);
-    assert.match(text, /options: cancel/);
-    assert.match(text, /2-1.*failing at plan/);
+    assert.match(text, /Next: look at what failed above, then end it with foedrum cancel 1\./);
+    assert.match(text, /2-1.*step plan could not go on: Foedrum's effects pass has failed since/);
   });
 });
 
 describe('the status comment', () => {
-  it('shows the mark of a batch on tap, not blaming it', () => {
+  it('shows the mark of a done batch, not blaming it', () => {
     const text = renderStatus(batch('1-1', 1, { failing }));
-    assert.match(text, /On tap/);
+    assert.match(text, /🍻 \*\*Done: finished with no pull request\*\*/);
     assert.match(
       text,
-      /\*\*Failing\*\*: the effects pass has failed since 2026-11-06T11:00:00\.000Z: the plan could not be read/,
+      /\*\*Failing\*\*: Foedrum's effects pass has failed on it since 6 Nov 11:00 UTC: the plan could not be read/,
     );
   });
 
@@ -218,11 +236,11 @@ describe('the status comment', () => {
     assert.doesNotMatch(renderStatus({ ...stuck, lane }), /ghp_/);
   });
 
-  it('shows why a batch is Stuck on failing, with no second line for its mark', () => {
+  it('shows why a batch waits for you on failing, with no second line for its mark', () => {
     const text = renderStatus(stuckFailing('1-1', 1));
     assert.match(
       text,
-      /\*\*Stuck\*\*: `plan` could not go on: the effects pass has failed since 2026-11-06T11:00:00\.000Z: the plan could not be read/,
+      /🔔 \*\*Waiting for you: look at a failure Foedrum could not get past\*\*: step `plan` could not go on: Foedrum's effects pass has failed since 6 Nov 11:00 UTC: the plan could not be read/,
     );
     assert.doesNotMatch(text, /\*\*Failing\*\*/);
   });

@@ -84,7 +84,7 @@ describe('runBrew', () => {
       );
       assert.equal(code, 1);
       assert.ok(
-        screen.texts().includes('brew #1 / 2m 41s / turn 14 / Edit src/schemas/primitives.ts'),
+        screen.texts().includes('step brew / 2m 41s / turn 14 / Edit src/schemas/primitives.ts'),
         screen.texts().slice(-3).join('\n'),
       );
     });
@@ -101,7 +101,7 @@ describe('runBrew', () => {
         },
       );
       // The lines of the attempt: those before it are drawn before the batch is known (#873).
-      const attempt = screen.rewrites().filter((drawn) => drawn.includes('brew #1'));
+      const attempt = screen.rewrites().filter((drawn) => drawn.includes('step brew'));
       const times = attempt.map((drawn) => /^. \D+ ((?:\d+m )?\d+s) ago/.exec(drawn)?.[1]);
       assert.ok(times.length > 0, 'a live line is drawn');
       assert.ok(
@@ -110,12 +110,14 @@ describe('runBrew', () => {
       );
       assert.ok(times.includes('5m 3s'), times.join(' '));
       assert.ok(
-        attempt.some((drawn) => /^. ordered 5m 3s ago \/ brew #1 \/ \d+s \/ turn 14$/.test(drawn)),
+        attempt.some((drawn) =>
+          /^. ordered 5m 3s ago \/ step brew \/ \d+s \/ turn 14$/.test(drawn),
+        ),
         screen.rewrites().join('\n'),
       );
       // The words lead every line of the attempt, not only the first one drawn.
       assert.ok(
-        attempt.every((drawn) => /^. ordered (\d+m )?\d+s ago \/ brew #1 \/ /.test(drawn)),
+        attempt.every((drawn) => /^. ordered (\d+m )?\d+s ago \/ step brew \/ /.test(drawn)),
         screen.rewrites().join('\n'),
       );
     });
@@ -136,7 +138,7 @@ describe('runBrew', () => {
         },
       });
       // The lines of the attempt: those before it are drawn before the batch is known (#873).
-      const drawn = screen.rewrites().filter((each) => each.includes('brew #1'));
+      const drawn = screen.rewrites().filter((each) => each.includes('step brew'));
       const times = drawn.map((each) => /^. \D+ ((?:\d+m )?\d+s) ago/.exec(each)?.[1]);
       assert.ok(times.length > 0, 'a live line is drawn');
       assert.ok(
@@ -148,7 +150,7 @@ describe('runBrew', () => {
       assert.ok(times.includes('3s'), times.join(' '));
       // It claims no order time it does not have: the time counts from this brew's start.
       assert.ok(
-        drawn.every((line) => /^. brew started \d+s ago \/ brew #1 \/ (\d+m )?\d+s$/.test(line)),
+        drawn.every((line) => /^. brew started \d+s ago \/ step brew \/ (\d+m )?\d+s$/.test(line)),
         drawn.join('\n'),
       );
       assert.ok(
@@ -166,7 +168,7 @@ describe('runBrew', () => {
         },
       });
       // The lines of the attempt: those before it are drawn before the batch is known (#873).
-      const drawn = screen.rewrites().filter((each) => each.includes('brew #1'));
+      const drawn = screen.rewrites().filter((each) => each.includes('step brew'));
       assert.ok(drawn.length > 0, 'a live line is drawn');
       assert.ok(
         drawn.every((each) => each.startsWith(`${each[0]} ordered 0s ago / `)),
@@ -177,34 +179,34 @@ describe('runBrew', () => {
     it('counts the elapsed time as the plain lines do: whole seconds, then minutes from one', async () => {
       const { screen } = await brewLive({ ...idle, turn: 1 }, { seconds: 70 });
       const texts = screen.texts().map(withoutTime);
-      assert.ok(texts.includes('brew #1 / turn 1'), texts.join('\n'));
-      const times = screen.texts().map((text) => /^brew #1 \/ ((?:\d+m )?\d+s)/.exec(text)?.[1]);
+      assert.ok(texts.includes('step brew / turn 1'), texts.join('\n'));
+      const times = screen.texts().map((text) => /^step brew \/ ((?:\d+m )?\d+s)/.exec(text)?.[1]);
       assert.ok(times.includes('59s'), times.join(' '));
       assert.ok(times.includes('1m 0s'), times.join(' '));
     });
 
     it('shows only the step, attempt and elapsed time for an attempt whose runner reports no brewer fields, as a check step does', async () => {
       const { screen } = await brewLive(idle, { seconds: 5 });
-      const attempts = screen.texts().filter((text) => text.startsWith('brew'));
+      const attempts = screen.texts().filter((text) => text.startsWith('step brew'));
       assert.ok(attempts.length > 0, 'the attempt is shown');
-      for (const text of attempts) assert.match(text, /^brew #1 \/ (\d+m )?\d+s$/);
+      for (const text of attempts) assert.match(text, /^step brew \/ (\d+m )?\d+s$/);
     });
 
     it('shows setup in place of the turn and the tool while the setup of the repository runs', async () => {
       const { screen } = await brewLive({ ...idle, settingUp: true }, { seconds: 5 });
-      const attempts = screen.texts().filter((text) => text.startsWith('brew'));
+      const attempts = screen.texts().filter((text) => text.startsWith('step brew'));
       assert.ok(attempts.length > 0, 'the attempt is shown');
-      for (const text of attempts) assert.match(text, /^brew #1 \/ (\d+m )?\d+s \/ setup$/);
+      for (const text of attempts) assert.match(text, /^step brew \/ (\d+m )?\d+s \/ setup$/);
     });
 
     it('shows the last tool as its name and the one safe word the runner reduced it to, or the name alone', async () => {
       const cases: [{ name: string; word?: string } | undefined, string][] = [
-        [{ name: 'Read', word: 'src/a.ts' }, 'brew #1 / turn 3 / Read src/a.ts'],
-        [{ name: 'Read', word: 'outside' }, 'brew #1 / turn 3 / Read outside'],
-        [{ name: 'Write', word: '(left out)' }, 'brew #1 / turn 3 / Write (left out)'],
-        [{ name: 'Bash', word: 'git status' }, 'brew #1 / turn 3 / Bash git status'],
-        [{ name: 'Grep' }, 'brew #1 / turn 3 / Grep'],
-        [undefined, 'brew #1 / turn 3'],
+        [{ name: 'Read', word: 'src/a.ts' }, 'step brew / turn 3 / Read src/a.ts'],
+        [{ name: 'Read', word: 'outside' }, 'step brew / turn 3 / Read outside'],
+        [{ name: 'Write', word: '(left out)' }, 'step brew / turn 3 / Write (left out)'],
+        [{ name: 'Bash', word: 'git status' }, 'step brew / turn 3 / Bash git status'],
+        [{ name: 'Grep' }, 'step brew / turn 3 / Grep'],
+        [undefined, 'step brew / turn 3'],
       ];
       for (const [lastTool, expected] of cases) {
         const progress = { ...idle, turn: 3, ...(lastTool === undefined ? {} : { lastTool }) };
@@ -222,7 +224,7 @@ describe('runBrew', () => {
       );
       const heldTexts = held.screen.texts().map(withoutTime);
       assert.ok(
-        heldTexts.includes('brew #1 / turn 3 / Bash git push / denied'),
+        heldTexts.includes('step brew / turn 3 / Bash git push / denied'),
         heldTexts.join('\n'),
       );
       const clear = await brewLive(
@@ -230,7 +232,7 @@ describe('runBrew', () => {
         { seconds: 3 },
       );
       const clearTexts = clear.screen.texts().map(withoutTime);
-      assert.ok(clearTexts.includes('brew #1 / turn 3 / Bash git push'), clearTexts.join('\n'));
+      assert.ok(clearTexts.includes('step brew / turn 3 / Bash git push'), clearTexts.join('\n'));
       assert.ok(
         clearTexts.every((text) => !text.includes('denied')),
         clearTexts.join('\n'),
@@ -241,7 +243,7 @@ describe('runBrew', () => {
       const lastTool = { name: 'Ed⁦it\u0007\n\u007f', word: 'src/Ж/‮\u{1f600}.ts' };
       const { screen } = await brewLive({ ...idle, turn: 3, lastTool }, { seconds: 3 });
       const expected =
-        'brew #1 / turn 3 / Ed\\u2066it\\u0007\\u000a\\u007f src/\\u0416/\\u202e\\ud83d\\ude00.ts';
+        'step brew / turn 3 / Ed\\u2066it\\u0007\\u000a\\u007f src/\\u0416/\\u202e\\ud83d\\ude00.ts';
       const shown = screen.texts().map(withoutTime);
       assert.ok(
         shown.some((text) => text.toLowerCase() === expected.toLowerCase()),
@@ -259,7 +261,7 @@ describe('runBrew', () => {
         plain.screen
           .texts()
           .map(withoutTime)
-          .includes(`brew #1 / turn 3 / ${'A'.repeat(64)}`),
+          .includes(`step brew / turn 3 / ${'A'.repeat(64)}`),
         plain.screen.texts().join('\n'),
       );
       const wide = await brewLive(
@@ -268,25 +270,25 @@ describe('runBrew', () => {
       );
       const escaped = '\\u00e9'.repeat(64);
       assert.ok(
-        wide.screen.texts().map(withoutTime).includes(`brew #1 / turn 3 / ${escaped}`),
+        wide.screen.texts().map(withoutTime).includes(`step brew / turn 3 / ${escaped}`),
         wide.screen.texts().join('\n'),
       );
     });
 
     it("cuts the whole line, spinner included, to the width of the terminal less one, and to 79 when it is unknown, keeping the batch's time and its words first", async () => {
       const lastTool = { name: 'Edit', word: 'x'.repeat(300) };
-      const narrow = await brewLive({ ...idle, turn: 3, lastTool }, { seconds: 3, columns: 40 });
+      const narrow = await brewLive({ ...idle, turn: 3, lastTool }, { seconds: 3, columns: 50 });
       // The lines of the attempt: a line of what the command does is cut short too (#873).
       const full = narrow.screen
         .rewrites()
-        .filter((drawn) => drawn.length >= 39 && drawn.includes('brew #1'));
+        .filter((drawn) => drawn.length >= 49 && drawn.includes('step brew'));
       assert.ok(full.length > 0, 'a line fills the terminal');
-      assert.ok(full.every((drawn) => drawn.length === 39));
-      assert.ok(narrow.screen.rewrites().every((drawn) => drawn.length <= 39));
+      assert.ok(full.every((drawn) => drawn.length === 49));
+      assert.ok(narrow.screen.rewrites().every((drawn) => drawn.length <= 49));
       // Cut from the end: the spinner and the batch's time, with its words, stay (ADR 0179, ADR
       // 0326). A batch this brew ordered has its order time, so it says `ordered`.
       assert.ok(
-        full.every((drawn) => /^. ordered \d+s ago \/ brew #1 \/ /.test(drawn)),
+        full.every((drawn) => /^. ordered \d+s ago \/ step brew \/ /.test(drawn)),
         full.join('\n'),
       );
       // Too narrow for the words: the line is cut inside them, and nothing else shows. Before the
@@ -456,9 +458,12 @@ describe('runBrew', () => {
       const { screen } = await brewLive({ ...idle, turn: 3 }, { seconds: 5, runner });
       const times = / \/ (\d+m )?\d+s(?= \/|$| ;)/g;
       const shown = screen.texts().map((text) => text.replace(times, ''));
-      assert.ok(shown.includes('security #1 / turn 3 ; correctness #1 / turn 3'), shown.join('\n'));
       assert.ok(
-        f.lines.some((line) => line.includes('security #1') && line.includes('correctness #1')),
+        shown.includes('step security / turn 3 ; step correctness / turn 3'),
+        shown.join('\n'),
+      );
+      assert.ok(
+        f.lines.some((line) => line.includes('step security') && line.includes('step correctness')),
         f.lines.join('\n'),
       );
     });
@@ -466,24 +471,27 @@ describe('runBrew', () => {
     it('cuts the line of a group from the end when even the steps and attempts alone do not fit (#873)', async () => {
       const runner = sideBySide({ ...idle, turn: 3 });
       // Too narrow for both names, and wide enough to tell them from a cut of the whole attempts.
-      const { screen } = await brewLive({ ...idle, turn: 3 }, { seconds: 30, columns: 40, runner });
+      const { screen } = await brewLive({ ...idle, turn: 3 }, { seconds: 30, columns: 51, runner });
       const group = screen.rewrites().filter((drawn) => drawn.includes('security'));
       assert.ok(group.length > 0, screen.rewrites().join('\n'));
       for (const drawn of group) {
-        assert.equal(drawn.length, 39, drawn);
-        assert.match(drawn, /^. ordered \d+s ago \/ security #1 ; corr/);
-        assert.doesNotMatch(drawn, /correctness #1/);
+        assert.equal(drawn.length, 50, drawn);
+        assert.match(drawn, /^. ordered \d+s ago \/ step security ; step c/);
+        assert.doesNotMatch(drawn, /step correctness/);
       }
     });
 
     it('lets the attempts of a group give up their last parts together, before one is cut off (#873)', async () => {
       const runner = sideBySide({ ...idle, turn: 3 });
       // Wide enough for the steps with their times, too narrow for the turn.
-      const { screen } = await brewLive({ ...idle, turn: 3 }, { seconds: 30, columns: 64, runner });
+      const { screen } = await brewLive({ ...idle, turn: 3 }, { seconds: 30, columns: 76, runner });
       const group = screen.rewrites().filter((drawn) => drawn.includes('security'));
       assert.ok(group.length > 0, screen.rewrites().join('\n'));
       for (const drawn of group) {
-        assert.match(drawn, /^. ordered \d+s ago \/ security #1 \/ \d+s ; correctness #1 \/ \d+s$/);
+        assert.match(
+          drawn,
+          /^. ordered \d+s ago \/ step security \/ \d+s ; step correctness \/ \d+s$/,
+        );
       }
     });
 
@@ -517,12 +525,12 @@ describe('runBrew', () => {
       // Without an attempt the line says what the command does or that it is between steps (#873).
       const texts = screen.texts();
       assert.ok(
-        texts.some((text) => /^brew #1 \/ /.test(text)),
+        texts.some((text) => /^step brew \/ /.test(text)),
         texts.join('\n'),
       );
       assert.ok(texts.includes('between steps'), texts.join('\n'));
       const known =
-        /^(?:brew #1 \/ |starting$|routing$|claiming #12$|applying \S+$|writing the status comment$|opening the pull request$|cleaning up the worktrees of the batch$|between steps$)/;
+        /^(?:step brew \/ |starting$|routing$|claiming #12$|applying \S+$|writing the status comment$|opening the pull request$|cleaning up the worktrees of the batch$|between steps$)/;
       for (const text of texts) assert.match(text, known);
     });
 

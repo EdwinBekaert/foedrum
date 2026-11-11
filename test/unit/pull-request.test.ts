@@ -1142,8 +1142,8 @@ describe('pullRequestText', () => {
         '',
         '| Attempt | Result |',
         '|---|---|',
-        '| `implement #1` | succeeded |',
-        '| `correctness #1` | approve |',
+        '| `implement` | succeeded |',
+        '| `correctness` | approve |',
         '',
         '<details><summary>What each step reported</summary>',
         '',
@@ -1514,7 +1514,7 @@ describe('pullRequestText', () => {
     ];
     const { body } = pullRequestText({ title: 'T', closes, reports: [], attempts });
     assert.ok(
-      body.includes('\n| `red #1` | failed: `` test "a\\|b" `x`\\u000anext @ann `` |\n'),
+      body.includes('\n| `red` | failed: `` test "a\\|b" `x`\\u000anext @ann `` |\n'),
       body,
     );
   });
@@ -1522,7 +1522,7 @@ describe('pullRequestText', () => {
   it('escapes every pipe of a reason, also after a backslash', () => {
     const attempts = [{ stepId: 'red', attempt: 1, result: 'failed', reason: 'a\\|b\\\\|c' }];
     const { body } = pullRequestText({ title: 'T', closes, reports: [], attempts });
-    assert.ok(body.includes('| `red #1` | failed: ` a\\|b\\\\\\|c ` |'), body);
+    assert.ok(body.includes('| `red` | failed: ` a\\|b\\\\\\|c ` |'), body);
   });
 
   it("cuts a reason's runs of backticks to three, so its code span stays short (review of #450)", () => {
@@ -1530,7 +1530,7 @@ describe('pullRequestText', () => {
       { stepId: 'red', attempt: 1, result: 'failed', reason: `a${'`'.repeat(50)}b` },
     ];
     const { body } = pullRequestText({ title: 'T', closes, reports: [], attempts });
-    assert.ok(body.includes('| `red #1` | failed: ```` a```b ```` |'), body);
+    assert.ok(body.includes('| `red` | failed: ```` a```b ```` |'), body);
   });
 
   it('cuts a reason to 200 characters, and leaves out one that looks like a secret', () => {
@@ -1539,10 +1539,10 @@ describe('pullRequestText', () => {
       { stepId: 'red', attempt: 2, result: 'failed', reason: `Read ${token}` },
     ];
     const { body } = pullRequestText({ title: 'T', closes, reports: [], attempts });
-    assert.ok(body.includes(`| \`red #1\` | failed: \` ${'y'.repeat(200)} \` |`), body);
+    assert.ok(body.includes(`| \`red\` | failed: \` ${'y'.repeat(200)} \` |`), body);
     assert.ok(
       body.includes(
-        '| `red #2` | failed: ` [left out: a text of step red that looks like a secret] ` |',
+        '| `red (try 2)` | failed: ` [left out: a text of step red that looks like a secret] ` |',
       ),
       body,
     );
@@ -1556,7 +1556,10 @@ describe('pullRequestText', () => {
       result: 'succeeded',
     }));
     const { body } = pullRequestText({ title: 'T', closes, reports: [], attempts });
-    assert.ok(body.includes('\n| `implement #50` | succeeded |\n\nAnd 55 more attempts.\n'), body);
+    assert.ok(
+      body.includes('\n| `implement (try 50)` | succeeded |\n\nAnd 55 more attempts.\n'),
+      body,
+    );
     assert.doesNotMatch(body, /\| implement #/);
     assert.doesNotMatch(body, /implement #51/);
   });

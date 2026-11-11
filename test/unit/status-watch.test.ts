@@ -20,7 +20,7 @@ const T0 = Date.parse('2026-10-25T10:00:00.000Z');
 const ROUTE_BY = '2026-12-31T00:00:00.000Z';
 const REMIND = '2026-10-27T09:00:00.000Z';
 const DEADLINE = '2026-10-25T12:00:00.000Z';
-const ROUTED = `to be routed by ${ROUTE_BY}`;
+const ROUTED = 'a recipe is chosen by 31 Dec 00:00 UTC';
 
 /** `ms` after the epoch as the store records a time. */
 const iso = (ms: number): string => new Date(ms).toISOString();
@@ -197,21 +197,21 @@ describe('foedrum status --watch: the board of the live batches (ADR 0188)', () 
       '4 live batches',
       ...columns(
         [
-          ['-', '11-1', '#11', 'ordered', ROUTED],
-          ['-', '12-1', '#12', 'brewing', 'implement #1 scheduled'],
+          ['-', '11-1', '#11', 'Queued: waiting for a recipe', ROUTED],
+          ['-', '12-1', '#12', 'Running', 'step implement is about to start'],
           [
             '-',
             '13-1',
             '#13',
-            'conditioning',
-            `waiting for the merge of https://github.com/acme/app/pull/8; reminder ${REMIND}`,
+            'Queued: waiting for the merge of https://github.com/acme/app/pull/8',
+            '',
           ],
           [
             '-',
             '14-1',
             '#14',
-            'stuck',
-            `blocked at review (findings): denied Bash(curl); reminder ${REMIND}`,
+            'Waiting for you: look at a failure Foedrum could not get past',
+            'step review could not go on, as the review found problems that are still open: denied Bash(curl)',
           ],
         ],
         '',
@@ -224,23 +224,23 @@ describe('foedrum status --watch: the board of the live batches (ADR 0188)', () 
     const { frames } = await watched({ states: [stateOf(events)] });
     assert.deepEqual(frames[0], [
       '2 live batches',
-      `1m 23s  12-1  #12  ordered  ${ROUTED}`,
-      `-       3-1   #3   ordered  ${ROUTED}`,
+      `1m 23s  12-1  #12  Queued: waiting for a recipe  ${ROUTED}`,
+      `-       3-1   #3   Queued: waiting for a recipe  ${ROUTED}`,
     ]);
   });
 
   it("counts the batch's time on the shell's clock at each board", async () => {
     const events = [ordered(12, iso(T0 - 83_000))];
     const { frames } = await watched({ states: [stateOf(events)], step: 15_000, waits: 3 });
-    assert.equal(frames[0]?.[1], `1m 23s  12-1  #12  ordered  ${ROUTED}`);
-    assert.equal(frames[1]?.[1], `1m 38s  12-1  #12  ordered  ${ROUTED}`);
-    assert.equal(frames[2]?.[1], `1m 53s  12-1  #12  ordered  ${ROUTED}`);
+    assert.equal(frames[0]?.[1], `1m 23s  12-1  #12  Queued: waiting for a recipe  ${ROUTED}`);
+    assert.equal(frames[1]?.[1], `1m 38s  12-1  #12  Queued: waiting for a recipe  ${ROUTED}`);
+    assert.equal(frames[2]?.[1], `1m 53s  12-1  #12  Queued: waiting for a recipe  ${ROUTED}`);
   });
 
   it('shows the batch time as 0s when the clock is before the order', async () => {
     const events = [ordered(12, iso(T0 + 60_000))];
     const { frames } = await watched({ states: [stateOf(events)] });
-    assert.equal(frames[0]?.[1], `0s  12-1  #12  ordered  ${ROUTED}`);
+    assert.equal(frames[0]?.[1], `0s  12-1  #12  Queued: waiting for a recipe  ${ROUTED}`);
   });
 
   it('shows one indented line under a Brewing batch for each running attempt, in the order its row names them', async () => {
@@ -255,16 +255,16 @@ describe('foedrum status --watch: the board of the live batches (ADR 0188)', () 
     const { frames } = await watched({ states: [stateOf(events)] });
     const [brewingRow, orderedRow] = columns(
       [
-        ['-', '12-1', '#12', 'brewing', 'implement #1 started, review #1 started'],
-        ['-', '13-1', '#13', 'ordered', ROUTED],
+        ['-', '12-1', '#12', 'Running', 'step implement, step review'],
+        ['-', '13-1', '#13', 'Queued: waiting for a recipe', ROUTED],
       ],
       '',
     );
     assert.deepEqual(frames[0], [
       '2 live batches',
       brewingRow,
-      '  implement #1 / 0s',
-      '  review #1 / 0s',
+      '  step implement / 0s',
+      '  step review / 0s',
       orderedRow,
     ]);
   });
@@ -278,8 +278,8 @@ describe('foedrum status --watch: the board of the live batches (ADR 0188)', () 
     const attemptLines = (frame: string[] | undefined) =>
       (frame ?? []).filter((line) => line.startsWith('  '));
     assert.deepEqual(attemptLines(frames[0]), []);
-    assert.deepEqual(attemptLines(frames[1]), ['  implement #1 / 0s']);
-    assert.deepEqual(attemptLines(frames[2]), ['  implement #1 / 15s']);
+    assert.deepEqual(attemptLines(frames[1]), ['  step implement / 0s']);
+    assert.deepEqual(attemptLines(frames[2]), ['  step implement / 15s']);
     assert.deepEqual(attemptLines(frames[3]), []);
   });
 
@@ -298,12 +298,12 @@ describe('foedrum status --watch: the board of the live batches (ADR 0188)', () 
 
   it('shows each code point outside U+0020 to U+007E of a row as an escape with four hex digits, so a line break or a control character cannot act on the terminal', async () => {
     const events = [ordered(14), blocked(14, 'caf\u00e9\nforged\u2028line \u001b[2K\u0007')];
-    const { frames } = await watched({ states: [stateOf(events)] });
+    const { frames } = await watched({ states: [stateOf(events)], columns: 300 });
     const [frame = []] = frames;
     assert.equal(frame.length, 2);
     assert.match(
       frame[1] ?? '',
-      /blocked at review \(findings\): caf\\u00e9\\u000aforged\\u2028line \\u001b\[2K\\u0007; reminder /,
+      /step review could not go on, as the review found problems that are still open: caf\\u00e9\\u000aforged\\u2028line \\u001b\[2K\\u0007$/,
     );
     for (const line of frame) assert.match(line, /^[ -~]*$/);
   });
@@ -321,14 +321,14 @@ describe('foedrum status --watch: the board of the live batches (ADR 0188)', () 
 
   it('cuts the lines of the attempts to the width less one too', async () => {
     const { frames } = await watched({ states: [stateOf(brewing(12, 'implement'))], columns: 12 });
-    assert.deepEqual(frames[0]?.at(-1), '  implement');
+    assert.deepEqual(frames[0]?.at(-1), '  step impl');
   });
 
   it("shows the whole board when it fills the terminal's height less one exactly", async () => {
     const events = [...brewing(12, 'implement'), ...brewing(13, 'review')];
     const { frames } = await watched({ states: [stateOf(events)], rows: 6 });
     assert.equal(frames[0]?.length, 5);
-    assert.equal(frames[0]?.at(-1), '  review #1 / 0s');
+    assert.equal(frames[0]?.at(-1), '  step review / 0s');
   });
 
   it('drops the lines of the attempts before any row of a batch when the board does not fit', async () => {
@@ -338,8 +338,8 @@ describe('foedrum status --watch: the board of the live batches (ADR 0188)', () 
       '2 live batches',
       ...columns(
         [
-          ['-', '12-1', '#12', 'brewing', 'implement #1 started'],
-          ['-', '13-1', '#13', 'brewing', 'review #1 started'],
+          ['-', '12-1', '#12', 'Running', 'step implement'],
+          ['-', '13-1', '#13', 'Running', 'step review'],
         ],
         '',
       ),
@@ -353,9 +353,9 @@ describe('foedrum status --watch: the board of the live batches (ADR 0188)', () 
       '6 live batches',
       ...columns(
         [
-          ['-', '11-1', '#11', 'ordered', ROUTED],
-          ['-', '12-1', '#12', 'ordered', ROUTED],
-          ['-', '13-1', '#13', 'ordered', ROUTED],
+          ['-', '11-1', '#11', 'Queued: waiting for a recipe', ROUTED],
+          ['-', '12-1', '#12', 'Queued: waiting for a recipe', ROUTED],
+          ['-', '13-1', '#13', 'Queued: waiting for a recipe', ROUTED],
         ],
         '',
       ),
@@ -370,8 +370,8 @@ describe('foedrum status --watch: the board of the live batches (ADR 0188)', () 
       '4 live batches',
       ...columns(
         [
-          ['-', '12-1', '#12', 'brewing', 'implement #1 started'],
-          ['-', '13-1', '#13', 'brewing', 'implement #1 started'],
+          ['-', '12-1', '#12', 'Running', 'step implement'],
+          ['-', '13-1', '#13', 'Running', 'step implement'],
         ],
         '',
       ),
@@ -430,7 +430,7 @@ describe('foedrum status --watch: the board of the live batches (ADR 0188)', () 
     const events = [12, 13, 14].flatMap((issue) => brewing(issue, 'implement'));
     const { frames } = await watched({ states: [stateOf(events)], rows: undefined });
     assert.equal(frames[0]?.length, 7);
-    assert.equal(frames[0]?.at(-1), '  implement #1 / 0s');
+    assert.equal(frames[0]?.at(-1), '  step implement / 0s');
   });
 
   it('shows only the first line on a terminal of two rows, in the height less one', async () => {
@@ -449,7 +449,10 @@ describe('foedrum status --watch: a store that cannot be read', () => {
       waits: 3,
     });
     assert.deepEqual(result, { exitCode: 0, stdout: '', stderr: '' });
-    const board = ['1 live batch', columns([['-', '11-1', '#11', 'ordered', ROUTED]], '')[0]];
+    const board = [
+      '1 live batch',
+      columns([['-', '11-1', '#11', 'Queued: waiting for a recipe', ROUTED]], '')[0],
+    ];
     assert.deepEqual(frames, [board, [...board, unread], board]);
   });
 
@@ -592,7 +595,7 @@ describe('foedrum status --watch: the command layer', () => {
     });
     assert.deepEqual(result, {
       exitCode: 0,
-      stdout: `2 batches\n\n  11-1  #11  ordered  ${ROUTED}\n  12-1  #12  ordered  ${ROUTED}\n`,
+      stdout: `2 batches\n\n  11-1  #11  Queued: waiting for a recipe  ${ROUTED}\n  12-1  #12  Queued: waiting for a recipe  ${ROUTED}\n`,
       stderr: '',
     });
   });

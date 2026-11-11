@@ -4,7 +4,7 @@
 
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { describeLane } from '../../src/cli/status.ts';
+import { describeState } from '../../src/cli/status.ts';
 import { formatStuck } from '../../src/cli/stuck.ts';
 import { batchState } from '../../src/engine/batch-state.ts';
 import { type Batch, emptyState, type State } from '../../src/engine/fold.ts';
@@ -44,25 +44,30 @@ const what =
 describe('an order that changed after its approval, as people see it (ADR 0368)', () => {
   it('foedrum stuck says what changed, links the issue and asks continue or stop', () => {
     const text = formatStuck(stateOf(changed));
-    assert.ok(text.includes(`acme/app#7 changed after its approval: ${what}`), text);
+    assert.ok(
+      text.includes(`acme/app#7 changed after it was approved, at step plan: ${what}`),
+      text,
+    );
     assert.ok(text.includes('https://github.com/acme/app/issues/7'), text);
     assert.ok(text.includes(`  1. ${ORDER_CHANGED_QUESTION} (continue, stop)`), text);
-    assert.ok(text.includes('  options: answer, cancel'), text);
-  });
-
-  it('foedrum status says it on the batch line', () => {
-    const { detail } = describeLane(changed, 'app-7');
-    assert.equal(
-      detail,
-      `the order changed at plan: acme/app#7 changed after its approval: ${what}; reminder 2026-11-12T12:00:00.000Z`,
+    assert.ok(
+      text.includes(
+        '  Next: answer foedrum answer app#7 continue to brew the issue as it is now, or foedrum answer app#7 stop to end the batch.',
+      ),
+      text,
     );
   });
 
-  it('the status comment says it, links the issue and names the answers', () => {
+  it('foedrum status says it on the batch line', () => {
+    const { detail } = describeState(changed, batchState(changed), 'app-7');
+    assert.equal(detail, `acme/app#7 changed after it was approved, at step plan: ${what}`);
+  });
+
+  it('the status comment says it and links the issue', () => {
     const text = renderStatus(changed);
     assert.ok(
       text.includes(
-        `${'`plan`'} waits for you: [acme/app\\#7](<https://github.com/acme/app/issues/7>) changed after its approval: ${what}. Run ${'`foedrum answer 7 continue`'} to brew it as it is now, or ${'`foedrum answer 7 stop`'} to end the batch`,
+        `🔔 **Waiting for you: answer a question**: [acme/app\\#7](<https://github.com/acme/app/issues/7>) changed after it was approved, at step ${'`plan`'}: ${what}\n`,
       ),
       text,
     );
@@ -73,7 +78,7 @@ describe('an order that changed after its approval, as people see it (ADR 0368)'
     const next = text.split('\n').find((line) => line.startsWith('Next:'));
     assert.equal(
       next,
-      `Next: answer with ${'`foedrum answer 7 continue`'} to brew the issue as it is now, or ${'`foedrum answer 7 stop`'} to end the batch.`,
+      `Next: answer ${'`foedrum answer 7 continue`'} to brew the issue as it is now, or ${'`foedrum answer 7 stop`'} to end the batch.`,
     );
   });
 

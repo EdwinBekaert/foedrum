@@ -415,10 +415,10 @@ describe('runBrew', () => {
         ]);
         const group = screen
           .rewrites()
-          .filter((drawn) => /(?:correctness|acceptance|security) #1/.test(drawn));
+          .filter((drawn) => /step (?:correctness|acceptance|security)/.test(drawn));
         assert.ok(group.length > 0, screen.rewrites().join('\n'));
         for (const drawn of group) {
-          for (const id of TASTERS) assert.match(drawn, new RegExp(`${id} #1`), drawn);
+          for (const id of TASTERS) assert.match(drawn, new RegExp(`step ${id}`), drawn);
           assert.ok(drawn.length <= 119, drawn);
         }
       });
@@ -428,10 +428,10 @@ describe('runBrew', () => {
         const { screen } = await brewTimed({ seconds: 20, columns: 300 });
         const group = screen
           .rewrites()
-          .filter((drawn) => /(?:correctness|acceptance|security) #1/.test(drawn));
+          .filter((drawn) => /step (?:correctness|acceptance|security)/.test(drawn));
         assert.ok(group.length > 0, screen.rewrites().join('\n'));
         for (const drawn of group) {
-          for (const id of TASTERS) assert.match(drawn, new RegExp(`${id} #1`), drawn);
+          for (const id of TASTERS) assert.match(drawn, new RegExp(`step ${id}`), drawn);
         }
       });
 
@@ -502,7 +502,7 @@ describe('runBrew', () => {
             assert.equal(code, 0, f.lines.join('\n'));
             for (const id of TASTERS) {
               assert.ok(
-                f.lines.some((line) => line.includes(`${id} #1 started`)),
+                f.lines.some((line) => line.includes(`step ${id}`)),
                 `${id}:\n${f.lines.join('\n')}`,
               );
             }
@@ -515,7 +515,7 @@ describe('runBrew', () => {
           assert.equal(code, 0, f.lines.join('\n'));
           for (const id of TASTERS) {
             assert.ok(
-              f.lines.some((line) => line.includes(`${id} #1 started`)),
+              f.lines.some((line) => line.includes(`step ${id} started`)),
               `${id}:\n${f.lines.join('\n')}`,
             );
           }
@@ -531,7 +531,7 @@ describe('runBrew', () => {
         });
         assert.equal(code, 0, f.lines.join('\n'));
         for (const id of TASTERS) {
-          const naming = f.lines.join('\n').split(`${id} #1 started`).length - 1;
+          const naming = f.lines.join('\n').split(`step ${id}`).length - 1;
           assert.equal(naming, 1, `${id}:\n${f.lines.join('\n')}`);
         }
       });
@@ -541,10 +541,10 @@ describe('runBrew', () => {
         const { screen } = await brewTimed({ seconds: 20, columns: 80 });
         const group = screen
           .rewrites()
-          .filter((drawn) => /(?:correctness|acceptance|security) #1/.test(drawn));
+          .filter((drawn) => /step (?:correctness|acceptance|security)/.test(drawn));
         assert.ok(group.length > 0, screen.rewrites().join('\n'));
         for (const drawn of group) {
-          for (const id of TASTERS) assert.match(drawn, new RegExp(`${id} #1`), drawn);
+          for (const id of TASTERS) assert.match(drawn, new RegExp(`step ${id}`), drawn);
           assert.ok(drawn.length <= 79, drawn);
         }
       });

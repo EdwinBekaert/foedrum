@@ -86,11 +86,12 @@ describe('runBrew', () => {
         via: 'terminal',
       });
       assert.ok(f.lines.includes('foedrum mash: ordered #13'), f.lines.join('\n'));
-      assert.deepStrictEqual(f.lines.slice(-4), [
-        'foedrum mash: #13 needs input at innkeep:',
+      assert.deepStrictEqual(f.lines.slice(-5), [
+        'foedrum mash: #13 is waiting for you: answer a question: step innkeep asks:',
         'foedrum mash:   1. Which recipe brews #13? Suggested: mild: one small change (stout, mild; recommended: mild)',
         'foedrum mash:      why it blocks: The recipe decides what runs next',
-        'foedrum mash: answer them in order with foedrum answer 13 <answer 1>, then brew again',
+        'foedrum mash: Next: answer the questions above with foedrum answer 13 <answer 1>, try the step again with foedrum retry 13, go past the step with foedrum skip 13, brew the issue with another recipe with foedrum recipe 13 <recipe> <reason>, take it back to an earlier step with foedrum rewind 13 <step>, or end it with foedrum cancel 13.',
+        'foedrum mash: Once it is answered, foedrum brew 13 goes on.',
       ]);
     });
 
@@ -257,7 +258,7 @@ describe('runBrew', () => {
       );
       const url = `https://github.localhost/${claimed.brewery}/issues/40#issuecomment-${plan?.id}`;
       assert.ok(
-        bodies.some((body) => body.includes(`is ready for your review: [plan comment](<${url}>)`)),
+        bodies.some((body) => body.includes(`is ready for you to read: [plan comment](<${url}>)`)),
         bodies.join('\n---\n'),
       );
       // Its commands use the Brewery issue's number, never the target issue's or the batch's.
@@ -436,10 +437,10 @@ describe('runBrew', () => {
         assert.equal(batch?.recipe?.name, 'mash-in');
         assert.equal(batch?.recipe?.reason, 'the engineer ran foedrum mash --override');
         assert.deepStrictEqual([...log().state().batches.keys()], ['12-1']);
-        assert.equal(
-          f.lines.at(-1),
-          'foedrum mash: answer them in order with foedrum answer 12 <answer 1>, then brew again',
-        );
+        assert.deepStrictEqual(f.lines.slice(-2), [
+          'foedrum mash: Next: answer the questions above with foedrum answer 12 <answer 1>, try the step again with foedrum retry 12, go past the step with foedrum skip 12, brew the issue with another recipe with foedrum recipe 12 <recipe> <reason>, take it back to an earlier step with foedrum rewind 12 <step>, or end it with foedrum cancel 12.',
+          'foedrum mash: Once it is answered, foedrum brew 12 goes on.',
+        ]);
       });
 
       it('the answer to a re-mash restarts the batch on the chosen recipe from its first step', async () => {
@@ -669,7 +670,7 @@ describe('runBrew', () => {
         assert.equal(f.started.length, before);
         assert.equal(
           f.lines.at(-1),
-          `foedrum mash: #12 is driven by cellar until ${expiresAt.toISOString()}, when its lease ends by itself; foedrum mash 12 --override --take takes it over now`,
+          `foedrum mash: #12 is driven by cellar until 22 Oct 12:01 UTC, when its lease ends by itself; foedrum mash 12 --override --take takes it over now`,
         );
       });
 

@@ -316,7 +316,7 @@ describe('runServe', () => {
       );
       const status = github.comments.get('acme/brewery#13') ?? [];
       assert.equal(status.length, 1, JSON.stringify(status));
-      assert.match(status[0]?.body ?? '', /On tap/);
+      assert.match(status[0]?.body ?? '', /Done: merged/);
       assert.deepStrictEqual(github.issue('acme/brewery', 7)?.labels, []);
       assert.equal(github.comments.get('acme/brewery#7'), undefined);
       assert.ok(

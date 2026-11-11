@@ -21,7 +21,7 @@ import {
   reviewNotes,
 } from '../../src/engine/plan-comment.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
-import { code, planNextStep, type StatusComments } from '../../src/engine/status-comment.ts';
+import type { StatusComments } from '../../src/engine/status-comment.ts';
 import type { Event } from '../../src/schemas/events.ts';
 import type { PlannedSubOrder, PlanReport } from '../../src/schemas/plan.ts';
 import { defaultLimits } from '../helpers/brewing.ts';
@@ -73,13 +73,28 @@ describe('renderPlan (ADR 0233)', () => {
   });
 
   const next =
-    'Next: read the plan and its assumptions; sign it off with `foedrum approve 7-1`, correct it in a session with `foedrum lauter 7-1`, plan it again with `foedrum retry 7-1`, or end it with `foedrum cancel 7-1`.';
+    'Next: read the plan and its assumptions, then sign it off with `foedrum approve 7-1`, correct it with the Brewmaster in a session with `foedrum lauter 7-1`, plan it again with `foedrum retry 7-1`, or end it with `foedrum cancel 7-1`.';
+  /** A plan waiting for its review, with `next` as its Next line. */
+  const waiting = (plan: PlanReport, full?: { place: string; url: string }): string =>
+    renderPlan(
+      '7-1',
+      'plan',
+      plan,
+      undefined,
+      full,
+      true,
+      undefined,
+      undefined,
+      [],
+      undefined,
+      next,
+    );
   const outDoc = 'https://github.com/alice/brewery/blob/foedrum/state/batches/7-1/plan-2.md';
   const fullPlan = { place: '7-1/plan-2.md', url: outDoc };
 
   it('shows a table of the sub-orders, a graph of their order and a section of each', () => {
     assert.equal(
-      renderPlan('7-1', 'plan', three, undefined, undefined, true),
+      waiting(three),
       [
         '### Foedrum · plan of batch `7-1`',
         '',
@@ -286,7 +301,7 @@ describe('renderPlan (ADR 0233)', () => {
   });
 
   it('says the gate waits for foedrum approve while the plan waits for its review (#588)', () => {
-    const text = renderPlan('7-1', 'plan', three, undefined, fullPlan, true);
+    const text = waiting(three, fullPlan);
     assert.ok(text.includes('\n\n**Gate**\n\nWaiting for `foedrum approve 7-1`.\n\n'), text);
   });
 
@@ -361,7 +376,7 @@ describe('renderPlan (ADR 0233)', () => {
   });
 
   it('ends with the next step (#658)', () => {
-    assert.ok(renderPlan('7-1', 'plan', three, undefined, fullPlan, true).endsWith(`\n\n${next}`));
+    assert.ok(waiting(three, fullPlan).endsWith(`\n\n${next}`));
   });
 
   it('shows a text with a quote, a hash, a line break, a mention and a backtick as itself, in the table and the graph', () => {
@@ -420,7 +435,7 @@ describe('renderPlan (ADR 0233)', () => {
     const many = Array.from({ length: 100 }, (_, i) =>
       subOrder(`s${i}`, { title: 'y'.repeat(120), doneWhen: 'x'.repeat(50), why: 'x'.repeat(50) }),
     );
-    const text = renderPlan('7-1', 'plan', { subOrders: many }, undefined, undefined, true);
+    const text = waiting({ subOrders: many });
     assert.ok(text.length <= 60_000, `${text.length}`);
     assert.doesNotMatch(text, /```mermaid|rest is cut/);
     assert.match(text, /\*\*Order\*\*\n\nThe graph is left out: GitHub keeps comments shorter\.\n/);
@@ -443,7 +458,7 @@ describe('renderPlan (ADR 0233)', () => {
   };
 
   it("keeps the whole text within GitHub's length, cut after a whole sub-order", () => {
-    const text = renderPlan('7-1', 'plan', longest(), undefined, undefined, true);
+    const text = waiting(longest());
     assert.ok(text.length <= 60_000, `${text.length}`);
     assert.doesNotMatch(text, /```mermaid/);
     assert.match(
@@ -472,7 +487,7 @@ describe('renderPlan (ADR 0233)', () => {
   });
 
   it('keeps the link and the next step when the text is cut to length (#658)', () => {
-    const text = renderPlan('7-1', 'plan', longest(), undefined, fullPlan, true);
+    const text = waiting(longest(), fullPlan);
     assert.ok(text.length <= 60_000, `${text.length}`);
     assert.ok(
       text.startsWith(
@@ -527,7 +542,7 @@ describe('renderPlan (ADR 0233)', () => {
         })),
       }),
     );
-    const text = renderPlan('7-1', 'plan', { subOrders: many }, undefined, fullPlan, true);
+    const text = waiting({ subOrders: many }, fullPlan);
     assert.ok(text.length <= 60_000, `${text.length}`);
     assert.doesNotMatch(text, /\n#### /);
     assert.ok(
@@ -767,7 +782,7 @@ describe('planEffects (ADR 0233)', () => {
     return comments.comments[0] ?? assert.fail();
   };
 
-  it('ends the comment with the next step while its batch waits Stuck for review: regression test (#658)', async () => {
+  it('ends the comment with the next step while its batch waits for its review: regression test (#658)', async () => {
     const driver = await open();
     issue({ kind: 'order', batchId: '7-1', order: { issue: 7 } });
     issue({ kind: 'route', batchId: '7-1', recipe: 'pale', reason: 'label', source: 'label' });
@@ -776,7 +791,7 @@ describe('planEffects (ADR 0233)', () => {
     await driver.applyEffects();
     assert.equal(
       only().body,
-      `${renderPlan('7-1', 'plan', three, undefined, undefined, true, undefined, undefined, [], undefined, ['recipe'], '7')}\n\n${marker(1)}`,
+      `${renderPlan('7-1', 'plan', three, undefined, undefined, true, undefined, undefined, [], undefined, 'Next: read the plan and its assumptions, then sign it off with `foedrum approve 7`, correct it with the Brewmaster in a session with `foedrum lauter 7`, plan it again with `foedrum retry 7`, brew the issue with another recipe with `foedrum recipe 7 <recipe> <reason>`, or end it with `foedrum cancel 7`.', '7')}\n\n${marker(1)}`,
     );
     assert.match(only().body, /\n\nNext: read the plan/);
   });
@@ -791,15 +806,15 @@ describe('planEffects (ADR 0233)', () => {
     await driver.applyEffects();
     assert.ok(
       only().body.endsWith(
-        `\n\nNext: ${planNextStep('7', code)} Its other option: \`recipe\`.\n\n${marker(1)}`,
+        `\n\nNext: read the plan and its assumptions, then sign it off with \`foedrum approve 7\`, correct it with the Brewmaster in a session with \`foedrum lauter 7\`, plan it again with \`foedrum retry 7\`, brew the issue with another recipe with \`foedrum recipe 7 <recipe> <reason>\`, or end it with \`foedrum cancel 7\`.\n\n${marker(1)}`,
       ),
       only().body.slice(-400),
     );
   });
 
-  it('a plan rendered with no other option ends with the plan’s own Next line, as before: regression test (#855)', () => {
+  it('a plan rendered with no Next line given ends at its gate', () => {
     const text = renderPlan('7-1', 'plan', three, undefined, undefined, true);
-    assert.ok(text.endsWith(`\n\nNext: ${planNextStep('7-1', code)}`), text.slice(-400));
+    assert.ok(text.endsWith('\n\nWaiting for `foedrum approve 7-1`.'), text.slice(-400));
   });
 
   it('edits the plan comment once its plan is approved, to say by whom, with no next step (#588)', async () => {

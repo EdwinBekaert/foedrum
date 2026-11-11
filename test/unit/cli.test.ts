@@ -498,7 +498,7 @@ describe('foedrum status', () => {
     });
   });
 
-  it('lists every batch with its issue, lane and what it waits for', async (t) => {
+  it('lists every batch with its issue, state and what it waits for', async (t) => {
     const result = await run(['status'], { openStore: () => storeWith(brewery), config: roomy });
     assert.equal(result.exitCode, 0);
     assert.equal(result.stderr, '');
@@ -545,7 +545,7 @@ describe('foedrum status', () => {
     });
     assert.equal(
       result.stdout,
-      '1 batch\n\n  11-1  #11  ordered  to be routed by 2026-12-31T00:00:00.000Z\n',
+      '1 batch\n\n  11-1  #11  Queued: waiting for a recipe  a recipe is chosen by 31 Dec 00:00 UTC\n',
     );
   });
 
@@ -564,12 +564,12 @@ describe('foedrum status', () => {
       routeBy: '2026-12-31T00:00:00.000Z',
     };
     const result = await run(['status'], { openStore: () => storeWith([ordered(11), target]) });
-    assert.match(result.stdout, /^ +11-1 +#11 +ordered/m);
-    assert.match(result.stdout, /^ +app-11 +app#11 +ordered/m);
+    assert.match(result.stdout, /^ +11-1 +#11 +Queued: waiting for a recipe/m);
+    assert.match(result.stdout, /^ +app-11 +app#11 +Queued: waiting for a recipe/m);
     const after = await run(['status'], {
       openStore: () => storeWith([ordered(11), target, opened]),
     });
-    assert.match(after.stdout, /^ +app-11 +#200 \(app#11\) +ordered/m);
+    assert.match(after.stdout, /^ +app-11 +#200 \(app#11\) +Queued: waiting for a recipe/m);
   });
 
   it('names both issues of a claimed issue in stuck, and its repository in replay (ADR 0144)', async () => {
@@ -593,7 +593,7 @@ describe('foedrum status', () => {
   });
 
   // #238, ADR 0091: the limit and its reset, as claude gave them, tell a human when to retry.
-  it('shows the usage limit a batch is Stuck on, with its reset', async () => {
+  it('shows the usage limit a batch waits for you on, with its reset', async () => {
     const summary =
       'claude hit its weekly limit, which resets Mon 12:00am: retry the step after that';
     const events: Event[] = [
@@ -601,7 +601,10 @@ describe('foedrum status', () => {
       stuck(11, { kind: 'blocked', stepId: 'brew', blockerKind: 'environment', summary }),
     ];
     const listed = await run(['stuck'], { openStore: () => storeWith(events) });
-    assert.match(listed.stdout, /blocked at brew \(environment\): claude hit its weekly limit/);
+    assert.match(
+      listed.stdout,
+      /step brew could not go on, as something it needs outside the change is missing: claude hit its weekly limit/,
+    );
     assert.ok(listed.stdout.includes('resets Mon 12:00am: retry the step after that'));
   });
 
@@ -679,8 +682,8 @@ describe('foedrum status', () => {
         stdout: [
           '2 batches',
           '',
-          '  11-1  #11  cancelled  by ann via terminal',
-          '  12-1  #12  ordered    to be routed by 2026-12-31T00:00:00.000Z',
+          '  11-1  #11  Done: cancelled               by ann from a terminal',
+          '  12-1  #12  Queued: waiting for a recipe  a recipe is chosen by 31 Dec 00:00 UTC',
           '',
           '1 kept branch: commits of ended batches that no push recorded (ADR 0084); take them, then drop the branch',
           '',
@@ -702,7 +705,7 @@ describe('foedrum status', () => {
       });
       assert.equal(reads, 1);
       assert.doesNotMatch(gone.stdout, /kept/);
-      assert.equal(gone.stdout.endsWith('2026-12-31T00:00:00.000Z\n'), true);
+      assert.equal(gone.stdout.endsWith('a recipe is chosen by 31 Dec 00:00 UTC\n'), true);
       // The default context fails any read of the kept branches.
       const none = await run(['status'], { openStore: () => storeWith([ordered(11)]) });
       assert.equal(none.exitCode, 0, none.stderr);
@@ -730,7 +733,10 @@ describe('foedrum status', () => {
       tx.putBatchLease({ batchId: '13-1', owner: 'ann', expiresAt: new Date(D1) });
     });
     const result = await run(['status'], { openStore: () => store });
-    assert.match(result.stdout, /^ +11-1 +#11 +ordered +.*; brewed interactively by session-abc$/m);
+    assert.match(
+      result.stdout,
+      /^ +11-1 +#11 +Queued: waiting for a recipe +.*; brewed interactively by session-abc$/m,
+    );
     assert.equal(result.stdout.match(/interactively/g)?.length, 1, result.stdout);
   });
 });
@@ -1105,7 +1111,10 @@ describe('foedrum status <order> (ADR 0295)', () => {
       tx.putBatchLease({ batchId: '11-1', owner: 'session-abc', expiresAt });
     });
     const result = await run(['status', '11'], { openStore: () => store, config: roomy });
-    assert.match(result.stdout, /^ +11-1 +#11 +ordered +.*; brewed interactively by session-abc$/m);
+    assert.match(
+      result.stdout,
+      /^ +11-1 +#11 +Queued: waiting for a recipe +.*; brewed interactively by session-abc$/m,
+    );
   });
 
   it('status of an order in a Brewery without an event store is refused, exit 1', async () => {

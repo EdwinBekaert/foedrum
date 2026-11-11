@@ -140,7 +140,7 @@ describe('npm run demo', () => {
     assert.match(statusComment, /On tap/);
     assert.match(
       statusComment,
-      /^ +Path: `survey #1` ✅ → `survey-check #1` ✅ → `gauge #1`.*\n +→ `implement #2`.*\n +→ `implement #3`/m,
+      /^ +Path: `survey` ✅ → `survey-check` ✅ → `gauge`.*\n +→ `implement (try 2)`.*\n +→ `implement (try 3)`/m,
     );
     assert.equal(
       statusComment.match(/^ +- <https:\/\/github\.com\/demo\/web\/pull\/\d+>/gm)?.length,
@@ -316,7 +316,7 @@ describe('npm run demo', () => {
     assert.match(comment, /Recipe \*\*nip-parallel\*\*/);
     assert.match(
       comment,
-      /`gauge #1` ❌ the attempt was lost → .*`green #1` ❌ the check "test" failed, 1 test failing\n→ .*`green #2` ✅ → `correctness #1` ❌ blocked \(findings\) → `security #1` ❌ blocked \(findings\) → `test-design #1` ❌ blocked \(findings\) → `design-conformance #1` ❌ blocked \(findings\)\n→ `implement #3` ✅ → `fine #3` ✅ → `green #3` ✅ → `correctness #2` ✅ → `security #2` ✅ → `test-design #2` ✅ → `design-conformance #2` ✅ → `mutants #1` ✅ → `open-pull-request #1` ✅/,
+      /`gauge` ❌ the attempt was lost → .*`green` ❌ the check "test" failed, 1 test failing\n→ .*`green (try 2)` ✅ → `correctness` ❌ blocked \(findings\) → `security` ❌ blocked \(findings\) → `test-design` ❌ blocked \(findings\) → `design-conformance` ❌ blocked \(findings\)\n→ `implement (try 3)` ✅ → `fine (try 3)` ✅ → `green (try 3)` ✅ → `correctness (try 2)` ✅ → `security (try 2)` ✅ → `test-design (try 2)` ✅ → `design-conformance (try 2)` ✅ → `mutants` ✅ → `open-pull-request` ✅/,
     );
     for (const lens of ['security', 'test-design', 'design-conformance']) {
       assert.doesNotMatch(comment, new RegExp(`^- \`${lens}\`: minor in `, 'm'));
@@ -421,22 +421,19 @@ describe('npm run demo', () => {
       mash,
       /^ +Recipe \*\*mash\*\*, chosen by ann \(terminal\): the answer at innkeep: mash, /m,
     );
-    assert.match(
-      mash,
-      /`innkeep`: attempt 1 asked for input, answered by ann \(terminal\): mash$/m,
-    );
+    assert.match(mash, /`innkeep`: asked a question, answered by ann \(terminal\): mash$/m);
   });
 
   it("step 12 shows the three plan lenses after the plan, and the naive reader's note sending it back once (ADR 0321, ADR 0354)", () => {
     const mash = part('mash');
     assert.ok(
       mash.includes(
-        '`plan #1` ✅ → `coverage #1` ✅ → `sizing #1` ✅ → `naive-reader #1` ❌ blocked (findings)',
+        '`plan` ✅ → `coverage` ✅ → `sizing` ✅ → `naive-reader` ❌ blocked (findings)',
       ),
       mash,
     );
     // Only the naive reader, whose note sent the plan back, reads plan 2 (ADR 0357).
-    assert.ok(mash.includes('`plan #2` ✅ → `naive-reader #2` ✅'), mash);
+    assert.ok(mash.includes('`plan (try 2)` ✅ → `naive-reader (try 2)` ✅'), mash);
   });
 
   it("the walkthrough has twelve steps, step 12's heading among them", () => {

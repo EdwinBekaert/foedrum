@@ -256,7 +256,7 @@ describe('foedrum brew on recipe:mash, with the default Brewmaster (ADR 0234)', 
     assert.equal(api.pulls.length, 0);
   });
 
-  it('ends Stuck for a review of its plan, not on tap, naming the plan comment (#658)', async () => {
+  it('ends waiting for you to approve its plan, not done, naming the plan comment (#658)', async () => {
     assert.equal(await runBrew(setup, shell([planned]), request), 3, lines.join('\n'));
     assert.deepEqual(log().state().batches.get('12-1')?.lane, {
       kind: 'stuck',
@@ -265,10 +265,10 @@ describe('foedrum brew on recipe:mash, with the default Brewmaster (ADR 0234)', 
       remindAt: '2026-10-30T12:00:00.000Z',
     });
     const id = comments().find(({ body }) => body.includes('plan of batch'))?.id;
-    assert.equal(
-      lines.at(-1),
-      `foedrum brew: #12 is stuck: the plan of plan #1 is ready for your review; reminder 2026-10-30T12:00:00.000Z; options: approve, lauter, retry, recipe, cancel; the plan: https://github.com/${setup.brewery}/issues/12#issuecomment-${id}`,
-    );
+    assert.deepStrictEqual(lines.slice(-2), [
+      `foedrum brew: #12 is waiting for you: approve the plan: the plan from step plan is ready for you to read; the plan: https://github.com/${setup.brewery}/issues/12#issuecomment-${id}`,
+      'foedrum brew: Next: read the plan and its assumptions, then sign it off with foedrum approve 12, correct it with the Brewmaster in a session with foedrum lauter 12, plan it again with foedrum retry 12, brew the issue with another recipe with foedrum recipe 12 <recipe> <reason>, or end it with foedrum cancel 12.',
+    ]);
   });
 
   it('leaves the status comment naming the plan comment when foedrum brew ends, within the minute (#658)', async () => {
@@ -276,7 +276,7 @@ describe('foedrum brew on recipe:mash, with the default Brewmaster (ADR 0234)', 
     const id = comments().find(({ body }) => body.includes('plan of batch'))?.id;
     const url = `https://github.com/${setup.brewery}/issues/12#issuecomment-${id}`;
     const status = comments().find(({ body }) => body.includes('Foedrum · batch'))?.body ?? '';
-    assert.ok(status.includes(`is ready for your review: [plan comment](<${url}>)`), status);
+    assert.ok(status.includes(`is ready for you to read: [plan comment](<${url}>)`), status);
   });
 
   it('links the plan comment from the status comment, on the Brewery issue (#658)', async () => {
@@ -289,11 +289,11 @@ describe('foedrum brew on recipe:mash, with the default Brewmaster (ADR 0234)', 
     const status = comments().find(({ body }) => body.includes('Foedrum · batch'))?.body ?? '';
     assert.ok(
       status.includes(
-        `🔔 **Stuck**: the plan of \`plan\` #1 is ready for your review: [plan comment](<${url}>)`,
+        `🔔 **Waiting for you: approve the plan**: the plan from step plan is ready for you to read: [plan comment](<${url}>)`,
       ),
       status,
     );
-    assert.doesNotMatch(status, /On tap/);
+    assert.doesNotMatch(status, /\*\*Done/);
   });
 
   it("gives the Brewmaster the Brewery's repositories with their bases, on the planner alias", async () => {

@@ -121,6 +121,11 @@ describe('batchState', () => {
     }
   });
 
+  it('a Stuck reason this Foedrum does not know still waits for you to look at it', () => {
+    const unknown = { kind: 'from-a-newer-foedrum' } as unknown as StuckReason;
+    assert.deepEqual(of(stuck(unknown)), { kind: 'waiting', for: { kind: 'look-at-failure' } });
+  });
+
   it('a batch on tap with an open pull request waits for you to review and merge it', () => {
     assert.deepEqual(
       of(
