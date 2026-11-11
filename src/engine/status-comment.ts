@@ -301,7 +301,7 @@ const stuckText = (
           const { reviews, more } = reason.cause;
           const asked = reviews.map(({ id, by }) => `review ${id} by ${plain(by)}`);
           const rest = more > 0 ? [`and ${more} more`] : [];
-          return `${code(reason.stepId)}: ${link(reason.pullRequest)} got changes asked for on ${code(shortSha(reason.head))} ${after}: ${[...asked, ...rest].join(', ')}`;
+          return `the review of ${link(reason.pullRequest)} still asks for changes on ${code(shortSha(reason.head))} ${after}: ${[...asked, ...rest].join(', ')}`;
         }
         const { branch, tip, check } = reason.cause;
         return `${link(reason.pullRequest)} fails its checks once merged with ${code(branch)} at ${code(shortSha(tip))} ${after}: ${plain(check)}`;
