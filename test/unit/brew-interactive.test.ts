@@ -8,6 +8,7 @@ import { runBrew } from '../../src/cli/brew.ts';
 import { type ServeSetup, serveSetup } from '../../src/cli/serve-config.ts';
 import { effectKey } from '../../src/engine/effect-key.ts';
 import { brewFixture, request, t0 } from '../helpers/brew-fixture.ts';
+import { testGuidance } from '../helpers/brewery-files.ts';
 import { behave } from '../helpers/fake-brewer-runner.ts';
 import { ghOver } from '../helpers/fake-gh.ts';
 import { fakeGitHubApi } from '../helpers/fake-github-api.ts';
@@ -24,6 +25,7 @@ describe('runBrew', () => {
       name: 'lauter',
       type: 'brew',
       description: 'Refines an order with a person, then opens its pull request.',
+      guidance: testGuidance,
       steps: [
         { id: 'refine', brewer: 'steward', interactive: true, prompt: 'Refine it with me.' },
         { action: 'openPullRequest' },

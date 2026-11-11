@@ -1,4 +1,5 @@
-// Deep-mash, a careful plan of a large order (ADR 0321, ADR 0372): Mash's steps, with all seven
+// Deep-mash, a careful plan of an order whose cut carries a risk (ADR 0321, ADR 0372, ADR 0375):
+// Mash's steps, with all seven
 // plan lenses in its group. Nothing is built: the plan is shown on the order's issue (ADR 0233),
 // and the batch waits Stuck for its review (ADR 0275) until foedrum approve signs it off
 // (ADR 0281). The lauter step runs only when a person chooses foedrum lauter at that review
@@ -7,7 +8,12 @@
   "$schema": "../../schemas/recipe.json",
   "name": "deep-mash",
   "type": "mash",
-  "description": "A careful plan of a large order, through all seven plan lenses, shown on its issue; nothing is built",
+  "description": "A careful plan of an order whose cut carries a risk, through all seven plan lenses, shown on its issue; nothing is built",
+  "guidance": {
+    "chooseWhen": "An order to plan before anything is built whose cut carries a risk: it can reach a lot across repositories, or touches a credential, a migration or a public interface.",
+    "notWhen": "An order clear enough to build as written: choose a brew recipe. A broad order whose cut is plain: mash plans it for less.",
+    "bestUsed": "When the plan itself needs the most care. All seven plan lenses review it, and a person approves it before any sub-order brews."
+  },
   // It commits nothing, so there is no test to write first.
   "testFirst": false,
   "steps": [

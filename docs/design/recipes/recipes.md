@@ -10,6 +10,11 @@ Foedrum's own recipes are checked as `DefaultRecipe`, which also rejects literal
   "name": "house-ale",
   "type": "brew",                                            // mash plans or chooses, brew builds (ADR 0365)
   "description": "A feature in one repository, planned first",
+  "guidance": {                                              // what a model choosing a recipe reads (ADR 0375)
+    "chooseWhen": "A feature whose effect stays inside the code it changes",
+    "notWhen": "A change that can reach a lot, however small: choose deep-brew",
+    "bestUsed": "With one clear outcome a test can show"
+  },
   "testFirst": true,                                         // default for recipes that write code
   "concurrency": 2,                                          // at most 2 of its batches at once; none by default (ADR 0217)
   "steps": [
@@ -62,13 +67,16 @@ A batch whose step left its recipe file goes Stuck on a divergence when that ste
 A step has exactly one of these kind fields.
 ADR 0019's `session` step is gone: the schema refuses it with a line that names `"interactive": true` on a brewer step ([ADR 0222](../../adr/0222-a-recipe-s-brewer-step-may-be-interactive.md)).
 
-**Recipe fields:** `name`, `type`, `description`, `steps`, and `testFirst` (default `true` for recipes that write code, decided when the recipe is loaded for a batch, since it depends on the brewers the recipe uses: unset, it is `true` when any brewer the recipe names produces `commits`, else `false` (`resolveRecipe`, [ADR 0028](../../adr/0028-brewer-runner-outcomes-environment-and-test-first.md)); a router, not built yet ([routing](../intake/routing.md)), is to switch it off for documentation-only or pure refactoring orders and record why in the status comment).
+**Recipe fields:** `name`, `type`, `description`, `guidance`, `steps`, and `testFirst` (default `true` for recipes that write code, decided when the recipe is loaded for a batch, since it depends on the brewers the recipe uses: unset, it is `true` when any brewer the recipe names produces `commits`, else `false` (`resolveRecipe`, [ADR 0028](../../adr/0028-brewer-runner-outcomes-environment-and-test-first.md)); a router, not built yet ([routing](../intake/routing.md)), is to switch it off for documentation-only or pure refactoring orders and record why in the status comment).
 Every recipe has a `type`, which says what kind of work it does ([ADR 0365](../../adr/0365-a-recipe-has-a-type-mash-or-brew.md)):
 `mash` chooses a recipe or makes a plan and builds nothing, and `brew` builds.
 The load refuses a recipe without one, with a line that names its file and says to add `"type": "mash"` or `"type": "brew"`.
 A type arrives with the first recipe that uses it: no other type exists yet.
 A type catches the wrong kind of recipe, not the wrong size.
-The Innkeeper is offered every recipe but those that choose one, each with its type; a plan's Brewmaster and its plan lenses are offered the `brew` ones only, and a sub-order may name only one of those.
+A recipe's `description` says what it does, and its `guidance` when to choose it (`chooseWhen`), when not and what to choose instead (`notWhen`), and how it is best used (`bestUsed`), each one line of at most 300 characters ([ADR 0375](../../adr/0375-every-recipe-offered-as-a-choice-carries-guidance-the-models-that-choose-read.md)).
+A recipe follows what a change can reach, not its size: the Innkeeper, the Brewmaster and the `plan/recipe-fit` lens choose and judge by the guidance, and a person confirms the choice.
+Every recipe offered as a choice needs guidance: the load refuses one without it, with a line that names its file and the three fields to add; a recipe that chooses a recipe is never offered and needs none.
+The Innkeeper is offered every recipe but those that choose one, each with its type, description and guidance; a plan's Brewmaster and its plan lenses are offered the `brew` ones only, and a sub-order may name only one of those.
 `foedrum status <order>` counts the tokens of a `mash` recipe's attempts as planning, by the type its `batch.recipe_chosen` event recorded, and every other attempt's as brewing ([ADR 0372](../../adr/0372-the-deep-planning-recipe-is-called-deep-mash.md)).
 A recipe has no time budget: the load refuses a `budget` field with a line that says it is gone, since each step's deadline, stall limit and attempts already bound a batch ([ADR 0194](../../adr/0194-a-recipe-has-no-time-budget.md)).
 A recipe does not choose the orders it runs: the load refuses a `match` field with a line that says an order is routed by its `recipe:<name>` label or by `foedrum mash` ([routing](../intake/routing.md), [ADR 0253](../../adr/0253-a-recipe-s-match-is-refused-at-load.md)).

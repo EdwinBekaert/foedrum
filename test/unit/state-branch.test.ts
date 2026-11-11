@@ -17,6 +17,7 @@ import {
   remoteCommitOf,
   type StartFacts,
   StateBranchStopError,
+  secretRefusal,
   unsafeEntries,
 } from '../../src/engine/state-branch.ts';
 import type { Event } from '../../src/schemas/events.ts';
@@ -570,6 +571,65 @@ describe('planFlush', () => {
       assert.equal(files.at(-1)?.text, text);
     });
 
+    it('an out doc whose text looks like a secret reaches the state branch without it', () => {
+      // Made up: the shape the scanner matches, built here so no token sits in the source.
+      const token = `ghp_${'a1B2c3D4e5'.repeat(4)}`;
+      const text = `---\n{"status":"done"}\n---\nThe order said:\nexport GH_TOKEN=${token}\nThat was all.\n`;
+      const files = planFlush(new Map(), [stored(2, finished('b1', 'review', 3))], 1, [
+        doc(text, 'review', 3),
+      ]);
+      assert.deepEqual(files.at(-1), {
+        path: 'batches/b1/review-3.md',
+        text: '---\n{"status":"done"}\n---\nThe order said:\n[left out: a line of review#3 that looks like a secret]\nThat was all.\n',
+      });
+    });
+
+    it('keeps the line end of a line it leaves out: CRLF on one, none on a last line', () => {
+      const token = `ghp_${'a1B2c3D4e5'.repeat(4)}`;
+      const text = `Said:\r\nGH_TOKEN=${token}\r\nAnd last:\r\nGH_TOKEN=${token}`;
+      const files = planFlush(new Map(), [stored(2, finished('b1'))], 1, [doc(text)]);
+      const left = '[left out: a line of plan#1 that looks like a secret]';
+      assert.equal(files.at(-1)?.text, `Said:\r\n${left}\r\nAnd last:\r\n${left}`);
+    });
+
+    // Made up: a key block whose body lines are each too short for the scanner, as a key's last line is.
+    const keyBlock = (end: boolean) =>
+      [
+        ['-----BEGIN', 'OPENSSH PRIVATE KEY-----'].join(' '),
+        'QUJDREVGR0hJSktMTU5PUFFSU1RVVldY',
+        'WVphYmNkZWZnaGlqa2xtbm9wcXJzdHV2',
+        ...(end ? [['-----END', 'OPENSSH PRIVATE KEY-----'].join(' ')] : []),
+      ].join('\n');
+
+    it('an out doc that quotes a private key reaches the state branch without any line of its block', () => {
+      const text = `The file held:\n${keyBlock(true)}\nThat was all.\n`;
+      const files = planFlush(new Map(), [stored(2, finished('b1'))], 1, [doc(text)]);
+      const left = '[left out: a line of plan#1 that looks like a secret]\n';
+      assert.equal(files.at(-1)?.text, `The file held:\n${left.repeat(4)}That was all.\n`);
+    });
+
+    it('leaves out the rest of an out doc whose private key block does not end', () => {
+      const text = `The file held:\n${keyBlock(false)}\nThat was all.\n`;
+      const files = planFlush(new Map(), [stored(2, finished('b1'))], 1, [doc(text)]);
+      const left = '[left out: a line of plan#1 that looks like a secret]\n';
+      assert.equal(files.at(-1)?.text, `The file held:\n${left.repeat(4)}`);
+    });
+
+    it("leaves out every line of a PGP private key's block", () => {
+      const pgp = ['-----BEGIN', 'PGP PRIVATE KEY BLOCK-----'].join(' ');
+      const pgpEnd = ['-----END', 'PGP PRIVATE KEY BLOCK-----'].join(' ');
+      const text = `Key:\n${pgp}\n\nQUJDREVGR0hJSktMTU5PUFFSU1RVVldY\n=AbCd\n${pgpEnd}\nThat was all.\n`;
+      const files = planFlush(new Map(), [stored(2, finished('b1'))], 1, [doc(text)]);
+      const left = '[left out: a line of plan#1 that looks like a secret]\n';
+      assert.equal(files.at(-1)?.text, `Key:\n${left.repeat(5)}That was all.\n`);
+    });
+
+    it('an out doc that names a commit reaches the state branch as it is', () => {
+      const text = `---\n{"status":"done"}\n---\nThe red commit is ${'0123456789'.repeat(4)}.\n`;
+      const files = planFlush(new Map(), [stored(2, finished('b1'))], 1, [doc(text)]);
+      assert.deepEqual(files.at(-1), { path: 'batches/b1/plan-1.md', text });
+    });
+
     it('plans only the kept out docs when no event is pending: one kept after its events were pushed', () => {
       // Stuck abandoned the attempt; its out doc was kept after the flush that pushed the events.
       const current = new Map([[b1, line(1, ordered('b1'))]]);
@@ -888,10 +948,72 @@ describe('classifyPush', () => {
     }
   });
 
+  it('a push refused for a secret is classified as refused for a secret, not failed', () => {
+    const stdout = `To origin\n!\t${ref}\t[remote rejected] (push declined due to repository rule violations)\nDone\n`;
+    const stderr =
+      'remote: error: GH013: Repository rule violations found for refs/heads/foedrum/state.\n' +
+      'remote:\nremote: - GITHUB PUSH PROTECTION\nremote:   Resolve the following violations before pushing again\n' +
+      'remote:\nremote:     - Push cannot contain secrets\nerror: failed to push some refs to origin\n';
+    assert.equal(classifyPush({ code: 1, stdout, stderr }), 'secret');
+  });
+
+  it("reads each of push protection's words on its own", () => {
+    const stdout = `To origin\n!\t${ref}\t[remote rejected] (push declined)\nDone\n`;
+    for (const stderr of [
+      'remote: - GITHUB PUSH PROTECTION\n',
+      'remote:     - Push cannot contain secrets\n',
+      'remote: error: GH009: Secrets detected! This push failed.\n',
+    ]) {
+      assert.equal(classifyPush({ code: 1, stdout, stderr }), 'secret', stderr);
+    }
+  });
+
+  it('fails when stderr names push protection but the remote refused no ref', () => {
+    const stderr = 'remote: - GITHUB PUSH PROTECTION\n';
+    assert.equal(classifyPush({ code: 128, stdout: '', stderr }), 'failed');
+    const other = `To origin\n!\t${ref}\t[remote failure] (remote failed to report status)\nDone\n`;
+    assert.equal(classifyPush({ code: 1, stdout: other, stderr }), 'failed');
+  });
+
   it('fails for anything else, such as a remote hook or no network', () => {
     const hook = `To ../origin.git\n!\t${ref}\t[remote rejected] (pre-receive hook declined)\nDone\n`;
     assert.equal(classifyPush({ code: 1, stdout: hook }), 'failed');
     assert.equal(classifyPush({ code: 128, stdout: '' }), 'failed');
     assert.equal(classifyPush({ code: null, stdout: '' }), 'failed');
+  });
+});
+
+describe('secretRefusal', () => {
+  const commit = 'c'.repeat(40);
+  const page = (id: string) =>
+    `https://github.com/acme/brewery/security/secret-scanning/unblock-secret/${id}`;
+
+  it('names the page GitHub printed when stderr has no unblock URL', () => {
+    const said = secretRefusal({
+      commit,
+      from: 3,
+      through: 5,
+      stderr: 'remote: - GITHUB PUSH PROTECTION\n',
+    });
+    assert.match(said, /commit c{40} with events 3–5 /);
+    assert.match(said, /open the page GitHub printed for this push as the account that pushed/);
+  });
+
+  it('names each unblock URL once, in the order GitHub printed them', () => {
+    const stderr = `remote:   ${page('2b')}\nremote:   ${page('1a')}\nremote:   ${page('2b')}\n`;
+    const said = secretRefusal({ commit, from: 1, through: 1, stderr });
+    assert.match(said, /open (\S+) and (\S+) as the account/);
+    assert.equal(said.match(/unblock-secret/g)?.length, 2);
+    assert.ok(said.includes(`open ${page('2b')} and ${page('1a')} as`));
+  });
+
+  it('says out docs only when the commit holds no event', () => {
+    const said = secretRefusal({ commit, from: 5, through: 4, stderr: '' });
+    assert.match(said, /commit c{40} with out docs only holds/);
+  });
+
+  it('says to revoke a real secret before allowing it, since the branch keeps it for good', () => {
+    const said = secretRefusal({ commit, from: 1, through: 1, stderr: '' });
+    assert.match(said, /revoke or rotate it first.*allow the secret/);
   });
 });

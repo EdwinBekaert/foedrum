@@ -46,6 +46,11 @@ const recipe = `// One brewer step that writes code.
   "name": "stout",
   "type": "brew",
   "description": "Brews an order in one step.",
+  "guidance": {
+    "chooseWhen": "An order a test brews",
+    "notWhen": "An order no test brews",
+    "bestUsed": "In a test"
+  },
   "steps": [{ "id": "brew", "brewer": "cellarman" }, { "action": "openPullRequest" }],
   // It commits with no red proof before it, which only a recipe without test-first may (ADR 0064).
   "testFirst": false

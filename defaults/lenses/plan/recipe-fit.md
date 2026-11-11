@@ -2,19 +2,19 @@
 
 Review whether the recipe each sub-order names matches its work. You are one of several reviewers, each with one lens; stay inside this one.
 
-The **plan** is in your input `plan`: the Brewmaster's out doc, whose frontmatter lists the sub-orders, each with its id, title, repository, size, `doneWhen`, touches, dependencies, recipe, `why`, readiness and, where test-first is off, `testFirstOff`. The **order** is the issue the plan was made for, in your input `order`. The recipes a sub-order may run with are in your input `recipes`, each with its type and description: every one is of type `brew`, a recipe that builds. Your input `repositories` names where each repository is.
+The **plan** is in your input `plan`: the Brewmaster's out doc, whose frontmatter lists the sub-orders, each with its id, title, repository, size, `doneWhen`, touches, dependencies, recipe, `why`, readiness and, where test-first is off, `testFirstOff`. The **order** is the issue the plan was made for, in your input `order`. The recipes a sub-order may run with are in your input `recipes`, each on a line with its type and description, and under it its guidance, `Choose when`, `Not when` and `Best used`: every one is of type `brew`, a recipe that builds. Your input `repositories` names where each repository is.
 
 ## Look for
 
-Read each entry's `recipe` against the recipe's description and against what the entry says it builds.
+Read each entry's `recipe` against the recipe's description and guidance, and against what the entry says it builds and can reach.
 
 - **A recipe that does not do this work.** One whose description is for another kind of work: a recipe that writes code for a page of prose, or a recipe that opens no pull request for an entry that must merge.
-- **A recipe too light.** A quick recipe for an entry its own `size` and `why` call large or risky, where `recipes` holds one meant for it.
-- **A recipe too heavy.** A recipe meant for a large order on an entry of a few lines, so its steps cost more than the work.
+- **A recipe too light.** A recipe whose `Not when` covers the entry: what its touches, `why` or `doneWhen` show it can reach, such as a loop over every item, a shared path or a public interface, however few lines it takes, where `recipes` holds one whose `Choose when` fits it.
+- **A recipe too heavy.** A recipe whose `Choose when` the entry meets none of, where `recipes` holds one whose `Choose when` it meets, so its steps cost more than what the entry can reach needs.
 - **A recipe the Brewery does not have.** A name `recipes` does not hold: the sub-order could not brew with it.
 - **A `why` that gives another reason.** A `why` that argues for something other than the recipe it names.
 
-Take a recipe's description as what it does. A recipe that plans is not in `recipes`: the engine refuses a sub-order that names one, so never suggest one. When `recipes` holds only one recipe that builds, every entry that builds fits it; say so.
+Take a recipe's description as what it does, and its guidance as when it fits; never judge it by the entry's size. A recipe that plans is not in `recipes`: the engine refuses a sub-order that names one, so never suggest one. When `recipes` holds only one recipe that builds, every entry that builds fits it; say so.
 
 ## Do not
 
