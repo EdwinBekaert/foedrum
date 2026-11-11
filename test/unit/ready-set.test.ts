@@ -5,9 +5,10 @@
 
 import assert from 'node:assert/strict';
 import { afterEach, beforeEach, describe, it } from 'node:test';
+import { nextBatchId } from '../../src/engine/batch-id.ts';
 import { type CommandLog, createCommandLog } from '../../src/engine/command-log.ts';
 import type { EventStore } from '../../src/engine/event-store.ts';
-import { fold } from '../../src/engine/fold.ts';
+import { emptyState, fold } from '../../src/engine/fold.ts';
 import {
   createIntake,
   type IntakeNotice,
@@ -25,6 +26,9 @@ import { addedByAuthor } from '../helpers/labels-added.ts';
 const brewery = 'alice/brewery';
 const web = 'acme/web';
 const now = new Date('2026-10-26T12:00:00.000Z');
+
+// Batch ids carry the time they were ordered (ADR 0380): those made at `now`.
+const breweryIdOf = (issue: number): string => nextBatchId(emptyState, issue, now);
 const routeBy = '2026-10-26T13:00:00.000Z';
 /** `minutes` after 10:00 on the day of `now`. */
 const at = (minutes: number): string => new Date(Date.UTC(2026, 9, 26, 10, minutes)).toISOString();
@@ -525,11 +529,11 @@ describe('the intake starts ready sub-orders (ADR 0211)', () => {
   it("orders a sub-order with no blocker under its order's batch, and routes it by its label", async () => {
     recorded(...started(1, [2, 3], [[3, 2]]));
     await poll(tracker([issue(1, at(0)), issue(2, at(1)), issue(3, at(2))]));
-    assert.deepStrictEqual(newBatches(['1-1']), ['2-1 under 1-1']);
-    assert.equal(log.state().batches.get('2-1')?.recipe?.name, 'half');
+    assert.deepStrictEqual(newBatches(['1-1']), [`${breweryIdOf(2)} under 1-1`]);
+    assert.equal(log.state().batches.get(breweryIdOf(2))?.recipe?.name, 'half');
     assert.deepStrictEqual(
       notices.filter(({ kind }) => kind === 'ordered'),
-      [{ kind: 'ordered', repo: brewery, issue: 2, batchId: '2-1' }],
+      [{ kind: 'ordered', repo: brewery, issue: 2, batchId: breweryIdOf(2) }],
     );
   });
 
@@ -541,7 +545,7 @@ describe('the intake starts ready sub-orders (ADR 0211)', () => {
     assert.deepStrictEqual(newBatches(['1-1', '2-1']), []);
     pullRequests[pr(5)] = 'merged';
     await poll(tracker(listed, pullRequests));
-    assert.deepStrictEqual(newBatches(['1-1', '2-1']), ['3-1 under 1-1']);
+    assert.deepStrictEqual(newBatches(['1-1', '2-1']), [`${breweryIdOf(3)} under 1-1`]);
   });
 
   it('orders a sub-order blocked by a release in the first pass after the release is recorded (ADR 0216)', async () => {
@@ -558,7 +562,7 @@ describe('the intake starts ready sub-orders (ADR 0211)', () => {
     assert.deepStrictEqual(newBatches(['1-1', '2-1']), []);
     recorded(released(lib));
     await poll(listed);
-    assert.deepStrictEqual(newBatches(['1-1', '2-1']), ['3-1 under 1-1']);
+    assert.deepStrictEqual(newBatches(['1-1', '2-1']), [`${breweryIdOf(3)} under 1-1`]);
   });
 
   it('never orders a sub-order whose blocker closed its pull request, or is only On tap', async () => {
@@ -592,7 +596,10 @@ describe('the intake starts ready sub-orders (ADR 0211)', () => {
     ];
     await poll(tracker(listed), { capacity: 2 });
     // #10 arrived first: its sub-order goes first, then #1's first in its plan.
-    assert.deepStrictEqual(newBatches(['1-1', '10-1']), ['11-1 under 10-1', '3-1 under 1-1']);
+    assert.deepStrictEqual(newBatches(['1-1', '10-1']), [
+      `${breweryIdOf(11)} under 10-1`,
+      `${breweryIdOf(3)} under 1-1`,
+    ]);
   });
 
   it('orders the sub-orders of an order ranked first ahead of an older order', async () => {
@@ -605,20 +612,20 @@ describe('the intake starts ready sub-orders (ADR 0211)', () => {
     });
     const listed = [issue(10, at(0)), issue(1, at(5)), issue(2, at(6)), issue(11, at(8))];
     await poll(tracker(listed), { capacity: 1 });
-    assert.deepStrictEqual(newBatches(['1-1', '10-1']), ['2-1 under 1-1']);
+    assert.deepStrictEqual(newBatches(['1-1', '10-1']), [`${breweryIdOf(2)} under 1-1`]);
   });
 
   it("puts a started order's next sub-order ahead of a new order of the same place, and behind a higher-ranked one", async () => {
     recorded(...started(5, [6]));
     // #1 is new and arrived in the same second as #5; a number would put it first.
     await poll(tracker([issue(1, at(3)), issue(5, at(3)), issue(6, at(4))]), { capacity: 1 });
-    assert.deepStrictEqual(newBatches(['5-1']), ['6-1 under 5-1']);
+    assert.deepStrictEqual(newBatches(['5-1']), [`${breweryIdOf(6)} under 5-1`]);
 
     store.close();
     store = openSqliteEventStore(':memory:');
     recorded(...started(5, [6]));
     await poll(tracker([issue(1, at(2)), issue(5, at(3)), issue(6, at(4))]), { capacity: 1 });
-    assert.deepStrictEqual(newBatches(['5-1']), ['1-1 under none']);
+    assert.deepStrictEqual(newBatches(['5-1']), [`${breweryIdOf(1)} under none`]);
   });
 
   it('never orders a sub-order whose issue is closed or unlisted, nor one of an order the pass did not list', async () => {
@@ -636,7 +643,7 @@ describe('the intake starts ready sub-orders (ADR 0211)', () => {
     });
     const listed = [issue(1, at(0)), issue(2, at(1)), issue(10, at(2)), issue(11, at(3))];
     await poll(tracker(listed));
-    assert.deepStrictEqual(newBatches(['1-1', '10-1']), ['11-1 under 10-1']);
+    assert.deepStrictEqual(newBatches(['1-1', '10-1']), [`${breweryIdOf(11)} under 10-1`]);
 
     store.close();
     store = openSqliteEventStore(':memory:');
@@ -649,9 +656,9 @@ describe('the intake starts ready sub-orders (ADR 0211)', () => {
     recorded(...started(1, [2, 3]));
     const marked = issue(2, at(1), { labels: ['recipe:half', 'needs-refinement'] });
     await poll(tracker([issue(1, at(0)), marked, issue(3, at(2))]));
-    assert.deepStrictEqual(newBatches(['1-1']), ['3-1 under 1-1']);
+    assert.deepStrictEqual(newBatches(['1-1']), [`${breweryIdOf(3)} under 1-1`]);
     await poll(tracker([issue(1, at(0)), issue(2, at(1)), issue(3, at(2))]));
-    assert.deepStrictEqual(newBatches(['1-1', '3-1']), ['2-1 under 1-1']);
+    assert.deepStrictEqual(newBatches(['1-1', breweryIdOf(3)]), [`${breweryIdOf(2)} under 1-1`]);
   });
 
   it("records on a sub-order's batch the plan entry it was opened from (ADR 0285)", async () => {
@@ -670,19 +677,19 @@ describe('the intake starts ready sub-orders (ADR 0211)', () => {
       onTap('1-1'),
     );
     await poll(tracker([issue(1, at(0)), issue(2, at(1)), issue(3, at(2))]));
-    assert.deepStrictEqual(log.state().batches.get('3-1')?.plan, {
+    assert.deepStrictEqual(log.state().batches.get(breweryIdOf(3))?.plan, {
       batchId: '1-1',
       stepId: 'plan',
       attempt: 2,
       entry: 'ui',
     });
-    assert.deepStrictEqual(log.state().batches.get('2-1')?.plan?.entry, 'api');
+    assert.deepStrictEqual(log.state().batches.get(breweryIdOf(2))?.plan?.entry, 'api');
     assert.equal(log.state().batches.get('1-1')?.plan, undefined);
   });
 
   it('never orders a sub-order that a later breakdown cancelled', async () => {
     recorded(...started(1, [2, 3]), decomposed('1-1', [3]));
     await poll(tracker([issue(1, at(0)), issue(2, at(1)), issue(3, at(2))]));
-    assert.deepStrictEqual(newBatches(['1-1']), ['3-1 under 1-1']);
+    assert.deepStrictEqual(newBatches(['1-1']), [`${breweryIdOf(3)} under 1-1`]);
   });
 });

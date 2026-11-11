@@ -6,10 +6,11 @@ import assert from 'node:assert/strict';
 import { join, sep } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { type CliContext, type CliResult, runCli } from '../../src/cli/run.ts';
+import { nextBatchId, targetBatchId } from '../../src/engine/batch-id.ts';
 import { type CommandLog, createCommandLog } from '../../src/engine/command-log.ts';
 import type { RankOrder } from '../../src/engine/decide.ts';
 import type { EventStore } from '../../src/engine/event-store.ts';
-import { fold } from '../../src/engine/fold.ts';
+import { emptyState, fold } from '../../src/engine/fold.ts';
 import { createIntake, type IntakeOptions, type TargetTracker } from '../../src/engine/intake.ts';
 import type { Claimant, LabelAdded, TargetIssue } from '../../src/engine/issue-claims.ts';
 import { placeAt, type QueuedOrder, rankQueue } from '../../src/engine/ranks.ts';
@@ -25,6 +26,10 @@ const brewery = 'alice/brewery';
 const web = 'acme/web';
 const api = 'acme/api';
 const t0 = new Date('2026-10-20T12:00:00.000Z');
+
+// Batch ids carry the time they were ordered (ADR 0380): those made at `t0`.
+const idOf = (alias: string, issue: number): string => targetBatchId(emptyState, alias, issue, t0);
+const breweryIdOf = (issue: number): string => nextBatchId(emptyState, issue, t0);
 /** `minutes` after 10:00 on the day of t0. */
 const at = (minutes: number): string => new Date(Date.UTC(2026, 9, 20, 10, minutes)).toISOString();
 const alice: Claimant = { brewery, login: 'alice' };
@@ -236,7 +241,7 @@ describe('rankQueue', () => {
         order: { issue: 20 },
         created: at(0),
         source: 0,
-        subOrder: { issue, parentBatchId: '20-1' },
+        subOrder: { issue, parentBatchId: breweryIdOf(20) },
       });
       // #20's sub-orders #21 and #22, then api#1, then #12 and the rest.
       const sorted = rankQueue([...queue, subOrder(21), subOrder(22)], ranksOf());
@@ -302,13 +307,13 @@ describe('the intake in rank order (ADR 0208)', () => {
 
   it('orders the oldest issues across the Brewery and both repositories first', async () => {
     await intake().poll();
-    assert.deepStrictEqual(ordered(), ['web-8', 'api-2']);
+    assert.deepStrictEqual(ordered(), [idOf('web', 8), idOf('api', 2)]);
   });
 
   it('orders a ranked newer issue ahead of the older ones', async () => {
     accept(rank({ issue: 7, repo: web }, position(1, at(1))));
     await intake({ capacity: 1 }).poll();
-    assert.deepStrictEqual(ordered(), ['web-7']);
+    assert.deepStrictEqual(ordered(), [idOf('web', 7)]);
   });
 
   it('orders an order marked first ahead of a ranked one, and a second mark behind the first', async () => {
@@ -316,13 +321,13 @@ describe('the intake in rank order (ADR 0208)', () => {
     accept(rank({ issue: 13 }, first));
     accept(rank({ issue: 12 }, first));
     await intake({ capacity: 3 }).poll();
-    assert.deepStrictEqual(ordered(), ['13-1', '12-1', 'web-7']);
+    assert.deepStrictEqual(ordered(), [breweryIdOf(13), breweryIdOf(12), idOf('web', 7)]);
   });
 
   it('goes on to the next order of the queue past a claim another Brewery holds, which costs no capacity', async () => {
     github.setRef(web, 8, JSON.stringify({ brewery: bob.brewery, issue: 8, claimedAt: at(0) }));
     await intake({ capacity: 1 }).poll();
-    assert.deepStrictEqual(ordered(), ['api-2']);
+    assert.deepStrictEqual(ordered(), [idOf('api', 2)]);
   });
 
   it('skips the rest of a repository whose claim failed in this pass, and goes on with the others', async () => {
@@ -334,7 +339,7 @@ describe('the intake in rank order (ADR 0208)', () => {
       },
     };
     await intake({ claims: failing, capacity: 5 }).poll();
-    assert.deepStrictEqual(ordered(), ['api-2', '12-1', '13-1']);
+    assert.deepStrictEqual(ordered(), [idOf('api', 2), breweryIdOf(12), breweryIdOf(13)]);
   });
 
   it('orders and claims nothing under pause --all, whatever the ranks', async () => {
@@ -351,14 +356,14 @@ describe('the intake in rank order (ADR 0208)', () => {
     accept(rank({ issue: 7, repo: web }, position(1, at(1))));
     log = createCommandLog({ store, recipes });
     await intake().poll();
-    assert.deepStrictEqual(ordered(), ['13-1', 'web-7']);
+    assert.deepStrictEqual(ordered(), [breweryIdOf(13), idOf('web', 7)]);
   });
 
   it('claims and orders an issue once when a shifting listing returns it twice', async () => {
     // Pages of a listing shift while it is read, so one issue can come back on two of them.
     const twice = { ...listings(), [web]: [issue(8, at(1)), issue(8, at(1))], [api]: [] };
     await intake({ tracker: fakeTracker(twice), capacity: 5 }).poll();
-    assert.deepStrictEqual(ordered(), ['web-8', '12-1', '13-1']);
+    assert.deepStrictEqual(ordered(), [idOf('web', 8), breweryIdOf(12), breweryIdOf(13)]);
     assert.equal(github.calls.get('create'), 1);
   });
 
@@ -376,7 +381,7 @@ describe('the intake in rank order (ADR 0208)', () => {
       via: 'terminal',
       why: 'the release',
     });
-    accept({ kind: 'order', batchId: 'web-7', order: { issue: 7, repo: web } });
+    accept({ kind: 'order', batchId: idOf('web', 7), order: { issue: 7, repo: web } });
     assert.deepStrictEqual(log.issue(rank({ issue: 7, repo: web }, first), t0), {
       kind: 'refused',
       reason: 'acme/web#7 is already ordered: a rank orders only the queue',
@@ -582,18 +587,24 @@ describe('foedrum rank (ADR 0208)', () => {
   it('refuses an order that has a batch, a sub-order, and the target issue of a live Brewery issue', async () => {
     const accept = (command: Parameters<CommandLog['issue']>[0]): void =>
       assert.equal(log.issue(command, t0).kind, 'accepted', JSON.stringify(command));
-    accept({ kind: 'order', batchId: 'web-7', order: { issue: 7, repo: web } });
+    accept({ kind: 'order', batchId: idOf('web', 7), order: { issue: 7, repo: web } });
     accept({
       kind: 'record',
-      event: { type: 'effect.applied', key: '["web-7","order.issue"]', result: 12 },
+      event: { type: 'effect.applied', key: `["${idOf('web', 7)}","order.issue"]`, result: 12 },
     });
-    accept({ kind: 'order', batchId: '30-1', order: { issue: 30 } });
-    accept({ kind: 'route', batchId: '30-1', recipe: 'half', reason: 'label', source: 'label' });
+    accept({ kind: 'order', batchId: breweryIdOf(30), order: { issue: 30 } });
+    accept({
+      kind: 'route',
+      batchId: breweryIdOf(30),
+      recipe: 'half',
+      reason: 'label',
+      source: 'label',
+    });
     accept({
       kind: 'record',
       event: {
         type: 'order.decomposed',
-        batchId: '30-1',
+        batchId: breweryIdOf(30),
         subOrders: [{ issue: 31, repo: web }],
         dependencies: [],
       },
@@ -632,12 +643,12 @@ describe('foedrum rank (ADR 0208)', () => {
       queue: () => ({ tracker: fakeTracker(withOrder()), login: async () => 'alice' }),
     };
     beforeEach(() => {
-      accept({ kind: 'order', batchId: '30-1', order: { issue: 30 } });
+      accept({ kind: 'order', batchId: breweryIdOf(30), order: { issue: 30 } });
       accept({
         kind: 'record',
         event: {
           type: 'order.decomposed',
-          batchId: '30-1',
+          batchId: breweryIdOf(30),
           subOrders: [
             { issue: 31, repo: web },
             { issue: 32, repo: web },
@@ -656,7 +667,12 @@ describe('foedrum rank (ADR 0208)', () => {
     });
 
     it('accepts one whose sub-orders left wait for a blocker, placed at its arrival', async () => {
-      accept({ kind: 'order', batchId: '31-1', order: { issue: 31 }, parentBatchId: '30-1' });
+      accept({
+        kind: 'order',
+        batchId: breweryIdOf(31),
+        order: { issue: 31 },
+        parentBatchId: breweryIdOf(30),
+      });
       assert.deepStrictEqual(
         await run(['rank', '#30'], queue),
         ok('#30: place 6 of 6 in the queue, by its arrival\n'),
@@ -668,8 +684,18 @@ describe('foedrum rank (ADR 0208)', () => {
     });
 
     it('refuses it once every sub-order has a batch', async () => {
-      accept({ kind: 'order', batchId: '31-1', order: { issue: 31 }, parentBatchId: '30-1' });
-      accept({ kind: 'order', batchId: '32-1', order: { issue: 32 }, parentBatchId: '30-1' });
+      accept({
+        kind: 'order',
+        batchId: breweryIdOf(31),
+        order: { issue: 31 },
+        parentBatchId: breweryIdOf(30),
+      });
+      accept({
+        kind: 'order',
+        batchId: breweryIdOf(32),
+        order: { issue: 32 },
+        parentBatchId: breweryIdOf(30),
+      });
       const before = lastId();
       assert.deepStrictEqual(
         await run(['rank', '#30', '1'], queue),
@@ -683,7 +709,7 @@ describe('foedrum rank (ADR 0208)', () => {
         kind: 'record',
         event: {
           type: 'order.decomposed',
-          batchId: '30-1',
+          batchId: breweryIdOf(30),
           subOrders: [
             { issue: 31, repo: web },
             { issue: 32, repo: web },
@@ -702,7 +728,12 @@ describe('foedrum rank (ADR 0208)', () => {
     });
 
     it('refuses one whose issue is closed, though sub-orders of it are left', async () => {
-      accept({ kind: 'order', batchId: '31-1', order: { issue: 31 }, parentBatchId: '30-1' });
+      accept({
+        kind: 'order',
+        batchId: breweryIdOf(31),
+        order: { issue: 31 },
+        parentBatchId: breweryIdOf(30),
+      });
       const closed: Partial<CliContext> = {
         queue: () => {
           const listed = withOrder();
@@ -778,10 +809,11 @@ describe('foedrum rank (ADR 0208)', () => {
     await run(['rank', 'web#7', '1', '--why', 'the release']);
     await run(['rank', 'api#2', 'first']);
     assert.equal(
-      log.issue({ kind: 'order', batchId: 'web-7', order: { issue: 7, repo: web } }, t0).kind,
+      log.issue({ kind: 'order', batchId: idOf('web', 7), order: { issue: 7, repo: web } }, t0)
+        .kind,
       'accepted',
     );
-    const replay = (await run(['replay', 'web-7'])).stdout;
+    const replay = (await run(['replay', idOf('web', 7)])).stdout;
     assert.match(
       replay,
       /order\.ranked +\{"order":\{"issue":7,"repo":"acme\/web"\},"place":\{"kind":"position","position":1,"arrival":"2026-10-20T10:01:00\.000Z","tie":0\},"by":"ada","via":"terminal","why":"the release"\}/,

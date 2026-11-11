@@ -6,11 +6,12 @@ import assert from 'node:assert/strict';
 import { join, sep } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { type CliContext, type CliResult, runCli } from '../../src/cli/run.ts';
+import { nextBatchId, targetBatchId } from '../../src/engine/batch-id.ts';
 import { calledAs } from '../../src/engine/claim-orders.ts';
 import { createCommandLog } from '../../src/engine/command-log.ts';
 import { effectKey } from '../../src/engine/effect-key.ts';
 import type { EventStore } from '../../src/engine/event-store.ts';
-import { foldedBatch } from '../../src/engine/fold.ts';
+import { emptyState, foldedBatch } from '../../src/engine/fold.ts';
 import { pauseOf } from '../../src/engine/pauses.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import { BreweryConfig } from '../../src/schemas/brewery-config.ts';
@@ -21,6 +22,10 @@ import { fakeRecipe, fakeRecipes } from '../helpers/fake-recipes.ts';
 
 const cwd = join(sep, 'work', 'brewery');
 const t0 = new Date('2026-10-15T12:00:00.000Z');
+
+// Batch ids carry the time they were ordered (ADR 0380): those made at `t0`.
+const idOf = (alias: string, issue: number): string => targetBatchId(emptyState, alias, issue, t0);
+const breweryIdOf = (issue: number): string => nextBatchId(emptyState, issue, t0);
 const SHA = '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
 const WEB = 'acme/web';
 const recipes = fakeRecipes({
@@ -84,9 +89,9 @@ describe('one number per piece of work (ADR 0329)', () => {
     store = openSqliteEventStore(':memory:');
     // web-7, Brewery issue #40, used up its attempts at plan; web-8, #41, asks one question;
     // web-9, #42, waits with a plan; web-10, #43, brews.
-    claimed('web-7', 7, 40);
-    issue({ kind: 'finish', batchId: 'web-7', ...plan1, ending: failed });
-    claimed('web-8', 8, 41);
+    claimed(idOf('web', 7), 7, 40);
+    issue({ kind: 'finish', batchId: idOf('web', 7), ...plan1, ending: failed });
+    claimed(idOf('web', 8), 8, 41);
     const question = {
       q: 'Which database?',
       options: ['sqlite', 'redis'],
@@ -95,18 +100,18 @@ describe('one number per piece of work (ADR 0329)', () => {
     };
     issue({
       kind: 'finish',
-      batchId: 'web-8',
+      batchId: idOf('web', 8),
       ...plan1,
       ending: { kind: 'needs_input', questions: [question] },
     });
-    claimed('web-9', 9, 42, 'mash');
+    claimed(idOf('web', 9), 9, 42, 'mash');
     issue({
       kind: 'finish',
-      batchId: 'web-9',
+      batchId: idOf('web', 9),
       ...plan1,
       ending: { kind: 'succeeded', output: plan },
     });
-    claimed('web-10', 10, 43);
+    claimed(idOf('web', 10), 10, 43);
   });
   afterEach(() => store.close());
 
@@ -148,36 +153,36 @@ describe('one number per piece of work (ADR 0329)', () => {
 
   it("foedrum retry takes a Brewery issue's number and acts on its latest batch", async () => {
     await accepted(['retry', '40']);
-    assert.equal(laneOf('web-7'), 'brewing');
+    assert.equal(laneOf(idOf('web', 7)), 'brewing');
   });
 
   it("foedrum answer takes a Brewery issue's number and answers its latest batch", async () => {
     await accepted(['answer', '41', 'sqlite']);
-    assert.equal(laneOf('web-8'), 'brewing');
+    assert.equal(laneOf(idOf('web', 8)), 'brewing');
   });
 
   it("foedrum approve takes a Brewery issue's number and signs off its latest batch's plan", async () => {
     await accepted(['approve', '42']);
-    assert.equal(laneOf('web-9'), 'on_tap');
+    assert.equal(laneOf(idOf('web', 9)), 'on_tap');
   });
 
   it("foedrum cancel takes a Brewery issue's number and cancels its latest batch", async () => {
     await accepted(['cancel', '43']);
-    assert.equal(laneOf('web-10'), 'cancelled');
+    assert.equal(laneOf(idOf('web', 10)), 'cancelled');
   });
 
   it("foedrum skip takes a Brewery issue's number and goes on with its latest batch", async () => {
     await accepted(['skip', '40']);
-    assert.equal(laneOf('web-7'), 'brewing');
+    assert.equal(laneOf(idOf('web', 7)), 'brewing');
     assert.ok(
-      events().some((event) => event.type === 'batch.resumed' && event.batchId === 'web-7'),
+      events().some((event) => event.type === 'batch.resumed' && event.batchId === idOf('web', 7)),
     );
   });
 
   it("foedrum rewind takes a Brewery issue's number and rewinds its latest batch", async () => {
     await accepted(['rewind', '40', 'plan', `${WEB}=${SHA}`]);
     assert.ok(
-      events().some((event) => event.type === 'batch.rewound' && event.batchId === 'web-7'),
+      events().some((event) => event.type === 'batch.rewound' && event.batchId === idOf('web', 7)),
     );
   });
 
@@ -195,49 +200,55 @@ describe('one number per piece of work (ADR 0329)', () => {
       return { exitCode: 0, stdout: '', stderr: '' };
     };
     assert.equal((await run(['resume', '40', 'plan#1'], { resume })).exitCode, 0);
-    assert.deepStrictEqual(opened, [{ batch: 'web-7', step: 'plan#1' }]);
+    assert.deepStrictEqual(opened, [{ batch: idOf('web', 7), step: 'plan#1' }]);
   });
 
   it("foedrum takeover takes a Brewery issue's number and hands over its latest batch", async () => {
     const expiresAt = new Date(t0.getTime() + 60_000);
     store.withTransaction((tx) =>
-      tx.putBatchLease({ batchId: 'web-7', owner: 'cellar', expiresAt }),
+      tx.putBatchLease({ batchId: idOf('web', 7), owner: 'cellar', expiresAt }),
     );
     await accepted(['takeover', '40', '--as', 'ann']);
     const leases = store.batchLeases(t0).map(({ batchId, owner }) => [batchId, owner]);
-    assert.deepStrictEqual(leases, [['web-7', 'ann']]);
+    assert.deepStrictEqual(leases, [[idOf('web', 7), 'ann']]);
   });
 
   it('a number with two batches means the later one', async () => {
-    issue({ kind: 'cancel', batchId: 'web-7', by: 'ada', via: 'terminal' });
+    issue({ kind: 'cancel', batchId: idOf('web', 7), by: 'ada', via: 'terminal' });
     for (const effect of ['release.label', 'release.comment', 'release.ref']) {
-      record('web-7', effect, 'done');
+      record(idOf('web', 7), effect, 'done');
     }
     issue({
       kind: 'order_again',
-      batchId: 'web-7-2',
+      batchId: `${idOf('web', 7)}-2`,
       order: { issue: 7, repo: WEB },
       by: 'a',
       via: 'terminal',
     });
-    issue({ kind: 'route', batchId: 'web-7-2', recipe: 'pint', reason: 'label', source: 'label' });
+    issue({
+      kind: 'route',
+      batchId: `${idOf('web', 7)}-2`,
+      recipe: 'pint',
+      reason: 'label',
+      source: 'label',
+    });
     await accepted(['cancel', '40']);
-    assert.equal(laneOf('web-7-2'), 'cancelled');
+    assert.equal(laneOf(`${idOf('web', 7)}-2`), 'cancelled');
     const cancels = events().flatMap((event) =>
       event.type === 'batch.cancelled' ? [event.batchId] : [],
     );
-    assert.deepStrictEqual(cancels, ['web-7', 'web-7-2']);
+    assert.deepStrictEqual(cancels, [idOf('web', 7), `${idOf('web', 7)}-2`]);
   });
 
   /** web-7 cancelled and ordered again as web-7-2, whose order is still #40. */
   const orderedAgain = () => {
-    issue({ kind: 'cancel', batchId: 'web-7', by: 'ada', via: 'terminal' });
+    issue({ kind: 'cancel', batchId: idOf('web', 7), by: 'ada', via: 'terminal' });
     for (const effect of ['release.label', 'release.comment', 'release.ref']) {
-      record('web-7', effect, 'done');
+      record(idOf('web', 7), effect, 'done');
     }
     issue({
       kind: 'order_again',
-      batchId: 'web-7-2',
+      batchId: `${idOf('web', 7)}-2`,
       order: { issue: 7, repo: WEB },
       by: 'a',
       via: 'terminal',
@@ -250,18 +261,18 @@ describe('one number per piece of work (ADR 0329)', () => {
 
   it("the latest batch's line names the number", () => {
     orderedAgain();
-    assert.equal(called('web-7-2'), '40');
+    assert.equal(called(`${idOf('web', 7)}-2`), '40');
   });
 
   it("an older batch's line names its id, since the number means the latest", () => {
     orderedAgain();
-    assert.equal(called('web-7'), 'web-7');
+    assert.equal(called(idOf('web', 7)), idOf('web', 7));
   });
 
   it('foedrum takeover of an older batch names its id and offers no brew, which takes none', async () => {
     orderedAgain();
-    const result = await run(['takeover', 'web-7', '--as', 'ann']);
-    assert.equal(result.stderr, 'foedrum takeover: no driver holds batch web-7\n');
+    const result = await run(['takeover', idOf('web', 7), '--as', 'ann']);
+    assert.equal(result.stderr, `foedrum takeover: no driver holds batch ${idOf('web', 7)}\n`);
   });
 
   it("foedrum stuck offers an older batch's options by its id", async () => {
@@ -269,14 +280,14 @@ describe('one number per piece of work (ADR 0329)', () => {
     store.withTransaction((tx) =>
       tx.append({
         type: 'batch.ordered',
-        batchId: 'web-8-2',
+        batchId: `${idOf('web', 8)}-2`,
         order: { issue: 8, repo: WEB },
         routeBy: t0.toISOString(),
       }),
     );
     const { stdout } = await run(['stuck']);
     const runAs = stdout.split('\n').filter((line) => line.includes('run as:'));
-    assert.deepStrictEqual(runAs, ['  run as: foedrum <option> web-8']);
+    assert.deepStrictEqual(runAs, [`  run as: foedrum <option> ${idOf('web', 8)}`]);
   });
 
   it("a command's line on a claimed order leads with the number", async () => {
@@ -321,7 +332,7 @@ describe('one number per piece of work (ADR 0329)', () => {
   });
 
   it('foedrum pause of a claimed order that ended names the number', async () => {
-    issue({ kind: 'cancel', batchId: 'web-7', by: 'ada', via: 'terminal' });
+    issue({ kind: 'cancel', batchId: idOf('web', 7), by: 'ada', via: 'terminal' });
     const result = await run(['pause', '40']);
     assert.equal(
       result.stderr,
@@ -332,7 +343,7 @@ describe('one number per piece of work (ADR 0329)', () => {
   it("foedrum pause of a claimed order's number holds its batches", async () => {
     await accepted(['pause', '43']);
     const state = log().state();
-    const batch = state.batches.get('web-10');
+    const batch = state.batches.get(idOf('web', 10));
     assert.ok(batch !== undefined && pauseOf(state, batch) !== undefined);
     const paused = events().at(-1);
     assert.equal(paused?.type, 'order.paused');
@@ -345,18 +356,18 @@ describe('one number per piece of work (ADR 0329)', () => {
   it("foedrum continue of a claimed order's number lifts a pause recorded by its target issue", async () => {
     issue({ kind: 'pause', order: { issue: 10, repo: WEB }, by: 'ada', via: 'terminal' });
     const state = log().state();
-    const batch = state.batches.get('web-10');
+    const batch = state.batches.get(idOf('web', 10));
     assert.ok(batch !== undefined && pauseOf(state, batch) !== undefined);
     await accepted(['continue', '43']);
     const after = log().state();
-    const lifted = after.batches.get('web-10');
+    const lifted = after.batches.get(idOf('web', 10));
     assert.ok(lifted !== undefined);
     assert.equal(pauseOf(after, lifted), undefined);
   });
 
   it("foedrum stop of a claimed order's number makes its brewing batch Stuck", async () => {
     await accepted(['stop', '43']);
-    assert.equal(laneOf('web-10'), 'stuck');
+    assert.equal(laneOf(idOf('web', 10)), 'stuck');
   });
 
   it("foedrum rank of a claimed order's number is refused by that number", async () => {
@@ -404,21 +415,25 @@ describe('one number per piece of work (ADR 0329)', () => {
     }
 
     it('a batch whose Brewery issue is not open yet still goes by its target issue', async () => {
-      issue({ kind: 'order', batchId: 'web-11', order: { issue: 11, repo: WEB } });
+      issue({ kind: 'order', batchId: idOf('web', 11), order: { issue: 11, repo: WEB } });
       await accepted(['cancel', 'web#11']);
-      assert.equal(laneOf('web-11'), 'cancelled');
+      assert.equal(laneOf(idOf('web', 11)), 'cancelled');
     });
 
     it('a Brewery issue a person deleted leaves the target issue to claim again by its name', async () => {
       const { host } = fakeGitHub();
-      issue({ kind: 'cancel', batchId: 'web-7', by: 'ada', via: 'terminal' });
+      issue({ kind: 'cancel', batchId: idOf('web', 7), by: 'ada', via: 'terminal' });
       for (const effect of ['release.label', 'release.comment', 'release.ref']) {
-        record('web-7', effect, 'done');
+        record(idOf('web', 7), effect, 'done');
       }
-      record('web-7', 'release.order', 'gone');
+      record(idOf('web', 7), 'release.order', 'gone');
       const result = await run(['order', 'web#7'], { claims: () => host });
       assert.equal(result.exitCode, 0, result.stderr);
-      assert.ok(log().state().batches.has('web-7-2'));
+      assert.ok(
+        log()
+          .state()
+          .batches.has(`${idOf('web', 7)}-2`),
+      );
     });
 
     it('an unknown alias is refused with the line it always had', async () => {
@@ -458,37 +473,43 @@ describe('one number per piece of work (ADR 0329)', () => {
     };
 
     it('foedrum status names its number once its Brewery issue is open', async () => {
-      parked('web-20', 20);
-      record('web-20', 'order.issue', 50);
+      parked(idOf('web', 20), 20);
+      record(idOf('web', 20), 'order.issue', 50);
       assert.match((await run(['status'])).stdout, /foedrum brew 50 --take opens it/);
     });
 
     it('foedrum stuck names its number once its Brewery issue is open', async () => {
-      parked('web-20', 20);
-      record('web-20', 'order.issue', 50);
+      parked(idOf('web', 20), 20);
+      record(idOf('web', 20), 'order.issue', 50);
       assert.match((await run(['stuck'])).stdout, /foedrum brew 50 --take opens it/);
     });
 
     it('foedrum replay names its number once its Brewery issue is open', async () => {
-      parked('web-20', 20);
-      record('web-20', 'order.issue', 50);
+      parked(idOf('web', 20), 20);
+      record(idOf('web', 20), 'order.issue', 50);
       assert.match((await run(['replay', '50'])).stdout, /foedrum brew 50 --take opens it/);
     });
 
     it('foedrum status names its target issue until its Brewery issue is open', async () => {
-      parked('web-20', 20);
+      parked(idOf('web', 20), 20);
       assert.match((await run(['status'])).stdout, /foedrum brew web#20 --take opens it/);
     });
   });
 
   describe('a target issue ordered again: regression tests', () => {
     const orderedAgain = () => {
-      issue({ kind: 'cancel', batchId: 'web-7', by: 'ada', via: 'terminal' });
+      issue({ kind: 'cancel', batchId: idOf('web', 7), by: 'ada', via: 'terminal' });
       for (const effect of ['release.label', 'release.comment', 'release.ref']) {
-        record('web-7', effect, 'done');
+        record(idOf('web', 7), effect, 'done');
       }
       const order = { issue: 7, repo: WEB };
-      issue({ kind: 'order_again', batchId: 'web-7-2', order, by: 'a', via: 'terminal' });
+      issue({
+        kind: 'order_again',
+        batchId: `${idOf('web', 7)}-2`,
+        order,
+        by: 'a',
+        via: 'terminal',
+      });
     };
 
     it('is refused by its target issue while the Brewery issue an earlier batch opened is alive', async () => {
@@ -501,17 +522,17 @@ describe('one number per piece of work (ADR 0329)', () => {
 
     it('goes by its target issue once its reopen found that Brewery issue gone', async () => {
       orderedAgain();
-      record('web-7-2', 'order.reopen', 'gone');
+      record(`${idOf('web', 7)}-2`, 'order.reopen', 'gone');
       await accepted(['cancel', 'web#7']);
-      assert.equal(laneOf('web-7-2'), 'cancelled');
+      assert.equal(laneOf(`${idOf('web', 7)}-2`), 'cancelled');
     });
   });
 
   it("foedrum order of a number claims by the repository's alias now, after the alias was renamed", async () => {
     const { host } = fakeGitHub();
-    issue({ kind: 'cancel', batchId: 'web-7', by: 'ada', via: 'terminal' });
+    issue({ kind: 'cancel', batchId: idOf('web', 7), by: 'ada', via: 'terminal' });
     for (const effect of ['release.label', 'release.comment', 'release.ref']) {
-      record('web-7', effect, 'done');
+      record(idOf('web', 7), effect, 'done');
     }
     const renamed = BreweryConfig.parse({
       brewery: 'acme/brewery',
@@ -521,17 +542,17 @@ describe('one number per piece of work (ADR 0329)', () => {
     });
     const result = await run(['order', '40'], { config: () => renamed, claims: () => host });
     assert.equal(result.exitCode, 0, result.stderr);
-    assert.ok(log().state().batches.has('site-7'));
+    assert.ok(log().state().batches.has(idOf('site', 7)));
   });
 
   it('a batch id still works: regression test', async () => {
-    await accepted(['retry', 'web-7']);
-    assert.equal(laneOf('web-7'), 'brewing');
+    await accepted(['retry', idOf('web', 7)]);
+    assert.equal(laneOf(idOf('web', 7)), 'brewing');
   });
 
   it("a Brewery issue's own batch goes by its number too", async () => {
-    issue({ kind: 'order', batchId: '30-1', order: { issue: 30 } });
+    issue({ kind: 'order', batchId: breweryIdOf(30), order: { issue: 30 } });
     await accepted(['cancel', '#30']);
-    assert.equal(laneOf('30-1'), 'cancelled');
+    assert.equal(laneOf(breweryIdOf(30)), 'cancelled');
   });
 });
