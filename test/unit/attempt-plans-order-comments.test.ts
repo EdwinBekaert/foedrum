@@ -1064,8 +1064,8 @@ describe("a label-approved order's comments are those made before its approval (
     );
     const { prompt } = await plans.plan(startOf('web-7'));
     assert.deepEqual(
-      inputsIn(prompt).map(({ source }) => source),
-      ['issue #7 body'],
+      inputsIn(prompt).map(({ text }) => text),
+      ['Add a --json flag.'],
     );
   });
 
