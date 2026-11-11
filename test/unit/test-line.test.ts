@@ -35,6 +35,19 @@ describe('readTestLine: a line that saves a report already (ADR 0376)', () => {
     );
   });
 
+  it('counts a report only where the reporter and its file are both given', () => {
+    for (const [line, saves] of [
+      ['vitest run --reporter=junit', false],
+      ['vitest run --reporter junit --outputFile junit.xml', true],
+      ['dotnet test --logger:trx', false],
+      ['dotnet test --logger trx', false],
+      ['node --test --test-reporter=tap --test-reporter-destination=out.tap test/', true],
+      ['pytest --junit-xml junit.xml', true],
+    ] as const) {
+      assert.equal(readTestLine(line).saves, saves, line);
+    }
+  });
+
   it('does not count a node destination of stdout or stderr as a saved report', () => {
     for (const to of ['stdout', 'stderr']) {
       const line = `node --test --test-reporter=junit --test-reporter-destination=${to} test/`;
