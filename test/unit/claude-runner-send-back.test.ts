@@ -100,6 +100,8 @@ const setup = (
     clock?: { now: Date };
     /** Runs as claude starts, before it writes a line, with how many starts there were. */
     onStart?: (starts: number) => void;
+    /** Why the second start of claude throws, if it does. */
+    resumeThrows?: string;
     /** What git says of the commits after the start; default one. */
     commits?: CommitsSeen;
   } = {},
@@ -114,6 +116,9 @@ const setup = (
     stream: async (_file, args, streamOptions) => {
       starts.push({ args, options: streamOptions });
       options.onStart?.(starts.length);
+      if (starts.length === 2 && options.resumeThrows !== undefined) {
+        throw new Error(options.resumeThrows);
+      }
       const played = [plays[0], options.resumed ?? plays[1]];
       for (const line of played[Math.min(starts.length, played.length) - 1] ?? []) {
         streamOptions.onLine(line);
@@ -397,5 +402,22 @@ describe('claudeBrewerRunner: the checks before the end (ADR 0381)', () => {
         appendSystemPromptFile: '/work/attempt/system.md',
       }),
     );
+  });
+  it('runs no checks for a plan that names no clone to count its commits in', async () => {
+    const { commits: _, ...uncounted } = plan();
+    const { checked, runner } = setup({ plan: uncounted, failing: () => true });
+    await runner.start(attempt).ended;
+    assert.deepEqual(checked, []);
+  });
+
+  it('keeps the first end when the resume cannot start', async () => {
+    const { starts, runner } = setup({ failing: () => true, resumeThrows: 'spawn EAGAIN' });
+    const end = await runner.start(attempt).ended;
+    assert.equal(starts.length, 2);
+    assert.deepEqual(end.ending, {
+      kind: 'succeeded',
+      output: { status: 'done', summary: 'Implemented', assumptions: [] },
+    });
+    assert.equal(end.receipt?.resumed, undefined);
   });
 });

@@ -100,13 +100,20 @@ const checks: RepositoryChecks = {
   test: { run: 'node --test', files: true },
 };
 
-const plansOf = (events: Event[], readers: { git?: Git; testMapAt?: ReadTestMapAt } = {}) =>
+const plansOf = (
+  events: Event[],
+  readers: { git?: Git; testMapAt?: ReadTestMapAt; repoChecks?: RepositoryChecks | null } = {},
+) =>
   createAttemptPlans({
     state: () => fold(events),
     brewers: loaded.brewers,
     models: { models: { builder: 'claude-sonnet-5-5', reader: 'claude-haiku-5-5' }, brewers: {} },
     repoTools: () => ['Bash(npm test)'],
-    repoChecks: (repo) => (repo === 'acme/api' ? checks : undefined),
+    // null: foedrum.jsonc gives the repository no checks.
+    repoChecks: (repo) =>
+      repo !== 'acme/api' || readers.repoChecks === null
+        ? undefined
+        : (readers.repoChecks ?? checks),
     provenStep: (recipe) => loaded.checks.redProof(recipe)?.of,
     clone: (repo) => join('/clones', repo),
     git: readers.git ?? git,
@@ -225,5 +232,12 @@ describe('createAttemptPlans: the checks before the end (ADR 0381)', () => {
       assert.ok(every.has(brewer), brewer);
     }
     assert.deepEqual([...asking].sort(), ['cellarman', 'finer']);
+  });
+  it('holds no checks for a repository foedrum.jsonc gives none', async () => {
+    const events = [...ordered, ...gauged, ...started('implement', 'c'.repeat(40))];
+    const plan = await plansOf(events, { repoChecks: null }).plan(startOf('implement'));
+    assert.equal(plan.sendBack, undefined);
+    // The same plan with checks holds them, so their absence above is the repository's.
+    assert.ok((await plansOf(events).plan(startOf('implement'))).sendBack !== undefined);
   });
 });
