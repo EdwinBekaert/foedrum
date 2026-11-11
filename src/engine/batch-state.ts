@@ -6,7 +6,6 @@ import type { StuckReason, WaitCondition } from '../schemas/events.ts';
 import { type Batch, batchEnded, runningAttempt, type State, unendedPullRequests } from './fold.ts';
 import { type LeftWhy, orderEnd, type SubOrderRow, subOrderRows } from './order-end.ts';
 import { pauseOf } from './pauses.ts';
-import { windowHolds } from './usage-window.ts';
 
 /** What a batch waits for a person to do. */
 export type WaitingFor =
@@ -173,7 +172,9 @@ export const stateOf = (state: State, batch: Batch): BatchState => {
       : [];
   return batchState(batch, {
     paused: pauseOf(state, batch) !== undefined,
-    usageHeld: windowHolds(state.usageWindows, undefined),
+    // Only the window of every brewer holds a batch between steps: a family's holds only its own
+    // brewers, and the next step may run on the other family or be a check (ADR 0215).
+    usageHeld: state.usageWindows.all !== undefined,
     subOrders,
   });
 };

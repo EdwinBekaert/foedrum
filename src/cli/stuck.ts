@@ -46,7 +46,12 @@ const openLines = (state: State, batch: Batch, reason: StuckReason): string[] =>
 export const formatStuck = (state: State): string => {
   const waiting = [...state.batches.values()].flatMap((batch) => {
     const now = stateOf(state, batch);
-    return now.kind === 'waiting' && now.subOrder === undefined ? [{ batch, now }] : [];
+    // A split order that waits only through a sub-order whose own batch waits is listed as that
+    // sub-order; one that a left sub-order keeps open (closed, cancelled, needs refinement) is
+    // listed itself, since nothing else would be.
+    const throughSubOrder =
+      now.kind === 'waiting' && now.subOrder !== undefined && now.for.kind !== 'look-at-failure';
+    return now.kind === 'waiting' && !throughSubOrder ? [{ batch, now }] : [];
   });
   const listed = new Set(waiting.map(({ batch }) => batch.id));
   // A batch marked failing that waits for no one, which no other line here shows (ADR 0335).
@@ -84,9 +89,13 @@ export const formatStuck = (state: State): string => {
     ),
     '',
   );
-  const lines = waiting.flatMap(({ batch }, i) => {
+  const lines = waiting.flatMap(({ batch, now }, i) => {
     const { lane } = batch;
     const head = heads[i] ?? '';
+    // A split order a sub-order keeps open: that sub-order is what to see to, as the comment says.
+    if (now.kind === 'waiting' && now.subOrder !== undefined) {
+      return [head, `  Next: see to what keeps the order open (#${now.subOrder}).`];
+    }
     if (lane.kind !== 'stuck') {
       // On tap with a pull request open: a person reviews and merges it.
       const open = unendedPullRequests(batch);

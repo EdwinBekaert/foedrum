@@ -66,7 +66,7 @@ import { pastBySkip, pastLine } from './skip-past.ts';
 import { outDocLink, outDocPlace } from './state-branch.ts';
 import { plainReason } from './supervisor.ts';
 import { mutantLines } from './survivors.ts';
-import { usageWindowsText, windowHolds } from './usage-window.ts';
+import { usageWindowsText } from './usage-window.ts';
 import { whenText } from './when.ts';
 import { attemptName, blockerText, surfaceText, tryName } from './words.ts';
 
@@ -1337,7 +1337,7 @@ export const renderStatus = (
   /** What the batch is to a person (ADR 0379): `stateOf`'s, which reads its sub-orders' batches. */
   now: BatchState = batchState(batch, {
     paused: paused !== undefined,
-    usageHeld: windowHolds(usageWindows, undefined),
+    usageHeld: usageWindows.all !== undefined,
     subOrders: subOrderPulls.map((row) => ({ row })),
   }),
 ): string => {
