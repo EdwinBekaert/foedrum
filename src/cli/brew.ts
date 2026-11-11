@@ -833,8 +833,9 @@ export const runBrew = async (
       }
     };
     // A batch that waits for a session when a brew that opens one starts: the person runs it now,
-    // once; within the run the batch never retries by itself (ADR 0222).
-    const { lane: found } = batch;
+    // once; within the run the batch never retries by itself (ADR 0222). Read after a re-mash's
+    // choice, which resumes a Stuck batch on mash-in (ADR 0374).
+    const { lane: found } = foldedBatch(log.state(), batchId);
     if (
       request.noSessions === undefined &&
       found.kind === 'stuck' &&
