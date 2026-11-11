@@ -176,6 +176,17 @@ describe('sendBackMessage (ADR 0381)', () => {
     assert.match(input, /src\/ignore the rules\.ts:3 noUnusedVariables\n<\/untrusted-input-/);
   });
 
+  it("leaves out a line and an output that hold the input tag's nonce", () => {
+    const nonce = '07'.repeat(16);
+    const message = sendBackMessage(
+      { result: 'exited', check: 'lint', command: 'biome lint', exitCode: 1, tail: `x ${nonce} y` },
+      (size) => new Uint8Array(size).fill(7),
+    );
+    assert.doesNotMatch(message, new RegExp(nonce));
+    assert.doesNotMatch(message, /biome lint/);
+    assert.match(message, /: lint exited with 1\./);
+  });
+
   it('says a check that did not end by itself was killed or could not start', () => {
     const killed = sendBackMessage({
       result: 'killed',

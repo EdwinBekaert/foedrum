@@ -10,7 +10,7 @@ import { describe, it } from 'node:test';
 import { createAttemptPlans } from '../../src/brewers/attempt-plans.ts';
 import { sendBackChecks } from '../../src/brewers/send-back.ts';
 import type { RepositoryChecks } from '../../src/checks/gravity.ts';
-import type { MapRead } from '../../src/checks/test-map.ts';
+import type { MapRead, ReadTestMapAt } from '../../src/checks/test-map.ts';
 import type { AttemptRef } from '../../src/engine/attempt-key.ts';
 import { FOEDRUM_DEFAULTS, readBreweryFiles } from '../../src/engine/brewery-files.ts';
 import { fold } from '../../src/engine/fold.ts';
@@ -100,7 +100,7 @@ const checks: RepositoryChecks = {
   test: { run: 'node --test', files: true },
 };
 
-const plansOf = (events: Event[]) =>
+const plansOf = (events: Event[], readers: { git?: Git; testMapAt?: ReadTestMapAt } = {}) =>
   createAttemptPlans({
     state: () => fold(events),
     brewers: loaded.brewers,
@@ -109,8 +109,8 @@ const plansOf = (events: Event[]) =>
     repoChecks: (repo) => (repo === 'acme/api' ? checks : undefined),
     provenStep: (recipe) => loaded.checks.redProof(recipe)?.of,
     clone: (repo) => join('/clones', repo),
-    git,
-    testMapAt: async () => map,
+    git: readers.git ?? git,
+    testMapAt: readers.testMapAt ?? (async () => map),
     sandbox: false,
     workRoot: join('/root'),
     env: {
@@ -144,6 +144,46 @@ describe('createAttemptPlans: the checks before the end (ADR 0381)', () => {
       // claude's login is claude's alone, as for a check (ADR 0069).
       assert.equal(plan.sendBack?.env.ANTHROPIC_API_KEY, undefined, stepId);
       assert.equal(plan.sendBack?.env.npm_config_ignore_scripts, 'true', stepId);
+    }
+  });
+
+  it("reads the red step's test files in its own commits, by the map at its tip", async () => {
+    const gaugeTip = 'refs/heads/foedrum/12-1/gauge/1';
+    const otherDiff = [
+      'diff --git a/test/other.test.mjs b/test/other.test.mjs',
+      '--- /dev/null',
+      '+++ b/test/other.test.mjs',
+      '@@ -0,0 +1 @@',
+      '+x',
+      '',
+    ].join('\n');
+    // Only the Gauger's range has its test; any other diff names another file.
+    const byRange: Git = async (_cwd, args) => {
+      if (!args.includes('diff')) return ok('');
+      return ok(args.includes(gaugeStart) && args.includes(gaugeTip) ? gaugeDiff : otherDiff);
+    };
+    const asked: string[] = [];
+    const byCommit: ReadTestMapAt = async (_repo, commit) => {
+      asked.push(commit);
+      return commit === gaugeTip ? map : { kind: 'none' };
+    };
+    const events = [...ordered, ...gauged, ...started('implement', 'c'.repeat(40))];
+    const plan = await plansOf(events, { git: byRange, testMapAt: byCommit }).plan(
+      startOf('implement'),
+    );
+    assert.deepEqual(plan.sendBack?.redTests, ['test/add.test.mjs']);
+    assert.ok(asked.includes(gaugeTip), asked.join(', '));
+  });
+
+  it("holds no red tests, its checks still, when git cannot read the red step's commits or its map cannot be read", async () => {
+    const events = [...ordered, ...gauged, ...started('implement', 'c'.repeat(40))];
+    const failing: Git = async (_cwd, args) =>
+      args.includes('diff') ? { code: 128, stdout: '', stderr: 'fatal: bad object' } : ok('');
+    const unreadable: ReadTestMapAt = async () => ({ kind: 'unreadable', reason: 'not JSONC' });
+    for (const readers of [{ git: failing }, { testMapAt: unreadable }]) {
+      const plan = await plansOf(events, readers).plan(startOf('implement'));
+      assert.deepEqual(plan.sendBack?.checks, sendBackChecks(checks, 'linux'));
+      assert.deepEqual(plan.sendBack?.redTests, []);
     }
   });
 

@@ -14,7 +14,7 @@ import {
 } from '../../src/brewers/claude-runner.ts';
 import { assembleBrewerPrompt } from '../../src/brewers/prompt.ts';
 import type { SendBackPlan } from '../../src/brewers/send-back.ts';
-import type { AttemptLimits, AttemptStart } from '../../src/engine/brewer-runner.ts';
+import type { AttemptLimits, AttemptStart, CommitsSeen } from '../../src/engine/brewer-runner.ts';
 import type {
   ExecOptions,
   ExecResult,
@@ -99,6 +99,8 @@ const setup = (
     clock?: { now: Date };
     /** Runs as claude starts, before it writes a line, with how many starts there were. */
     onStart?: (starts: number) => void;
+    /** What git says of the commits after the start; default one. */
+    commits?: CommitsSeen;
   } = {},
 ) => {
   const starts: { args: readonly string[]; options: StreamOptions }[] = [];
@@ -115,6 +117,10 @@ const setup = (
       for (const line of played[Math.min(starts.length, played.length) - 1] ?? []) {
         streamOptions.onLine(line);
       }
+      // As the real stream process answers a stop.
+      if (streamOptions.signal?.aborted === true) {
+        return { exitCode: null, stderr: '', killed: 'stopped' };
+      }
       return clean;
     },
     files: {
@@ -130,7 +136,7 @@ const setup = (
     },
     now: () => options.clock?.now ?? new Date('2026-10-16T12:00:00.000Z'),
     wait: async () => {},
-    commits: async () => ({ kind: 'counted', count: 1 }),
+    commits: async () => options.commits ?? { kind: 'counted', count: 1 },
     scan: async () => ({ kind: 'scanned', findings: [] }),
     touches: async (_clone, _commit, paths) => ({ kind: 'read', present: new Set(paths) }),
     ...(options.withChecks === false
@@ -310,6 +316,64 @@ describe('claudeBrewerRunner: the checks before the end (ADR 0381)', () => {
     assert.deepEqual(
       checked.map(({ command }) => command),
       ['tsc', 'biome lint', 'node --test "test/a.test.ts"'],
+    );
+  });
+  it('cancels an attempt stopped while its resumed session runs', async () => {
+    let stop = (): void => {};
+    const made = setup({
+      failing: () => true,
+      onStart: (count) => {
+        if (count === 2) stop();
+      },
+    });
+    const running = made.runner.start(attempt);
+    stop = running.stop;
+    const end = await running.ended;
+    assert.equal(made.starts.length, 2);
+    assert.equal(end.ending.kind, 'cancelled');
+  });
+
+  it('reports progress while its checks run, whatever the stream said last', async () => {
+    const clock = { now: new Date('2026-10-16T12:00:00.000Z') };
+    const seen: ReturnType<ReturnType<typeof setup>['runner']['progress']>[] = [];
+    const made = setup({
+      clock,
+      whileChecking: () => {
+        clock.now = new Date('2026-10-16T12:45:00.000Z');
+        seen.push(made.runner.progress(attempt.ref));
+      },
+    });
+    await made.runner.start(attempt).ended;
+    assert.ok(seen.length > 0);
+    for (const progress of seen) {
+      assert.equal(progress?.lastProgressAt.getTime(), clock.now.getTime());
+      assert.equal(progress?.turnsWithoutProgress, 0);
+    }
+  });
+
+  it('runs no checks when the session made no commit, or the attempt has no start to count from', async () => {
+    const none = setup({ failing: () => true, commits: { kind: 'counted', count: 0 } });
+    await none.runner.start(attempt).ended;
+    assert.deepEqual(none.checked, []);
+    const { commitsSince: _, ...unstarted } = limits;
+    const fresh = setup({ failing: () => true });
+    await fresh.runner.start({ ...attempt, limits: unstarted }).ended;
+    assert.deepEqual(fresh.checked, []);
+    assert.equal(fresh.starts.length, 1);
+  });
+
+  it("resumes with the attempt's system prompt file too", async () => {
+    const systemPrompt = { file: '/work/attempt/system.md', text: 'The rules.' };
+    const { starts, runner } = setup({ plan: plan({ systemPrompt }), failing: () => true });
+    await runner.start(attempt).ended;
+    assert.deepEqual(
+      starts[1]?.args,
+      claudeArgs({
+        ...plan().call,
+        session: { kind: 'resume', id: sessionId },
+        settingsFile: '/work/attempt/settings.json',
+        appendSystemPromptFile: '/work/attempt/system.md',
+      }),
     );
   });
 });
