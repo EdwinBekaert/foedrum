@@ -261,6 +261,16 @@ describe('the default recipe in foedrum.jsonc (ADR 0370)', () => {
     assert.deepStrictEqual(result, { kind: 'refused', problems: [line] });
   });
 
+  it('a default recipe by its old name, decoction, is refused with a line that names deep-mash (ADR 0372)', () => {
+    const result = defaultSetup(workRoot, { config: config({ defaultRecipe: 'decoction' }) });
+    assert.deepStrictEqual(result, {
+      kind: 'refused',
+      problems: [
+        "foedrum.jsonc's defaultRecipe names decoction, which is called deep-mash now: name deep-mash",
+      ],
+    });
+  });
+
   for (const [name, line] of refusals) {
     it(`foedrum doctor gives the same line for a default recipe ${name}`, () => {
       const brewery = serveInputs().files.brewery;
