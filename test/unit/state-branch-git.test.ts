@@ -813,6 +813,32 @@ describe('openStateBranch with a fake git', () => {
       assert.equal(store.pushedThrough(), undefined);
     });
 
+    it('repeats no line of stderr in its stop but the unblock URL', async () => {
+      const state = await started();
+      append(ordered('b1'));
+      const unblock =
+        'https://github.com/acme/brewery/security/secret-scanning/unblock-secret/9zyx';
+      fake.answer = (args) =>
+        args[0] === 'push'
+          ? exit(
+              1,
+              'remote: error: GH013: Repository rule violations found for refs/heads/foedrum/state.\n' +
+                'remote: - GITHUB PUSH PROTECTION\nremote:     —— Made-up Token ——\nremote:       - commit: abc1234\n' +
+                `remote:       ${unblock}\n`,
+              'To origin\n!\trefs/heads/foedrum/state:refs/heads/foedrum/state\t[remote rejected] (push declined due to repository rule violations)\nDone\n',
+            )
+          : undefined;
+
+      await assert.rejects(state.flush(), (error) => {
+        assert.ok(error instanceof StateBranchStopError);
+        assert.ok(error.message.includes(unblock));
+        for (const quoted of ['GH013', 'Made-up Token', 'abc1234', 'remote:']) {
+          assert.ok(!error.message.includes(quoted), quoted);
+        }
+        return true;
+      });
+    });
+
     it('reports a failed push, keeps the marker, and retries at the next flush', async () => {
       const state = await started();
       append(ordered('b1'));

@@ -17,6 +17,7 @@ import {
   remoteCommitOf,
   type StartFacts,
   StateBranchStopError,
+  secretRefusal,
   unsafeEntries,
 } from '../../src/engine/state-branch.ts';
 import type { Event } from '../../src/schemas/events.ts';
@@ -583,6 +584,14 @@ describe('planFlush', () => {
       });
     });
 
+    it('keeps the line end of a line it leaves out: CRLF on one, none on a last line', () => {
+      const token = `ghp_${'a1B2c3D4e5'.repeat(4)}`;
+      const text = `Said:\r\nGH_TOKEN=${token}\r\nAnd last:\r\nGH_TOKEN=${token}`;
+      const files = planFlush(new Map(), [stored(2, finished('b1'))], 1, [doc(text)]);
+      const left = '[left out: a line of plan#1 that looks like a secret]';
+      assert.equal(files.at(-1)?.text, `Said:\r\n${left}\r\nAnd last:\r\n${left}`);
+    });
+
     it('an out doc that names a commit reaches the state branch as it is', () => {
       const text = `---\n{"status":"done"}\n---\nThe red commit is ${'0123456789'.repeat(4)}.\n`;
       const files = planFlush(new Map(), [stored(2, finished('b1'))], 1, [doc(text)]);
@@ -916,10 +925,58 @@ describe('classifyPush', () => {
     assert.equal(classifyPush({ code: 1, stdout, stderr }), 'secret');
   });
 
+  it("reads each of push protection's words on its own", () => {
+    const stdout = `To origin\n!\t${ref}\t[remote rejected] (push declined)\nDone\n`;
+    for (const stderr of [
+      'remote: - GITHUB PUSH PROTECTION\n',
+      'remote:     - Push cannot contain secrets\n',
+      'remote: error: GH009: Secrets detected! This push failed.\n',
+    ]) {
+      assert.equal(classifyPush({ code: 1, stdout, stderr }), 'secret', stderr);
+    }
+  });
+
+  it('fails when stderr names push protection but the remote refused no ref', () => {
+    const stderr = 'remote: - GITHUB PUSH PROTECTION\n';
+    assert.equal(classifyPush({ code: 128, stdout: '', stderr }), 'failed');
+    const other = `To origin\n!\t${ref}\t[remote failure] (remote failed to report status)\nDone\n`;
+    assert.equal(classifyPush({ code: 1, stdout: other, stderr }), 'failed');
+  });
+
   it('fails for anything else, such as a remote hook or no network', () => {
     const hook = `To ../origin.git\n!\t${ref}\t[remote rejected] (pre-receive hook declined)\nDone\n`;
     assert.equal(classifyPush({ code: 1, stdout: hook }), 'failed');
     assert.equal(classifyPush({ code: 128, stdout: '' }), 'failed');
     assert.equal(classifyPush({ code: null, stdout: '' }), 'failed');
+  });
+});
+
+describe('secretRefusal', () => {
+  const commit = 'c'.repeat(40);
+  const page = (id: string) =>
+    `https://github.com/acme/brewery/security/secret-scanning/unblock-secret/${id}`;
+
+  it('names the page GitHub printed when stderr has no unblock URL', () => {
+    const said = secretRefusal({
+      commit,
+      from: 3,
+      through: 5,
+      stderr: 'remote: - GITHUB PUSH PROTECTION\n',
+    });
+    assert.match(said, /commit c{40} with events 3–5 /);
+    assert.match(said, /open the page GitHub printed for this push as the account that pushed/);
+  });
+
+  it('names each unblock URL once, in the order GitHub printed them', () => {
+    const stderr = `remote:   ${page('2b')}\nremote:   ${page('1a')}\nremote:   ${page('2b')}\n`;
+    const said = secretRefusal({ commit, from: 1, through: 1, stderr });
+    assert.match(said, /open (\S+) and (\S+) as the account/);
+    assert.equal(said.match(/unblock-secret/g)?.length, 2);
+    assert.ok(said.includes(`open ${page('2b')} and ${page('1a')} as`));
+  });
+
+  it('says out docs only when the commit holds no event', () => {
+    const said = secretRefusal({ commit, from: 5, through: 4, stderr: '' });
+    assert.match(said, /commit c{40} with out docs only holds/);
   });
 });
