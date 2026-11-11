@@ -47,7 +47,7 @@ import {
   TastingOutDoc,
 } from '../schemas/out-doc.ts';
 import { PLAN } from '../schemas/plan.ts';
-import { parseRule } from '../schemas/primitives.ts';
+import { type Command, parseRule } from '../schemas/primitives.ts';
 import { attemptBranch } from '../workspace/attempt-worktrees.ts';
 import { inClone } from '../workspace/clone-git.ts';
 import type { Git, GitOptions } from '../workspace/git.ts';
@@ -104,7 +104,7 @@ export interface AttemptPlansOptions {
   /** A repository's setup (`foedrum.jsonc`), run before every attempt's brewer (ADR 0163). */
   repoSetup?: (repo: string) => RepositorySetup | undefined;
   /** A repository's test line (`foedrum.jsonc`), for a brewer that asks for it (ADR 0376). */
-  repoTestLine?: (repo: string) => string | null | undefined;
+  repoTestLine?: (repo: string) => Command | null | undefined;
   /** Whether the isolation level relies on Claude Code's sandbox (ADR 0010). */
   sandbox: boolean;
   /** Where the driver's environment moves the logins the sandbox hides (ADR 0160). */
@@ -696,6 +696,14 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
     const checks = asksChecks ? checksInput(state(), batch, own?.commit) : undefined;
     // The sections an earlier attempt of this step wrote, read only by a brewer that asks (ADR 0353).
     const earlierSections = earlierSectionsInput(batch, ref.stepId, ref.attempt);
+    // The test line of the attempt's own repository, read only by a brewer that asks (ADR 0376).
+    const asksTestLine = found.brewer.inputs.some(({ from }) => from === 'test-line');
+    const command =
+      asksTestLine && own !== undefined ? options.repoTestLine?.(own.repo) : undefined;
+    const testLine =
+      own === undefined || command === undefined || command === null
+        ? undefined
+        : { repo: own.repo, command };
     // A step a findings route sent back corrects the plan they name, as a chosen step does (ADR 0318),
     // and a fresh retry of it too (ADR 0325).
     const routedStep = batch.steps.get(ref.stepId);
@@ -715,6 +723,7 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
       checks,
       claimOrderOf(state(), batch.id).issue,
       earlierSections,
+      testLine,
     );
     // A step's lenses together share one folder (ADR 0143, ADR 0220).
     const diffLens = stepLenses[0]?.startsWith('diff/') === true;

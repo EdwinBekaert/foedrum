@@ -46,7 +46,7 @@
               },
               "from": {
                 "type": "string",
-                "pattern": "^(?:order|repositories|recipes|earlier-sections|plan|plan-entry|release|checks|step:(.+)|file:(.+)|lens:(.+))$"
+                "pattern": "^(?:order|repositories|recipes|earlier-sections|plan|plan-entry|release|checks|test-line|step:(.+)|file:(.+)|lens:(.+))$"
               },
               "trusted": {
                 "default": false,
@@ -305,7 +305,7 @@
               },
               "from": {
                 "type": "string",
-                "pattern": "^(?:order|repositories|recipes|earlier-sections|plan|plan-entry|release|checks|step:(.+)|file:(.+)|lens:(.+))$"
+                "pattern": "^(?:order|repositories|recipes|earlier-sections|plan|plan-entry|release|checks|test-line|step:(.+)|file:(.+)|lens:(.+))$"
               },
               "trusted": {
                 "default": false,

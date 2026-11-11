@@ -158,6 +158,8 @@ export type LoadedRecipes =
       /** The paths of the default files in use: those the Brewery has no file of its name for. */
       defaults: readonly string[];
       catalog: Catalog;
+      /** The recipes that prove their tests red, by name: `foedrum doctor` reads their test lines (ADR 0376). */
+      testFirst: readonly string[];
     }
   /** One line per problem, each starting with the file it is about. */
   | { valid: false; problems: readonly string[] };
@@ -1230,6 +1232,7 @@ export function loadRecipes(breweryFiles: BreweryFiles): LoadedRecipes {
   const stepBrewers = new Map<string, ReadonlyMap<string, StepBrewer>>();
   const stepChecks = new Map<string, ReadonlyMap<string, StepCheck>>();
   const redProofs = new Map<string, { id: string; of: string }>();
+  const testFirstRecipes: string[] = [];
   // Each loaded recipe's type and description, in the order read, and the steps that choose a
   // recipe, by recipe: what those steps may offer is known once every recipe loaded (ADR 0232).
   const offered = new Map<string, RecipeChoice>();
@@ -1297,6 +1300,7 @@ export function loadRecipes(breweryFiles: BreweryFiles): LoadedRecipes {
     if (unloaded || routes.length + unlisted.length + refused.length > 0) continue;
     const [proof] = proofsOf(order);
     if (proof !== undefined) redProofs.set(value.name, proof);
+    if (testFirst) testFirstRecipes.push(value.name);
     recipes.set(
       value.name,
       lineRecipe(
@@ -1359,6 +1363,7 @@ export function loadRecipes(breweryFiles: BreweryFiles): LoadedRecipes {
       stepModels,
     },
     recipes: { find: (name) => recipes.get(name) },
+    testFirst: testFirstRecipes,
     brewers: {
       find: (recipe, id) => stepBrewers.get(recipe)?.get(id),
       has: (recipe, id) => recipes.get(recipe)?.has(id) ?? false,
