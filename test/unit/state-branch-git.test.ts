@@ -743,6 +743,26 @@ describe('openStateBranch with a fake git', () => {
       assert.equal(read('archive/b1/events.jsonl'), line(1, ordered('b1')));
     });
 
+    it('retries a flush whose push failed after the move, keeping the archived log whole (ADR 0380)', async () => {
+      const state = await started();
+      append(ordered('b1'));
+      assert.equal((await state.flush()).kind, 'pushed');
+      append(scheduled('b1'), archived('b1'));
+      fake.answer = (args) =>
+        args[0] === 'push' ? exit(128, 'fatal: unable to access origin\n') : undefined;
+      assert.equal((await state.flush()).kind, 'failed');
+      fake.answer = () => undefined;
+
+      assert.equal((await state.flush()).kind, 'pushed');
+
+      assert.equal(existsSync(join(worktree, 'batches', 'b1')), false);
+      assert.equal(
+        read('archive/b1/events.jsonl'),
+        line(1, ordered('b1')) + line(2, scheduled('b1')),
+      );
+      assert.equal(read('events.jsonl'), line(3, archived('b1')));
+    });
+
     it('writes, commits and pushes the events after the marker, then moves the marker', async () => {
       const state = await started();
       append(ordered('b1'), released, scheduled('b1'));
