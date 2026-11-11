@@ -727,10 +727,12 @@ describe('foedrum status', () => {
 });
 
 describe('foedrum status <order> (ADR 0295)', () => {
+  // A choice of one of Foedrum's default recipes, with the type it records (ADR 0365).
   const chosen = (batchId: string, recipe: string): Event => ({
     type: 'batch.recipe_chosen',
     batchId,
     recipe,
+    recipeType: recipe === 'mash' || recipe === 'mash-in' ? 'mash' : 'brew',
     reason: `label recipe:${recipe}`,
     source: 'label',
   });
