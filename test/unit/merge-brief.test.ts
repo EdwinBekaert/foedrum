@@ -494,6 +494,39 @@ describe('the merge brief (ADR 0225)', () => {
       assert.equal(comments.length, 1);
     });
 
+    it("says a review round's reviews asked for changes, not that its checks failed (ADR 0382)", async () => {
+      nip();
+      const { host, comments } = fakeHost();
+      const effects = effectsOf(host);
+      finished([passed('ci/test')]);
+      const review = { id: 81, by: 'ann', body: 'Name the flag.', comments: [] };
+      accept({
+        kind: 'record',
+        event: {
+          type: 'pull_request.reviews_read',
+          batchId: 'web-7',
+          pullRequest: url,
+          reviews: [review],
+        },
+      });
+      accept({
+        kind: 'fix_pull_request',
+        batchId: 'web-7',
+        pullRequest: url,
+        head,
+        cause: { kind: 'review', reviews: [81] },
+      });
+      nipFromImplement(2, fixed);
+      finished([passed('ci/test')], fixed);
+      await post(effects);
+      const body = comments.at(-1)?.body ?? '';
+      assert.match(
+        body,
+        /Round 2: review 81 asked for changes on `aaaaaaaa`, and it pushed `ffffffff`\./,
+      );
+      assert.doesNotMatch(body, /Round 2: the checks failed/);
+    });
+
     it("posts for a fixed head once its old head's merged tree failed, and says so (ADR 0226)", async () => {
       nip();
       const { host, comments } = fakeHost();
@@ -1990,6 +2023,35 @@ describe('the merge brief (ADR 0225)', () => {
         pullRequest: url,
         head,
         cause: { kind: 'checks' },
+      });
+      assert.equal(batch().lane.kind, 'brewing');
+      assert.deepStrictEqual(await post(readyForReviewEffects({ host: drafts })), [
+        'brief.1.draft.1',
+      ]);
+      assert.deepStrictEqual(asked.slice(2), [`isDraft ${url}`, `markDraft ${url}`]);
+    });
+
+    it('turns it back into a draft once a review that asks for changes sends its batch back (ADR 0382): regression test', async () => {
+      nip();
+      const { drafts, asked } = fakeDrafts();
+      finished([passed('ci/test')]);
+      assert.deepStrictEqual(await both(drafts), ['brief.1', 'brief.1.ready.1']);
+      const review = { id: 81, by: 'ann', body: 'Name the flag.', comments: [] };
+      accept({
+        kind: 'record',
+        event: {
+          type: 'pull_request.reviews_read',
+          batchId: 'web-7',
+          pullRequest: url,
+          reviews: [review],
+        },
+      });
+      accept({
+        kind: 'fix_pull_request',
+        batchId: 'web-7',
+        pullRequest: url,
+        head,
+        cause: { kind: 'review', reviews: [81] },
       });
       assert.equal(batch().lane.kind, 'brewing');
       assert.deepStrictEqual(await post(readyForReviewEffects({ host: drafts })), [

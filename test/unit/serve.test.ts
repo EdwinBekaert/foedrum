@@ -25,7 +25,12 @@ import { StateBranchStopError } from '../../src/engine/state-branch.ts';
 import type { Event } from '../../src/schemas/events.ts';
 import type { Git } from '../../src/workspace/git.ts';
 import { testGuidance } from '../helpers/brewery-files.ts';
-import { fakeGitHubApi, type Instead, pullNode } from '../helpers/fake-github-api.ts';
+import {
+  type FakeApiReview,
+  fakeGitHubApi,
+  type Instead,
+  pullNode,
+} from '../helpers/fake-github-api.ts';
 import { FAKE_COMMIT, type FakeWorktrees, fakeWorktrees } from '../helpers/fake-worktrees.ts';
 import { brewer, clone, config, local, recipe, serveInputs } from '../helpers/serve-brewery.ts';
 import { serveFixture, t0 } from '../helpers/serve-fixture.ts';
@@ -320,9 +325,10 @@ describe('runServe', () => {
    * Brews 12-1 with the porter recipe until its pull request is open, with a base that moved and a
    * merge-tree that conflicts (ADR 0198), on a git that records what it is asked and answers nothing.
    * With `passed`, the merge-tree is clean and every check on the head passed, until the merge brief
-   * is posted (ADR 0225).
+   * is posted (ADR 0225). With `reviewed` too, `bea` is in users, and once the pull request is open
+   * she, Foedrum's own login and a stranger each ask for changes on it (ADR 0382).
    */
-  const brewWithMovedBase = async (passed = false) => {
+  const brewWithMovedBase = async (passed = false, reviewed = false) => {
     const porter = JSON.stringify({
       name: 'porter',
       type: 'brew',
@@ -342,6 +348,7 @@ describe('runServe', () => {
       serveInputs({
         files: {
           ...serveInputs().files,
+          ...(reviewed ? { config: config({ users: ['ann', 'bea'] }) } : {}),
           local: local({ workRoot: f.dir.path }),
           brewery: {
             recipes: [
@@ -412,6 +419,22 @@ describe('runServe', () => {
           // A person retitles the pull request once it is open: the brief reads its title.
           const [opened] = github.pulls;
           if (passed && opened !== undefined) opened.title = 'Add a --json flag, retitled';
+          if (reviewed && opened !== undefined && opened.reviews === undefined) {
+            const asks = (id: number, by: string): FakeApiReview => ({
+              id,
+              by,
+              state: 'CHANGES_REQUESTED',
+              body: `${by} asks`,
+              comments: [],
+            });
+            for (const [id, by] of [
+              [3, 'ann'],
+              [4, 'zed'],
+              [5, 'Bea'],
+            ] as const) {
+              github.review('acme/web', opened.number, asks(id, by));
+            }
+          }
           const done = passed ? briefComments() : conflictComments();
           if (done.length > 0 || waits > 40) f.controller.abort();
         },
@@ -441,7 +464,15 @@ describe('runServe', () => {
     const baseChecks = createCommandLog({ store: f.store, recipes: f.setup.recipes })
       .state()
       .batches.get('12-1')?.baseChecks;
-    return { code, merged, pull, baseChecks, conflictComments, briefComments, asked };
+    // The reviews each record of them names, as `<id> <by>` (ADR 0382).
+    const recorded = f.store
+      .eventsAfter(0)
+      .flatMap(({ event }) =>
+        event.type === 'pull_request.reviews_read'
+          ? [event.reviews.map(({ id, by }) => `${id} ${by}`)]
+          : [],
+      );
+    return { code, merged, pull, baseChecks, recorded, conflictComments, briefComments, asked };
   };
 
   /**
@@ -658,6 +689,13 @@ describe('runServe', () => {
       brief?.body ?? '',
       /- Red proof `red`: not run: its when "recipe\.testFirst" was false\./,
     );
+  });
+
+  it("records the review of someone in users that asks for changes, never Foedrum's own or a stranger's (ADR 0382)", async () => {
+    const { code, pull, recorded } = await brewWithMovedBase(true, true);
+    assert.equal(code, 0);
+    assert.ok(pull?.reviews !== undefined);
+    assert.deepStrictEqual(recorded, [['5 Bea']], f.lines.join(String.fromCodePoint(0x0a)));
   });
 
   describe('a usage window per family (review of #555, ADR 0215)', () => {

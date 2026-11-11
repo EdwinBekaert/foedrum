@@ -56,10 +56,10 @@ export type InputSource =
       why: ScheduleRoute['why'];
       pullRequest?: string;
       /**
-       * Sent back by a failing check on the pull request's merged tree (ADR 0226), or by its
-       * conflict with the base `branch` (ADR 0244).
+       * Sent back by a failing check on the pull request's merged tree (ADR 0226), by its
+       * conflict with the base `branch` (ADR 0244), or by reviews that ask for changes (ADR 0382).
        */
-      cause?: 'merged_check' | 'conflict';
+      cause?: 'merged_check' | 'conflict' | 'review';
       branch?: string;
     }
   /** The merge of the base `branch` a resumed session continues in its worktree (ADR 0244). */
@@ -140,6 +140,9 @@ function describeSource(source: InputSource): string {
       if (source.why === 'pull_request') {
         if (source.cause === 'conflict') {
           return `why step ${source.step} runs again: the conflict of pull request ${source.pullRequest} with ${source.branch}`;
+        }
+        if (source.cause === 'review') {
+          return `why step ${source.step} runs again: the changes asked for in the reviews of pull request ${source.pullRequest}`;
         }
         const what = source.cause === 'merged_check' ? 'merged-tree check' : 'checks';
         return `why step ${source.step} runs again: the failed ${what} of pull request ${source.pullRequest}`;

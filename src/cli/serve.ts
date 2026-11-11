@@ -22,6 +22,7 @@ import type { StateBranch } from '../engine/state-branch-git.ts';
 import { githubCheckReader } from '../github/checks.ts';
 import { GitHubRateLimited } from '../github/client.ts';
 import { githubReleaseReader } from '../github/releases.ts';
+import { githubReviewReader } from '../github/reviews.ts';
 import { githubTargetTracker } from '../github/tracker.ts';
 import { messageOf } from '../platform/errors.ts';
 import type { AwakeHold } from '../platform/keep-awake.ts';
@@ -352,6 +353,7 @@ export const runServe = async (setup: ServeSetup, shell: ServeShell): Promise<nu
       ...(shell.intakeDeadlineMs === undefined ? {} : { deadlineMs: shell.intakeDeadlineMs }),
       bases,
       checks: githubCheckReader(reads, client),
+      reviews: githubReviewReader(reads),
       releases: githubReleaseReader(reads, client),
       // The next tick applies the effects of what the pass ordered, so an issue shows its Ordered
       // lane before the pass routes its batch: never beside a drive (ADR 0316).

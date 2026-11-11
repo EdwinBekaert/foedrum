@@ -54,6 +54,12 @@ export const stuckOn = (reason: StuckReason, called: string, { repo, issue }: Ba
         const { branch, tip, files } = reason.cause;
         return `${reason.pullRequest} conflicts with ${branch} at ${tip.slice(0, 8)} in ${files.join(', ')}, ${after}`;
       }
+      if (reason.cause.kind === 'review') {
+        const { reviews, more } = reason.cause;
+        const asked = reviews.map(({ id, by }) => `review ${id} by ${by}`);
+        const rest = more > 0 ? [`and ${more} more`] : [];
+        return `${reason.pullRequest} got changes asked for on ${reason.head} ${after}: ${[...asked, ...rest].join(', ')}`;
+      }
       const { branch, tip, check } = reason.cause;
       return `${reason.pullRequest} fails its checks once merged with ${branch} at ${tip.slice(0, 8)}: ${check}, ${after}`;
     }

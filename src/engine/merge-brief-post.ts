@@ -146,6 +146,12 @@ const changedLines = (state: State, batch: Batch): string[] => {
     const after = pushed.success
       ? `it pushed ${code(shortSha(pushed.data.commit))}`
       : 'it pushed nothing yet';
+    // A review round names the reviews that asked for changes (ADR 0382).
+    if (route?.cause === 'review') {
+      const ids = route.reviews ?? [];
+      const named = `${ids.length === 1 ? 'review' : 'reviews'} ${ids.join(', ')}`;
+      return `- Round ${round}: ${named} asked for changes on ${code(shortSha(failed))}, and ${after}.`;
+    }
     // A merged-tree failure names its base check, which names its branch (ADR 0226).
     const check =
       route?.tip === undefined
