@@ -38,7 +38,7 @@ test-maps/        <owner>/<name>.jsonc: the test map of each repository with "te
 
 Work root (outside the checkout, default ~/.foedrum/<owner>.<name>/): brewery.json (the Brewery it belongs to) and drivers/<owner>.lock (one per driver), ADR 0037; per repository <owner>.<name>/ with attempts/<batch>/<step>/<attempt> (worktrees), clone.git (managed clone) and git-dirs/ (a git directory per base fetch, base check merge-tree or pair check merge-tree, ADR 0090, ADR 0137, ADR 0198 and ADR 0230, and beside one a <uuid>.tree worktree of a merged tree for its checks, ADR 0203; one a stopped call left goes at the first cleanup an hour on, ADR 0130); ADR 0029; state/ (the state branch's worktree) and beside it state.lock (its writer lock, ADR 0107) and no-hooks/ (the empty hooks folder its git runs with, so no hook of the Brewery's clone runs, ADR 0024); brewery-orders/<batch>/<step>/<attempt>/ (a checkout of each repository for a Brewery order's read-only attempt, ADR 0301); and attempt-settings/<batch>/<step>/<attempt>.json, ADR 0059 and ADR 0063, with <attempt>.system.md beside it (the attempt's system prompt file, ADR 0183)
 
-Branch foedrum/state: batches/<id>/events.jsonl and out docs (<step>-<attempt>.md), events.jsonl for events without a batch; committed at every step boundary (ADR 0024)
+Branch foedrum/state: batches/<id>/events.jsonl and out docs (<step>-<attempt>.md), events.jsonl for events without a batch, and archive/<id>/, a finished batch's folder the cleanup moved there and the engine reads nowhere (ADR 0380); committed at every step boundary (ADR 0024)
 ```
 
 **A target repository** receives only what its bottles bring, plus:
