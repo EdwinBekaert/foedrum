@@ -31,6 +31,13 @@ const released: Event = {
   version: '2.4.0',
 };
 const line = (id: number, event: Event): string => `${JSON.stringify({ id, event })}\n`;
+const archived = (batchId: string): Event => ({
+  type: 'batch.archived',
+  batchId,
+  order: { issue: 6 },
+  breweryIssue: 6,
+  ended: 'cancelled',
+});
 
 const sha = (n: number): string => n.toString(16).padStart(40, '0');
 const ok = (stdout = ''): GitResult => ({ code: 0, stdout, stderr: '' });
@@ -271,6 +278,22 @@ describe('openStateBranch with a fake git', () => {
         'foedrum/state',
         worktree,
         sha(5),
+      ]);
+    });
+
+    it('rebuilds from batches/ and the top-level log, never reading archive/: regression test (ADR 0380)', async () => {
+      fake.remote = sha(5);
+      fake.files = {
+        'events.jsonl': line(3, archived('b1')),
+        'archive/b1/events.jsonl': line(1, ordered('b1')),
+        'batches/b2/events.jsonl': line(2, ordered('b2')),
+      };
+
+      assert.deepEqual(await branch().start(), { decision: 'restore' });
+
+      assert.deepEqual(store.eventsAfter(0), [
+        { id: 2, event: ordered('b2') },
+        { id: 3, event: archived('b1') },
       ]);
     });
 
