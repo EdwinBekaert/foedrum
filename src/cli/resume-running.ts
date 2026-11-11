@@ -11,6 +11,7 @@ import {
   releaseBatch,
   takeOver,
 } from '../engine/batch-leases.ts';
+import { stateClause, stateOf } from '../engine/batch-state.ts';
 import { calledAs, saidAs } from '../engine/claim-orders.ts';
 import { createCommandLog } from '../engine/command-log.ts';
 import type { DriverNotice } from '../engine/driver.ts';
@@ -24,7 +25,7 @@ import { closeOpened, type Opened, tick, wireDriver } from './driver-wiring.ts';
 import { printable } from './run.ts';
 import { formatNotice, INTERVAL_MS, type ServeShell } from './serve.ts';
 import type { ServeSetup } from './serve-config.ts';
-import { describeLane } from './status.ts';
+import { describeState, withDetail } from './status.ts';
 
 /** The step of a running batch whose session `foedrum resume` continues, as whom, and who asked. */
 export interface RunningResume {
@@ -153,9 +154,10 @@ export const runResumeRunning = async (
         await tick(driver, report);
         const batch = foldedBatch(driver.state(), batchId);
         const resumed = batch.steps.get(stepId)?.attempts.get(attempt);
-        const { lane, detail } = describeLane(batch, calledAs(driver.state(), batch));
+        const now = stateOf(driver.state(), batch);
+        const { detail } = describeState(batch, now, calledAs(driver.state(), batch));
         const said = saidAs(driver.state(), batch);
-        const where = `${said} is ${lane}${detail === '' ? '' : `: ${detail}`}`;
+        const where = `${said} is ${withDetail(stateClause(now), detail)}`;
         if (resumed?.phase === 'finished') {
           const next =
             batch.lane.kind === 'brewing'

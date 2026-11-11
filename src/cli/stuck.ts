@@ -1,15 +1,17 @@
-// `foedrum stuck`: every Stuck batch with why, what it offers, and the questions it asks, numbered
-// in the order `foedrum answer` takes their answers.
+// `foedrum stuck`: every batch that waits for you (ADR 0379), with why, what to do next, and the
+// questions it asks, numbered in the order `foedrum answer` takes their answers.
 
+import { stateLine, stateOf } from '../engine/batch-state.ts';
 import { calledAs, orderName } from '../engine/claim-orders.ts';
-import type { Batch, State } from '../engine/fold.ts';
+import { type Batch, type State, unendedPullRequests } from '../engine/fold.ts';
+import { stuckNext } from '../engine/next-step.ts';
 import { issueUrl, ORDER_CHANGED_QUESTION } from '../engine/order-changes.ts';
 import { withoutSecrets } from '../engine/out-doc-text.ts';
 import { findingText, knownCommits } from '../engine/pull-request.ts';
-import { longest, planNextStep, roundsText, STEP_BACK } from '../engine/status-comment.ts';
+import { longest, roundsText, STEP_BACK } from '../engine/status-comment.ts';
 import type { StuckReason } from '../schemas/events.ts';
 import { columns } from './columns.ts';
-import { describeLane, failingParts, issueOf, unreadable } from './status.ts';
+import { describeState, failingParts, issueOf, unreadable } from './status.ts';
 
 /**
  * The open findings a findings route that ran out of rounds left, one line each with secrets left
@@ -36,21 +38,28 @@ const openLines = (state: State, batch: Batch, reason: StuckReason): string[] =>
   ];
 };
 
-/** What `foedrum stuck` prints: each Stuck batch, in the order they were ordered. */
+/**
+ * What `foedrum stuck` prints: each batch that waits for you (ADR 0379), in the order they were
+ * ordered, with why and its `Next:` line. A split order that waits only through one of its
+ * sub-orders is left out: that sub-order is listed itself.
+ */
 export const formatStuck = (state: State): string => {
-  const stuck = [...state.batches.values()].flatMap((batch) =>
-    batch.lane.kind === 'stuck' ? [{ batch, lane: batch.lane }] : [],
-  );
-  // A batch marked failing that is not Stuck: on tap, say, which no other line here shows (ADR 0335).
+  const waiting = [...state.batches.values()].flatMap((batch) => {
+    const now = stateOf(state, batch);
+    return now.kind === 'waiting' && now.subOrder === undefined ? [{ batch, now }] : [];
+  });
+  const listed = new Set(waiting.map(({ batch }) => batch.id));
+  // A batch marked failing that waits for no one, which no other line here shows (ADR 0335).
   const marked = [...state.batches.values()].flatMap((batch) =>
-    batch.lane.kind === 'stuck'
+    listed.has(batch.id)
       ? []
       : failingParts(batch).map(
-          (part) => `${batch.id}  ${orderName(state, batch)}  ${batch.lane.kind}: ${part}`,
+          (part) =>
+            `${batch.id}  ${orderName(state, batch)}  ${stateLine(stateOf(state, batch))}: ${part}`,
         ),
   );
   const also = marked.length === 0 ? [] : ['', ...marked];
-  if (stuck.length === 0) return `${['No Stuck batches.', ...also].join('\n')}\n`;
+  if (waiting.length === 0) return `${['Nothing waits for you.', ...also].join('\n')}\n`;
   // One whose rendering throws is still listed, with what it offers (ADR 0335).
   const read = <T>(reading: () => T, instead: (error: unknown) => T): T => {
     try {
@@ -60,48 +69,58 @@ export const formatStuck = (state: State): string => {
     }
   };
   const heads = columns(
-    stuck.map(({ batch }) =>
+    waiting.map(({ batch, now }) =>
       read(
-        () => [
-          batch.id,
-          orderName(state, batch),
-          [describeLane(batch, calledAs(state, batch)).detail, ...failingParts(batch)].join('; '),
-        ],
-        (error) => [batch.id, issueOf(batch), `stuck: ${unreadable(batch, error)}`],
+        () => {
+          const { state: shown, detail } = describeState(batch, now, calledAs(state, batch));
+          return [
+            batch.id,
+            orderName(state, batch),
+            [`${shown}:`, [detail, ...failingParts(batch)].filter((part) => part !== '').join('; ')]
+              .filter((part) => part !== ':')
+              .join(' '),
+          ];
+        },
+        (error) => [batch.id, issueOf(batch), stateLine(now), unreadable(batch, error)],
       ),
     ),
     '',
   );
-  const lines = stuck.flatMap(({ batch, lane }, i) => [
-    heads[i] ?? '',
-    `  options: ${lane.options.join(', ')}`,
-    // A number means the latest batch: an older one's options run by its id (ADR 0334).
-    ...read(
-      () => (calledAs(state, batch) === batch.id ? [`  run as: foedrum <option> ${batch.id}`] : []),
-      () => [],
-    ),
-    ...(lane.reason.kind === 'needs_input'
-      ? lane.reason.questions.map(
-          ({ q, options, recommended }, n) =>
-            `  ${n + 1}. ${q} (${options.join(', ')}; recommended: ${recommended})`,
-        )
-      : []),
-    // The issue that changed since its approval, and the one question (ADR 0368).
-    ...(lane.reason.kind === 'order_changed' && batch.repo !== undefined
-      ? [
-          `  issue: ${issueUrl(batch.repo, batch.issue)}`,
-          `  1. ${ORDER_CHANGED_QUESTION} (continue, stop)`,
-        ]
-      : []),
-    ...read(
-      () => openLines(state, batch, lane.reason),
-      () => [],
-    ),
-    // What to do with a plan that waits for its review (ADR 0275, ADR 0281).
-    ...(lane.reason.kind === 'plan_review'
-      ? [`  next: ${planNextStep(calledAs(state, batch), (command) => command)}`]
-      : []),
-  ]);
-  const count = `${stuck.length} Stuck ${stuck.length === 1 ? 'batch' : 'batches'}`;
+  const plainCommand = (text: string): string => text;
+  const lines = waiting.flatMap(({ batch }, i) => {
+    const { lane } = batch;
+    const head = heads[i] ?? '';
+    if (lane.kind !== 'stuck') {
+      // On tap with a pull request open: a person reviews and merges it.
+      const open = unendedPullRequests(batch);
+      return [head, `  Next: review and merge ${open.join(', ')}.`];
+    }
+    const called = read(
+      () => calledAs(state, batch),
+      () => batch.id,
+    );
+    return [
+      head,
+      ...(lane.reason.kind === 'needs_input'
+        ? lane.reason.questions.map(
+            ({ q, options, recommended }, n) =>
+              `  ${n + 1}. ${q} (${options.join(', ')}; recommended: ${recommended})`,
+          )
+        : []),
+      // The issue that changed since its approval, and the one question (ADR 0368).
+      ...(lane.reason.kind === 'order_changed' && batch.repo !== undefined
+        ? [
+            `  issue: ${issueUrl(batch.repo, batch.issue)}`,
+            `  1. ${ORDER_CHANGED_QUESTION} (continue, stop)`,
+          ]
+        : []),
+      ...read(
+        () => openLines(state, batch, lane.reason),
+        () => [],
+      ),
+      `  ${stuckNext(lane.reason, lane.options, called, plainCommand)}`,
+    ];
+  });
+  const count = `${waiting.length} ${waiting.length === 1 ? 'batch waits' : 'batches wait'} for you`;
   return `${[count, '', ...lines, ...also].join('\n')}\n`;
 };

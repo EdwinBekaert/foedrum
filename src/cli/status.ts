@@ -1,7 +1,7 @@
 // `foedrum status`: every batch with its issue and lane (architecture §4.3), and what it is doing
 // or waiting for, and what its attempts took. The lane's words are shared with replay.
 
-import type { BatchState } from '../engine/batch-state.ts';
+import { type BatchState, stateLine, stateOf } from '../engine/batch-state.ts';
 import { calledAs, claimOfOrder, claimOrderOf, orderName } from '../engine/claim-orders.ts';
 import {
   attemptRecipeTypeOf,
@@ -12,69 +12,57 @@ import {
   type State,
   stuckOnFailing,
 } from '../engine/fold.ts';
+import { sessionCommand } from '../engine/next-step.ts';
 import { changesText } from '../engine/order-changes.ts';
 import { pauseOf, stopAtText } from '../engine/pauses.ts';
 import { totalParts } from '../engine/receipt.ts';
-import { sessionCommand } from '../engine/status-comment.ts';
 import { plainReason } from '../engine/supervisor.ts';
 import { sameRepo } from '../engine/task-tree.ts';
 import { usageWindowsText } from '../engine/usage-window.ts';
+import { whenText } from '../engine/when.ts';
+import { attemptName, blockerText, surfaceText } from '../engine/words.ts';
 import { firstLineOf, messageOf } from '../platform/errors.ts';
-import type { OrderRef, StuckReason, Usage, WaitCondition } from '../schemas/events.ts';
+import type { OrderRef, StuckReason, Usage } from '../schemas/events.ts';
 import { addUsage, number } from './brewer-report.ts';
 import { columns } from './columns.ts';
 
-const waitingFor = (on: WaitCondition): string => {
-  switch (on.kind) {
-    case 'merge':
-      return `the merge of ${on.pullRequest}`;
-    case 'release':
-      return `${on.package} ${on.minVersion} or later in ${on.repo}`;
-    case 'sibling':
-      return `batch ${on.batchId}`;
-    default: {
-      const unhandled: never = on;
-      throw new Error(`Unhandled wait ${JSON.stringify(unhandled)}`);
-    }
-  }
-};
-
-const stuckOn = (reason: StuckReason, called: string, { repo, issue }: Batch): string => {
+/** Why a batch waits for a person, in plain words: what happened, then where. */
+export const stuckOn = (reason: StuckReason, called: string, { repo, issue }: Batch): string => {
   switch (reason.kind) {
     case 'needs_input':
-      return `needs input at ${reason.stepId}`;
+      return `step ${reason.stepId} asks ${reason.questions.length === 1 ? 'a question' : `${reason.questions.length} questions`}`;
     case 'blocked':
-      return `blocked at ${reason.stepId} (${reason.blockerKind}): ${reason.summary}`;
+      return `step ${reason.stepId} could not go on, as ${blockerText[reason.blockerKind]}: ${reason.summary}`;
     case 'attempts_exhausted':
-      return `attempts exhausted at ${reason.stepId} after ${reason.attempts}: ${plainReason(reason.lastReason)}`;
+      return `step ${reason.stepId} failed ${reason.attempts === 1 ? 'its one try' : `all ${reason.attempts} tries`}; the last: ${plainReason(reason.lastReason)}`;
     case 'deadline_passed':
-      return `deadline passed at ${reason.stepId} (${reason.deadlineAt})`;
+      return `step ${reason.stepId} ran past its deadline, ${whenText(reason.deadlineAt)}`;
     case 'waiting_for_session':
-      return `waiting for a session at ${reason.stepId}: ${sessionCommand(called)} opens it in a terminal`;
+      return `step ${reason.stepId} is done by a person in a session: ${sessionCommand(called)} opens it in a terminal`;
     case 'failing':
-      return `failing at ${reason.stepId} in ${reason.pass} since ${reason.since}: ${reason.summary}`;
+      return `step ${reason.stepId} could not go on: Foedrum's ${reason.pass} pass has failed since ${whenText(reason.since)}: ${reason.summary}`;
     case 'stalled':
-      return `stalled at ${reason.stepId} since ${reason.lastProgressAt}`;
+      return `step ${reason.stepId} made no progress since ${whenText(reason.lastProgressAt)}`;
     case 'routing':
-      return `not routed by ${reason.deadlineAt}`;
+      return `no recipe was chosen by ${whenText(reason.deadlineAt)}`;
     case 'pull_request_failed': {
-      const after = `at ${reason.stepId} after ${reason.rounds} ${reason.rounds === 1 ? 'round' : 'rounds'}`;
+      const after = `after ${reason.rounds} ${reason.rounds === 1 ? 'round of fixes' : 'rounds of fixes'} by step ${reason.stepId}`;
       if (reason.cause === undefined) {
-        return `${reason.pullRequest} failed its checks on ${reason.head} ${after}`;
+        return `${reason.pullRequest} failed its checks on ${reason.head.slice(0, 8)} ${after}`;
       }
       if (reason.cause.kind === 'conflict') {
         const { branch, tip, files } = reason.cause;
-        return `${reason.pullRequest} conflicts with ${branch} at ${tip} in ${files.join(', ')}, ${after}`;
+        return `${reason.pullRequest} conflicts with ${branch} at ${tip.slice(0, 8)} in ${files.join(', ')}, ${after}`;
       }
       const { branch, tip, check } = reason.cause;
-      return `${reason.pullRequest} fails its checks on the merged tree with ${branch} at ${tip}: ${check}, ${after}`;
+      return `${reason.pullRequest} fails its checks once merged with ${branch} at ${tip.slice(0, 8)}: ${check}, ${after}`;
     }
     case 'plan_review':
-      return `the plan of ${reason.stepId} #${reason.attempt} is ready for your review`;
+      return `the plan from ${attemptName(reason.stepId, reason.attempt)} is ready for you to read`;
     case 'stopped':
-      return `stopped at ${reason.stepId} by ${reason.by} via ${reason.via}${reason.why === undefined ? '' : `: ${reason.why}`}`;
+      return `step ${reason.stepId} was stopped by ${reason.by} ${surfaceText[reason.via]}${reason.why === undefined ? '' : `: ${reason.why}`}`;
     case 'order_changed':
-      return `the order changed at ${reason.stepId}: ${repo ?? ''}#${issue} changed after its approval: ${changesText(reason)}`;
+      return `${repo ?? ''}#${issue} changed after it was approved, at step ${reason.stepId}: ${changesText(reason)}`;
     default: {
       const unhandled: never = reason;
       throw new Error(`Unhandled stuck reason ${JSON.stringify(unhandled)}`);
@@ -87,53 +75,72 @@ const underWay = (batch: Batch): string[] =>
   [...batch.steps.values()].flatMap((step) => {
     const attempt = runningAttempt(step);
     if (attempt === undefined) return [];
-    return [`${step.id} #${attempt.attempt} ${attempt.phase}`];
+    const name = attemptName(step.id, attempt.attempt);
+    return [attempt.phase === 'scheduled' ? `${name} is about to start` : name];
   });
 
-/** A batch's lane, and what it is doing or waiting for there ('' when nothing). */
-export const describeLane = (
+/** A batch's pull requests, each with how it ended when `withEnds`. */
+export const pullRequestsText = (
   batch: Batch,
+  urls: readonly string[],
+  withEnds: boolean,
+): string =>
+  urls
+    .map((url) => {
+      if (!withEnds) return url;
+      const end = batch.pullRequestEnds?.[url];
+      return `${url} ${end === undefined ? 'open' : end === 'closed' ? 'closed without merging' : end}`;
+    })
+    .join(' ');
+
+/**
+ * A batch's state as a person reads it (ADR 0379), and what it is doing or waiting for ('' when
+ * nothing to add).
+ */
+export const describeState = (
+  batch: Batch,
+  /** What the batch is to a person, from `stateOf`. */
+  now: BatchState,
   /** How its lines name its work (`calledAs`, ADR 0329). */
   called: string,
-  /** Whether an on-tap batch's pull requests say how each ended (the board's; brew and replay do not). */
+  /** Whether its pull requests say how each ended (the board's; brew and replay do not). */
   withEnds = false,
-): { lane: string; detail: string } => {
-  const { lane } = batch;
-  switch (lane.kind) {
-    case 'ordered':
-      return { lane: 'ordered', detail: `to be routed by ${lane.routeBy}` };
-    case 'brewing':
-      return { lane: 'brewing', detail: underWay(batch).join(', ') || 'between steps' };
-    case 'conditioning':
-      return {
-        lane: 'conditioning',
-        detail: `waiting for ${waitingFor(lane.on)}; reminder ${lane.remindAt}`,
-      };
-    case 'stuck':
-      return {
-        lane: 'stuck',
-        detail: `${stuckOn(lane.reason, called, batch)}; reminder ${lane.remindAt}`,
-      };
-    case 'on_tap': {
-      // A plan a person signed off is on tap with no pull request (ADR 0281).
-      const { approval } = batch;
-      const approved =
-        approval === undefined ? [] : [`plan approved by ${approval.by} via ${approval.via}`];
-      if (!withEnds)
-        return { lane: 'on tap', detail: [...lane.pullRequests, ...approved].join(' ') };
-      // The lane stays on tap, since no event changes it: the ends say how far the work got.
-      const ends = lane.pullRequests.map(
-        (url) => `${url} ${batch.pullRequestEnds?.[url] ?? 'open'}`,
-      );
-      return { lane: 'on tap', detail: [...ends, ...approved].join(' ') };
+): { state: string; detail: string } => {
+  const { lane, approval } = batch;
+  const approved =
+    approval === undefined ? [] : [`plan approved by ${approval.by} ${surfaceText[approval.via]}`];
+  const detail = ((): string => {
+    switch (lane.kind) {
+      case 'ordered':
+        return `a recipe is chosen by ${whenText(lane.routeBy)}`;
+      // Paused or held, what still runs goes on to its end (ADR 0202).
+      case 'brewing':
+        return underWay(batch).join(', ') || (now.kind === 'running' ? 'between steps' : '');
+      case 'conditioning':
+        return '';
+      case 'stuck':
+        return stuckOn(lane.reason, called, batch);
+      case 'on_tap':
+        return [pullRequestsText(batch, lane.pullRequests, withEnds), ...approved]
+          .filter((part) => part !== '')
+          .join('; ');
+      case 'cancelled':
+        return `by ${lane.by} ${surfaceText[lane.via]}`;
+      default: {
+        const unhandled: never = lane;
+        throw new Error(`Unhandled lane ${JSON.stringify(unhandled)}`);
+      }
     }
-    case 'cancelled':
-      return { lane: 'cancelled', detail: `by ${lane.by} via ${lane.via}` };
-    default: {
-      const unhandled: never = lane;
-      throw new Error(`Unhandled lane ${JSON.stringify(unhandled)}`);
-    }
-  }
+  })();
+  return { state: stateLine(now), detail };
+};
+
+/**
+ * A state as the end of a sentence with what it adds: `done: cancelled by ann`, `running: step plan`.
+ */
+export const withDetail = (clause: string, detail: string): string => {
+  if (detail === '') return clause;
+  return detail.startsWith('by ') ? `${clause} ${detail}` : `${clause}: ${detail}`;
 };
 
 /**
@@ -142,7 +149,7 @@ export const describeLane = (
  */
 export const pauseLine = ({ by, via, why, stopAt }: Pause, withVia = false): string =>
   [
-    `by ${by}${withVia ? ` via ${via}` : ''}${why === undefined ? '' : `: ${why}`}`,
+    `by ${by}${withVia ? ` ${surfaceText[via]}` : ''}${why === undefined ? '' : `: ${why}`}`,
     ...(stopAt === undefined ? [] : [`what still runs is stopped at ${stopAtText(stopAt)}`]),
   ].join('; ');
 
@@ -151,7 +158,7 @@ export const issueOf = (batch: Batch): string => `${batch.repo ?? ''}#${batch.is
 
 /** A batch's mark as it reads (ADR 0335). */
 const failingText = ({ pass, since, summary }: Failing): string =>
-  `failing in ${pass} since ${since}: ${summary}`;
+  `Foedrum's ${pass} pass has failed on it since ${whenText(since)}: ${summary}`;
 
 /** A batch's mark, but on a batch whose Stuck reason says it already. */
 export const failingParts = ({ failing, lane }: Batch): string[] =>
@@ -168,7 +175,7 @@ export const unreadable = ({ failing }: Batch, error: unknown): string =>
   ].join('; ');
 
 /**
- * A batch's cells in `foedrum status`: its id, order, lane, and what it does, with the owner of an
+ * A batch's cells in `foedrum status`: its id, order, state (ADR 0379), and what it does, with the owner of an
  * `interactive` driver that holds it (ADR 0123) and what its attempts took.
  */
 export const statusRow = (
@@ -179,9 +186,13 @@ export const statusRow = (
   const failing = failingParts(batch);
   // A batch whose rendering throws is still shown, with its mark, and the board goes on (ADR 0335).
   try {
-    const { lane, detail } = describeLane(batch, calledAs(state, batch), true);
+    const now = stateOf(state, batch);
+    const { state: shown, detail } = describeState(batch, now, calledAs(state, batch), true);
     const pause = pauseOf(state, batch);
-    const paused = pause === undefined ? [] : [`paused ${pauseLine(pause)}`];
+    // A state that says it is paused needs only who paused it.
+    const held = now.kind === 'queued' && now.by.kind === 'pause';
+    const paused =
+      pause === undefined ? [] : [held ? pauseLine(pause) : `paused ${pauseLine(pause)}`];
     const owner = interactive.get(batch.id);
     const by = owner === undefined ? [] : [`brewed interactively by ${owner}`];
     // What its attempts took, summed (ADR 0172), in ASCII: a pipe on Windows decodes the output
@@ -190,11 +201,14 @@ export const statusRow = (
     return [
       batch.id,
       orderName(state, batch),
-      lane,
-      [detail, ...failing, ...paused, ...by, total].filter((part) => part !== '').join('; '),
+      shown,
+      (held ? [...paused, detail] : [detail, ...paused])
+        .concat(failing, by, [total])
+        .filter((part) => part !== '')
+        .join('; '),
     ];
   } catch (error) {
-    return [batch.id, issueOf(batch), batch.lane.kind, unreadable(batch, error)];
+    return [batch.id, issueOf(batch), 'cannot be read', unreadable(batch, error)];
   }
 };
 
@@ -306,14 +320,4 @@ export const formatOrderStatus = (
     `planning: ${usageText(planning)}`,
     `brewing: ${usageText(brewing)}`,
   ].join('\n')}\n`;
-};
-
-/** A batch's state as a person reads it (ADR 0379), and what it is doing or waiting for. */
-export const describeState = (
-  _batch: Batch,
-  _now: BatchState,
-  _called: string,
-  _withEnds = false,
-): { state: string; detail: string } => {
-  throw new Error('not implemented');
 };

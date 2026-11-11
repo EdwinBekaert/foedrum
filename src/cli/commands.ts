@@ -7,6 +7,7 @@
 
 import { nextBatchId, targetBatchId } from '../engine/batch-id.ts';
 import { defaultLeaseMs, takeOver } from '../engine/batch-leases.ts';
+import { stateClause, stateOf } from '../engine/batch-state.ts';
 import {
   calledAs,
   latestBatch,
@@ -42,6 +43,7 @@ import {
   limitsOf,
   mayHold,
 } from '../engine/limits.ts';
+import { stuckNext } from '../engine/next-step.ts';
 import { ORDER_CHANGED_QUESTION } from '../engine/order-changes.ts';
 import { orderOfBatch, pauseOf, stopAtText } from '../engine/pauses.ts';
 import { onePerOrder, placeAt, rankQueue, rankRefusal } from '../engine/ranks.ts';
@@ -92,7 +94,13 @@ import { stopInstant } from './pause-time.ts';
 import { formatReplay } from './replay.ts';
 import type { CliContext, CliResult } from './run.ts';
 import { NAME_THE_BREWERY, storePath } from './serve-config.ts';
-import { describeLane, formatOrderStatus, formatStatus, orderBatches } from './status.ts';
+import {
+  describeState,
+  formatOrderStatus,
+  formatStatus,
+  orderBatches,
+  withDetail,
+} from './status.ts';
 import { formatStuck } from './stuck.ts';
 
 /** A command as surfaces see it: its schema and handler behind `run`. */
@@ -261,12 +269,13 @@ const changeBrewery = async (
     return done(`${laneLine(log.state(), human.batchId)}\n`);
   });
 
-/** Where the batch `batchId` is now, as a command that changed it says. */
+/** What the batch `batchId` is now to a person (ADR 0379), as a command that changed it says. */
 const laneLine = (state: State, batchId: string): string => {
   // Accepted, so the batch exists.
   const batch = foldedBatch(state, batchId);
-  const { lane, detail } = describeLane(batch, calledAs(state, batch));
-  return `${saidAs(state, batch)} ${lane}${detail === '' ? '' : `: ${detail}`}`;
+  const now = stateOf(state, batch);
+  const { detail } = describeState(batch, now, calledAs(state, batch));
+  return `${saidAs(state, batch)} is ${withDetail(stateClause(now), detail)}`;
 };
 
 // Runs `use` on the command log of the Brewery's store, opened for writing and closed after; one
@@ -1127,17 +1136,16 @@ export const commands: readonly RegisteredCommand[] = [
           context.now(),
         );
         if (decision.kind === 'refused') return failed('stop', decision.reason);
-        const stuck = decision.events.flatMap((event) =>
-          event.type === 'batch.stuck' && event.reason.kind === 'stopped'
-            ? [
-                `${saidAs(log.state(), foldedBatch(log.state(), event.batchId))} is Stuck at ${event.reason.stepId}`,
-              ]
-            : [],
-        );
-        const them = stuck.length === 1 ? 'it' : 'each';
-        return done(
-          `${givenName(target)} stopped: ${stuck.join(', ')}; foedrum retry continues ${them}\n`,
-        );
+        const state = log.state();
+        const stopped = decision.events.flatMap((event) => {
+          if (event.type !== 'batch.stuck' || event.reason.kind !== 'stopped') return [];
+          const batch = foldedBatch(state, event.batchId);
+          return [
+            `${saidAs(state, batch)} waits for you at step ${event.reason.stepId}`,
+            `  ${stuckNext(event.reason, event.options, calledAs(state, batch), (text) => text)}`,
+          ];
+        });
+        return done(`${givenName(target)} stopped.\n${stopped.join('\n')}\n`);
       });
     },
   }),

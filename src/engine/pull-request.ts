@@ -43,6 +43,7 @@ import {
   pastLine,
 } from './skip-past.ts';
 import { mutantLines } from './survivors.ts';
+import { tryName } from './words.ts';
 
 /**
  * The effect that pushes the batch's task tree to its bottle branch in `round` of its pull request:
@@ -633,7 +634,7 @@ const brewTable = (attempts: readonly AttemptRow[], isCommit: IsCommit): string 
               .slice(0, MAX_CELL),
           )}`;
     // A code span, as the status comment writes it: GitHub links a bare `#1` to issue 1 (ADR 0184).
-    return `| \`${stepId} #${attempt}\` | ${result}${why} |`;
+    return `| \`${tryName(stepId, attempt)}\` | ${result}${why} |`;
   });
   const more = attempts.length - rows.length;
   return [

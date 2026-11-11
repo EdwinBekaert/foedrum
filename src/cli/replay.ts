@@ -1,13 +1,15 @@
 // `foedrum replay <issue>`: the batch's events as stored, and the state the fold makes of them.
 
+import { batchState } from '../engine/batch-state.ts';
 import { calledAs } from '../engine/claim-orders.ts';
 import type { StoredEvent } from '../engine/event-store.ts';
 import { type Attempt, type Batch, emptyState, type Pause } from '../engine/fold.ts';
 import { plainReason } from '../engine/supervisor.ts';
+import { surfaceText } from '../engine/words.ts';
 import type { MutantVerdict } from '../schemas/events.ts';
 import type { StepOutcome } from '../schemas/step-outcome.ts';
 import { columns } from './columns.ts';
-import { describeLane, issueOf, pauseLine } from './status.ts';
+import { describeState, issueOf, pauseLine } from './status.ts';
 
 const outcomeOf = (outcome: StepOutcome): string => {
   switch (outcome.kind) {
@@ -77,7 +79,11 @@ export const formatReplay = (
   called: string = calledAs(emptyState, batch),
 ): string => {
   const idWidth = Math.max(...events.map(({ id }) => String(id).length));
-  const { lane, detail } = describeLane(batch, called);
+  const { state, detail } = describeState(
+    batch,
+    batchState(batch, { paused: pause !== undefined }),
+    called,
+  );
   const { recipe } = batch;
   const lines = [
     `Batch ${batch.id}, issue ${issueOf(batch)}`,
@@ -88,7 +94,7 @@ export const formatReplay = (
     ),
     '',
     'State',
-    `  lane    ${lane}${detail === '' ? '' : `: ${detail}`}`,
+    `  state   ${state}${detail === '' ? '' : `: ${detail}`}`,
   ];
   // The pause that holds it now, with the surface it came from (ADR 0202).
   if (pause !== undefined) {
@@ -96,7 +102,8 @@ export const formatReplay = (
   }
   if (batch.parentBatchId !== undefined) lines.push(`  parent  ${batch.parentBatchId}`);
   if (recipe !== undefined) {
-    const chooser = recipe.source === 'human' ? `${recipe.by} via ${recipe.via}` : recipe.source;
+    const chooser =
+      recipe.source === 'human' ? `${recipe.by} ${surfaceText[recipe.via]}` : recipe.source;
     lines.push(`  recipe  ${recipe.name}, chosen by ${chooser}: ${recipe.reason}`);
   }
   // The texts themselves are on the state branch, which keeps them past the worktrees (ADR 0103).

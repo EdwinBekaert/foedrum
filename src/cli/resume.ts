@@ -15,6 +15,7 @@ import { attemptSettings } from '../brewers/attempt-settings.ts';
 import { isSessionId, resumeArgs } from '../brewers/claude-command.ts';
 import { type AttemptRef, attemptKey } from '../engine/attempt-key.ts';
 import { defaultLeaseMs } from '../engine/batch-leases.ts';
+import { stateClause, stateOf } from '../engine/batch-state.ts';
 import { buildBrewerEnv } from '../engine/brewer-env.ts';
 import { calledAs, saidAs } from '../engine/claim-orders.ts';
 import type { EventStore, Lease, StoredEvent } from '../engine/event-store.ts';
@@ -27,8 +28,8 @@ import {
   runningAttempt,
   type State,
 } from '../engine/fold.ts';
+import { sessionCommand } from '../engine/next-step.ts';
 import { resumeOf } from '../engine/session-resume.ts';
-import { sessionCommand } from '../engine/status-comment.ts';
 import { sameRepo } from '../engine/task-tree.ts';
 import { envNameKey } from '../platform/env.ts';
 import { messageOf } from '../platform/errors.ts';
@@ -245,11 +246,13 @@ const runningTarget = (
   const batchId = batch.id;
   const said = saidAs(state, batch);
   if (batch.lane.kind === 'ordered') {
-    return { refused: `${said} is ordered: no step of it has run yet` };
+    return {
+      refused: `${said} is ${stateClause(stateOf(state, batch))}: no step of it has run yet`,
+    };
   }
   if (attempt !== undefined) {
     const latest = 'name the step alone, and foedrum resume continues its latest attempt';
-    return { refused: `${said} is ${batch.lane.kind}: ${latest}` };
+    return { refused: `${said} is ${stateClause(stateOf(state, batch))}: ${latest}` };
   }
   const steps = stepId === undefined ? [...batch.steps.values()] : [batch.steps.get(stepId)];
   // A person's session cannot be stopped from outside, so it is never taken over (ADR 0231), also
@@ -432,8 +435,8 @@ export const runResume = async (input: ResumeInput, shell: ResumeShell): Promise
         if (first) {
           const latest = fold(store.eventsAfter(0).map(({ event }) => event));
           if (isRunning(latest, batchId)) {
-            const { kind } = latest.batches.get(batchId)?.lane ?? {};
-            return `${saidAs(latest, foldedBatch(latest, batchId))} is ${kind} now: run foedrum resume again to take it over`;
+            const held = foldedBatch(latest, batchId);
+            return `${saidAs(latest, held)} is ${stateClause(stateOf(latest, held))} now: run foedrum resume again to take it over`;
           }
         }
         const other = store

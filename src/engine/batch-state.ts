@@ -78,8 +78,11 @@ const waitingOn = (reason: StuckReason): WaitingFor => {
     case 'pull_request_failed':
     case 'stopped':
       return { kind: 'look-at-failure' };
-    default:
-      return reason satisfies never;
+    default: {
+      // A reason a newer Foedrum recorded: a person still looks at it.
+      const _unhandled: never = reason;
+      return { kind: 'look-at-failure' };
+    }
   }
 };
 
@@ -242,6 +245,12 @@ const doneText: Record<DoneHow, string> = {
   'closed without merging': 'closed without merging',
   cancelled: 'cancelled',
   'no pull request': 'finished with no pull request',
+};
+
+/** The state as the end of a sentence about the batch, such as `waiting for you: approve the plan`. */
+export const stateClause = (state: BatchState): string => {
+  const line = stateLine(state);
+  return `${line.charAt(0).toLowerCase()}${line.slice(1)}`;
 };
 
 /** The state as one line of plain words, such as `Waiting for you: approve the plan`. */

@@ -23,11 +23,12 @@ import {
 import type { DriverEffects } from './driver.ts';
 import type { Approval, Batch, State } from './fold.ts';
 import { lensRounds, roundFindings, withDispositions } from './lens-rounds.ts';
+import { stuckNext } from './next-step.ts';
 import { withoutSecrets } from './out-doc-text.ts';
 import { type OpenedSubIssue, openedSubIssues, SKIPS_TEST_FIRST } from './plan-applied.ts';
 import { digestOf, findingText, knownCommits, quoted } from './pull-request.ts';
 import { outDocLink, outDocPlace } from './state-branch.ts';
-import { code, labelled, plain, planNextLine, type StatusComments } from './status-comment.ts';
+import { code, labelled, plain, type StatusComments } from './status-comment.ts';
 
 /** The start of a plan comment's first line, before its batch; a status comment's never has it. */
 export const PLAN_HEADING = '### Foedrum · plan of batch';
@@ -270,8 +271,8 @@ export const renderPlan = (
   opened: readonly OpenedSubIssue[] = [],
   /** The notes its plan lenses left (ADR 0318); undefined while no plan lens reviewed it. */
   review?: readonly ReviewNote[],
-  /** The options of the lane that waits for the review, of which the last line names those besides the plan's own (#855). */
-  options: readonly string[] = [],
+  /** The `Next:` line of the batch that waits for the review: `stuckNext`'s, as every surface shows it (ADR 0379). */
+  nextLine?: string,
   /** How its commands name its work (`calledAs`, ADR 0329). */
   called: string = batchId,
 ): string => {
@@ -330,7 +331,7 @@ export const renderPlan = (
   const joined = (parts: string[][]): string => parts.map((lines) => lines.join('\n')).join('\n\n');
   const head = `${top.join('\n')}\n\n`;
   // Last, and kept by a cut: what to do next, while the plan waits for its review.
-  const next = waitsForReview ? `\n\n${planNextLine(called, options, batchId)}` : '';
+  const next = waitsForReview && nextLine !== undefined ? `\n\n${nextLine}` : '';
   const text = joined([table, ...order, ...sections, ...others, ...after]);
   if (head.length + text.length + next.length <= longestComment) return `${head}${text}${next}`;
   // The graph goes first, so a cut never leaves its block open.
@@ -471,7 +472,9 @@ const planDue = (
     changed,
     opened,
     reviewNotes(batch, stepId, attempt),
-    review ? lane.options : [],
+    lane.kind === 'stuck' && review
+      ? stuckNext(lane.reason, lane.options, calledAs(state, batch), code)
+      : undefined,
     calledAs(state, batch),
   );
   const digest = digestOf(text);

@@ -4,6 +4,7 @@
 import { type UsageLimitName, UsageScope } from '../schemas/events.ts';
 import type { UsageWindow, UsageWindows } from './fold.ts';
 import { fromWallClock, wallClock } from './wall-clock.ts';
+import { whenText } from './when.ts';
 
 /** Added to the reset, so the first attempt after it does not meet a window still closed. */
 export const reopenMarginMs = 5 * 60_000;
@@ -98,21 +99,6 @@ export const reopenOf = (resets: string, now: Date, zone: string): Reopen => {
     : { at: new Date(reset + reopenMarginMs), read: true };
 };
 
-const utc = (instant: Date): string => {
-  const time = new Intl.DateTimeFormat('en-GB', {
-    timeZone: 'UTC',
-    hourCycle: 'h23',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(instant);
-  const day = new Intl.DateTimeFormat('en-GB', {
-    timeZone: 'UTC',
-    day: 'numeric',
-    month: 'long',
-  }).format(instant);
-  return `${time} UTC, ${day}`;
-};
-
 /** The line the status comment and `foedrum status` show while the window is closed. */
 export const usageWindowText = ({ limit, resets, reopensAt, read }: UsageWindow): string => {
   const scope = scopeOf(limit);
@@ -121,7 +107,7 @@ export const usageWindowText = ({ limit, resets, reopensAt, read }: UsageWindow)
     scope === 'all'
       ? ['Usage window', 'brewers']
       : [`${scope} usage window`, `brewers on ${scope}`];
-  return `${window} closed: claude hit its ${limit} limit, which resets ${resets}; ${brewers} ${read ? 'wait until' : 'try again at'} ${utc(new Date(reopensAt))}`;
+  return `${window} closed: claude hit its ${limit} limit, which resets ${resets}; ${brewers} ${read ? 'wait until' : 'try again at'} ${whenText(reopensAt)}`;
 };
 
 /** A line for each closed window: every brewer's first, then Opus's, then Sonnet's (ADR 0215). */

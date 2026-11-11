@@ -7,6 +7,12 @@ import type { StuckOption, StuckReason } from '../schemas/events.ts';
 /** How a surface writes a command: as code in a comment, as it is on a terminal. */
 export type Command = (text: string) => string;
 
+/**
+ * The command that opens the session a batch waits for (ADR 0222): `foedrum brew` of its issue, as
+ * `calledAs` names it (ADR 0329), in a terminal, taking the batch from the driver that parked it.
+ */
+export const sessionCommand = (called: string): string => `foedrum brew ${called} --take`;
+
 /** `a`, `a or b`, `a, b, or c`. */
 const either = (parts: readonly string[]): string =>
   parts.length < 2 ? parts.join('') : `${parts.slice(0, -1).join(', ')}, or ${parts.at(-1)}`;
@@ -25,9 +31,10 @@ const optionText = (
     case 'lauter':
       return `correct it with the Brewmaster in a session with ${run()}`;
     case 'retry':
-      return reason.kind === 'plan_review'
-        ? `plan it again with ${run()}`
-        : `try the step again with ${run()}`;
+      if (reason.kind === 'plan_review') return `plan it again with ${run()}`;
+      // No step ran: a retry routes the issue again by its labels.
+      if (reason.kind === 'routing') return `route it again by its labels with ${run()}`;
+      return `try the step again with ${run()}`;
     case 'skip':
       return `go past the step with ${run()}`;
     case 'recipe':
@@ -67,6 +74,24 @@ export const stuckNext = (
       const answer = (word: string) => command(`foedrum answer ${called} ${word}`);
       return `Next: answer ${answer('continue')} to brew the issue as it is now, or ${answer('stop')} to end the batch.`;
     }
+    // A step a person does in a session: nothing failed (ADR 0222).
+    case 'waiting_for_session': {
+      const open = `open its session with ${command(sessionCommand(called))} in a terminal`;
+      return `Next: ${either([open, ...others])}.`;
+    }
+    // No recipe was chosen: choosing one is what it waits for.
+    case 'routing': {
+      const choose = `choose a recipe with ${command(`foedrum recipe ${called} <recipe> <reason>`)}`;
+      const rest = options.flatMap((option) =>
+        option === 'answer' || option === 'recipe'
+          ? []
+          : [optionText(option, reason, called, command)],
+      );
+      return `Next: ${either([choose, ...rest])}.`;
+    }
+    // A person stopped it: nothing failed, and it goes on when they say so (ADR 0205).
+    case 'stopped':
+      return `Next: when it should go on, ${either(others)}.`;
     default:
       return `Next: look at what failed above, then ${either(others)}.`;
   }

@@ -12,6 +12,7 @@
 
 import { type AttemptRef, attemptKey } from '../engine/attempt-key.ts';
 import { defaultLeaseMs as leaseMs, releaseBatch, takeOver } from '../engine/batch-leases.ts';
+import { batchState, stateClause, stateOf } from '../engine/batch-state.ts';
 import { closeStillDue } from '../engine/brewery-closes.ts';
 import {
   breweryIssueOf,
@@ -31,11 +32,14 @@ import type { BatchLease } from '../engine/event-store.ts';
 import { type Batch, foldedBatch, type State, unendedPullRequests } from '../engine/fold.ts';
 import { type PullRequestEnded, recipeLabels, recordEndsOf } from '../engine/intake.ts';
 import { orderEffects } from '../engine/issue-claims.ts';
+import { stuckNext } from '../engine/next-step.ts';
 import { orderOfBatch, pauseOf } from '../engine/pauses.ts';
 import { planCommentOf } from '../engine/plan-comment.ts';
 import { MASH_IN } from '../engine/recipe-label.ts';
 import { statusCommentOf } from '../engine/status-comment.ts';
 import type { AttemptProgress } from '../engine/supervisor.ts';
+import { whenText } from '../engine/when.ts';
+import { attemptName } from '../engine/words.ts';
 import { githubOrderLabels, type OrderIssue } from '../github/order-text.ts';
 import { githubTargetTracker } from '../github/tracker.ts';
 import { messageOf } from '../platform/errors.ts';
@@ -46,7 +50,7 @@ import { closeOpened, type Opened, tick, wireDriver } from './driver-wiring.ts';
 import { printable } from './run.ts';
 import { formatNotice, INTERVAL_MS, type ServeShell } from './serve.ts';
 import type { ServeSetup } from './serve-config.ts';
-import { describeLane } from './status.ts';
+import { describeState, pullRequestsText, withDetail } from './status.ts';
 
 /** What `foedrum brew` brews, as whom, and who asked. */
 export interface BrewRequest {
@@ -92,13 +96,15 @@ const questionLines = (state: State, stepId: string, batch: Batch): string[] => 
   const { lane } = batch;
   if (lane.kind !== 'stuck' || lane.reason.kind !== 'needs_input') return [];
   const { questions } = lane.reason;
+  const called = calledAs(state, batch);
   return [
-    `${saidAs(state, batch)} needs input at ${stepId}:`,
+    `${saidAs(state, batch)} is ${stateClause(stateOf(state, batch))}: step ${stepId} asks:`,
     ...questions.flatMap(({ q, options, recommended, whyBlocking }, n) => [
       `  ${n + 1}. ${q} (${options.join(', ')}; recommended: ${recommended})`,
       `     why it blocks: ${whyBlocking}`,
     ]),
-    `answer them in order with foedrum answer ${calledAs(state, batch)} ${questions.map((_, n) => `<answer ${n + 1}>`).join(' ')}, then brew again`,
+    stuckNext(lane.reason, lane.options, called, (text) => text),
+    `Once it is answered, foedrum brew ${called} goes on.`,
   ];
 };
 
@@ -191,7 +197,7 @@ export const oneLine = (text: string): string =>
  * It never says that driver stopped, which Foedrum cannot tell (ADR 0336).
  */
 export const drivenBy = (state: State, lease: BatchLease, wayOn: string): string =>
-  `${saidAs(state, foldedBatch(state, lease.batchId))} is driven by ${lease.owner} until ${lease.expiresAt.toISOString()}, when its lease ends by itself; ${wayOn}`;
+  `${saidAs(state, foldedBatch(state, lease.batchId))} is driven by ${lease.owner} until ${whenText(lease.expiresAt)}, when its lease ends by itself; ${wayOn}`;
 
 /** What brewing an on-tap batch did once its pull requests ended and its effects applied (ADR 0336). */
 const endedLine = (
@@ -201,9 +207,9 @@ const endedLine = (
   order: number | undefined,
 ): string => {
   const merged = urls.every((url) => batch.pullRequestEnds?.[url] === 'merged');
-  const ended = merged
-    ? `${said} merged: ${urls.join(' ')}`
-    : `${said} ended: ${urls.join(' ')} not all merged`;
+  // Each one's end only when they ended apart: the state says it when all ended alike.
+  const alike = new Set(urls.map((url) => batch.pullRequestEnds?.[url])).size === 1;
+  const ended = `${said} is ${stateClause(batchState(batch))}: ${pullRequestsText(batch, urls, !alike)}`;
   const issue =
     order === undefined ? [] : [`Brewery issue #${order} ${merged ? 'closed' : 'stays open'}`];
   const unassign = merged ? '' : ', unassign it to make it available';
@@ -228,17 +234,17 @@ export const runningAttempts = (batch: Batch): Running[] =>
     [...attempts.values()]
       .filter((attempt) => attempt.phase === 'started' && attempt.abandoned !== true)
       .map(({ attempt }) => ({
-        label: `${id} #${attempt}`,
+        label: attemptName(id, attempt),
         ref: { batchId: batch.id, stepId: id, attempt },
       })),
   );
 
-/** The attempts of `batch` that started, named `<step> #<n>`, whether they run now or ended. */
+/** The attempts of `batch` that started, named as `attemptName` does, whether they run now or ended. */
 const startedLabels = (batch: Batch): string[] =>
   [...batch.steps.values()].flatMap(({ id, attempts }) =>
     [...attempts.values()]
       .filter(({ phase }) => phase !== 'scheduled')
-      .map(({ attempt }) => `${id} #${attempt}`),
+      .map(({ attempt }) => attemptName(id, attempt)),
   );
 
 /** `ms` as whole seconds, and minutes from one: `30s`, `1m 0s`. */
@@ -532,10 +538,8 @@ export const runBrew = async (
       held.lane.kind === 'on_tap' || held.lane.kind === 'cancelled'
         ? `foedrum brew ${called(state)} tries again then`
         : `foedrum ${request.mash === true ? 'mash' : 'brew'} ${called(state)}${request.override === true ? ' --override' : ''} --take takes it over now`;
-    const orderAgainLine = (state: State, batch: Batch): string => {
-      const { lane } = describeLane(batch, called(state));
-      return `${named} is ${lane}; foedrum order ${called(state)} orders it again`;
-    };
+    const orderAgainLine = (state: State, batch: Batch): string =>
+      `${named} is ${stateClause(stateOf(state, batch))}; foedrum order ${called(state)} orders it again`;
     // A target issue that ended and whose Brewery issue a person deleted is claimed anew.
     const knew = last === undefined ? {} : claimOrderOf(log.state(), last.id);
     const deleted =
@@ -592,9 +596,9 @@ export const runBrew = async (
         return refuse(heldLine(log.state(), latest));
       }
       if (standing === 'releasing') {
-        const { lane } = describeLane(latest, called(log.state()));
+        const clause = stateClause(stateOf(log.state(), latest));
         return refuse(
-          `${named} is ${lane}; its release is still due, and foedrum brew ${called(log.state())} finishes it`,
+          `${named} is ${clause}; its release is still due, and foedrum brew ${called(log.state())} finishes it`,
         );
       }
       // What an order would say, when it would be refused, in place of offering it (ADR 0339).
@@ -908,7 +912,9 @@ export const runBrew = async (
         return refuse(drivenBy(driver.state(), other, wayOn(driver.state(), held)));
       }
       const now = foldedBatch(driver.state(), batchId);
-      const { lane, detail } = describeLane(now, calledAs(driver.state(), now));
+      const batchNow = stateOf(driver.state(), now);
+      const { detail } = describeState(now, batchNow, calledAs(driver.state(), now));
+      const clause = stateClause(batchNow);
       const said = saidAs(driver.state(), now);
       // An attempt that started and ended since the last pass is named, though the lane no longer
       // says it ran: a group's Tasters all started, on a terminal or not (ADR 0346).
@@ -919,7 +925,7 @@ export const runBrew = async (
       );
       for (const label of started) lined.add(label);
       if (lapsed.length > 0) {
-        say(`${said} brewing: ${lapsed.map((label) => `${label} started`).join(', ')}`);
+        say(`${said} is running: ${lapsed.map((label) => `${label} started`).join(', ')}`);
       }
       // The status comment, on the batch's Brewery issue, once its first revision is recorded
       // (ADR 0072, ADR 0155).
@@ -950,14 +956,14 @@ export const runBrew = async (
                 `once they merge, foedrum brew ${shownOn} or foedrum serve closes Brewery issue #${shownOn}${claim}`,
               );
             }
-            say(`${said} is on tap: ${pullRequests.join(' ')}`);
+            say(`${said} is ${clause}: ${pullRequests.join(' ')}`);
             return BREW_EXIT.onTap;
           }
           // With none, what it left instead: a plan's comment (#656).
           const plan = planCommentOf(driver.state(), batchId);
           const shown =
             plan === undefined || shownOn === undefined ? '' : `; the plan: ${commentUrl(plan)}`;
-          say(`${said} is on tap: no pull request${shown}`);
+          say(`${said} is ${clause}${shown}`);
           return BREW_EXIT.onTap;
         }
         case 'cancelled':
@@ -969,7 +975,7 @@ export const runBrew = async (
               `claim on ${now.repo}#${now.issue} released; ${issue}unassign it to make it available`,
             );
           }
-          say(`${said} was ${lane} ${detail}`);
+          say(`${said} was cancelled ${detail}`);
           return BREW_EXIT.cancelled;
         case 'stuck': {
           const { reason, options } = now.lane;
@@ -992,7 +998,8 @@ export const runBrew = async (
             reason.kind === 'plan_review' ? planCommentOf(driver.state(), batchId) : undefined;
           const shown =
             plan === undefined || shownOn === undefined ? '' : `; the plan: ${commentUrl(plan)}`;
-          say(`${said} is stuck: ${detail}; options: ${options.join(', ')}${shown}`);
+          say(`${said} is ${clause}: ${detail}${shown}`);
+          say(stuckNext(reason, options, calledAs(driver.state(), now), (text) => text));
           if (reason.kind === 'waiting_for_session') {
             say(sessionLine(request.noSessions, driver.state()));
           }
@@ -1013,7 +1020,7 @@ export const runBrew = async (
           throw new Error(`Unknown lane ${JSON.stringify(unknown)}`);
         }
       }
-      const line = `${said} ${lane}${detail === '' ? '' : `: ${detail}`}`;
+      const line = `${said} is ${withDetail(clause, detail)}`;
       const at = clock().getTime();
       countFromOrder(now);
       noticed(running, at);
@@ -1026,9 +1033,9 @@ export const runBrew = async (
         // A step can run for many minutes in silence: say it still runs (#406).
         saidAt = at;
         const runs = running.map(
-          ({ label }) => `${label} running for ${elapsed(at - firstSeen(label, at))}`,
+          ({ label }) => `${label}, for ${elapsed(at - firstSeen(label, at))} so far`,
         );
-        say(`${said} ${lane}: ${runs.join(', ')}`);
+        say(`${said} is ${clause}: ${runs.join(', ')}`);
       }
       if (signal.aborted) break;
       await pause();
