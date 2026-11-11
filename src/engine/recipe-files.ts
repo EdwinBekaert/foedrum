@@ -1411,6 +1411,10 @@ export function defaultRecipeProblem(
   if (defaultRecipe === undefined) return undefined;
   const fix = `name a recipe of type mash, or leave it out for ${MASH_IN}`;
   const named = `foedrum.jsonc's defaultRecipe names ${defaultRecipe}`;
+  // A new choice of a default recipe's old name is refused, as a label's is (ADR 0372).
+  const now = recipes.renamed?.(defaultRecipe);
+  if (now !== undefined)
+    return { what: `${named}, which is called ${now} now`, fix: `name ${now}` };
   const found = recipes.find(defaultRecipe);
   if (found === undefined) return { what: `${named}, which is no recipe of this Brewery`, fix };
   return found.type === 'mash' ? undefined : { what: `${named}, of type ${found.type}`, fix };
