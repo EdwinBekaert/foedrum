@@ -16,7 +16,7 @@ The lanes (`on_tap`, `stuck`, …) stay inside the engine: every decision it mak
 | **Waiting for you**: open its session | Stuck as `waiting_for_session` ([interactive steps](../recipes/interactive-steps.md)) | `foedrum:open-session` |
 | **Waiting for you**: choose a recipe | Stuck as `routing` | `foedrum:choose-recipe` |
 | **Waiting for you**: look at a failure Foedrum could not get past | Stuck for any other reason, one a newer Foedrum records among them | `foedrum:look-at-failure` |
-| **Queued** | Waiting for a recipe (ordered); for a merge, a release or another batch (conditioning); paused by a person ([pause and continue](pause.md)); held by a usage limit with nothing running ([the usage window](../engine/usage-window.md)); or an approved plan whose sub-orders are not opened yet | `foedrum:queued` |
+| **Queued** | Waiting for a recipe (ordered); for a merge, a release or another batch (conditioning); paused by a person ([pause and continue](pause.md)); held, with nothing running, by the usage window of every brewer ([the usage window](../engine/usage-window.md)); or an approved plan whose sub-orders are not opened yet | `foedrum:queued` |
 | **Done** | Merged, closed without merging, cancelled, or finished with no pull request | none |
 
 Done is the engine's own rule, `batchEnded`, and `orderEnd` for a split order ([ADR 0293](../../adr/0293-a-split-order-ends-once-every-sub-order-merged-and-the-engine-closes-it.md)), plus a recipe that ended with no pull request; when #921 lands, `batchEnded` will take that last case too.

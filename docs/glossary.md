@@ -62,7 +62,7 @@ One state per batch, the same on every surface: the status comment, the plan com
 |---|---|
 | **Running** 🍺 | A brewer or a check works on the batch now |
 | **Waiting for you** 🔔 | The batch waits for a person, and says for what: approve the plan, answer a question, review and merge the pull request, open its session, choose a recipe, or look at a failure Foedrum could not get past; one `Next:` line says how |
-| **Queued** ⏳ | Waiting for a recipe, a merge, a release or another batch, paused by a person, held by a usage limit, or an approved plan whose sub-orders are not opened yet |
+| **Queued** ⏳ | Waiting for a recipe, a merge, a release or another batch, paused by a person, held by the usage window of every brewer, or an approved plan whose sub-orders are not opened yet |
 | **Done** 🍻 | Merged, closed without merging, cancelled, or finished with no pull request |
 
 ## Default brewers

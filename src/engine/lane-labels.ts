@@ -1,8 +1,9 @@
-// The lane label of a batch of a Brewery issue (#406, ADR 0154): one `foedrum:<…>` label at a
-// time on its issue, naming the person's action while the batch waits on them (ADR 0316), or on the Brewery issue that is a claimed batch's order (ADR 0155), set
-// through the ledger as the driver's effects, `[batchId, "label.<n>"]`, as the status comment's
-// revisions are (ADR 0072): due when the lane's label is not the one the latest revision left,
-// found on the issue before it is applied (ADR 0033).
+// The state label of a batch of a Brewery issue (ADR 0154): one `foedrum:<…>` label at a time on
+// its issue, naming the batch's state as a person reads it, and while it waits for them, for what
+// (ADR 0379), or on the Brewery issue that is a claimed batch's order (ADR 0155), set through the
+// ledger as the driver's effects, `[batchId, "label.<n>"]`, as the status comment's revisions are
+// (ADR 0072): due when the state's label is not the one the latest revision left, found on the
+// issue before it is applied (ADR 0033).
 
 import { LaneLabelName, LaneLabelRevision, RetiredLaneLabel } from '../schemas/lane-label.ts';
 import type { BatchEffectKey } from '../schemas/store.ts';
@@ -59,8 +60,8 @@ export interface LaneLabelEffectsOptions {
 }
 
 /**
- * The lane label of every batch of a Brewery issue, for the driver: a revision whenever its lane's
- * label changes. A claimed batch's label is on the Brewery issue that is its order, once that is
+ * The state label of every batch of a Brewery issue, for the driver (ADR 0379): a revision whenever
+ * its state's label changes. A claimed batch's label is on the Brewery issue that is its order, once that is
  * recorded (ADR 0155); its target issue keeps only `foedrum:claimed`.
  */
 export const laneLabelEffects = (options: LaneLabelEffectsOptions): DriverEffects => {
