@@ -291,7 +291,7 @@ export const renderPlan = (
         ]),
   ];
   const table = [
-    '**Sub-orders**',
+    '**Sub-orders** (each becomes one pull request)',
     '',
     '| Sub-order | Size | Recipe | Depends on | Ready |',
     '| --- | --- | --- | --- | --- |',
@@ -327,7 +327,7 @@ export const renderPlan = (
           ? ['No findings.']
           : reviewLines(review, stepId, isCommit)),
     ],
-    ['**Gate**', '', ...gate],
+    ['**Gate** (your sign-off before anything is built)', '', ...gate],
   ];
   const joined = (parts: string[][]): string => parts.map((lines) => lines.join('\n')).join('\n\n');
   const head = `${top.join('\n')}\n\n`;

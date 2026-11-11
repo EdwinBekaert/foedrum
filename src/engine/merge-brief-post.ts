@@ -358,7 +358,8 @@ const tastedLine = (steps: Steps, ready: ReadyRecord): string => {
   );
   const step = last === undefined ? undefined : steps.batch.steps.get(last);
   const attempt = step && latestAttempt(step);
-  if (last === undefined || attempt === undefined) return '- No Taster tasted this change.';
+  if (last === undefined || attempt === undefined)
+    return '- No Taster, a model that reviews the change, looked at it.';
   const commit = attempt.phase === 'scheduled' ? undefined : attempt.worktree?.commit;
   if (commit === undefined) return '- Tasted at a commit the log does not record.';
   if (commit === ready.head) return `- Tasted at ${code(shortSha(commit))}, this head.`;
@@ -547,10 +548,14 @@ const surveyLines = ({ batch, ids }: Steps): string[] => {
     const { survey, repo } = first;
     switch (survey.map) {
       case 'new':
-        return [`- The test map of ${repo} is new: the Maltster proposed it.`];
+        return [
+          `- The test map of ${repo} is new: the Maltster, the brewer that maps where the tests are, proposed it.`,
+        ];
       case 'stale': {
         const paths = survey.stale.length === 0 ? '' : ` (${survey.stale.map(plain).join(', ')})`;
-        return [`- The test map of ${repo} was stale${paths}: the Maltster refreshed it.`];
+        return [
+          `- The test map of ${repo} was stale${paths}: the Maltster, the brewer that maps where the tests are, refreshed it.`,
+        ];
       }
       case 'fresh':
       case 'brewery':

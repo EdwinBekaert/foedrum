@@ -759,7 +759,8 @@ const usageWindowLines = (batch: Batch, windows: UsageWindows): string[] =>
 
 const recipeText = (recipe: Batch['recipe']): string => {
   if (recipe === undefined) return 'No recipe is chosen yet.';
-  const name = `Recipe **${plain(recipe.name)}**`;
+  // The first time the comment names a recipe, it says what one is (ADR 0379).
+  const name = `Recipe **${plain(recipe.name)}** (the steps this batch, Foedrum's run on this issue, takes)`;
   switch (recipe.source) {
     case 'label':
       return `${name}, chosen by its label`;
@@ -767,10 +768,18 @@ const recipeText = (recipe: Batch['recipe']): string => {
       return `${name}, chosen by the router: ${plain(recipe.reason)}`;
     case 'human':
       // The reason a person gave, which foedrum recipe asks for (ADR 0355).
-      return `${name}, chosen by ${plain(recipe.by)} (${recipe.via}): ${plain(recipe.reason)}`;
+      return `${name}, chosen by ${plain(recipe.by)} ${surfaceText[recipe.via]}: ${plain(recipe.reason)}`;
     default:
       return recipe satisfies never;
   }
+};
+
+/** The step lines, the first that links an out doc saying what one is (ADR 0379). */
+const firstOutDocSaid = (lines: readonly string[]): string[] => {
+  const first = lines.findIndex((line) => line.includes(': out doc: '));
+  return lines.map((line, at) =>
+    at === first ? line.replace(': out doc: ', ": out doc (the step's report): ") : line,
+  );
 };
 
 /** What the comment says of an attempt that resumed after a turn overrun (ADR 0175). */
@@ -1347,10 +1356,12 @@ export const renderStatus = (
     [
       recipeText(batch.recipe),
       ...pathLines(batch, told),
-      ...stepIds.flatMap((stepId) => [
-        stepLine(batch, stepId, told, stateBranchUrl),
-        ...coverageLines(batch, stepId, told),
-      ]),
+      ...firstOutDocSaid(
+        stepIds.flatMap((stepId) => [
+          stepLine(batch, stepId, told, stateBranchUrl),
+          ...coverageLines(batch, stepId, told),
+        ]),
+      ),
     ],
   ];
   // Before the sections that grow with the out docs, so a comment cut to length keeps it.
@@ -1390,7 +1401,7 @@ export const renderStatus = (
   const simplifications = simplificationLines(batch, stepIds, told);
   if (simplifications.length > 0) sections.push(['**Simplifications**', ...simplifications]);
   const receipts = receiptLines(batch, told);
-  if (receipts.length > 0) sections.push(['**Receipts**', ...receipts]);
+  if (receipts.length > 0) sections.push(['**Receipts** (what each try took)', ...receipts]);
   if (batch.lane.kind === 'on_tap') {
     const { pullRequests } = batch.lane;
     sections.push(

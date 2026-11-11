@@ -1032,7 +1032,7 @@ const howItWorks = (stepId: string, sections: PullRequestSections, isCommit: IsC
 };
 
 /** The line of a body without how it works. */
-const NO_HOW = 'No How it works: the Cellarman wrote none.';
+const NO_HOW = 'No How it works: the Cellarman, the brewer that writes the code, wrote none.';
 
 /** Why the pull request is a draft: Foedrum marks it ready with its merge brief (ADR 0350). */
 const DRAFT = 'Opens as a draft: Foedrum marks it ready for review once its merge brief is posted.';
@@ -1051,7 +1051,7 @@ const draftLine = (reports: readonly StepReport[]): string => {
     pastLines,
     asking.length === 0
       ? ''
-      : `A Taster asks for changes (${asking.map(({ stepId }) => stepId).join(', ')}); its findings are in the reports below.`,
+      : `A Taster, a model that reviews the change, asks for changes (${asking.map(({ stepId }) => stepId).join(', ')}); its findings are in the reports below.`,
     DRAFT,
   ]
     .filter((part) => part !== '')
@@ -1089,7 +1089,7 @@ export const pullRequestText = ({
       ? []
       : [howItWorks(written.stepId, written.sections, isCommit)]),
     '## How this was brewed',
-    `Brewed by Foedrum${order === undefined ? '' : ` from ${order}`}${recipe === undefined ? '' : ` with the recipe ${recipe}`}.`,
+    `Brewed by Foedrum${order === undefined ? '' : ` from ${order}`}${recipe === undefined ? '' : ` with the recipe ${recipe} (the steps it ran)`}.`,
     ...(testFirstOff === undefined ? [] : [testFirstOffLine(testFirstOff, isCommit)]),
     // Without how it works, a person reads the change first, whatever the Tasters say.
     ...(written?.sections?.howItWorks === undefined ? [NO_HOW] : []),

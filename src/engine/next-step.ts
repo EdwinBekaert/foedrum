@@ -29,7 +29,7 @@ const optionText = (
     case 'approve':
       return `sign it off with ${run()}`;
     case 'lauter':
-      return `correct it with the Brewmaster in a session with ${run()}`;
+      return `correct it with the Brewmaster, the brewer that plans, in a session with ${run()}`;
     case 'retry':
       if (reason.kind === 'plan_review') return `plan it again with ${run()}`;
       // No step ran: a retry routes the issue again by its labels.
