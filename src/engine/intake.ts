@@ -241,10 +241,10 @@ const subOrdersQueued = (state: State, listed: readonly TargetIssue[]): QueuedIs
   });
 };
 
-/** The issues of `repo` with a batch in this Brewery, in any lane. */
+/** The issues of `repo` with a batch in this Brewery, in any lane or archived (ADR 0380). */
 const brewedIn = (state: State, repo: string): Set<number> =>
   new Set(
-    [...state.batches.values()]
+    [...state.batches.values(), ...[...state.archived.values()].map(({ order }) => order)]
       .filter((batch) => batch.repo !== undefined && same(batch.repo, repo))
       .map((batch) => batch.issue),
   );
