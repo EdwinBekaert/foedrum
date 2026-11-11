@@ -2303,6 +2303,26 @@ describe('loadRecipes: a step whose answer chooses the recipe (ADR 0232)', () =>
     assert.equal(offered('pale', 'maltster'), undefined);
   });
 
+  it('a tend recipe is offered to no step, neither to a step that chooses nor to a plan (ADR 0380)', () => {
+    const planner = brewer('planner', { inputs: [{ name: 'recipes', from: 'recipes' }] });
+    const result = loadRecipes(
+      brewery({
+        recipes: [
+          pale,
+          mashIn(),
+          recipe('plans', [{ brewer: 'planner' }]),
+          recipe('tidy', [{ brewer: 'brewmaster' }], { type: 'tend' }),
+        ],
+        brewers: [maltster, brewmaster, innkeeper, planner],
+      }),
+    );
+    assert.ok(result.valid, result.valid ? '' : result.problems.join('\n'));
+    const offered = (recipe: string, step: string) =>
+      result.brewers.find(recipe, step)?.choices?.map(({ name }) => name);
+    assert.deepEqual(offered('mash-in', 'innkeep'), ['pale', 'plans']);
+    assert.deepEqual(offered('plans', 'planner'), ['pale', 'plans']);
+  });
+
   it("marks the step, and gives its brewer the Brewery's other recipes to offer, in order", () => {
     const result = loadRecipes(files());
     assert.ok(result.valid, result.valid ? '' : result.problems.join('\n'));

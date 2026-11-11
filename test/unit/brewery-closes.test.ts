@@ -11,6 +11,7 @@ import type { Ending } from '../../src/engine/decide.ts';
 import { type Driver, type DriverNotice, openDriver } from '../../src/engine/driver.ts';
 import { effectKey } from '../../src/engine/effect-key.ts';
 import type { EventStore } from '../../src/engine/event-store.ts';
+import { batchEnded } from '../../src/engine/fold.ts';
 import { pullRequestKey } from '../../src/engine/pull-request.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import { defaultLimits } from '../helpers/brewing.ts';
@@ -26,6 +27,7 @@ const recipes = fakeRecipes({
   one: fakeRecipe({ steps: ['plan'], pullRequests: [web] }),
   two: fakeRecipe({ steps: ['plan'], pullRequests: [web, lib] }),
   none: fakeRecipe({ steps: ['plan'], pullRequests: [] }),
+  tidy: fakeRecipe({ type: 'tend', steps: ['plan'], pullRequests: [] }),
 });
 const succeeded: Ending = {
   kind: 'succeeded',
@@ -72,7 +74,7 @@ describe('breweryCloseEffects', () => {
   };
   /** Orders the Brewery issue #12 as batch 12-1 and brews it on tap with `recipe`. */
   const onTap = (
-    recipe: 'one' | 'two' | 'none',
+    recipe: 'one' | 'two' | 'none' | 'tidy',
     batchId = '12-1',
     ordered: { issue: number; repo?: string } = { issue: 12 },
   ): void => {
@@ -218,6 +220,19 @@ describe('breweryCloseEffects', () => {
     assert.equal(ledger('close.comment'), undefined);
     assert.equal(order().state, undefined);
     assert.equal(order().comments.length, 0);
+  });
+
+  it("closes the Brewery issue of a tend recipe's batch once it is on tap, which ends it (ADR 0380)", async () => {
+    onTap('tidy');
+    const driver = await open();
+    await driver.tick();
+    assert.equal(order().state, 'closed');
+    assert.match(
+      order().comments[0]?.body ?? '',
+      /^The cleanup is done; Foedrum closes this issue\./,
+    );
+    const batch = driver.state().batches.get('12-1');
+    assert.ok(batch !== undefined && batchEnded(batch));
   });
 
   it('closes a split order’s sub-issue once its batch’s pull request merged (ADR 0285)', async () => {

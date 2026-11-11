@@ -12,8 +12,11 @@ export type RouteWhy = ScheduleRoute['why'];
 /** A person's choice that schedules a step of its own (ADR 0286). */
 export type ChosenOption = ChosenBy;
 
-/** An action step the engine runs itself, never a brewer (brewers-and-recipes §1, ADR 0071). */
-export type RecipeAction = 'openPullRequest';
+/**
+ * An action step the engine runs itself, never a brewer (brewers-and-recipes §1, ADR 0071): a
+ * cleanup's archive and sweep among them (ADR 0380).
+ */
+export type RecipeAction = 'openPullRequest' | 'archive' | 'sweep';
 
 /** What follows a step that succeeded or was skipped. */
 export type Continuation =
