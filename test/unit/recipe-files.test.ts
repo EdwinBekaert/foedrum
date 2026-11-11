@@ -2325,7 +2325,7 @@ describe('loadRecipes: a step whose answer chooses the recipe (ADR 0232)', () =>
 
   it('a tend recipe needs no guidance, since no step offers it: regression test (ADR 0375, ADR 0380)', () => {
     const tidy = recipe('tidy', [{ brewer: 'brewmaster' }], { type: 'tend', guidance: undefined });
-    assert.doesNotMatch(tidy.text, /guidance/);
+    assert.doesNotMatch('text' in tidy ? tidy.text : 'unread', /guidance|unread/);
     const result = loadRecipes(
       brewery({ recipes: [pale, mashIn(), tidy], brewers: [maltster, brewmaster, innkeeper] }),
     );
