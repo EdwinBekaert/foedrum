@@ -240,7 +240,7 @@ describe('the order input holds the comments', () => {
       },
     );
     await plans.plan(startOf('web-7'));
-    assert.deepEqual(asked, [[{ issue: 7, repo: 'acme/web' }, { issue: 19 }]]);
+    assert.deepEqual(asked, [[{ issue: 7, repo: 'acme/web', approved: null }, { issue: 19 }]]);
   });
 
   it('a claimed order whose Brewery issue is not open yet reads the target issue alone', async () => {
@@ -253,7 +253,7 @@ describe('the order input holds the comments', () => {
       },
     );
     await plans.plan(startOf('web-7'));
-    assert.deepEqual(asked, [[{ issue: 7, repo: 'acme/web' }]]);
+    assert.deepEqual(asked, [[{ issue: 7, repo: 'acme/web', approved: null }]]);
   });
 
   it("a sub-order reads its own issue's comments, and not its order's", async () => {
@@ -466,7 +466,7 @@ describe('a resumed session hears the comments made since (ADR 0338)', () => {
     const { prompt } = await plans.plan(startOf('12-1', 2));
     assert.match(
       prompt,
-      /The inputs named issue below are comments maintainers made on the order's issue since this session last read them: they are part of the order\./,
+      /The inputs named issue below are comments made on the order's issue since this session last read them, each source saying who wrote it: they are part of the order\./,
     );
   });
 
@@ -631,7 +631,7 @@ describe('a resumed session hears the comments made since (ADR 0338)', () => {
       ];
     });
     const { prompt, commentsHeard } = await plans.plan(startOf('web-7', 2));
-    assert.deepEqual(asked, [[{ issue: 7, repo: 'acme/web' }, { issue: 19 }]]);
+    assert.deepEqual(asked, [[{ issue: 7, repo: 'acme/web', approved: null }, { issue: 19 }]]);
     assert.deepEqual(texts(prompt).slice(1), ['New on the Brewery issue.']);
     assert.deepEqual(commentsHeard, [heard(800, 'acme/brewery', 19)]);
   });
@@ -935,5 +935,241 @@ describe('a resumed session hears the comments made since (ADR 0338)', () => {
         { name: 'order', text: 'Not that way.' },
       ],
     );
+  });
+});
+
+describe("a label-approved order's comments are those made before its approval (ADR 0373)", () => {
+  const labelled = { at: '2026-11-05T10:00:00.000Z', continued: false };
+  const opened: Event = {
+    type: 'effect.applied',
+    key: effectKey.encode({ batchId: 'web-7', effect: orderEffects.open }),
+    result: 19,
+  };
+  const claimed = [
+    ...orderedAs('web-7', { issue: 7, repo: 'acme/web' }),
+    opened,
+    ...attempt('web-7', 1),
+  ];
+  /** A comment as GitHub lists it, made and last changed at `at`. */
+  const listed = (id: number, by: string, association: string, at: string, body: string) => ({
+    id,
+    user: { login: by },
+    body,
+    author_association: association,
+    created_at: at,
+    updated_at: at,
+  });
+  /** Plans reading the target issue's `target` and the Brewery issue's `brewery` comments. */
+  const plansWith = (
+    target: object[],
+    approval: { at: string; continued: boolean } | undefined,
+    brewery: object[] = [],
+    events: readonly Event[] = claimed,
+    more: Partial<AttemptPlansOptions> = {},
+  ) => {
+    const { fetch } = fakeFetch([
+      { status: 200, body: target },
+      { status: 200, body: brewery },
+    ]);
+    const reads = createGitHubReads(createGitHubClient({ exec: ghOver(fetch).exec }));
+    return plansOf(() => events, githubOrderComments(reads, 'acme/brewery', 'brewery-login'), {
+      approval: async () => approval,
+      ...more,
+    });
+  };
+  const textsOf = async (plans: ReturnType<typeof plansWith>, n = 1) =>
+    inputsIn((await plans.plan(startOf('web-7', n))).prompt).map(({ text }) => text);
+
+  it("a stranger's comment before the label reaches the brewer", async () => {
+    const plans = plansWith(
+      [listed(701, 'mallory', 'NONE', '2026-11-05T09:59:59Z', 'THE-STRANGER-BEFORE')],
+      labelled,
+    );
+    assert.deepEqual((await textsOf(plans)).slice(1), ['THE-STRANGER-BEFORE']);
+  });
+
+  it("a stranger's comment after the label does not reach the brewer", async () => {
+    const plans = plansWith(
+      [
+        listed(701, 'mallory', 'NONE', '2026-11-05T09:00:00Z', 'THE-STRANGER-BEFORE'),
+        listed(702, 'mallory', 'NONE', '2026-11-05T10:00:01Z', 'THE-STRANGER-AFTER'),
+      ],
+      labelled,
+    );
+    assert.deepEqual((await textsOf(plans)).slice(1), ['THE-STRANGER-BEFORE']);
+  });
+
+  it("a maintainer's comment after the label does not reach the brewer", async () => {
+    const plans = plansWith(
+      [
+        listed(701, 'ada', 'OWNER', '2026-11-05T09:00:00Z', 'THE-OWNER-BEFORE'),
+        listed(702, 'ada', 'OWNER', '2026-11-05T10:00:01Z', 'THE-OWNER-AFTER'),
+        // In the label's own second: a change the order check asks about (ADR 0368).
+        listed(703, 'ada', 'OWNER', '2026-11-05T10:00:00Z', 'THE-OWNER-SAME-SECOND'),
+      ],
+      labelled,
+    );
+    assert.deepEqual((await textsOf(plans)).slice(1), ['THE-OWNER-BEFORE']);
+  });
+
+  it("Foedrum's own comment never reaches the brewer", async () => {
+    const plans = plansWith(
+      [
+        {
+          ...listed(701, 'brewery-login', 'OWNER', '2026-11-05T09:00:00Z', ''),
+          body: markedComment('THE-CLAIM-TEXT', 'claim'),
+        },
+        listed(702, 'mallory', 'NONE', '2026-11-05T09:01:00Z', 'THE-STRANGER-BEFORE'),
+      ],
+      { at: '2026-11-05T10:00:00Z', continued: true },
+    );
+    const texts = await textsOf(plans);
+    assert.deepEqual(texts.slice(1), ['THE-STRANGER-BEFORE']);
+    assert.ok(texts.every((text) => !(text ?? '').includes('THE-CLAIM-TEXT')));
+  });
+
+  it('a comment made before the label and edited after it does not reach the brewer, until a continue approves the edit', async () => {
+    const edited = {
+      ...listed(701, 'mallory', 'NONE', '2026-11-05T09:00:00Z', 'THE-EDITED-WORDS'),
+      updated_at: '2026-11-05T10:30:00Z',
+    };
+    const kept = listed(702, 'mallory', 'NONE', '2026-11-05T09:30:00Z', 'THE-UNEDITED');
+    assert.deepEqual((await textsOf(plansWith([edited, kept], labelled))).slice(1), [
+      'THE-UNEDITED',
+    ]);
+    const continued = plansWith([edited, kept], { at: '2026-11-05T10:30:00Z', continued: true });
+    assert.deepEqual((await textsOf(continued)).slice(1), ['THE-EDITED-WORDS', 'THE-UNEDITED']);
+  });
+
+  it('after continue, a comment up to what it showed reaches the brewer', async () => {
+    const plans = plansWith(
+      [
+        listed(701, 'mallory', 'NONE', '2026-11-05T09:00:00Z', 'THE-BEFORE-LABEL'),
+        listed(702, 'mallory', 'NONE', '2026-11-05T11:00:00Z', 'THE-SHOWN-ONE'),
+        listed(703, 'mallory', 'NONE', '2026-11-05T11:00:01Z', 'THE-ONE-AFTER'),
+      ],
+      { at: '2026-11-05T11:00:00Z', continued: true },
+    );
+    assert.deepEqual((await textsOf(plans)).slice(1), ['THE-BEFORE-LABEL', 'THE-SHOWN-ONE']);
+  });
+
+  it("an issue never approved holds none of its comments, and the Brewery issue's still count", async () => {
+    const plans = plansWith(
+      [listed(701, 'ada', 'OWNER', '2026-11-05T09:00:00Z', 'THE-OWNER-UNAPPROVED')],
+      undefined,
+      [listed(702, 'ada', 'OWNER', '2026-11-05T09:30:00Z', 'THE-BREWERY-OWNER')],
+    );
+    assert.deepEqual((await textsOf(plans)).slice(1), ['THE-BREWERY-OWNER']);
+  });
+
+  it('without the approval option, no comment of the target issue reaches the brewer', async () => {
+    const { fetch } = fakeFetch([
+      {
+        status: 200,
+        body: [listed(701, 'ada', 'OWNER', '2026-11-05T09:00:00Z', 'THE-OWNER-TARGET')],
+      },
+      { status: 200, body: [] },
+    ]);
+    const reads = createGitHubReads(createGitHubClient({ exec: ghOver(fetch).exec }));
+    const plans = plansOf(
+      () => claimed,
+      githubOrderComments(reads, 'acme/brewery', 'brewery-login'),
+    );
+    const { prompt } = await plans.plan(startOf('web-7'));
+    assert.deepEqual(
+      inputsIn(prompt).map(({ text }) => text),
+      ['Add a --json flag.'],
+    );
+  });
+
+  it("a Brewery issue's comments are still read by association", async () => {
+    const plans = plansWith([], labelled, [
+      listed(801, 'ada', 'OWNER', '2026-11-05T12:00:00Z', 'THE-BREWERY-OWNER-AFTER'),
+      listed(802, 'mallory', 'NONE', '2026-11-05T09:00:00Z', 'THE-BREWERY-STRANGER'),
+    ]);
+    assert.deepEqual((await textsOf(plans)).slice(1), ['THE-BREWERY-OWNER-AFTER']);
+  });
+
+  it("a resumed session is not told that a stranger's approved comment is a maintainer's", async () => {
+    const claude = { version: '2.1.301', model: 'claude-haiku-5-5' };
+    const events = [
+      ...claimed,
+      {
+        type: 'step.finished',
+        batchId: 'web-7',
+        stepId: 'brew',
+        attempt: 1,
+        outcome: { kind: 'failed', retryable: true, reason: 'it stopped' },
+        claude,
+      },
+      {
+        type: 'step.scheduled',
+        batchId: 'web-7',
+        stepId: 'brew',
+        attempt: 2,
+        deadlineAt,
+        retry: true,
+      },
+      {
+        type: 'step.started',
+        batchId: 'web-7',
+        stepId: 'brew',
+        attempt: 2,
+        session: { id: sessionId, resumes: sessionId, worktree },
+      },
+    ] as Event[];
+    const plans = plansWith(
+      [listed(701, 'mallory', 'NONE', '2026-11-05T09:00:00Z', 'THE-STRANGER-BEFORE')],
+      labelled,
+      [],
+      events,
+      { brewers: loadedWith('resume') },
+    );
+    const { prompt } = await plans.plan(startOf('web-7', 2));
+    assert.match(prompt, /THE-STRANGER-BEFORE/);
+    assert.doesNotMatch(prompt, /comments maintainers made/);
+    assert.match(prompt, /each source saying who wrote it/);
+  });
+
+  it('a resumed session is told only the comments the approval approved', async () => {
+    const claude = { version: '2.1.301', model: 'claude-haiku-5-5' };
+    const events = [
+      ...claimed,
+      {
+        type: 'step.finished',
+        batchId: 'web-7',
+        stepId: 'brew',
+        attempt: 1,
+        outcome: { kind: 'failed', retryable: true, reason: 'it stopped' },
+        claude,
+        commentsHeard: [{ repo: 'acme/web', issue: 7, id: 700 }],
+      },
+      {
+        type: 'step.scheduled',
+        batchId: 'web-7',
+        stepId: 'brew',
+        attempt: 2,
+        deadlineAt,
+        retry: true,
+      },
+      {
+        type: 'step.started',
+        batchId: 'web-7',
+        stepId: 'brew',
+        attempt: 2,
+        session: { id: sessionId, resumes: sessionId, worktree },
+      },
+    ] as Event[];
+    const plans = plansWith(
+      [
+        listed(701, 'mallory', 'NONE', '2026-11-05T09:00:00Z', 'THE-STRANGER-BEFORE'),
+        listed(702, 'ada', 'OWNER', '2026-11-05T10:30:00Z', 'THE-OWNER-AFTER'),
+      ],
+      labelled,
+      [],
+      events,
+      { brewers: loadedWith('resume') },
+    );
+    assert.deepEqual((await textsOf(plans, 2)).slice(1), ['THE-STRANGER-BEFORE']);
   });
 });

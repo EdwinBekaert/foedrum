@@ -2,7 +2,13 @@
 // added and by whom, and each change of its title, from its events (REST, conditional, ADR 0052);
 // each edit of its body, which only GraphQL tells; and when each comment was made and last changed.
 
-import type { OrderActivity } from '../engine/order-changes.ts';
+import type { Batch } from '../engine/fold.ts';
+import {
+  type Approval,
+  approvedAt,
+  type OrderActivity,
+  type OrderCheckOptions,
+} from '../engine/order-changes.ts';
 import { GitHubActivityComment, GitHubIssueEdits, GitHubIssueEvent } from '../schemas/github.ts';
 import { checked, graphqlData, repoPath } from './answers.ts';
 import type { GitHubClient } from './client.ts';
@@ -19,10 +25,17 @@ const EDITS = `query($owner: String!, $name: String!, $number: Int!) {
   }
 }`;
 
-/** Reads the activity of `repo#issue` the order check compares with its approval. */
-export const githubOrderActivity =
-  (reads: GitHubReads, client: Pick<GitHubClient, 'graphql'>) =>
-  async (repo: string, issue: number, signal?: AbortSignal): Promise<OrderActivity> => {
+/**
+ * Reads the events of `repo#issue`, every page: when each label was added and by whom, and each
+ * change of its title, oldest first.
+ */
+export const githubOrderEvents =
+  (reads: GitHubReads) =>
+  async (
+    repo: string,
+    issue: number,
+    signal?: AbortSignal,
+  ): Promise<Pick<OrderActivity, 'labelled' | 'renamed'>> => {
     const path = `/repos/${repoPath(repo)}/issues/${issue}`;
     const happened = `the events of ${repo}#${issue}`;
     const events = (await reads.pages(`${path}/events?per_page=100`, happened, signal))
@@ -43,6 +56,28 @@ export const githubOrderActivity =
       return { label, by, at };
     });
     const renamed = timed('renamed').map(({ by, at }) => ({ by, at }));
+    return { labelled, renamed };
+  };
+
+/**
+ * Reads when a claimed order's issue was last approved, from its label events (ADR 0368), whose
+ * comments then reach its brewers (ADR 0373); undefined for a Brewery order, or one never approved.
+ */
+export const githubOrderApproval =
+  (reads: GitHubReads, { users, filterOf }: Pick<OrderCheckOptions, 'users' | 'filterOf'>) =>
+  async (batch: Batch, signal?: AbortSignal): Promise<Approval | undefined> => {
+    const { repo, issue } = batch;
+    if (repo === undefined) return undefined;
+    const { labelled } = await githubOrderEvents(reads)(repo, issue, signal);
+    return approvedAt(batch, { labelled }, filterOf(repo), users);
+  };
+
+/** Reads the activity of `repo#issue` the order check compares with its approval. */
+export const githubOrderActivity =
+  (reads: GitHubReads, client: Pick<GitHubClient, 'graphql'>) =>
+  async (repo: string, issue: number, signal?: AbortSignal): Promise<OrderActivity> => {
+    const path = `/repos/${repoPath(repo)}/issues/${issue}`;
+    const { labelled, renamed } = await githubOrderEvents(reads)(repo, issue, signal);
 
     const editing = `the edits of ${repo}#${issue}`;
     const [owner, name] = repo.split('/');

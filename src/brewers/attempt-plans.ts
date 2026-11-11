@@ -17,6 +17,7 @@ import { claimOrderOf } from '../engine/claim-orders.ts';
 import { earlierSectionsInput } from '../engine/earlier-sections.ts';
 import { attemptRecipeOf, type Batch, roundRouteOf, type State } from '../engine/fold.ts';
 import { UNREADABLE_FRONTMATTER, withoutHandover } from '../engine/handover.ts';
+import type { Approval } from '../engine/order-changes.ts';
 import { planEntryText } from '../engine/plan-comment.ts';
 import type { PlanRepository } from '../engine/plan-touches.ts';
 import { MAX_INPUT_BYTES, type StepBrewer, type StepBrewers } from '../engine/recipe-files.ts';
@@ -137,8 +138,13 @@ export interface AttemptPlansOptions {
   platform?: NodeJS.Platform;
   /** The text of an order's issue, untrusted. */
   orderText: (order: Extract<InputRead, { kind: 'order' }>) => Promise<string>;
-  /** The maintainers' comments on an order's issues, oldest first, untrusted (ADR 0333). */
+  /** The comments on an order's issues that reach its brewers, oldest first, untrusted (ADR 0333). */
   orderComments: (issues: readonly OrderIssue[]) => Promise<readonly OrderComment[]>;
+  /**
+   * When a claimed order's issue was last approved (ADR 0368), whose comments then reach its
+   * brewers (ADR 0373); without it, none of that issue's comments do.
+   */
+  approval?: (batch: Batch) => Promise<Approval | undefined>;
   /**
    * Whether a resumed attempt opens as a person's session, which no prompt reaches: `foedrum resume`
    * of a running batch's (ADR 0127), which reads no comments (ADR 0338).
@@ -282,10 +288,11 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
   };
 
   /**
-   * The maintainers' comments that follow the order's body, each an input of its own under its name
-   * (ADR 0333): on its issue, and for a claimed order on its Brewery issue once that is open. With
-   * the body they are one input's worth of text; only maintainers write them, so a thread past it
-   * fails the attempt rather than losing a decision.
+   * The comments that follow the order's body, each an input of its own under its name (ADR 0333):
+   * on its issue, and for a claimed order on its Brewery issue once that is open. A claimed issue's
+   * are those its approval approved, none without one (ADR 0373); a Brewery issue's its
+   * maintainers'. With the body they are one input's worth of text, so a thread past it fails the
+   * attempt rather than losing a decision.
    */
   const orderCommentsFor = async (
     name: string,
@@ -298,7 +305,9 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
     const { issue, repo } = batch;
     const brewery = repo === undefined ? undefined : claimOrderOf(state(), batch.id).issue;
     const read = await options.orderComments([
-      repo === undefined ? { issue } : { issue, repo },
+      repo === undefined
+        ? { issue }
+        : { issue, repo, approved: (await options.approval?.(batch)) ?? null },
       ...(brewery === undefined ? [] : [{ issue: brewery }]),
     ]);
     // A resumed session holds what it was told: only what it was not counts, and is added.

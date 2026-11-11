@@ -51,7 +51,7 @@ import { githubClaimHost } from '../github/claims.ts';
 import { createGitHubClient, type GitHubClient } from '../github/client.ts';
 import { githubLogin } from '../github/login.ts';
 import { githubIssueMarks } from '../github/marks.ts';
-import { githubOrderActivity } from '../github/order-activity.ts';
+import { githubOrderActivity, githubOrderApproval } from '../github/order-activity.ts';
 import { githubOrderComments, githubOrderText, githubOrderTitle } from '../github/order-text.ts';
 import { githubPullRequestDrafts, githubPullRequests } from '../github/pull-requests.ts';
 import { createGitHubReads, type GitHubReads } from '../github/reads.ts';
@@ -330,6 +330,12 @@ export const wireDriver = async (
     brewery: (repo) => repositoryNamed(repo)?.testMap?.text,
   });
   const mapLog = createCommandLog({ store, recipes: setup.recipes });
+  // Who approves a claimed order's issue, and by which labels (ADR 0359, ADR 0368).
+  const approvers = {
+    users: setup.intake.users,
+    filterOf: (repo: string) =>
+      setup.intake.repositories.find((each) => same(each.repo, repo))?.filter,
+  };
   const plans = createAttemptPlans({
     state,
     brewers: setup.brewers,
@@ -353,6 +359,9 @@ export const wireDriver = async (
     env: setup.brewerEnv,
     orderText: githubOrderText(reads, setup.brewery),
     orderComments: githubOrderComments(reads, setup.brewery, login),
+    // A claimed order's comments are those its approval approved, read as the order check reads it
+    // (ADR 0373).
+    approval: githubOrderApproval(reads, approvers),
     ...(opensResumed === undefined ? {} : { opensResumed }),
     // A Taster's change is read by the engine, so the Taster runs no git (ADR 0161).
     git: shell.git,
@@ -520,9 +529,8 @@ export const wireDriver = async (
     // approved it: anything asks the engineer (ADR 0368).
     orderCheck: createOrderCheck({
       activity: githubOrderActivity(reads, client),
-      users: setup.intake.users,
       login,
-      filterOf: (repo) => setup.intake.repositories.find((each) => same(each.repo, repo))?.filter,
+      ...approvers,
     }),
     report,
     ...(doing === undefined ? {} : { doing }),
