@@ -33,7 +33,11 @@ const newestChange = async (path: string): Promise<number> => {
  * `TEMP_AGE_MS` before `now`; nothing when the folder is missing. A link is read as itself, never
  * followed. An entry it cannot read or remove is reported and left for the next sweep.
  */
-export const sweepTemp = async (folder: string, now: Date): Promise<SweepReport> => {
+export const sweepTemp = async (
+  folder: string,
+  now: Date,
+  remove: (path: string) => Promise<void> = removeTree,
+): Promise<SweepReport> => {
   const report: SweepReport = { removed: [], failed: [] };
   const names = await readdir(folder).catch((error: unknown) => {
     if (errorCode(error) === 'ENOENT') return [];
@@ -43,7 +47,7 @@ export const sweepTemp = async (folder: string, now: Date): Promise<SweepReport>
     const path = join(folder, name);
     try {
       if (now.getTime() - (await newestChange(path)) <= TEMP_AGE_MS) continue;
-      await removeTree(path);
+      await remove(path);
       report.removed.push(name);
     } catch (error) {
       report.failed.push({ name, error: messageOf(error) });
