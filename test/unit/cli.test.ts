@@ -1163,6 +1163,19 @@ describe('foedrum mash (ADR 0232)', () => {
     ]);
   });
 
+  it("hands --override to the terminal's brew, as a re-mash (ADR 0374)", async () => {
+    const asked: unknown[] = [];
+    const done = { exitCode: 4, stdout: '', stderr: '' };
+    const brew = async (input: unknown) => {
+      asked.push(input);
+      return done;
+    };
+    assert.deepEqual(await run(['mash', '14', '--override', '--take'], { brew }), done);
+    assert.deepEqual(asked, [
+      { command: 'mash', issue: { issue: 14 }, take: true, override: true },
+    ]);
+  });
+
   it("refuses a target repository's issue: its order is a Brewery issue", async () => {
     assertUsageError(
       await run(['mash', 'web#7']),
