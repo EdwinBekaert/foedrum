@@ -714,6 +714,35 @@ describe('openStateBranch with a fake git', () => {
       assert.deepEqual(store.pushedThrough(), { eventId: 2, commit: sha(101) });
     });
 
+    it("the cleanup recipe moves a finished batch's folder to archive/ on the state branch", async () => {
+      const state = await started();
+      append(ordered('b1'), ordered('b2'));
+      assert.equal((await state.flush()).kind, 'pushed');
+      writeFileSync(join(worktree, 'batches', 'b1', 'plan-1.md'), '# Plan\n');
+      append(scheduled('b2'), archived('b1'));
+
+      assert.equal((await state.flush()).kind, 'pushed');
+
+      assert.equal(existsSync(join(worktree, 'batches', 'b1')), false);
+      assert.equal(read('archive/b1/events.jsonl'), line(1, ordered('b1')));
+      assert.equal(read('archive/b1/plan-1.md'), '# Plan\n');
+      assert.equal(read('events.jsonl'), line(4, archived('b1')));
+      assert.equal(
+        read('batches/b2/events.jsonl'),
+        line(2, ordered('b2')) + line(3, scheduled('b2')),
+      );
+    });
+
+    it('moves a batch archived in the flush that writes its own last events, after them', async () => {
+      const state = await started();
+      append(ordered('b1'), archived('b1'));
+
+      assert.equal((await state.flush()).kind, 'pushed');
+
+      assert.equal(existsSync(join(worktree, 'batches', 'b1')), false);
+      assert.equal(read('archive/b1/events.jsonl'), line(1, ordered('b1')));
+    });
+
     it('writes, commits and pushes the events after the marker, then moves the marker', async () => {
       const state = await started();
       append(ordered('b1'), released, scheduled('b1'));

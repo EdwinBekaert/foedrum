@@ -644,6 +644,23 @@ describe('planCatchUp', () => {
     stops(() => planCatchUp(branch, [stored(1, ordered('b9'))]), /event 1/);
   });
 
+  it('catches up over a batch the branch archived, whose own events left batches/ (ADR 0380)', () => {
+    const archived: Event = {
+      type: 'batch.archived',
+      batchId: 'b1',
+      order: { issue: 6 },
+      ended: 'cancelled',
+    };
+    const moved = [
+      { id: 3, event: ordered('b2') },
+      { id: 5, event: archived },
+    ];
+    const local = [stored(1, ordered('b1')), stored(2, scheduled('b1')), stored(3, ordered('b2'))];
+    assert.deepEqual(planCatchUp(moved, local), [{ id: 5, event: archived }]);
+    // A local event of a batch the branch did not archive must still be on it.
+    stops(() => planCatchUp(moved, [stored(1, ordered('b9')), stored(3, ordered('b2'))]), /1/);
+  });
+
   // Review of #489: a pushed receipt of an older Foedrum holds its cost, which both sides drop
   // as they read it (ADR 0181).
   it('catches up from a branch whose old receipt holds a cost the local event lacks', () => {
