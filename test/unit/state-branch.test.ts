@@ -570,6 +570,12 @@ describe('planFlush', () => {
       assert.equal(files.at(-1)?.text, text);
     });
 
+    it('an out doc that names a commit reaches the state branch as it is', () => {
+      const text = `---\n{"status":"done"}\n---\nThe red commit is ${'0123456789'.repeat(4)}.\n`;
+      const files = planFlush(new Map(), [stored(2, finished('b1'))], 1, [doc(text)]);
+      assert.deepEqual(files.at(-1), { path: 'batches/b1/plan-1.md', text });
+    });
+
     it('plans only the kept out docs when no event is pending: one kept after its events were pushed', () => {
       // Stuck abandoned the attempt; its out doc was kept after the flush that pushed the events.
       const current = new Map([[b1, line(1, ordered('b1'))]]);
