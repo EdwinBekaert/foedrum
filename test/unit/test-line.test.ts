@@ -78,3 +78,56 @@ describe('npmTestLine: the line init writes for a package.json test script (ADR 
     assert.equal(npmTestLine('jest --ci'), 'npm test');
   });
 });
+
+describe('readTestLine: the fixes of the review (ADR 0376)', () => {
+  it('adds no node flags to a line whose reporters already name a destination of their own or none, and says what to add', () => {
+    for (const line of [
+      'node --test --test-reporter=tap test/',
+      'node --test --test-reporter-destination=out.txt test/',
+    ]) {
+      assert.deepEqual(
+        readTestLine(line),
+        {
+          runner: 'node',
+          saves: false,
+          advice: [
+            'for a test report, add --test-reporter=junit --test-reporter-destination=junit.xml right after --test, and give every --test-reporter of the line a --test-reporter-destination of its own: node refuses a line where they do not pair up',
+          ],
+        },
+        line,
+      );
+      assert.equal(npmTestLine(line), line);
+    }
+  });
+
+  it('does not count a vitest output file of another reporter as a saved test report', () => {
+    const json = readTestLine('vitest run --reporter=json --outputFile=results.json');
+    assert.equal(json.saves, false);
+    assert.equal(
+      json.withReport,
+      'vitest run --reporter=json --outputFile=results.json --reporter=default --reporter=junit --outputFile.junit=junit.xml',
+    );
+    assert.equal(readTestLine('vitest run --reporter=junit --outputFile=junit.xml').saves, true);
+  });
+
+  it('knows a runner by its name in any case, with a folder or a Windows extension', () => {
+    for (const [line, runner] of [
+      ['Node.exe --test test/', 'node'],
+      [String.raw`"C:\Program Files\nodejs\node.exe" --test test/`, 'node'],
+      ['/usr/local/bin/node --test test/', 'node'],
+      ['pytest.exe tests', 'pytest'],
+      ['DOTNET Test Svc.sln', 'dotnet'],
+      ['vitest.cmd run', 'vitest'],
+    ] as const) {
+      assert.equal(readTestLine(line).runner, runner, line);
+    }
+  });
+
+  it('reads a line break outside quotes as a line of two commands', () => {
+    assert.deepEqual(readTestLine('node --test\nrm -rf build'), {
+      runner: undefined,
+      saves: false,
+      advice: [],
+    });
+  });
+});
