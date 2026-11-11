@@ -718,7 +718,10 @@ describe('planCatchUp', () => {
     const local = [stored(1, ordered('b1')), stored(2, scheduled('b1')), stored(3, ordered('b2'))];
     assert.deepEqual(planCatchUp(moved, local), [{ id: 5, event: archived }]);
     // A local event of a batch the branch did not archive must still be on it.
-    stops(() => planCatchUp(moved, [stored(1, ordered('b9')), stored(3, ordered('b2'))]), /1/);
+    stops(
+      () => planCatchUp(moved, [stored(1, ordered('b9')), stored(3, ordered('b2'))]),
+      /local event 1 is not on the state branch/,
+    );
   });
 
   // Review of #489: a pushed receipt of an older Foedrum holds its cost, which both sides drop
