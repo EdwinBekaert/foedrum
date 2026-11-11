@@ -65,6 +65,7 @@ const stuckOn = (reason: StuckReason, called: string, { repo, issue }: Batch): s
         const { branch, tip, files } = reason.cause;
         return `${reason.pullRequest} conflicts with ${branch} at ${tip} in ${files.join(', ')}, ${after}`;
       }
+      if (reason.cause.kind === 'review') throw new Error('not implemented');
       const { branch, tip, check } = reason.cause;
       return `${reason.pullRequest} fails its checks on the merged tree with ${branch} at ${tip}: ${check}, ${after}`;
     }

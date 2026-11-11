@@ -1217,6 +1217,8 @@ function apply(state: State, event: Event): State {
     }
     case 'order.approved':
       return updateBatch(state, event.batchId, (batch) => ({ ...batch, approvedUpTo: event.upTo }));
+    case 'pull_request.reviews_read':
+      throw new Error('not implemented');
     default:
       return unreachable(event);
   }

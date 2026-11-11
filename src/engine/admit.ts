@@ -199,6 +199,8 @@ function rule(state: State, event: Event): string | undefined {
     // A continue answers the question of a batch whose issue changed (ADR 0368).
     case 'order.approved':
       return lanes(state, event, ['stuck']);
+    case 'pull_request.reviews_read':
+      throw new Error('not implemented');
     default: {
       const unhandled: never = event;
       throw new Error(`Unhandled event ${JSON.stringify(unhandled)}`);

@@ -877,6 +877,8 @@ export function routeOf(
         return mergedCheckRouteOf(batch, ref.stepId, route, mergeOf(ref));
       case undefined:
         return pullRequestRouteOf(batch, ref.stepId, route);
+      case 'review':
+        throw new Error('not implemented');
       default:
         return route.cause satisfies never;
     }

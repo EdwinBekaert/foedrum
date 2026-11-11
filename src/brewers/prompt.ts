@@ -56,10 +56,10 @@ export type InputSource =
       why: ScheduleRoute['why'];
       pullRequest?: string;
       /**
-       * Sent back by a failing check on the pull request's merged tree (ADR 0226), or by its
-       * conflict with the base `branch` (ADR 0244).
+       * Sent back by a failing check on the pull request's merged tree (ADR 0226), by its
+       * conflict with the base `branch` (ADR 0244), or by reviews that ask for changes (ADR 0382).
        */
-      cause?: 'merged_check' | 'conflict';
+      cause?: 'merged_check' | 'conflict' | 'review';
       branch?: string;
     }
   /** The merge of the base `branch` a resumed session continues in its worktree (ADR 0244). */

@@ -300,6 +300,7 @@ const stuckText = (
           const { branch, tip, files } = reason.cause;
           return `${code(reason.stepId)}: ${link(reason.pullRequest)} conflicts with ${code(branch)} at ${code(shortSha(tip))} ${after}: ${files.map(plain).join(', ')}`;
         }
+        if (reason.cause.kind === 'review') throw new Error('not implemented');
         const { branch, tip, check } = reason.cause;
         return `${code(reason.stepId)}: ${link(reason.pullRequest)} fails its checks on the merged tree with ${code(branch)} at ${code(shortSha(tip))} ${after}: ${plain(check)}`;
       }
