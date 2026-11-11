@@ -184,9 +184,10 @@ const usageOf = (first: Usage | undefined, second: Usage | undefined): Usage | u
 };
 
 /**
- * What a run and the run that resumed its session took together: the resumed run's session and how
- * it ended, the counts of both. Its receipt is the resumed run's, whose API duration and tokens per
- * model are already the session's (ADR 0172), with the counts of each run added.
+ * What a run and the run that resumed its session took together: the resumed run's session, how it
+ * ended, and its own turns and denials, which claude limits per run; the tokens of both. Its receipt
+ * is the resumed run's, whose API duration and tokens per model are already the session's (ADR
+ * 0172), with the counts of each run added.
  */
 export function afterSendBack(
   first: { facts: StreamFacts; receipt: Receipt },
@@ -199,9 +200,6 @@ export function afterSendBack(
   return {
     facts: {
       ...second.facts,
-      denials: first.facts.denials + second.facts.denials,
-      deniedTools: [...new Set([...first.facts.deniedTools, ...second.facts.deniedTools])],
-      turns: first.facts.turns + second.facts.turns,
       lines: first.facts.lines + second.facts.lines,
       ...(usage === undefined ? {} : { usage }),
     },
