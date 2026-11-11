@@ -195,6 +195,29 @@ describe('recipeLabelEffects (ADR 0232, ADR 0240)', () => {
     ]);
   });
 
+  it('keys a choice back to a recipe named after an object property by its own count (ADR 0374)', () => {
+    const effects = recipeLabelEffects({ brewery, host: fakeHost().host });
+    const applied = (effect: string, label: string): Event => ({
+      type: 'effect.applied',
+      key: effectKey.encode({ batchId: '12-1', effect }),
+      result: { label },
+    });
+    const named = { ...chose({}), recipe: 'constructor' } as Event;
+    const back: Event[] = [
+      ordered,
+      chose(),
+      applied('recipe-label:nip', 'recipe:nip'),
+      named,
+      applied('recipe-label:constructor', 'recipe:constructor'),
+      chose(),
+      applied('recipe-label:nip#2', 'recipe:nip'),
+      named,
+    ];
+    assert.deepEqual(effects.due(fold(back), '12-1'), [
+      { batchId: '12-1', effect: 'recipe-label:constructor#2' },
+    ]);
+  });
+
   it("counts only a person's choices toward the key, not a label's route: regression test (ADR 0374)", () => {
     const effects = recipeLabelEffects({ brewery, host: fakeHost().host });
     // A label's route of nip before the person's choice leaves that first choice its key.
