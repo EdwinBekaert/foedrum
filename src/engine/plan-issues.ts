@@ -56,7 +56,7 @@ const bodyOf = (batch: Batch, stepId: string, subOrder: PlannedSubOrder): string
   const told = (text: string): string => plain(withoutSecrets(text, stepId, () => false));
   const { id, repo, size, doneWhen, recipe, why } = subOrder;
   return [
-    `Sub-order ${code(id)} of #${batch.issue}, from the plan of batch ${code(batch.id)} (ADR 0285).`,
+    `Sub-order ${code(id)} of #${batch.issue}, from the plan of batch ${code(batch.id)}.`,
     '',
     `- Builds in ${plain(repo)}: ${told(size.mechanism)}, about ${size.lines} lines`,
     `- Done when: ${told(doneWhen)}`,

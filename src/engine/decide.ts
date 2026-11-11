@@ -1269,7 +1269,7 @@ function rewind(draft: Draft, command: Extract<Command, { kind: 'rewind' }>): vo
   // No attempt runs a group: the batch rewinds to one of its children (ADR 0168).
   if (batch.recipe !== undefined && recipeOf(draft, batch).children(toStepId) !== undefined) {
     throw new Refusal(
-      `step ${toStepId} is a parallel group: rewind to one of its children, which runs the whole group again (ADR 0168)`,
+      `step ${toStepId} is a parallel group: rewind to one of its children, which runs the whole group again`,
     );
   }
   draft.push({ type: 'batch.rewound', batchId, toStepId, by, via, shas: { ...shas } });

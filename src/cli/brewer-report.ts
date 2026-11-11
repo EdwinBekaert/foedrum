@@ -201,7 +201,7 @@ export const formatBrewerReport = ({ brewers, gone }: BrewerReport): string => {
       ? []
       : [
           '',
-          'Steps the recipe files no longer have (ADR 0059):',
+          'Steps the recipe files no longer have:',
           ...gone.flatMap((step) => [`${step.recipe}/${step.stepId}`, ...tallyLines(step)]),
         ]),
   ];

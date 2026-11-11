@@ -468,7 +468,7 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
     if (trx !== undefined) {
       return blocked(
         'environment',
-        `module "${trx.module.name}" of the test map writes a TRX test report, which Foedrum does not read yet: make its tests write JUnit XML to a file and name that file in the test map (ADR 0274)`,
+        `module "${trx.module.name}" of the test map writes a TRX test report, which Foedrum does not read yet: make its tests write JUnit XML to a file and name that file in the test map`,
       );
     }
     return modules;
@@ -499,7 +499,7 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
       if (isFolder(file)) {
         const extension = testReport.format === 'tap' ? 'tap' : 'xml';
         return {
-          stuck: `the test report pattern ${testReport.path} of module "${name}" names a folder, ${shown}: name the report file in the test map, such as ${shown}/<file>.${extension} (ADR 0274)`,
+          stuck: `the test report pattern ${testReport.path} of module "${name}" names a folder, ${shown}: name the report file in the test map, such as ${shown}/<file>.${extension}`,
         };
       }
       const text = reports.read(file, worktree.path);
@@ -860,10 +860,10 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
     ).length;
     const { repo } = worktree;
     if (back < survey.maxRounds) {
-      const reason = `the test map the survey proposed disagrees with a run of ${repo}: ${why} (ADR 0298)`;
+      const reason = `the test map the survey proposed disagrees with a run of ${repo}: ${why}`;
       return { ...rest, ending: { kind: 'failed', retryable: false, reason } };
     }
-    const summary = `no test map the survey proposed agrees with a run of ${repo}: ${why} (ADR 0298)`;
+    const summary = `no test map the survey proposed agrees with a run of ${repo}: ${why}`;
     return { ...rest, ending: blocked('environment', summary).ending };
   };
 
@@ -912,7 +912,7 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
       if (changed.paths.length > 0) {
         const reason = [
           `the test map of ${repo} is stale: its derivedFrom.globs match ${listOf(named)};`,
-          `update ${TEST_MAP_PATH} in this change (ADR 0274, ADR 0282)`,
+          `update ${TEST_MAP_PATH} in this change`,
         ].join(' ');
         return { end: { ending: { kind: 'failed', retryable: false, reason } } };
       }
@@ -1026,7 +1026,7 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
         `module "${name}" of the test map is new in this batch, and no confirmed line reaches it:`,
         `the test check wrote no test report at ${testReport.path};`,
         `make "checks"."test" of ${repo} in foedrum.jsonc, now "${test.command}", also run its tests,`,
-        `whatever the tests before them give (ADR 0023, ADR 0274).`,
+        `whatever the tests before them give.`,
         `The test check's output ended: ${test.tail}`,
       ].join(' ');
       return stuck(why);

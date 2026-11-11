@@ -348,7 +348,7 @@ export const formatLensReport = ({ lenses, gone, shared }: LensReport): string =
       ? []
       : [
           '',
-          'Lenses together, their tokens not split (ADR 0220):',
+          'Lenses together, their tokens not split:',
           ...shared.flatMap(({ lenses: names, rounds, usage }) => [
             names.join(' + '),
             `  ${counted(rounds, 'round', 'rounds')}`,
@@ -359,7 +359,7 @@ export const formatLensReport = ({ lenses, gone, shared }: LensReport): string =
       ? []
       : [
           '',
-          'Lens steps the recipe files no longer have (ADR 0059):',
+          'Lens steps the recipe files no longer have:',
           ...gone.flatMap((step) => [`${step.recipe}/${step.stepId}`, ...tallyLines(step)]),
         ]),
   ];

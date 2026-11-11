@@ -209,7 +209,7 @@ export function guardTests(options: TestsGuardOptions): BrewerRunner {
       const [atBase, atStep] = maps;
       if (atBase === undefined && atStep === undefined) {
         return {
-          summary: `the guard testsUnchanged finds no test map of ${repo} where the batch started or at the tip of step ${of} (ADR 0297)`,
+          summary: `the guard testsUnchanged finds no test map of ${repo} where the batch started or at the tip of step ${of}`,
         };
       }
       // Every module the base lists stays: the guard keeps more, never less, than the map says.
@@ -282,7 +282,7 @@ export function guardTests(options: TestsGuardOptions): BrewerRunner {
       if (path === undefined) return end;
       const count = older.length === 1 ? 'a test file' : `${older.length} test files`;
       const more = older.length > 1 ? ` (and ${older.length - 1} more)` : '';
-      const reason = `the guard testsUnchanged: the attempt changed ${count} the batch's base holds, ${path}${more}: a test that must change goes back to the Gauger as a finding (ADR 0358)`;
+      const reason = `the guard testsUnchanged: the attempt changed ${count} the batch's base holds, ${path}${more}: a test that must change goes back to the Gauger as a finding`;
       return { ...end, ending: { kind: 'failed', retryable: true, reason } };
     } finally {
       checking.delete(key);

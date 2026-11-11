@@ -135,7 +135,7 @@ const issueOf = (state: State, batch: Batch, found: PreExisting) => {
     return `${repo}#${number}`;
   });
   const body = [
-    `A finding there before the change, from batch ${code(batch.id)}${order === undefined ? '' : ` of #${order}`}, which merged as ${pullRequests.join(', ')} (ADR 0356).`,
+    `A finding there before the change, from batch ${code(batch.id)}${order === undefined ? '' : ` of #${order}`}, which merged as ${pullRequests.join(', ')}.`,
     '',
     `- Found by ${code(stepId)} in its attempt ${attempt}: ${told(`${lensFirst(finding)}${finding.severity}`, stepId, longest)} in ${where}`,
     `- The Taster: ${told(finding.why, stepId, longestWhy)}`,

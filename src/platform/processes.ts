@@ -520,7 +520,7 @@ export const streamProcessWith =
       // Between the direct child's exit and the close of its pipes, a kill would use an exited
       // pid, which taskkill /T cannot follow to the grandchildren (#128).
       if (jobObjects && !jobObject) {
-        done(failed(`${file}: streamProcess runs a program only in a Job Object here (ADR 0039)`));
+        done(failed(`${file}: streamProcess runs a program only in a Job Object here`));
         return;
       }
       const program = resolve === undefined ? file : resolve(file, env);

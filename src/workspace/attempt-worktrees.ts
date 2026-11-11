@@ -404,9 +404,9 @@ export const planClean = (
         : !claims.batches.has(batchId)
           ? `no batch ${batchId} in this Brewery`
           : holdsTaskTree(branch.name)
-            ? `it holds the task tree of batch ${batchId}, which no push recorded (ADR 0084)`
+            ? `it holds the task tree of batch ${batchId}, which no push recorded`
             : holdsOpen(branch.name)
-              ? `it holds the task tree of batch ${batchId}, whose pull request is open (ADR 0219)`
+              ? `it holds the task tree of batch ${batchId}, whose pull request is open`
               : at === undefined
                 ? undefined
                 : `checked out in ${at}`;

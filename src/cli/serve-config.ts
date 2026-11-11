@@ -248,8 +248,7 @@ const mergedModels = (
 };
 
 /** What a command that needs the Brewery's name says when foedrum.jsonc has none. */
-export const NAME_THE_BREWERY =
-  'foedrum.jsonc: name the Brewery with "brewery": "<owner>/<name>" (ADR 0063)';
+export const NAME_THE_BREWERY = 'foedrum.jsonc: name the Brewery with "brewery": "<owner>/<name>"';
 
 /** The host gh reaches GitHub on, with its own login, for `config`'s `githubApi` (ADR 0073). */
 export const githubHostname = (config: BreweryConfig): string =>
@@ -319,9 +318,7 @@ export const serveSetup = (inputs: ServeInputs): ServeSetupResult => {
     problems.push(NAME_THE_BREWERY);
   }
   if (config !== undefined && (config.users ?? []).length === 0) {
-    problems.push(
-      'foedrum.jsonc: list the GitHub users who may order work under "users" (ADR 0068)',
-    );
+    problems.push('foedrum.jsonc: list the GitHub users who may order work under "users"');
   }
   const repositories = Object.entries(config?.repositories ?? {}).map(
     ([repo, repository]): ServeRepository => {
@@ -329,7 +326,7 @@ export const serveSetup = (inputs: ServeInputs): ServeSetupResult => {
       const clone = local === undefined ? undefined : userClone(local, repo);
       if (source === 'local' && clone === undefined && local !== undefined) {
         problems.push(
-          `.foedrum/local.jsonc: ${repo} has the source local, so name its clone in "clones" (ADR 0063)`,
+          `.foedrum/local.jsonc: ${repo} has the source local, so name its clone in "clones"`,
         );
       }
       return {
@@ -396,7 +393,7 @@ export const serveSetup = (inputs: ServeInputs): ServeSetupResult => {
   ) {
     const { level, why } = diagnosis.isolation;
     problems.push(
-      `foedrum.jsonc requires the sandboxed isolation level, and check steps would run at ${level} (${why}) (ADR 0076)`,
+      `foedrum.jsonc requires the sandboxed isolation level, and check steps would run at ${level} (${why})`,
     );
   }
   // A setup runs before brewer attempts as well as before check steps (ADR 0163). On native
@@ -408,7 +405,7 @@ export const serveSetup = (inputs: ServeInputs): ServeSetupResult => {
     for (const { repo, setup } of repositories) {
       if (setup === undefined) continue;
       problems.push(
-        `foedrum.jsonc requires the sandboxed isolation level, and ${repo}'s setup runs outside a sandbox on native Windows (ADR 0163)`,
+        `foedrum.jsonc requires the sandboxed isolation level, and ${repo}'s setup runs outside a sandbox on native Windows`,
       );
     }
   }

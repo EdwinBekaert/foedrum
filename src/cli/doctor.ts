@@ -192,21 +192,21 @@ const WSL2_ADVICE =
  * Foedrum's own with no network, outside one only on native Windows (ADR 0076).
  */
 const SANDBOX_HIDES =
-  "hides your home folder and the other user folders from a brewer's shell commands, apart from the worktree, git's global configuration, parts of ~/.claude and the toolchain folders of serve's PATH (ADR 0162), hides gh's hosts file where an absolute GH_CONFIG_DIR or XDG_CONFIG_HOME puts it, and the token variables, and keeps them from reaching GitHub; Claude Code's docs don't say whether the sandbox stops a read from the OS keyring.";
+  "hides your home folder and the other user folders from a brewer's shell commands, apart from the worktree, git's global configuration, parts of ~/.claude and the toolchain folders of serve's PATH, hides gh's hosts file where an absolute GH_CONFIG_DIR or XDG_CONFIG_HOME puts it, and the token variables, and keeps them from reaching GitHub; Claude Code's docs don't say whether the sandbox stops a read from the OS keyring.";
 const WSL2_WINDOWS_HOME =
-  "Under WSL, the user folders include the Windows user's logins under /mnt (ADR 0160).";
+  "Under WSL, the user folders include the Windows user's logins under /mnt.";
 const sandboxHides = (wsl: boolean) =>
   wsl ? `${SANDBOX_HIDES} ${WSL2_WINDOWS_HOME}` : SANDBOX_HIDES;
 const CONTAINER_CLOSES = 'container level mounts only the worktree, which closes both.';
 const WRITTEN_DOWN =
-  'A login a brewer did read is stopped at the push (ADR 0079) and left out of the pull request and the status comment (ADR 0088) when it looks like one.';
+  'A login a brewer did read is stopped at the push and left out of the pull request and the status comment when it looks like one.';
 /** Where check steps run (ADR 0076): bwrap or sandbox-exec, and outside one on native Windows. */
 const CHECKS_SANDBOXED =
-  "Check steps run in an OS sandbox of their own, with no network and the home folder hidden, so they can't read gh's login (ADR 0076).";
+  "Check steps run in an OS sandbox of their own, with no network and the home folder hidden, so they can't read gh's login.";
 const CHECKS_IN_BUBBLEWRAP =
-  "Check steps run only in bubblewrap's sandbox, with no network and the home folder hidden; where it cannot start, they do not run (ADR 0076).";
+  "Check steps run only in bubblewrap's sandbox, with no network and the home folder hidden; where it cannot start, they do not run.";
 const CHECKS_ON_WINDOWS =
-  "On native Windows, check steps run outside any sandbox, so they can still read gh's login (ADR 0076).";
+  "On native Windows, check steps run outside any sandbox, so they can still read gh's login.";
 const permissionsOnlyAdvice = (
   sandbox: string | undefined,
   { wsl = false, windows = false }: { wsl?: boolean; windows?: boolean } = {},
@@ -288,7 +288,7 @@ const stackProblems = ({ platform, tools }: DoctorFacts): Problem[] =>
         {
           required: false,
           what: 'slirp4netns or pasta (passt) not found',
-          fix: "a repository's setup does not start without it; install slirp4netns (Debian and Ubuntu: sudo apt install slirp4netns; Fedora and Arch usually have slirp4netns or passt with Podman) (ADR 0218)",
+          fix: "a repository's setup does not start without it; install slirp4netns (Debian and Ubuntu: sudo apt install slirp4netns; Fedora and Arch usually have slirp4netns or passt with Podman)",
         },
       ]
     : [];
@@ -546,7 +546,7 @@ const marksOf = (text: string): { what: string; text: string }[] => {
 const replacementNotice = (own: BreweryFile, replaced: BreweryFile): string => {
   const replaces = `${own.path} replaces ${replaced.path}`;
   // A copy doctor could not read is compared with nothing: its problem line says why.
-  if (!('text' in own)) return `${replaces} (ADR 0141)`;
+  if (!('text' in own)) return `${replaces}`;
   const marks = 'text' in replaced ? marksOf(replaced.text) : [];
   // A heading is kept only by a heading, and a marked line only by a marked line.
   const key = (mark: { what: string; text: string }) => `${mark.what}: ${normal(mark.text)}`;
@@ -558,10 +558,10 @@ const replacementNotice = (own: BreweryFile, replaced: BreweryFile): string => {
         .map(({ what, text }) => `${what} "${text.trim()}"`),
     ),
   ];
-  if (marks.length === 0) return `${replaces} (ADR 0141)`;
+  if (marks.length === 0) return `${replaces}`;
   return dropped.length === 0
-    ? `${replaces} and keeps every heading and marked line of it (ADR 0141)`
-    : `${replaces} and drops: ${dropped.join(', ')} (ADR 0141)`;
+    ? `${replaces} and keeps every heading and marked line of it`
+    : `${replaces} and drops: ${dropped.join(', ')}`;
 };
 
 /** Costly prompts, then the Brewery's brewers and lenses nothing names (ADR 0141). */
@@ -574,14 +574,14 @@ const catalogNotices = (
     .filter(({ tokens }) => tokens > COSTLY_PROMPT_TOKENS)
     .map(
       ({ brewer, path, tokens }) =>
-        `${path}: the brewer "${brewer}" has a prompt of about ${tokens} tokens before its other inputs, above ${COSTLY_PROMPT_TOKENS} (ADR 0141)`,
+        `${path}: the brewer "${brewer}" has a prompt of about ${tokens} tokens before its other inputs, above ${COSTLY_PROMPT_TOKENS}`,
     ),
   ...catalog.brewers
     .filter(({ name, path }) => !defaults.includes(path) && !catalog.named.brewers.has(name))
-    .map(({ name, path }) => `${path}: no recipe names the brewer "${name}" (ADR 0141)`),
+    .map(({ name, path }) => `${path}: no recipe names the brewer "${name}"`),
   ...catalog.lenses
     .filter(({ name, path }) => !defaults.includes(path) && !catalog.named.lenses.has(name))
-    .map(({ name, path }) => `${path}: no brewer's input names the lens "${name}" (ADR 0141)`),
+    .map(({ name, path }) => `${path}: no brewer's input names the lens "${name}"`),
 ];
 
 /**
@@ -604,7 +604,7 @@ const testLinesOf = (
     const read = readTestLine(line);
     if (read.runner === undefined) {
       notices.push(
-        `the test line of ${repo} (${line}): Foedrum does not know its test runner, so it cannot tell whether it saves a test report; the survey of the first test-first order checks it (ADR 0376)`,
+        `the test line of ${repo} (${line}): Foedrum does not know its test runner, so it cannot tell whether it saves a test report; the survey of the first test-first order checks it`,
       );
     } else if (!read.saves) {
       const use = read.withReport === undefined ? [] : [`use the test line "${read.withReport}"`];
@@ -818,11 +818,11 @@ export const diagnose = (facts: DoctorFacts): Diagnosis => {
 const denylistLine = (denylist: DenylistFact): string => {
   switch (denylist.kind) {
     case 'set':
-      return `Denylist: ${denylist.path} (the local gate blocks its words in what git push and gh send, ADR 0114, ADR 0132)`;
+      return `Denylist: ${denylist.path} (the local gate blocks its words in what git push and gh send)`;
     case 'none':
-      return `Denylist: none (optional; the local gate reads FOEDRUM_DENYLIST or ${denylist.path}, ADR 0114)`;
+      return `Denylist: none (optional; the local gate reads FOEDRUM_DENYLIST or ${denylist.path})`;
     case 'unreadable':
-      return `Denylist: ${denylist.path} cannot be read (${denylist.why}); the local gate blocks every push and every gh text until it can (ADR 0114, ADR 0132)`;
+      return `Denylist: ${denylist.path} cannot be read (${denylist.why}); the local gate blocks every push and every gh text until it can`;
     default: {
       const unknown: never = denylist;
       throw new Error(`unknown denylist state ${JSON.stringify(unknown)}`);
@@ -832,7 +832,7 @@ const denylistLine = (denylist: DenylistFact): string => {
 
 // The machine's way to stay awake while an attempt runs, or why it has none (ADR 0195).
 const keepAwakeLine = (mechanism: AwakeMechanism): string => {
-  const off = 'while an attempt runs (keepAwake: false turns it off, ADR 0195)';
+  const off = 'while an attempt runs (keepAwake: false turns it off)';
   switch (mechanism.kind) {
     case 'SetThreadExecutionState':
       return `Keep awake: SetThreadExecutionState through ${mechanism.program} ${off}`;
@@ -840,7 +840,7 @@ const keepAwakeLine = (mechanism: AwakeMechanism): string => {
     case 'systemd-inhibit':
       return `Keep awake: ${mechanism.kind} at ${mechanism.program} ${off}`;
     case 'none':
-      return `Keep awake: none (${mechanism.why}); the machine may sleep while an attempt runs (ADR 0195)`;
+      return `Keep awake: none (${mechanism.why}); the machine may sleep while an attempt runs`;
     default: {
       const unknown: never = mechanism;
       throw new Error(`unknown keep-awake mechanism ${JSON.stringify(unknown)}`);
@@ -899,7 +899,7 @@ export const formatDiagnosis = ({
   ];
   if (prompts.length > 0) {
     lines.push(
-      'Brewer prompts (instructions and lens inputs, ADR 0141):',
+      'Brewer prompts (instructions and lens inputs):',
       ...columns(
         prompts.map(({ brewer, path, bytes, tokens }) => [
           brewer,
@@ -912,7 +912,7 @@ export const formatDiagnosis = ({
     );
   }
   if (systemMap.length > 0) {
-    lines.push("System map (the planners' repositories input, ADR 0317):", ...systemMap, '');
+    lines.push("System map (the planners' repositories input):", ...systemMap, '');
   }
   if (problems.length > 0) {
     lines.push(

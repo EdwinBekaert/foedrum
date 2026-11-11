@@ -71,7 +71,7 @@ const IGNORED = '.foedrum/';
 /** A name Windows keeps for a device, before any dot: no folder can have it (CON, NUL, COM1, …). */
 const WINDOWS_DEVICE = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i;
 /** No aliases of its own: every alias is Foedrum's default (ADR 0153). */
-const MODELS = `// Model aliases over Foedrum's defaults (ADR 0153), such as { "builder": "opus" }.
+const MODELS = `// Model aliases over Foedrum's defaults, such as { "builder": "opus" }.
 { "models": {} }
 `;
 

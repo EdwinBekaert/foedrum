@@ -67,7 +67,7 @@ export async function touchesChecked(
     toRead.set(repository, paths);
   }
   if (unknown.length > 0) {
-    const reason = `the plan names repositories the Brewery does not list (ADR 0233): ${listed(unknown)}`;
+    const reason = `the plan names repositories the Brewery does not list: ${listed(unknown)}`;
     return { kind: 'failed', retryable: true, reason };
   }
   const missing: string[] = [];
@@ -96,6 +96,6 @@ export async function touchesChecked(
     }
   }
   if (missing.length === 0) return ending;
-  const reason = `the plan touches paths that do not exist; mark a path new: true when its sub-order creates it (ADR 0233): ${listed(missing)}`;
+  const reason = `the plan touches paths that do not exist; mark a path new: true when its sub-order creates it: ${listed(missing)}`;
   return { kind: 'failed', retryable: true, reason };
 }

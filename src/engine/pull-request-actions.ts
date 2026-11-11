@@ -191,7 +191,7 @@ const refusal = (batchId: string, findings: readonly ScanFinding[]): string => {
     .slice(0, NAMED_FINDINGS)
     .map(({ commit, place, kind }) => `commit ${commit}, ${kind} in ${place}`);
   const more = findings.length - named.length;
-  return `the push of batch ${batchId} stopped before anything left the machine: its commits hold what looks like a secret, or what the scan cannot read (ADR 0079): ${[
+  return `the push of batch ${batchId} stopped before anything left the machine: its commits hold what looks like a secret, or what the scan cannot read: ${[
     ...named,
     ...(more > 0 ? [`and ${more} more`] : []),
   ].join('; ')}`;
@@ -248,7 +248,7 @@ export const pullRequestActions = (options: PullRequestActionsOptions): DriverAc
       if (why !== undefined && why.from !== revision) {
         return {
           kind: 'fail',
-          reason: `batch ${batchId} pushed ${why.from} for its pull request, and its task tree has moved to ${revision} since: updating an open bottle is not supported yet (ADR 0071)`,
+          reason: `batch ${batchId} pushed ${why.from} for its pull request, and its task tree has moved to ${revision} since: updating an open bottle is not supported yet`,
         };
       }
       if (round === 1) return { kind: 'run', repository, revision, round };

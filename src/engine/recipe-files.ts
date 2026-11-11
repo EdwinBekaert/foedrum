@@ -102,7 +102,7 @@ export interface StepBrewer {
 
 /** Why a recipe offered as a choice without guidance is refused, and the fix (ADR 0375). */
 const unguidedLine = (name: string): string =>
-  `the recipe ${name} is offered as a choice, so it needs "guidance": add "guidance": { "chooseWhen": "<the orders it is for>", "notWhen": "<the orders it is not for, and what to choose for them>", "bestUsed": "<how it is best used>" }, each one line of at most 300 characters (ADR 0375)`;
+  `the recipe ${name} is offered as a choice, so it needs "guidance": add "guidance": { "chooseWhen": "<the orders it is for>", "notWhen": "<the orders it is not for, and what to choose for them>", "bestUsed": "<how it is best used>" }, each one line of at most 300 characters`;
 
 /** Every brewer and lens in use, and what names them: what doctor reports on (ADR 0141). */
 export interface Catalog {
@@ -428,10 +428,10 @@ function unfollowedWhen(id: string, when: string): string | undefined {
   const { step, field } = partsOf(when);
   // A step's result is not recorded for a when to read until tasting lands (#26).
   if (step !== 'recipe') {
-    return `step "${id}" has a "when" that reads step "${step}", which the engine does not follow yet (ADR 0064)`;
+    return `step "${id}" has a "when" that reads step "${step}", which the engine does not follow yet`;
   }
   if (!SETTINGS.has(field)) {
-    return `step "${id}" has a "when" that reads recipe.${field}, which is not a recipe setting (ADR 0064)`;
+    return `step "${id}" has a "when" that reads recipe.${field}, which is not a recipe setting`;
   }
   return undefined;
 }
@@ -452,7 +452,7 @@ function runnableStep(step: Step): BrewerStep | CheckStep | ActionStep | string 
   const id = stepId(step);
   const opens = 'action' in step && step.action === 'openPullRequest';
   if (!('brewer' in step) && !('check' in step) && !opens) {
-    return `step "${id}" is a ${stepKind(step)} step, which the engine does not brew yet (ADR 0053)`;
+    return `step "${id}" is a ${stepKind(step)} step, which the engine does not brew yet`;
   }
   const when = step.when === undefined ? undefined : unfollowedWhen(id, step.when);
   if (when !== undefined) return when;
@@ -477,36 +477,36 @@ function untasted(step: BrewerStep, brewer: BrewerFrontmatter): string[] {
       ...(step.lens === undefined
         ? []
         : [
-            `step "${id}" has a "lens", but its brewer "${brewer.name}" is no Taster: a lens step's brewer answers with the out doc schema "${TASTING}" (ADR 0161)`,
+            `step "${id}" has a "lens", but its brewer "${brewer.name}" is no Taster: a lens step's brewer answers with the out doc schema "${TASTING}"`,
           ]),
       ...(step.lenses === undefined
         ? []
         : [
-            `step "${id}" has "lenses", but its brewer "${brewer.name}" is no Taster: a lens step's brewer answers with the out doc schema "${TASTING}" (ADR 0161, ADR 0220)`,
+            `step "${id}" has "lenses", but its brewer "${brewer.name}" is no Taster: a lens step's brewer answers with the out doc schema "${TASTING}"`,
           ]),
       ...(step.blocking === undefined || isBrett(brewer)
         ? []
-        : [`step "${id}" has "blocking", which the engine does not follow yet (ADR 0053)`]),
+        : [`step "${id}" has "blocking", which the engine does not follow yet`]),
       ...(step.onFindings === undefined
         ? []
         : [
-            `step "${id}" has "onFindings", but its brewer "${brewer.name}" is no Taster: only a Taster's findings take that route (ADR 0354)`,
+            `step "${id}" has "onFindings", but its brewer "${brewer.name}" is no Taster: only a Taster's findings take that route`,
           ]),
       ...(step.everyRound === true
         ? [
-            `step "${id}" has "everyRound", but its brewer "${brewer.name}" is no Taster: only a Taster's step in a parallel group with "onFindings" runs again every round; take "everyRound" off (ADR 0357)`,
+            `step "${id}" has "everyRound", but its brewer "${brewer.name}" is no Taster: only a Taster's step in a parallel group with "onFindings" runs again every round; take "everyRound" off`,
           ]
         : []),
     ];
   }
   if (step.lens === undefined && step.lenses === undefined) {
     return [
-      `step "${id}" has the Taster "${brewer.name}" and no "lens": name the lens it reviews through (ADR 0161)`,
+      `step "${id}" has the Taster "${brewer.name}" and no "lens": name the lens it reviews through`,
     ];
   }
   if (brewer.inputs.some(({ name }) => name === LENS_INPUT)) {
     return [
-      `step "${id}" gives the Taster "${brewer.name}" its lens as the input "${LENS_INPUT}", which the brewer has already (ADR 0161)`,
+      `step "${id}" gives the Taster "${brewer.name}" its lens as the input "${LENS_INPUT}", which the brewer has already`,
     ];
   }
   return [];
@@ -525,12 +525,12 @@ function unrouted(step: BrewerStep, group: string | undefined): string[] {
     ...(step.blocking === undefined
       ? []
       : [
-          `step "${id}" has "blocking": a Taster's findings always go back, along "onFindings" on ${where} (ADR 0354)`,
+          `step "${id}" has "blocking": a Taster's findings always go back, along "onFindings" on ${where}`,
         ]),
     ...(step.onBlocked === undefined
       ? []
       : [
-          `step "${id}" has "onBlocked": a Taster's findings go back along "onFindings" on ${where} (ADR 0354)`,
+          `step "${id}" has "onBlocked": a Taster's findings go back along "onFindings" on ${where}`,
         ]),
   ];
   if (fields.length > 0) return fields;
@@ -538,18 +538,18 @@ function unrouted(step: BrewerStep, group: string | undefined): string[] {
     return step.onFindings === undefined
       ? []
       : [
-          `step "${id}" in the parallel group "${group}" has "onFindings": put it on the group, whose children share its rounds (ADR 0354)`,
+          `step "${id}" in the parallel group "${group}" has "onFindings": put it on the group, whose children share its rounds`,
         ];
   }
   // Only a group leaves out a child after a round back (ADR 0357).
   if (step.everyRound === true) {
     return [
-      `step "${id}" has "everyRound", but is in no parallel group: a Taster's step on its own runs again after every round back; take "everyRound" off (ADR 0357)`,
+      `step "${id}" has "everyRound", but is in no parallel group: a Taster's step on its own runs again after every round back; take "everyRound" off`,
     ];
   }
   return step.onFindings === undefined
     ? [
-        `step "${id}" is a Taster's step without "onFindings": add "onFindings": { "goto": <a step before it>, "maxRounds": 2 }, where its findings send the batch back (ADR 0354)`,
+        `step "${id}" is a Taster's step without "onFindings": add "onFindings": { "goto": <a step before it>, "maxRounds": 2 }, where its findings send the batch back`,
       ]
     : [];
 }
@@ -601,7 +601,7 @@ function unproven(recipe: RecipeFile, commits: (step: Step) => boolean): string[
   const proof = order[at];
   if (proven === undefined || proof === undefined) {
     return [
-      'it is a test-first recipe without a red proof: add a check step with "expect": "fail" whose "of" names the step that commits the failing tests, or set testFirst: false (ADR 0064)',
+      'it is a test-first recipe without a red proof: add a check step with "expect": "fail" whose "of" names the step that commits the failing tests, or set testFirst: false',
     ];
   }
   return order
@@ -609,7 +609,7 @@ function unproven(recipe: RecipeFile, commits: (step: Step) => boolean): string[
     .filter((step) => commits(step) && stepId(step) !== proven)
     .map(
       (step) =>
-        `step "${stepId(step)}" commits before the red proof "${stepId(proof)}" of step "${proven}" (ADR 0064)`,
+        `step "${stepId(step)}" commits before the red proof "${stepId(proof)}" of step "${proven}"`,
     );
 }
 
@@ -736,7 +736,7 @@ function chosenTwice(order: readonly Step[]): string[] {
   return [...chosen].flatMap(([option, [first, ...rest]]) =>
     rest.map(
       (other) =>
-        `steps "${first}" and "${other}" are both chosen by ${option}: a person's choice schedules one step (ADR 0286)`,
+        `steps "${first}" and "${other}" are both chosen by ${option}: a person's choice schedules one step`,
     ),
   );
 }
@@ -779,9 +779,7 @@ function actionLine(step: ActionStep, last: boolean): StepLoad {
   const id = stepId(step);
   // The pull request holds the commits of the steps before it; none may come after it.
   if (!last) {
-    return [
-      `step "${id}" opens the pull request, so it must be the last step of the recipe (ADR 0071)`,
-    ];
+    return [`step "${id}" opens the pull request, so it must be the last step of the recipe`];
   }
   const line: LineStep = {
     id,
@@ -833,13 +831,13 @@ function checkLine(step: CheckStep): StepLoad {
  */
 function ungrouped(step: BrewerStep, brewer: BrewerFrontmatter): string | undefined {
   if (step.interactive === true) {
-    return 'is interactive: a parallel group runs its children side by side, and a session needs the terminal to itself (ADR 0222)';
+    return 'is interactive: a parallel group runs its children side by side, and a session needs the terminal to itself';
   }
   if (!isTaster(brewer)) {
-    return `has the brewer "${brewer.name}", which is no Taster: a parallel group runs Tasters' lens steps (ADR 0168)`;
+    return `has the brewer "${brewer.name}", which is no Taster: a parallel group runs Tasters' lens steps`;
   }
   if (brewer.produces === 'commits') {
-    return `has the Taster "${brewer.name}", which produces commits: no child of a parallel group writes the task tree (ADR 0168)`;
+    return `has the Taster "${brewer.name}", which produces commits: no child of a parallel group writes the task tree`;
   }
   return undefined;
 }
@@ -861,7 +859,7 @@ function brewerLine(
     return shelf.brewerNames.has(step.brewer)
       ? []
       : [
-          `it names no brewer "${step.brewer}" that the Brewery's brewers/ or Foedrum's defaults have (ADR 0098)`,
+          `it names no brewer "${step.brewer}" that the Brewery's brewers/ or Foedrum's defaults have`,
         ];
   }
   // The step's model and effort are the brewer's on this step: all that reads an attempt's model
@@ -873,7 +871,7 @@ function brewerLine(
   if (refused.length > 0) {
     return refused.map(
       (what) =>
-        `step "${id}" has the brewer "${brewer.name}", with ${what}, which the engine does not follow yet (ADR 0059)`,
+        `step "${id}" has the brewer "${brewer.name}", with ${what}, which the engine does not follow yet`,
     );
   }
   const apart = group === undefined ? undefined : ungrouped(step, brewer);
@@ -881,7 +879,7 @@ function brewerLine(
   if (step.interactive === true && (step.lens ?? step.lenses) !== undefined) {
     const field = step.lens === undefined ? 'lenses' : 'lens';
     return [
-      `step "${id}" is interactive and has a "${field}": a lens step is a Taster's headless review (ADR 0222)`,
+      `step "${id}" is interactive and has a "${field}": a lens step is a Taster's headless review`,
     ];
   }
   // Only a person's answer to a recipe choice's question chooses the recipe (ADR 0232).
@@ -889,8 +887,8 @@ function brewerLine(
   if (choosing !== (step.chooses !== undefined)) {
     return [
       choosing
-        ? `step "${id}" has the brewer "${brewer.name}", which answers with the out doc schema "${RECIPE_CHOICE}": give the step "chooses": "recipe" (ADR 0232)`
-        : `step "${id}" has "chooses", but its brewer "${brewer.name}" does not answer with the out doc schema "${RECIPE_CHOICE}" (ADR 0232)`,
+        ? `step "${id}" has the brewer "${brewer.name}", which answers with the out doc schema "${RECIPE_CHOICE}": give the step "chooses": "recipe"`
+        : `step "${id}" has "chooses", but its brewer "${brewer.name}" does not answer with the out doc schema "${RECIPE_CHOICE}"`,
     ];
   }
   const refusedLens = [
@@ -903,7 +901,7 @@ function brewerLine(
       // A lens whose file or folder has a problem of its own is reported once, as that.
       if (shelf.lenses.has(name) || !shelf.unreported(name)) continue;
       refusedLens.push(
-        `step "${id}" names the lens "${name}", which neither the Brewery's lenses/ nor Foedrum's defaults have (ADR 0161)`,
+        `step "${id}" names the lens "${name}", which neither the Brewery's lenses/ nor Foedrum's defaults have`,
       );
     }
   }
@@ -972,7 +970,7 @@ interface ListedStep {
 function loadStep({ step, group, groupRoute }: ListedStep, last: boolean, shelf: Shelf): StepLoad {
   if (group !== undefined && step.when !== undefined) {
     return [
-      `step "${stepId(step)}" in the parallel group "${group}" has a "when", which the engine does not follow in a parallel group yet (ADR 0168)`,
+      `step "${stepId(step)}" in the parallel group "${group}" has a "when", which the engine does not follow in a parallel group yet`,
     ];
   }
   const runnable = runnableStep(step);
@@ -1002,7 +1000,7 @@ function groupRoutes(recipe: RecipeFile): string[] {
     return goto === undefined || !groupIds.has(goto)
       ? []
       : [
-          `step "${stepId(step)}" routes back to the parallel group "${goto}": route to one of the steps before it (ADR 0168)`,
+          `step "${stepId(step)}" routes back to the parallel group "${goto}": route to one of the steps before it`,
         ];
   });
 }
@@ -1026,7 +1024,7 @@ function listSteps(recipe: RecipeFile): {
     const { onFindings } = step;
     if (onFindings === undefined) {
       problems.push(
-        `step "${step.id}" is a parallel group of Tasters without "onFindings": add "onFindings": { "goto": <a step before the group>, "maxRounds": 2 }, where their findings send the batch back (ADR 0354)`,
+        `step "${step.id}" is a parallel group of Tasters without "onFindings": add "onFindings": { "goto": <a step before the group>, "maxRounds": 2 }, where their findings send the batch back`,
       );
     }
     return step.parallel.map((child) => ({
@@ -1059,7 +1057,7 @@ function misfolded(order: readonly Step[], commits: (step: Step) => boolean): st
       .filter((lens) => !lens.startsWith(`${reviews}/`))
       .map(
         (lens) =>
-          `step "${stepId(step)}" reviews a ${reviews}, since ${since}, and names the lens "${lens}", which reviews a ${other}: name a lens of lenses/${reviews}/ (ADR 0143)`,
+          `step "${stepId(step)}" reviews a ${reviews}, since ${since}, and names the lens "${lens}", which reviews a ${other}: name a lens of lenses/${reviews}/`,
       );
   });
 }
@@ -1089,12 +1087,12 @@ function unsurveyed(order: readonly Step[], surveys: (step: Step) => boolean): s
       ...(surveyed !== undefined && surveys(surveyed)
         ? []
         : [
-            `step "${id}" reads the test map of step "${of}", which is no earlier step whose brewer answers with the out doc schema "${SURVEY}" (ADR 0298)`,
+            `step "${id}" reads the test map of step "${of}", which is no earlier step whose brewer answers with the out doc schema "${SURVEY}"`,
           ]),
       ...(checks.includes('test')
         ? []
         : [
-            `step "${id}" reads the test map of survey "${of}" against one run, so its checks must include "test" (ADR 0298)`,
+            `step "${id}" reads the test map of survey "${of}" against one run, so its checks must include "test"`,
           ]),
     ];
   });
@@ -1111,8 +1109,7 @@ function ofNothing(order: readonly Step[], commits: (step: Step) => boolean): st
       return proven === undefined || !commits(proven);
     })
     .map(
-      ({ id, of }) =>
-        `step "${id}" proves the tests of step "${of}", whose brewer commits nothing (ADR 0078)`,
+      ({ id, of }) => `step "${id}" proves the tests of step "${of}", whose brewer commits nothing`,
     );
 }
 
@@ -1129,7 +1126,7 @@ function unopened(
   const opens = recipe.steps.some((step) => 'action' in step && step.action === 'openPullRequest');
   return (opens ? [] : order.filter(commits)).map(
     (step) =>
-      `step "${stepId(step)}" has the brewer "${stepBrewerName(step)}", which produces commits, and no step opens a pull request with them: end the recipe with { "action": "openPullRequest" } (ADR 0084)`,
+      `step "${stepId(step)}" has the brewer "${stepBrewerName(step)}", which produces commits, and no step opens a pull request with them: end the recipe with { "action": "openPullRequest" }`,
   );
 }
 
@@ -1156,14 +1153,14 @@ function readLenses(files: readonly BreweryFile[]): {
       // A lens directly in lenses/: its folder says what it reviews, and it has none (ADR 0143).
       const folder = file.path.slice(0, file.path.lastIndexOf('/'));
       problems.push(
-        `${file.path}: a lens belongs in ${folder}/diff/, to review a diff, or ${folder}/plan/, to review a plan (ADR 0143)`,
+        `${file.path}: a lens belongs in ${folder}/diff/, to review a diff, or ${folder}/plan/, to review a plan`,
       );
     } else if ('unreadable' in file) {
       problems.push(`${file.path}: ${file.unreadable}`);
       brokenLenses.add(name);
     } else if (Buffer.byteLength(file.text, 'utf8') > MAX_INPUT_BYTES) {
       problems.push(
-        `${file.path}: it is larger than ${MAX_INPUT_BYTES} bytes, the limit of a brewer's input (ADR 0098)`,
+        `${file.path}: it is larger than ${MAX_INPUT_BYTES} bytes, the limit of a brewer's input`,
       );
       brokenLenses.add(name);
     } else {
@@ -1200,7 +1197,7 @@ function readBrewers(
         if (found !== undefined) named.set(lens, found);
         else {
           unknown.push(
-            `the brewer "${brewer.name}" has the input "${input.name}" from the lens "${lens}", which neither the Brewery's lenses/ nor Foedrum's defaults have (ADR 0098)`,
+            `the brewer "${brewer.name}" has the input "${input.name}" from the lens "${lens}", which neither the Brewery's lenses/ nor Foedrum's defaults have`,
           );
         }
       }

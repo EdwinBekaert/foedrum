@@ -50,7 +50,7 @@ export const keptBranchLines = (
   if (rows.length === 0) return [];
   const count = `${rows.length} kept ${rows.length === 1 ? 'branch' : 'branches'}`;
   return [
-    `${count}: commits of ended batches that no push recorded (ADR 0084); take them, then drop the branch`,
+    `${count}: commits of ended batches that no push recorded; take them, then drop the branch`,
     '',
     ...columns(rows),
   ];

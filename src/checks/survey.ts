@@ -136,7 +136,7 @@ export function surveyed(options: SurveyOptions): BrewerRunner {
     const map = surveys(ref) ? surveyOf(end.ending.output)?.map : undefined;
     if (map === 'fresh' || map === 'brewery') {
       return failed(
-        `the survey says its map is ${map}, which only Foedrum says before a survey runs: say new or stale (ADR 0298)`,
+        `the survey says its map is ${map}, which only Foedrum says before a survey runs: say new or stale`,
       );
     }
     const worktree = worktreeOf(ref);
@@ -162,7 +162,7 @@ export function surveyed(options: SurveyOptions): BrewerRunner {
     const named = `${others.slice(0, MOST_NAMED).join(', ')}${more > 0 ? ` and ${more} more` : ''}`;
     // Another attempt starts afresh at the task tree.
     return failed(
-      `the guard testMapOnly: the attempt changed ${named}; it may change ${TEST_MAP_PATH} only (ADR 0298)`,
+      `the guard testMapOnly: the attempt changed ${named}; it may change ${TEST_MAP_PATH} only`,
     );
   };
 

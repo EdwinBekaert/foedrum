@@ -377,14 +377,14 @@ export const runServe = async (setup: ServeSetup, shell: ServeShell): Promise<nu
     // Elsewhere a check runs in an OS sandbox of its own (ADR 0076).
     if (setup.unsandboxedChecks && setup.checks.any()) {
       say(
-        'check steps run outside an OS sandbox on native Windows: their commands can run code a brewer wrote, with network and home-folder access (ADR 0076)',
+        'check steps run outside an OS sandbox on native Windows: their commands can run code a brewer wrote, with network and home-folder access',
       );
     }
     // A setup runs before brewer attempts too, so also where no recipe has a check step (ADR 0163).
     if (setup.unsandboxedChecks) {
       for (const { repo } of setup.repositories.filter((repository) => repository.setup)) {
         say(
-          `${repo}'s setup runs outside an OS sandbox on native Windows, before brewer attempts and check steps: it can run code a brewer wrote, with network and home-folder access (ADR 0163)`,
+          `${repo}'s setup runs outside an OS sandbox on native Windows, before brewer attempts and check steps: it can run code a brewer wrote, with network and home-folder access`,
         );
       }
     }

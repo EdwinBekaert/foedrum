@@ -260,6 +260,6 @@ export function skipsInAddedLines(
 export const needsTestMap = (recipe: string, repo: string, keptIn: 'repo' | 'brewery'): string => {
   const needs = `recipe ${recipe} proves its tests red, which needs a test map of ${repo}`;
   return keptIn === 'brewery'
-    ? `${needs}: the Brewery keeps it and has none, so add ${breweryMapPath(repo)} to the Brewery (ADR 0297)`
-    : `${needs}: commit ${TEST_MAP_PATH} to ${repo}, or add a survey step to the recipe (ADR 0297)`;
+    ? `${needs}: the Brewery keeps it and has none, so add ${breweryMapPath(repo)} to the Brewery`
+    : `${needs}: commit ${TEST_MAP_PATH} to ${repo}, or add a survey step to the recipe`;
 };
