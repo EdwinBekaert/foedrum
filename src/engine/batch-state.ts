@@ -26,8 +26,8 @@ export type QueuedBy =
   | { kind: 'usage-limit' }
   /** An approved plan whose sub-orders are not opened yet. */
   | { kind: 'sub-orders' }
-  /** A sub-order with no batch yet: the sub-orders it depends on have not merged. */
-  | { kind: 'blockers' };
+  /** A sub-order with no batch yet: not ordered, as the sub-orders it depends on have not merged. */
+  | { kind: 'not-ordered' };
 
 /** How a batch ended. */
 export type DoneHow = 'merged' | 'closed without merging' | 'cancelled' | 'no pull request';
@@ -105,13 +105,13 @@ const splitState = (subOrders: readonly SubOrderState[]): BatchState => {
       return { kind: 'waiting', for: { kind: 'look-at-failure', left: row.left }, subOrder };
     }
     if (row.state === 'merged') return { kind: 'done', how: 'merged' };
-    if (latest === undefined) return { kind: 'queued', by: { kind: 'blockers' }, subOrder };
+    if (latest === undefined) return { kind: 'queued', by: { kind: 'not-ordered' }, subOrder };
     return latest.kind === 'done' ? latest : { ...latest, subOrder };
   });
   const most = Math.min(...states.map(({ kind }) => pressing[kind]));
   const first = states.find(({ kind }) => pressing[kind] === most);
   // Every sub-order is over but not merged; orderEnd names those as left, so this is unreachable.
-  return first ?? { kind: 'queued', by: { kind: 'blockers' } };
+  return first ?? { kind: 'queued', by: { kind: 'not-ordered' } };
 };
 
 /**
@@ -219,22 +219,24 @@ const waitingText = (waiting: WaitingFor, subOrder: number | undefined): string 
   }
 };
 
+/** What holds a queued batch, its sub-order first when it is a split order's (ADR 0379). */
 const queuedText = (by: QueuedBy, subOrder: number | undefined): string => {
+  const who = subOrder === undefined ? undefined : `sub-order #${subOrder}`;
   switch (by.kind) {
     case 'recipe':
-      return `waiting for a recipe${ofSubOrder(subOrder)}`;
+      return who === undefined ? 'waiting for a recipe' : `${who} waits for a recipe`;
     case 'wait':
-      return `waiting for ${waitedOn(by.on)}${ofSubOrder(subOrder)}`;
+      return who === undefined
+        ? `waiting for ${waitedOn(by.on)}`
+        : `${who} waits for ${waitedOn(by.on)}`;
     case 'pause':
-      return `paused${ofSubOrder(subOrder)}`;
+      return who === undefined ? 'paused' : `${who} is paused`;
     case 'usage-limit':
-      return `held by a usage limit${ofSubOrder(subOrder)}`;
+      return who === undefined ? 'held by a usage limit' : `${who} is held by a usage limit`;
     case 'sub-orders':
       return 'its sub-orders are being opened';
-    case 'blockers':
-      return subOrder === undefined
-        ? 'waiting for the sub-orders it depends on'
-        : `sub-order #${subOrder} waits for the sub-orders it depends on`;
+    case 'not-ordered':
+      return who === undefined ? 'its sub-orders are not ordered yet' : `${who} is not ordered yet`;
     default:
       return by satisfies never;
   }
