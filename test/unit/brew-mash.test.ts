@@ -563,6 +563,20 @@ describe('runBrew', () => {
           routeBy,
         });
 
+      it('foedrum mash --override refuses an issue on tap whose pull request is open, ordering nothing', async () => {
+        f.store.withTransaction((tx) => {
+          tx.append({ type: 'batch.ordered', batchId: '12-1', order: { issue: 12 }, routeBy });
+          tx.append({ type: 'batch.on_tap', batchId: '12-1', pullRequests: [pull] });
+        });
+        assert.equal(await runBrew(mashSetup(), steps(12, blocked), override(12)), 5);
+        assert.deepStrictEqual([...log().state().batches.keys()], ['12-1']);
+        assert.deepStrictEqual(f.started, []);
+        assert.equal(
+          f.lines.at(-1),
+          `foedrum mash: #12 is on tap with a pull request with no recorded end, ${pull}: foedrum brew 12 or foedrum serve reads it if it ended; otherwise close it first`,
+        );
+      });
+
       it('foedrum mash --override refuses an order whose sub-order is not ended, naming it', async () => {
         planned([30, 31], (tx) => {
           subOrdered(tx, 30);
