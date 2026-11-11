@@ -3092,6 +3092,15 @@ describe("the Brewery's test line for the Maltster (ADR 0376)", () => {
   const line = 'node --test --test-reporter=tap test/';
   const repoTestLine = (repo: string) => (repo === 'acme/api' ? line : 'make test');
 
+  it("the Maltster's input holds the Brewery's test line", async () => {
+    const { plans } = setup(undefined, {}, undefined, brewedBy('maltster'), { repoTestLine });
+    const { prompt } = await plans.plan(start);
+    assert.match(
+      prompt,
+      /<untrusted-input-([0-9a-f]+) source="the Brewery's test line for acme\/api" name="testLine">\nnode --test --test-reporter=tap test\/\n<\/untrusted-input-\1>/,
+    );
+  });
+
   it('the Gauger, the Cellarman and every other brewer without the input do not get the test line', async () => {
     for (const brewer of ['gauger', 'cellarman']) {
       const { plans } = setup(undefined, {}, undefined, brewedBy(brewer), { repoTestLine });
