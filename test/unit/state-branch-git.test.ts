@@ -783,6 +783,36 @@ describe('openStateBranch with a fake git', () => {
       assert.equal(store.pushedThrough(), undefined);
     });
 
+    it('a flush refused for a secret stops the engine once, naming the commit, its events and the way on', async () => {
+      const state = await started();
+      append(ordered('b1'));
+      const unblock =
+        'https://github.com/acme/brewery/security/secret-scanning/unblock-secret/2abcDEF345';
+      fake.answer = (args) =>
+        args[0] === 'push'
+          ? exit(
+              1,
+              'remote: error: GH013: Repository rule violations found for refs/heads/foedrum/state.\n' +
+                'remote:\nremote: - GITHUB PUSH PROTECTION\nremote:   Resolve the following violations before pushing again\n' +
+                'remote:\nremote:     - Push cannot contain secrets\nremote:\n' +
+                `remote:       To push, remove secret from commit(s) or follow this URL to allow the secret.\nremote:       ${unblock}\n` +
+                'error: failed to push some refs to origin\n',
+              'To origin\n!\trefs/heads/foedrum/state:refs/heads/foedrum/state\t[remote rejected] (push declined due to repository rule violations)\nDone\n',
+            )
+          : undefined;
+
+      await assert.rejects(
+        state.flush(),
+        (error) =>
+          error instanceof StateBranchStopError &&
+          error.message.includes(`commit ${sha(100)} with event 1`) &&
+          error.message.includes(unblock) &&
+          error.message.includes('three hours') &&
+          error.message.includes('moving the database aside'),
+      );
+      assert.equal(store.pushedThrough(), undefined);
+    });
+
     it('reports a failed push, keeps the marker, and retries at the next flush', async () => {
       const state = await started();
       append(ordered('b1'));

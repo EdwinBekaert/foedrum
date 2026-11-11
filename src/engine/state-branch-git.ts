@@ -412,6 +412,8 @@ export const openStateBranch = (options: StateBranchOptions): StateBranch => {
             'The engine stops; Foedrum never merges or rewrites state history.',
         );
       }
+      case 'secret':
+        throw new Error('not implemented');
       case 'failed':
         return { kind: 'failed', reason: why(pushed) };
       default: {

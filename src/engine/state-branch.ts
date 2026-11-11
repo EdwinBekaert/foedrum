@@ -418,7 +418,7 @@ export const remoteCommitOf = (lsRemote: string, ref: string): string | undefine
   return undefined;
 };
 
-export type PushOutcome = 'pushed' | 'rejected' | 'failed';
+export type PushOutcome = 'pushed' | 'rejected' | 'secret' | 'failed';
 
 /** Reads `git push --porcelain`: rejected means the remote moved (non-fast-forward). */
 export const classifyPush = ({
@@ -427,6 +427,7 @@ export const classifyPush = ({
 }: {
   code: number | null;
   stdout: string;
+  stderr?: string;
 }): PushOutcome => {
   if (code === 0) return 'pushed';
   const rejected = stdout

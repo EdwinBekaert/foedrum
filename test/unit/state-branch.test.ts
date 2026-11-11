@@ -570,6 +570,19 @@ describe('planFlush', () => {
       assert.equal(files.at(-1)?.text, text);
     });
 
+    it('an out doc whose text looks like a secret reaches the state branch without it', () => {
+      // Made up: the shape the scanner matches, built here so no token sits in the source.
+      const token = `ghp_${'a1B2c3D4e5'.repeat(4)}`;
+      const text = `---\n{"status":"done"}\n---\nThe order said:\nexport GH_TOKEN=${token}\nThat was all.\n`;
+      const files = planFlush(new Map(), [stored(2, finished('b1', 'review', 3))], 1, [
+        doc(text, 'review', 3),
+      ]);
+      assert.deepEqual(files.at(-1), {
+        path: 'batches/b1/review-3.md',
+        text: '---\n{"status":"done"}\n---\nThe order said:\n[left out: a line of review#3 that looks like a secret]\nThat was all.\n',
+      });
+    });
+
     it('an out doc that names a commit reaches the state branch as it is', () => {
       const text = `---\n{"status":"done"}\n---\nThe red commit is ${'0123456789'.repeat(4)}.\n`;
       const files = planFlush(new Map(), [stored(2, finished('b1'))], 1, [doc(text)]);
@@ -892,6 +905,15 @@ describe('classifyPush', () => {
       const stdout = `To ../origin.git\n!\t${ref}\t[rejected] ${why}\nDone\n`;
       assert.equal(classifyPush({ code: 1, stdout }), 'rejected');
     }
+  });
+
+  it('a push refused for a secret is classified as refused for a secret, not failed', () => {
+    const stdout = `To origin\n!\t${ref}\t[remote rejected] (push declined due to repository rule violations)\nDone\n`;
+    const stderr =
+      'remote: error: GH013: Repository rule violations found for refs/heads/foedrum/state.\n' +
+      'remote:\nremote: - GITHUB PUSH PROTECTION\nremote:   Resolve the following violations before pushing again\n' +
+      'remote:\nremote:     - Push cannot contain secrets\nerror: failed to push some refs to origin\n';
+    assert.equal(classifyPush({ code: 1, stdout, stderr }), 'secret');
   });
 
   it('fails for anything else, such as a remote hook or no network', () => {
