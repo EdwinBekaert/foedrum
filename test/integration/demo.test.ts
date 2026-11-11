@@ -36,6 +36,9 @@ import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 
 const root = join(import.meta.dirname, '..', '..');
 const demo = join(root, 'scripts', 'demo.ts');
+// A batch id carries the time the demo ordered it (ADR 0380): issue's own, whatever that time.
+const ofIssue = (issue: number, batchId: string): boolean =>
+  new RegExp(`^${issue}-[0-9]{14}$`).test(batchId);
 
 describe('npm run demo', () => {
   let dir: TempDir;
@@ -125,7 +128,7 @@ describe('npm run demo', () => {
     const statusComment = part('pull-request');
     // The restarted Cellar's life ends in the step before: on tap, its cleanup and its stop; the
     // pull request's step starts with the pull request (#277).
-    const lifeEnd = [ON_TAP_LINE, 'foedrum serve: stopped', 'cleaned batch 1-1'];
+    const lifeEnd = [ON_TAP_LINE, 'foedrum serve: stopped', 'cleaned batch 1-'];
     for (const line of lifeEnd) {
       assert.ok(checks.includes(line), `${line} in the checks step:\n${checks}`);
       assert.ok(!statusComment.includes(line), `${line} in the pull request's:\n${statusComment}`);
@@ -148,7 +151,10 @@ describe('npm run demo', () => {
     );
     assert.ok(!result.stdout.includes('<!--'), result.stdout);
     // A cleanup counts the worktrees and branches it removed (#662).
-    assert.match(result.stdout, /cleaned batch 1-1: removed \d+ worktrees; deleted \d+ branches; /);
+    assert.match(
+      result.stdout,
+      /cleaned batch 1-[0-9]{14}: removed \d+ worktrees; deleted \d+ branches; /,
+    );
     assert.doesNotMatch(result.stdout, /removed worktree /);
     // On tap: foedrum status shows the batch there, with its pull request.
     assert.match(
@@ -189,7 +195,7 @@ describe('npm run demo', () => {
     );
     // replay shows the state the fold makes of the batch's events, and only counts them (#662).
     const replay = part('replay');
-    assert.match(replay, /Batch 1-1, issue/);
+    assert.match(replay, /Batch 1-[0-9]{14}, issue/);
     assert.match(replay, /Events +\d+, left out here: foedrum replay 1 lists them/);
     assert.doesNotMatch(replay, /batch\.on_tap/);
     assert.match(replay, /lane +on tap/);
@@ -221,7 +227,7 @@ describe('npm run demo', () => {
       store.close();
     }
     const outcomes = events.flatMap((event) =>
-      event.type === 'step.finished' && event.batchId === '1-1'
+      event.type === 'step.finished' && ofIssue(1, event.batchId)
         ? [`${event.stepId}#${event.attempt} ${event.outcome.kind}`]
         : [],
     );
@@ -272,7 +278,7 @@ describe('npm run demo', () => {
     const lenses = new Set(['correctness', 'security', 'test-design', 'design-conformance']);
     const group = events.flatMap((event) =>
       (event.type === 'step.started' || event.type === 'step.finished') &&
-      event.batchId === '1-1' &&
+      ofIssue(1, event.batchId) &&
       lenses.has(event.stepId)
         ? [event.type]
         : [],
@@ -329,7 +335,7 @@ describe('npm run demo', () => {
     );
     assert.match(comment, /^- `mutants`: 2 mutants: 1 survived, 1 killed$/m);
     assert.ok(
-      events.some((event) => event.type === 'batch.on_tap' && event.batchId === '2-1'),
+      events.some((event) => event.type === 'batch.on_tap' && ofIssue(2, event.batchId)),
       JSON.stringify(events),
     );
 
@@ -384,19 +390,22 @@ describe('npm run demo', () => {
     );
     const stuck = mash.slice(mash.indexOf('$ foedrum stuck\n'));
     assert.ok(stuck.startsWith('$ foedrum stuck\n'), mash);
-    assert.match(stuck, /^ +3-1 +[^\n]*the plan of plan #2 is ready for your review(?:;|$)/m);
+    assert.match(
+      stuck,
+      /^ +3-[0-9]{14} +[^\n]*the plan of plan #2 is ready for your review(?:;|$)/m,
+    );
     assert.match(stuck, /^ {4}next: \S/m);
   });
 
   it('step 12 prints the plan comment with the link to the full plan, the table, the flowchart and the Next line', () => {
     const mash = part('mash');
     // The plan comment comes after the status comment, which has a Next line of its own.
-    const heading = mash.search(/^ +### Foedrum · plan of batch `3-1`$/m);
+    const heading = mash.search(/^ +### Foedrum · plan of batch `3-[0-9]{14}`$/m);
     assert.ok(heading >= 0, mash);
     const plan = mash.slice(heading);
     assert.match(
       plan,
-      /^ +Full plan: \[3-1\/plan-2\.md\]\(<https:\/\/github\.com\/demo\/brewery\/[^>]+>\)$/m,
+      /^ +Full plan: \[3-[0-9]{14}\/plan-2\.md\]\(<https:\/\/github\.com\/demo\/brewery\/[^>]+>\)$/m,
     );
     assert.match(plan, /^ +\| Sub-order \| Size \| Recipe \| Depends on \| Ready \|$/m);
     assert.match(plan, /^ +```mermaid\n +flowchart LR\n/m);
@@ -455,7 +464,7 @@ describe('npm run demo', () => {
     }
     const finished = (stepId: string) =>
       events.flatMap((event) =>
-        event.type === 'step.finished' && event.batchId === '1-1' && event.stepId === stepId
+        event.type === 'step.finished' && ofIssue(1, event.batchId) && event.stepId === stepId
           ? [event]
           : [],
       );

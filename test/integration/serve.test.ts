@@ -175,9 +175,16 @@ describe('foedrum serve brews one real step', { skip: real.kind === 'skip' && re
     // must (ADR 0074), with the clone's identity, then writes the out doc.
     git(clone, ['config', 'user.name', 'Brewer']);
     git(clone, ['config', 'user.email', 'brewer@example.com']);
-    const worktree = join(realpathSync(work), 'acme.web', 'attempts', '12-1', 'brew', '1');
-    api = await startFakeMessagesApi([
-      { name: 'Write', input: { file_path: join(worktree, 'flag.txt'), content: '--json\n' } },
+    // The batch id carries the time serve ordered it (ADR 0380): the fake model reads it from the
+    // attempt's working directory, which claude's request names.
+    let batchId = '12-unknown';
+    const worktree = () => join(realpathSync(work), 'acme.web', 'attempts', batchId, 'brew', '1');
+    api = await startFakeMessagesApi((body) => {
+      batchId = /attempts(?:\\\\|\/)(12-[0-9]{14})(?:\\\\|\/)/.exec(body)?.[1] ?? batchId;
+      return script();
+    });
+    const script = () => [
+      { name: 'Write', input: { file_path: join(worktree(), 'flag.txt'), content: '--json\n' } },
       { name: 'Bash', input: { command: 'git add flag.txt', description: 'Stage the flag' } },
       {
         name: 'Bash',
@@ -186,11 +193,11 @@ describe('foedrum serve brews one real step', { skip: real.kind === 'skip' && re
       {
         name: 'Write',
         input: {
-          file_path: join(worktree, 'brew.md'),
+          file_path: join(worktree(), 'brew.md'),
           content: outDoc({ status: 'done', summary: 'Brewed' }),
         },
       },
-    ]);
+    ];
     const needed =
       /^(?:PATH|PATHEXT|SYSTEMROOT|WINDIR|COMSPEC|TEMP|TMP|TMPDIR|HOME|USERPROFILE|APPDATA|LOCALAPPDATA)$/i;
     const inherited = Object.fromEntries(
@@ -232,7 +239,7 @@ describe('foedrum serve brews one real step', { skip: real.kind === 'skip' && re
           '--git-dir',
           origin,
           'show',
-          'foedrum/state:batches/12-1/events.jsonl',
+          `foedrum/state:batches/${batchId}/events.jsonl`,
         ]);
       } catch {
         return '';
@@ -284,7 +291,7 @@ describe('foedrum serve brews one real step', { skip: real.kind === 'skip' && re
     );
     // The brewer's commit went to the bottle branch of the target repository's origin, and the
     // pull request asks for it to go into main, closing the Brewery's issue.
-    const branch = 'foedrum/acme.brewery/12-1/acme.web';
+    const branch = `foedrum/acme.brewery/${batchId}/acme.web`;
     const pushedTip = git(dir.path, [
       '--git-dir',
       join(dir.path, 'web.git'),
@@ -308,15 +315,23 @@ describe('foedrum serve brews one real step', { skip: real.kind === 'skip' && re
       .filter((line) => line !== '')
       .map((line) => (JSON.parse(line) as { event: Record<string, unknown> }).event);
     assert.ok(
-      events.some((e) => e.type === 'effect.applied' && e.key === '["12-1","pull_request"]'),
+      events.some(
+        (e) => e.type === 'effect.applied' && e.key === JSON.stringify([batchId, 'pull_request']),
+      ),
       JSON.stringify(events),
     );
     assert.deepStrictEqual(events.find((e) => e.type === 'batch.on_tap')?.pullRequests, [
       'https://github.com/acme/web/pull/1',
     ]);
     assert.match(result.stdout, /^foedrum serve: brewing for acme\/brewery in /m);
-    assert.match(result.stdout, /^foedrum serve: ordered acme\/brewery#12 as batch 12-1$/m);
-    assert.match(result.stdout, /^foedrum serve: routed batch 12-1 to the recipe stout$/m);
+    assert.match(
+      result.stdout,
+      new RegExp(`^foedrum serve: ordered acme/brewery#12 as batch ${batchId}$`, 'm'),
+    );
+    assert.match(
+      result.stdout,
+      new RegExp(`^foedrum serve: routed batch ${batchId} to the recipe stout$`, 'm'),
+    );
     // The login came first, at serve's start (ADR 0072), then the listing and the order's text, all
     // through gh's own login, never the token variable; the text reached the model in nonce tags.
     const read = (github.requests ?? [])

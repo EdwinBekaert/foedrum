@@ -109,23 +109,26 @@ describe('npm run demo -- ladder', () => {
       closing[0]?.body ?? '',
       new RegExp(`^Every sub-order merged: ${LIB}#${lib?.number}, ${WEB}#${web?.number}\\. `),
     );
+    // A batch id carries the time it was ordered (ADR 0380): the events name the issue by it.
+    const issueOf = (batchId: string): string => batchId.slice(0, batchId.indexOf('-'));
     // Both merges recorded before the order's close; each sub-issue closes on its own merge
     // (ADR 0296).
     const store = openSqliteEventStore(join(scratch, 'brewery', '.foedrum', 'index.db'));
     let types: string[];
     try {
       types = store.eventsAfter(0).flatMap(({ event }) => {
-        if (event.type === 'pull_request.ended') return [`${event.batchId} ${event.state}`];
+        if (event.type === 'pull_request.ended')
+          return [`#${issueOf(event.batchId)} ${event.state}`];
         if (event.type !== 'effect.applied') return [];
         const { batchId, effect } = effectKey.decode(event.key);
-        return effect === 'close.issue' ? [`${batchId} closed`] : [];
+        return effect === 'close.issue' ? [`#${issueOf(batchId)} closed`] : [];
       });
     } finally {
       store.close();
     }
     // The last sub-issue's close and the order's are due in the same tick, in either order.
-    assert.deepStrictEqual(types.slice(0, 3), ['2-1 merged', '2-1 closed', '3-1 merged']);
-    assert.deepStrictEqual(types.slice(3).sort(), ['1-1 closed', '3-1 closed']);
+    assert.deepStrictEqual(types.slice(0, 3), ['#2 merged', '#2 closed', '#3 merged']);
+    assert.deepStrictEqual(types.slice(3).sort(), ['#1 closed', '#3 closed']);
   });
 
   it('the default demo keeps its twelve steps beside the ladder', () => {
@@ -161,7 +164,7 @@ describe('npm run demo -- ladder', () => {
         /sub-issue #3 of #1: .*\n +labels: foedrum:sub-order, recipe:ladder\n +blocked by: #2\n/,
       ],
       lib: [
-        /foedrum serve: ordered demo\/brewery#2 as batch 2-1/,
+        /foedrum serve: ordered demo\/brewery#2 as batch 2-[0-9]{14}/,
         /demo: pull request #\d+ on demo\/lib: /,
       ],
       release: [
@@ -170,7 +173,7 @@ describe('npm run demo -- ladder', () => {
       ],
       released: [
         /foedrum serve: recorded the release v1\.4\.0 of demo\/lib/,
-        /foedrum serve: ordered demo\/brewery#3 as batch 3-1/,
+        /foedrum serve: ordered demo\/brewery#3 as batch 3-[0-9]{14}/,
       ],
       'release-input': [/- Tag, as written: v1\.4\.0\n/, /- Merged pull request of #2: /],
       bump: [/^ +- +"@demo\/greet": "1\.3\.0"\n +\+ +"@demo\/greet": "1\.4\.0"$/m],
