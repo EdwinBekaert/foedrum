@@ -141,6 +141,9 @@ function describeSource(source: InputSource): string {
         if (source.cause === 'conflict') {
           return `why step ${source.step} runs again: the conflict of pull request ${source.pullRequest} with ${source.branch}`;
         }
+        if (source.cause === 'review') {
+          return `why step ${source.step} runs again: the changes asked for in the reviews of pull request ${source.pullRequest}`;
+        }
         const what = source.cause === 'merged_check' ? 'merged-tree check' : 'checks';
         return `why step ${source.step} runs again: the failed ${what} of pull request ${source.pullRequest}`;
       }

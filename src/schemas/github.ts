@@ -161,6 +161,28 @@ export const GitHubCheckRun = z.object({
   html_url: z.string().nullable().optional(),
 });
 
+/**
+ * One item of `GET /repos/{owner}/{repo}/pulls/{n}/reviews` (ADR 0382): `user` null for a deleted
+ * account, `commit_id` null when GitHub has none.
+ */
+export const GitHubReview = z.object({
+  id: z.int().positive(),
+  user: Account.nullable(),
+  state: z.string(),
+  body: z.string().nullable().optional(),
+  commit_id: z.string().nullable().optional(),
+});
+
+/**
+ * One item of `GET /repos/{owner}/{repo}/pulls/{n}/reviews/{id}/comments` (ADR 0382): `line` null
+ * on an outdated comment or one on the whole file.
+ */
+export const GitHubReviewComment = z.object({
+  path: z.string(),
+  line: z.int().nullable().optional(),
+  body: z.string(),
+});
+
 /** One item of the `statuses` of `GET /repos/{owner}/{repo}/commits/{sha}/status` (ADR 0213). */
 export const GitHubCommitStatus = z.object({
   context: z.string(),

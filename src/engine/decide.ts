@@ -968,16 +968,36 @@ function fixPullRequest(
 }
 
 const sameCause = (a: FixCause, b: FixCause): boolean => {
-  if (a.kind === 'review' || b.kind === 'review') throw new Error('not implemented');
-  return a.kind === 'checks' ? b.kind === 'checks' : b.kind === a.kind && a.tip === b.tip;
+  switch (a.kind) {
+    case 'checks':
+      return b.kind === 'checks';
+    case 'review':
+      return b.kind === 'review' && a.reviews.join(',') === b.reviews.join(',');
+    default:
+      return (
+        (b.kind === 'merged_check' || b.kind === 'conflict') && b.kind === a.kind && a.tip === b.tip
+      );
+  }
 };
 
-/** What a `pull_request` route says of `cause`: nothing for the head's checks (ADR 0226). */
+/**
+ * What a `pull_request` route says of `cause`: nothing for the head's checks (ADR 0226), the ids of
+ * the reviews that ask for changes (ADR 0382).
+ */
 const routeCause = (
   cause: FixCause | StuckCause,
-): { cause?: 'merged_check' | 'conflict'; tip?: string } => {
-  if (cause.kind === 'review') throw new Error('not implemented');
-  return cause.kind === 'checks' ? {} : { cause: cause.kind, tip: cause.tip };
+): { cause?: 'merged_check' | 'conflict' | 'review'; tip?: string; reviews?: number[] } => {
+  switch (cause.kind) {
+    case 'checks':
+      return {};
+    case 'review':
+      return {
+        cause: 'review',
+        reviews: cause.reviews.map((review) => (typeof review === 'number' ? review : review.id)),
+      };
+    default:
+      return { cause: cause.kind, tip: cause.tip };
+  }
 };
 
 type StuckCause = NonNullable<Extract<StuckReason, { kind: 'pull_request_failed' }>['cause']>;
@@ -992,6 +1012,10 @@ function stuckChecks(
   if (problem.kind === 'conflict') {
     const { branch, tip, conflicts } = problem.check;
     return { failed: [], more: 0, cause: { kind: 'conflict', branch, tip, files: [...conflicts] } };
+  }
+  if (problem.kind === 'review') {
+    const reviews = problem.reviews.map(({ id, by }) => ({ id, by }));
+    return { failed: [], more: 0, cause: { kind: 'review', reviews, more: problem.more } };
   }
   if (problem.kind === 'merged_check') {
     const { branch, tip, failed } = problem.check;

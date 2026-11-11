@@ -300,7 +300,13 @@ const stuckText = (
           const { branch, tip, files } = reason.cause;
           return `${code(reason.stepId)}: ${link(reason.pullRequest)} conflicts with ${code(branch)} at ${code(shortSha(tip))} ${after}: ${files.map(plain).join(', ')}`;
         }
-        if (reason.cause.kind === 'review') throw new Error('not implemented');
+        // A reviewer's login is GitHub's, shown as plain text (ADR 0382).
+        if (reason.cause.kind === 'review') {
+          const { reviews, more } = reason.cause;
+          const asked = reviews.map(({ id, by }) => `review ${id} by ${plain(by)}`);
+          const rest = more > 0 ? [`and ${more} more`] : [];
+          return `${code(reason.stepId)}: ${link(reason.pullRequest)} got changes asked for on ${code(shortSha(reason.head))} ${after}: ${[...asked, ...rest].join(', ')}`;
+        }
         const { branch, tip, check } = reason.cause;
         return `${code(reason.stepId)}: ${link(reason.pullRequest)} fails its checks on the merged tree with ${code(branch)} at ${code(shortSha(tip))} ${after}: ${plain(check)}`;
       }
