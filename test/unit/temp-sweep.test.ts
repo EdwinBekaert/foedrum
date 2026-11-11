@@ -2,7 +2,15 @@
 // days goes, and a folder a session still writes in stays.
 
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, utimesSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  lutimesSync,
+  mkdirSync,
+  rmSync,
+  symlinkSync,
+  utimesSync,
+  writeFileSync,
+} from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { sweepTemp, TEMP_AGE_MS } from '../../src/engine/temp-sweep.ts';
@@ -61,6 +69,34 @@ describe('sweepTemp', () => {
 
     assert.deepStrictEqual(await sweepTemp(tmp, now), { removed: [], failed: [] });
     assert.equal(existsSync(join(tmp, '921', 'old.txt')), true);
+  });
+
+  it('reports an entry it cannot remove and still removes the others: regression test', async () => {
+    file('a.txt', ago(TEMP_AGE_MS + hour));
+    file('b.txt', ago(TEMP_AGE_MS + hour));
+    const remove = async (path: string): Promise<void> => {
+      if (path.endsWith('a.txt')) throw new Error('EBUSY: the file is open');
+      rmSync(path);
+    };
+
+    assert.deepStrictEqual(await sweepTemp(tmp, now, remove), {
+      removed: ['b.txt'],
+      failed: [{ name: 'a.txt', error: 'EBUSY: the file is open' }],
+    });
+    assert.equal(existsSync(join(tmp, 'a.txt')), true);
+  });
+
+  it('reads a link as itself and removes it without touching what it points at: regression test', async () => {
+    const outside = join(dir.path, 'outside');
+    mkdirSync(outside);
+    writeFileSync(join(outside, 'live.txt'), 'kept\n');
+    const link = join(tmp, 'link');
+    symlinkSync(outside, link, 'junction');
+    const old = ago(TEMP_AGE_MS + hour);
+    lutimesSync(link, old, old);
+
+    assert.deepStrictEqual(await sweepTemp(tmp, now), { removed: ['link'], failed: [] });
+    assert.equal(existsSync(join(outside, 'live.txt')), true);
   });
 
   it('removes nothing when the folder is missing', async () => {
