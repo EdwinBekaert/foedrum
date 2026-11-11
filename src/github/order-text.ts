@@ -1,6 +1,7 @@
 // The order's text (ADR 0063): the body of the batch's issue and its comments, a maintainer's by
-// association (ADR 0333) or, on a claimed issue, every one its approval approved (ADR 0373), untrusted, through the conditional GitHub reads (ADR 0052); its title, which the batch's
-// pull request takes (ADR 0071); and its labels, which `foedrum brew` routes by (ADR 0123).
+// association (ADR 0333) or, on a claimed issue, every one its approval approved (ADR 0373),
+// untrusted, through the conditional GitHub reads (ADR 0052); its title, which the batch's pull
+// request takes (ADR 0071); and its labels, which `foedrum brew` routes by (ADR 0123).
 
 import { isMarkedComment } from '../engine/claim-effects.ts';
 import { same } from '../engine/issue-claims.ts';
