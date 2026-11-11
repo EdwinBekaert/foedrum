@@ -203,15 +203,20 @@ export const onFindings = (outcome: StepOutcome): boolean =>
   outcome.reason.startsWith(blockedBy('findings'));
 
 /**
- * Whether `batch` is done (ADR 0345): cancelled, or on tap with pull requests that all ended. A split
- * order on tap has none, and its rows change as its sub-orders merge. Nothing moves a batch out of
- * this: `admit` refuses a check, a send back or a stop of an ended pull request.
+ * Whether `batch` is done (ADR 0345, ADR 0380): cancelled, or on tap with pull requests that all
+ * ended, or with none once the engine closed its issue, as it closes a split order's when its
+ * sub-orders merged and a cleanup's. Nothing moves a batch out of this: `admit` refuses a check, a
+ * send back or a stop of an ended pull request.
  */
 export const batchEnded = (batch: Batch): boolean =>
   batch.lane.kind === 'cancelled' ||
   (batch.lane.kind === 'on_tap' &&
-    batch.lane.pullRequests.length > 0 &&
-    unendedPullRequests(batch).length === 0);
+    (batch.lane.pullRequests.length === 0
+      ? batch.issueClosed === true
+      : unendedPullRequests(batch).length === 0));
+
+/** The effect that closes a batch's Brewery issue, by the name its key carries (ADR 0296). */
+export const ISSUE_CLOSE_EFFECT = 'close.issue';
 
 /** The pull requests of an on-tap batch with no recorded end: those a merge may have ended. */
 export const unendedPullRequests = ({ lane, pullRequestEnds }: Batch): readonly string[] =>
@@ -1218,7 +1223,15 @@ function apply(state: State, event: Event): State {
       if (state.effects.has(event.key)) {
         throw reject(`effect ${event.key} was already applied`);
       }
-      const applied = { ...state, effects: put(state.effects, event.key, event.result) };
+      const effects = put(state.effects, event.key, event.result);
+      // A batch with no pull request ends once the engine closed its issue (ADR 0380).
+      const closes = !('stepId' in key) && key.effect === ISSUE_CLOSE_EFFECT;
+      const applied = closes
+        ? updateBatch({ ...state, effects }, key.batchId, (closed) => ({
+            ...closed,
+            issueClosed: true,
+          }))
+        : { ...state, effects };
       return showsEnd(batch, key, event.result)
         ? updateBatch(applied, key.batchId, (ended) => ({ ...ended, endShown: true }))
         : applied;
