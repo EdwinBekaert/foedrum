@@ -215,21 +215,29 @@ export const mergeLogs = (files: readonly BranchFile[]): LoggedEvent[] => {
  */
 const namedCommit = (): boolean => true;
 
+// A private key's block: its body lines need not look like a secret one by one (ADR 0378).
+const KEY_BEGINS = /-----BEGIN [A-Z ]*PRIVATE KEY-----/;
+const KEY_ENDS = /-----END [A-Z ]*PRIVATE KEY-----/;
+
 /**
  * `text` with each line that looks like a secret replaced where it stood by a fixed line naming
- * the attempt, its line end kept: never the line, nor `findSecrets`' excerpt of it (ADR 0378).
+ * the attempt, its line end kept: never the line, nor `findSecrets`' excerpt of it. Every line of
+ * a private key's block goes, through its end line or, without one, to the end (ADR 0378).
  */
-const withoutSecretLines = (text: string, stepId: string, attempt: number): string =>
-  text
+const withoutSecretLines = (text: string, stepId: string, attempt: number): string => {
+  let inKey = false;
+  return text
     .split(/(?<=\n)/)
     .map((line) => {
       const end = line.endsWith('\r\n') ? '\r\n' : line.endsWith('\n') ? '\n' : '';
-      if (findSecrets(line.slice(0, line.length - end.length), namedCommit).length === 0) {
-        return line;
-      }
+      const content = line.slice(0, line.length - end.length);
+      const keyLine = inKey || KEY_BEGINS.test(content);
+      inKey = keyLine && !KEY_ENDS.test(content);
+      if (!keyLine && findSecrets(content, namedCommit).length === 0) return line;
       return `[left out: a line of ${stepId}#${attempt} that looks like a secret]${end}`;
     })
     .join('');
+};
 
 /**
  * A kept out doc as a file on the branch: model output, never read back as a log or an order (ADR
