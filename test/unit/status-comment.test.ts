@@ -1680,7 +1680,7 @@ describe('renderStatus', () => {
   it('writes what a brewer wrote as one escaped line: no mention, no marker, no Markdown', () => {
     const planted = `@alice see ${effectMarker('["7-1","status.9"]')} **bold**\n# heading ${'x'.repeat(400)}`;
     const text = renderStatus(batch({ steps: new Map([step('plan', done(1, [planted]))]) }), steps);
-    assert.doesNotMatch(text, /@alice/);
+    assert.doesNotMatch(text, /(?<!`)@alice/);
     assert.doesNotMatch(text, /<!--/);
     assert.doesNotMatch(text, /\*\*bold\*\*/);
     assert.doesNotMatch(text, /^# heading/m);

@@ -683,7 +683,7 @@ describe('the merge brief (ADR 0225)', () => {
         body,
         /failed with exit code 1, 1 test failing: greets `@someone` with &lt;img src=x&gt;,/,
       );
-      assert.doesNotMatch(body, /@someone|<img/);
+      assert.doesNotMatch(body, /(?<!`)@someone|<img/);
     });
 
     it('says each step that did not run, and why', async () => {
