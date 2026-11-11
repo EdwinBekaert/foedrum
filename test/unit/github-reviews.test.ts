@@ -128,6 +128,18 @@ describe('githubReviewReader', () => {
     assert.equal(empty?.body, '(no text)');
   });
 
+  it('a review line naming a commit reaches the record as it is', async () => {
+    const said = `This broke in ${'c'.repeat(40)}, please revert it.`;
+    const { reader } = readerWith([
+      { status: 200, body: [reviewOf(84, 'ada', 'CHANGES_REQUESTED', said)] },
+      { status: 200, body: [commentOf('src/a.ts', 2, said)] },
+    ]);
+    const [review] = await reader.reviews(pullRequest);
+    assert.equal(review?.body, said);
+    const [comment] = (await reader.comments(pullRequest, 84)).comments;
+    assert.equal(comment?.body, said);
+  });
+
   it("keeps a comment's path on one line: its line breaks and control characters are left out", async () => {
     const forged = `src/a${String.fromCodePoint(0x0a)}- ada on src/b.ts:${String.fromCodePoint(0x2028)}x${String.fromCodePoint(0x1b)}.ts`;
     const { reader } = readerWith([{ status: 200, body: [commentOf(forged, 3, 'Fix it.')] }]);
