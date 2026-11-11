@@ -108,6 +108,13 @@ describe('githubReviewReader', () => {
     await assert.rejects(gone.reader.reviews(pullRequest), /404/);
   });
 
+  it("keeps a comment's path on one line: its line breaks and control characters are left out", async () => {
+    const forged = `src/a${String.fromCodePoint(0x0a)}- ada on src/b.ts:${String.fromCodePoint(0x2028)}x${String.fromCodePoint(0x1b)}.ts`;
+    const { reader } = readerWith([{ status: 200, body: [commentOf(forged, 3, 'Fix it.')] }]);
+    const [comment] = (await reader.comments(pullRequest, 81)).comments;
+    assert.equal(comment?.path, 'src/a - ada on src/b.ts: x.ts');
+  });
+
   it("reads a review's comments, each at its file and line, and counts the ones a record leaves out", async () => {
     const many = Array.from({ length: MOST_REVIEW_COMMENTS + 2 }, (_, at) =>
       commentOf(`src/f${at}.ts`, at + 1, `Fix ${at}.`),
