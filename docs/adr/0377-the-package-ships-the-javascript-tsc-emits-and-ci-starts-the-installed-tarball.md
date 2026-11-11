@@ -1,6 +1,6 @@
 # 0377. The package ships the JavaScript `tsc` emits, and CI starts the installed tarball on three platforms
 
-Date: 2026-11-11 · Status: Accepted · Amends [0001](0001-typescript-on-node.md) (the build that emits the package's `.js`) [0016](0016-delivery-npm-cli-and-companion-plugin.md) (what the package holds, and `foedrum --version`), [0097](0097-npm-run-demo-is-a-script-on-serve-s-seams-with-the-tests-fakes.md) (the `files` the package ships) and [0210](0210-foedrum-init-writes-the-foedrum-command-into-a-user-folder-on-the-path.md) (the shim runs `main` beside the module that runs, `main.js` from the package)
+Date: 2026-11-11 · Status: Accepted · Amends [0001](0001-typescript-on-node.md) (the build that emits the package's `.js`), [0016](0016-delivery-npm-cli-and-companion-plugin.md) (what the package holds, and `foedrum --version`), [0097](0097-npm-run-demo-is-a-script-on-serve-s-seams-with-the-tests-fakes.md) (the `files` the package ships), [0119](0119-npm-audit-runs-once-per-ci-run-with-one-retry-on-an-outage.md) (what `ci-ok` needs) and [0210](0210-foedrum-init-writes-the-foedrum-command-into-a-user-folder-on-the-path.md) (the shim runs `main` beside the module that runs, `main.js` from the package)
 
 ## Context
 `package.json`'s `bin` pointed at `src/cli/main.ts`, and the package shipped `src/`.
@@ -38,7 +38,8 @@ It is an option before any command, like `--help`, not a command of the registry
 - In that folder it runs the installed `foedrum --version` (equal to the package's version), `foedrum --help` and `foedrum doctor`, then imports every emitted module but the entry point, then `npx --package=<tarball> foedrum --version` from another empty folder, the form of M3's exit test.
 - Doctor exits 1 on a runner without a gh login, and its findings depend on the runner, so the job holds only that it starts: exit 0 or 1, and nothing on stderr, where a crash prints its stack.
   On Windows doctor also starts node inside a Job Object, so the helper script is read from the package.
-- `--help` and doctor load only some modules; the others (`serve`, `brew`, `resume`, init's) are imported when a command needs them, so the import step is what fails for a module the package lacks.
+- `--help` and doctor load only some modules; the others (`serve`, `brew`, `resume`, init's) are imported when a command needs them.
+  The import step loads them in the install, which has no devDependencies, so a module that imports one (the `check` job always has them) or reads a file the package does not ship when it loads fails the job, not a user's first `serve` or `brew`.
 - `ci-ok` needs `package`.
 - Not here: a clean container or a network-denied run (#27's comment, from another project).
   Each job already starts on a fresh runner, and nothing observed calls for either.

@@ -222,7 +222,9 @@ jobs:
           test "$status" -le 1 && test ! -s doctor.err
 
       # --help and doctor load only some modules; the rest are imported when a command needs them.
-      # Every emitted module but the entry point is imported here, so one the package lacks fails.
+      # Every emitted module but the entry point is imported here, without the checkout's
+      # devDependencies, so a module that imports one, or reads a file the package does not ship
+      # when it loads, fails here and not on a user's first serve or brew.
       - name: Import every installed module
         working-directory: ${{ runner.temp }}/install
         run: |
