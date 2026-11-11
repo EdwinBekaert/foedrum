@@ -501,10 +501,12 @@ export function claudeBrewerRunnerWith(deps: ClaudeRunnerDeps): BrewerRunner {
         line: readonly string[] = args,
         stdin: BrewerPrompt = prompt,
         resumes = session.kind === 'resume',
+        // When the stall clock starts: claude's first start, or a send-back's resume (ADR 0381).
+        from = claudeFrom,
       ): Promise<{ stream: StreamReader; result: StreamResult }> => {
         const stream = readClaudeStream(
           { sessionId: session.id, tools, maxDenials: limits.maxDenials, resumes, worktree: cwd },
-          claudeFrom,
+          from,
         );
         reader = stream;
         const result = await deps.stream(deps.claude, line, {
@@ -652,7 +654,9 @@ export function claudeBrewerRunnerWith(deps: ClaudeRunnerDeps): BrewerRunner {
           settingsFile: plan.settingsFile,
           appendSystemPromptFile: plan.systemPrompt?.file,
         });
-        const again = await once(resume, sendBackMessage(failure), true).catch(() => undefined);
+        const again = await once(resume, sendBackMessage(failure), true, deps.now()).catch(
+          () => undefined,
+        );
         const second = again === undefined ? undefined : again.stream.facts();
         // A resume that set up no session changed nothing: the first end stands.
         if (again !== undefined && second?.session !== undefined) {

@@ -72,7 +72,7 @@ export type InputSource =
   | { kind: 'repositories' }
   /** The earlier rounds' findings of a lens step, with their dispositions (ADR 0191). */
   | { kind: 'findings'; step: string }
-  /** What a check printed that failed once the brewer's session ended (ADR 0381). */
+  /** The line of a check that failed once the brewer's session ended, and what it printed (ADR 0381). */
   | { kind: 'send-back' };
 
 export interface PromptInput {
@@ -160,7 +160,7 @@ function describeSource(source: InputSource): string {
     case 'findings':
       return `the earlier rounds' findings of step ${source.step}, with what was done with them`;
     case 'send-back':
-      return 'what the check that failed printed when your session ended';
+      return 'the line of the check that failed when your session ended, and the end of what it printed';
     default: {
       const never: never = source;
       throw new Error(`Unknown input source ${JSON.stringify(never)}`);

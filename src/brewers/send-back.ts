@@ -55,13 +55,17 @@ export function sendBackChecks(
 
 /**
  * A path a shell line names in double quotes alike in `/bin/sh` and cmd.exe: no character either
- * expands or ends the quote on (`$`, a backquote, `"`, `%`, `!`, `^`, `\`), and none an option
- * starts with. A brewer names the files (ADR 0381).
+ * expands or ends the quote on (`$`, a backquote, `"`, `%`, `!`, `^`, `\`), and a first one no tool
+ * reads as an option or a response file (`-`, `@`, `+`). A brewer names the files (ADR 0381).
  */
-const SAFE_PATH = /^[A-Za-z0-9_.@+][A-Za-z0-9_.@+ /-]*$/;
+const SAFE_PATH = /^[A-Za-z0-9_.][A-Za-z0-9_.@+ /-]*$/;
 
-/** Under cmd.exe's 8,191 characters a line, with room for the shell's own words. */
-const MAX_LINE = 8000;
+/**
+ * The longest line with paths. On Windows a line runs in a Job Object through a PowerShell helper,
+ * which carries it twice encoded: past about 6,000 characters the helper's own command line passes
+ * CreateProcess's 32,767 (ADR 0039).
+ */
+const MAX_LINE = 4000;
 
 /** `command` with `paths` after it, each in double quotes; undefined past `MAX_LINE`. */
 const withPaths = (command: string, paths: readonly string[]): string | undefined => {
@@ -131,19 +135,18 @@ const endedWith = (reading: Ran): string => {
 };
 
 /**
- * The message that sends the brewer back: which check failed, and the end of what it printed, as an
- * untrusted input, since code the brewer wrote may have printed it (ADR 0041).
+ * The message that sends the brewer back: which check failed and how, then its line, whose paths a
+ * brewer named, and the end of what it printed, which code the brewer wrote may have printed, as an
+ * untrusted input (ADR 0041).
  */
 export function sendBackMessage(reading: Ran, random: RandomBytes = randomBytes): BrewerPrompt {
-  const named = `${reading.check ?? 'a check'} (\`${reading.command}\`)`;
-  const { tail } = reading;
   const instructions = [
-    `The checks Foedrum ran after your session found a failure. ${named} ${endedWith(reading)}.`,
+    `The checks Foedrum ran after your session found a failure: ${reading.check ?? 'a check'} ${endedWith(reading)}.`,
     'Fix what it found in the files you changed, run that check again with the command the repository uses, and commit. Then end as before: update your out doc when what you did changes it.',
   ].join('\n\n');
   const assembled = assembleBrewerPrompt(
     instructions,
-    [{ source: { kind: 'send-back' }, text: tail }],
+    [{ source: { kind: 'send-back' }, text: `${reading.command}\n\n${reading.tail}` }],
     random,
   );
   // A tail that holds the input tag's nonce is left out, as a likely injection.
