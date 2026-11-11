@@ -40,20 +40,21 @@ It would also run a command beside the model's tool rules, with claude's login i
 - **What runs (`sendBackLines`).**
   - **Build and typecheck** run whole: a file alone is not what they build or check.
   - **Lint and format** take the paths that the attempt's commits changed and did not delete (`changedPaths`, `git diff --name-only -z --no-renames --diff-filter=d` in the clone). They take them only when their command in `foedrum.jsonc` says `"files": true`. Each path goes after the line in double quotes.
-  - **Lint or format runs whole** when its line takes no files, when git cannot list the paths, when a path is not one both `/bin/sh` and cmd.exe can name safely in double quotes, or when the line would pass 8,000 characters.
+  - **Lint or format runs whole** when its line takes no files, when git cannot list the paths, when a path is not one both `/bin/sh` and cmd.exe can name safely in double quotes, or when the line would pass 4,000 characters. On Windows the line runs in a Job Object through a PowerShell helper that carries it twice encoded, and past about 6,000 characters the helper's own command line passes CreateProcess's 32,767 ([ADR 0039](0039-windows-job-objects-through-a-powershell-helper.md)).
   - **Lint or format is skipped** when the commits only deleted files.
   - **The test line** runs only with `"files": true` and at least one red test file it can name safely, with those files after it. Otherwise it does not run: never the whole suite.
-  - **A safe path** is letters, digits, `_ . @ + -`, space and `/`, and starts with none of `- / space`. A brewer names the files, so nothing a shell expands or ends a quote on reaches the line.
+  - **A safe path** is letters, digits, `_ . @ + -`, space and `/`, and starts with a letter, a digit, `_` or `.`, never `- @ + /` or a space. A brewer names the files, so nothing a shell expands or ends a quote on reaches the line, and no tool reads one as an option or a response file.
   - **How the lines run:** one after another, as a check step's do ([ADR 0076](0076-check-steps-run-in-an-os-sandbox-with-no-network.md)). That is through the check sandbox with no network (`sandboxedChecks`; on native Windows unsandboxed, in a Job Object, [ADR 0039](0039-windows-job-objects-through-a-powershell-helper.md)), with a shell, in the worktree, in the checks' environment, and killed 10 s before the attempt's deadline (`runLine`).
   - While they run, the attempt reports progress.
 - **The send-back.** The first line that does not pass is the failure.
   - The runner starts claude once more, with `--resume <session>` and the attempt's own settings, tools and system prompt.
-  - Its message on stdin is Foedrum's fixed text naming the check, its line and how it ended. The end of what it printed follows as an untrusted input in a nonce tag ([ADR 0041](0041-untrusted-input-in-per-prompt-nonce-tags.md)), since code the brewer wrote may have printed it.
+  - Its message on stdin is Foedrum's fixed text naming the check and how it ended. The check's line, whose paths a brewer named, and the end of what it printed, which code the brewer wrote may have printed, follow as an untrusted input in a nonce tag ([ADR 0041](0041-untrusted-input-in-per-prompt-nonce-tags.md)). A line or output that holds the tag's nonce is left out.
+  - The resumed run's stall clock starts when the resume starts ([ADR 0027](0027-supervisor-lost-and-stalled-attempts.md)).
   - The attempt then settles on that second run: its out doc, its commits, the secret scan, and the tokens of both runs added (`afterSendBack`). Its receipt is the resumed run's, marked `resumed` ([ADR 0172](0172-an-attempt-s-receipt-from-its-stream.md)).
   - The checks do not run again. A second failure, or no fix, ends the attempt as the session ended it, and `green` decides.
   - A resume that sets up no session keeps the first end. A stop while the checks run, or during the resume, cancels the attempt.
 - **What nothing records.** Neither the checks' readings nor the send-back is recorded as an event. The attempt's receipt shows the second run only through its added counts and `resumed`.
-- **`files: true`** is optional on a command object in `foedrum.jsonc` (`{ "run": "biome lint", "files": true }`). Only the checks before a brewer's end read it. A check step runs the line as written.
+- **`files: true`** is optional on any command object in `foedrum.jsonc` (`{ "run": "biome lint", "files": true }`), the setup's and a recipe's literal check command included. Only the checks before a brewer's end read it, and only on `lint`, `format` and `test`. A check step runs the line as written.
 
 ## Consequences
 - A failure the brewer could fix while it holds its context costs one resumed turn, not a new attempt through `green`'s `onFail`.
