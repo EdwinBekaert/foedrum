@@ -9,7 +9,7 @@ The lanes (`on_tap`, `stuck`, …) stay inside the engine: every decision it mak
 
 | State | When | Label |
 |---|---|---|
-| **Running** | A brewer or a check works on it now: brewing, not paused, and not held by a closed usage window with nothing running | `foedrum:running` |
+| **Running** | A brewer or a check works on it now: brewing, not paused, and not held, with nothing running, by the usage window of every brewer (a family's window holds only its own brewers, [ADR 0215](../../adr/0215-an-opus-or-sonnet-limit-holds-only-the-brewers-of-its-family.md)) | `foedrum:running` |
 | **Waiting for you**: approve the plan | Stuck as `plan_review` | `foedrum:approve-plan` |
 | **Waiting for you**: answer a question | Stuck as `needs_input`, or as `order_changed` ([ADR 0368](../../adr/0368-an-issue-changed-after-its-approval-asks-the-engineer-whether-to-continue.md)) | `foedrum:answer` |
 | **Waiting for you**: review and merge the pull request | On tap with a pull request not merged or closed | `foedrum:review-and-merge` |
