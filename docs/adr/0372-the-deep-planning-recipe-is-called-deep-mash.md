@@ -1,6 +1,6 @@
 # 0372. The deep planning recipe is called deep-mash
 
-Date: 2026-11-11 · Status: Accepted · Amends [0321](0321-mash-and-decoction-review-a-plan-through-the-plan-lenses-apart.md) (the deep planning recipe is called `deep-mash`, its label `recipe:deep-mash`) and [0365](0365-a-recipe-has-a-type-mash-or-brew.md) (the default recipes of type `mash` are Mash-in, Mash and Deep-mash, and the recipes that planned before types are `mash` and `mash-in`)
+Date: 2026-11-11 · Status: Accepted · Amends [0321](0321-mash-and-decoction-review-a-plan-through-the-plan-lenses-apart.md) (the deep planning recipe is called `deep-mash`, its label `recipe:deep-mash`), [0365](0365-a-recipe-has-a-type-mash-or-brew.md) (the default recipes of type `mash` are Mash-in, Mash and Deep-mash, and the recipes that planned before types are `mash` and `mash-in`), [0232](0232-foedrum-mash-routes-an-issue-to-the-innkeeper-whose-question-the-answer-chooses-the-recipe-by.md) (the Innkeeper is offered `deep-mash`, and its example suggests it) and [0323](0323-a-seeded-plan-measures-the-plan-lenses-apart-and-together-after-the-merge.md) (each apart step of the plan comparison is pinned to the model `deep-mash` gives its lens)
 
 ## Context
 The careful plan of a large order, `mash`'s steps through all seven plan lenses ([ADR 0321](0321-mash-and-decoction-review-a-plan-through-the-plan-lenses-apart.md)), was called `decoction`, which is hard to say (#931).
