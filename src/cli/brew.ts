@@ -531,7 +531,7 @@ export const runBrew = async (
     const wayOn = (state: State, held: Batch): string =>
       held.lane.kind === 'on_tap' || held.lane.kind === 'cancelled'
         ? `foedrum brew ${called(state)} tries again then`
-        : `foedrum ${commandOf(request) === 'mash' ? 'mash' : 'brew'} ${called(state)}${request.override === true ? ' --override' : ''} --take takes it over now`;
+        : `foedrum ${request.mash === true ? 'mash' : 'brew'} ${called(state)}${request.override === true ? ' --override' : ''} --take takes it over now`;
     const orderAgainLine = (state: State, batch: Batch): string => {
       const { lane } = describeLane(batch, called(state));
       return `${named} is ${lane}; foedrum order ${called(state)} orders it again`;
