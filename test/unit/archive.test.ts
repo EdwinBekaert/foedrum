@@ -150,7 +150,7 @@ describe('the archive in the fold (ADR 0380)', () => {
       cancelled('web-7'),
     ]);
     const state = fold([ordered('web-7-2', claimed)], archive(first, 'web-7'));
-    assert.deepStrictEqual(claimOrderOf(state, 'web-7-2'), { earlier: { issue: 41 } });
+    assert.deepStrictEqual(claimOrderOf(state, 'web-7-2'), { earlier: { issue: 41 }, issue: 41 });
     assert.equal(claimOfOrder(state, 41)?.id, 'web-7-2');
   });
 });
