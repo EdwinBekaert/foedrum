@@ -24,6 +24,7 @@ import {
   remoteCommitOf,
   type StartDecision,
   StateBranchStopError,
+  secretRefusal,
   unsafeEntries,
 } from './state-branch.ts';
 
@@ -412,6 +413,10 @@ export const openStateBranch = (options: StateBranchOptions): StateBranch => {
             'The engine stops; Foedrum never merges or rewrites state history.',
         );
       }
+      case 'secret':
+        throw new StateBranchStopError(
+          secretRefusal({ commit, from: from + 1, through, stderr: pushed.stderr }),
+        );
       case 'failed':
         return { kind: 'failed', reason: why(pushed) };
       default: {
