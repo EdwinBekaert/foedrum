@@ -849,6 +849,25 @@ describe('foedrum status <order> (ADR 0295)', () => {
     });
   });
 
+  it('status of an issue whose batches a cleanup archived says so, exit 0 (ADR 0380)', async () => {
+    const archived: Event[] = [
+      ordered(12),
+      { type: 'batch.cancelled', batchId: '12-1', by: 'ada', via: 'terminal' },
+      {
+        type: 'batch.archived',
+        batchId: '12-1',
+        order: { issue: 12 },
+        breweryIssue: 12,
+        ended: 'cancelled',
+      },
+    ];
+    assert.deepEqual(await run(['status', '12'], { openStore: () => storeWith(archived) }), {
+      exitCode: 0,
+      stdout: '#12: batch 12-1 is archived (cancelled)\n',
+      stderr: '',
+    });
+  });
+
   it('status of a claimed order finds its batch by its Brewery issue (ADR 0329)', async () => {
     // app-11 brews acme/app#11, whose order is the Brewery issue #200 (ADR 0144); 11-1 is the
     // Brewery's own #11, which neither form names.

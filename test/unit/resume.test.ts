@@ -16,10 +16,11 @@ import {
   sessionFoundIn,
 } from '../../src/cli/resume.ts';
 import type { ServeRepository } from '../../src/cli/serve-config.ts';
+import { archivedOf } from '../../src/engine/archive.ts';
 import { attemptKey } from '../../src/engine/attempt-key.ts';
 import { createCommandLog } from '../../src/engine/command-log.ts';
 import type { EventStore } from '../../src/engine/event-store.ts';
-import { fold } from '../../src/engine/fold.ts';
+import { fold, foldedBatch } from '../../src/engine/fold.ts';
 import { loadRecipes } from '../../src/engine/recipe-files.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import { worktreeClaims } from '../../src/engine/worktree-claims.ts';
@@ -428,6 +429,23 @@ describe('foedrum resume (ADR 0126)', () => {
       await resumeOf('26-1'),
       refused('batch 26-1 has no finished attempt that ran a brewer'),
     );
+  });
+
+  it('refuses a batch a cleanup archived, whose sessions it no longer reads (ADR 0380)', async () => {
+    const log = createCommandLog({ store, recipes });
+    const ended = log.state();
+    const archive = {
+      kind: 'record',
+      event: archivedOf(ended, foldedBatch(ended, '26-1')),
+    } as const;
+    assert.equal(log.issue(archive, t0).kind, 'accepted');
+    assert.deepEqual(
+      await resumeOf('26-1'),
+      refused(
+        'batch 26-1 is archived: it ended, and a cleanup moved it to archive/ on the state branch',
+      ),
+    );
+    nothingOpened();
   });
 
   it('returns the exit code of claude', async () => {
