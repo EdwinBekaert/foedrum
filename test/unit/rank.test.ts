@@ -430,6 +430,7 @@ describe('foedrum rank (ADR 0208)', () => {
     resume: async () => assert.fail('no session to resume'),
     applyEffects: async () => [],
     init: async () => assert.fail('no init here'),
+    version: () => assert.fail('no version here'),
     env: {},
     ...overrides,
   });

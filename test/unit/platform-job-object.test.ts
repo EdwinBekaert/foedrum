@@ -3,9 +3,12 @@
 // in test/integration/processes.test.ts.
 
 import assert from 'node:assert/strict';
-import { win32 } from 'node:path';
+import { existsSync, readFileSync } from 'node:fs';
+import { join, resolve, win32 } from 'node:path';
 import { describe, it } from 'node:test';
+import { pathToFileURL } from 'node:url';
 import {
+  helperFile,
   jobObjectCommand,
   jobObjectLine,
   windowsArgument,
@@ -195,5 +198,23 @@ describe('windowsEnvironmentBlock', () => {
 
   it('keeps every character of a value', () => {
     assert.equal(windowsEnvironmentBlock({ X: 'José ✓ "q"' }), 'X=José ✓ "q"\0\0');
+  });
+});
+
+describe('helperFile (ADR 0377)', () => {
+  it("is found from the emitted code: the package's src/platform/job-object.ps1, which the package ships", () => {
+    const root = resolve('package-root');
+    const module = pathToFileURL(join(root, 'dist', 'platform', 'job-object.js')).href;
+    assert.equal(
+      helperFile(module).href,
+      pathToFileURL(join(root, 'src', 'platform', 'job-object.ps1')).href,
+    );
+    const pkg = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8'));
+    assert.ok(pkg.files.includes('src/platform/job-object.ps1'), pkg.files.join(', '));
+  });
+
+  it('is the helper beside the module in the checkout', () => {
+    const module = new URL('../../src/platform/job-object.ts', import.meta.url).href;
+    assert.ok(existsSync(helperFile(module)));
   });
 });

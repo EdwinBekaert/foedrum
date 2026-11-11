@@ -109,5 +109,6 @@ export const doctorHere = async (
     resume: notForDoctor('resume'),
     applyEffects: notForDoctor('effects'),
     init: notForDoctor('init'),
+    version: notForDoctor('version'),
     env: {},
   });

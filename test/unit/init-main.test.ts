@@ -67,7 +67,11 @@ describe('initFromCheckout', () => {
     assert.ok(shown.includes('Wrote foedrum.jsonc\n'), shown);
     const config = readJsonc(readFileSync(join(dir.path, 'foedrum.jsonc'), 'utf8'), BreweryConfig);
     assert.ok(config.valid);
-    assert.equal(config.value.repositories['acme/web']?.checks.test, 'npm test');
+    // A node --test script's line saves its reports (ADR 0376).
+    assert.match(
+      String(config.value.repositories['acme/web']?.checks.test),
+      /^node --test --experimental-test-coverage .*--test-reporter-destination=junit\.xml/,
+    );
     assert.equal(readFileSync(join(dir.path, '.gitignore'), 'utf8'), '.foedrum/\n');
     assert.match(
       readFileSync(join(dir.path, '.claude', 'settings.json'), 'utf8'),

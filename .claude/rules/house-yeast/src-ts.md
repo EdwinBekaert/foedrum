@@ -24,3 +24,7 @@ A regular expression run over text from a Brewery, an order, a repository or a m
 ## outside-values-parsed-never-cast (semantic)
 
 A value from outside (JSON, a process's output, a model's text, a thrown value) is parsed with a schema or read through a shared helper, never cast; a helper is shared before a second copy is written.
+
+## windows-program-extensions-read-alike (semantic)
+
+Every reading that recognises a program by name in a command line compares its file name in lower case, without a folder or a Windows extension (.exe, .cmd, .bat), as the shell that runs the line finds it.

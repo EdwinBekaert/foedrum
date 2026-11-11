@@ -1451,3 +1451,106 @@ describe('formatDiagnosis: keeping the machine awake (ADR 0195)', () => {
     assert.deepStrictEqual(diagnose(facts).problems, diagnose(linux()).problems);
   });
 });
+
+describe("diagnose: whether a test-first recipe's test line saves a report (ADR 0376)", () => {
+  const gauger = {
+    path: 'brewers/gauger.md',
+    text: brewerText('gauger', {
+      access: 'write',
+      git: { commit: true },
+      produces: 'commits',
+    }),
+  };
+  /** A recipe whose gauge step a red proof proves: test-first, as ADR 0017 defaults it. */
+  const recipe = (name: string, fields = {}) => ({
+    path: `recipes/${name}.jsonc`,
+    text: recipeText(
+      name,
+      [
+        { id: 'gauge', brewer: 'gauger' },
+        { id: 'red', check: 'test', expect: 'fail', of: 'gauge' },
+        { action: 'openPullRequest' },
+      ],
+      fields,
+    ),
+  });
+  const config = (test: unknown) =>
+    `{ "repositories": { "acme/web": { "alias": "web", "checks": { "build": null, "typecheck": null, "lint": null, "format": null, "test": ${JSON.stringify(test)} } } } }`;
+  const facts = (test: unknown, recipes = [recipe('nip')]) => ({
+    ...linux(),
+    config: config(test),
+    brewery: { recipes, brewers: [gauger] },
+  });
+  const about = (diagnosis: ReturnType<typeof diagnose>) => ({
+    problems: diagnosis.problems.filter(({ what }) => /test line/.test(what)),
+    notices: (diagnosis.notices ?? []).filter((notice) => /test line/.test(notice)),
+  });
+
+  it("foedrum doctor warns when a test-first recipe's test line saves no report", () => {
+    const diagnosis = diagnose(facts('node --test test/'));
+    assert.deepEqual(about(diagnosis).problems, [
+      {
+        required: false,
+        what: 'the test line of acme/web saves no test report, which recipe nip proves its tests with',
+        fix: 'use the test line "node --test --experimental-test-coverage --test-reporter=spec --test-reporter-destination=stdout --test-reporter=junit --test-reporter-destination=junit.xml --test-reporter=lcov --test-reporter-destination=lcov.info test/"',
+      },
+    ]);
+    // An optional problem: Foedrum runs, and doctor no longer says it has everything it needs.
+    assert.equal(diagnosis.ok, true);
+    assert.match(formatDiagnosis(diagnosis), /Foedrum can run; the problems above are optional\./);
+    // A line that saves one, or a Brewery with no test-first recipe, gets no warning.
+    assert.deepEqual(about(diagnose(facts('pytest --junit-xml=junit.xml'))).problems, []);
+    const off = diagnose(facts('node --test test/', [recipe('nip', { testFirst: false })]));
+    assert.deepEqual(about(off).problems, []);
+  });
+
+  it("foedrum doctor names the packages a dotnet test line's report needs", () => {
+    assert.deepEqual(about(diagnose(facts('dotnet test Svc.sln'))).problems, [
+      {
+        required: false,
+        what: 'the test line of acme/web saves no test report, which recipe nip proves its tests with',
+        fix: 'for a test report Foedrum reads, add JunitXml.TestLogger to each test project, then --logger:"junit;LogFilePath=TestResults/{assembly}.junit.xml" to the test line; for coverage, add coverlet.collector to each test project (dotnet\'s test templates have it), then --collect:"XPlat Code Coverage" to the test line; until then the Maltster maps it with "coverage": "none"',
+      },
+    ]);
+  });
+
+  it('foedrum doctor says it cannot tell for a test runner it does not know', () => {
+    const diagnosis = diagnose(facts('npm test'));
+    assert.deepEqual(about(diagnosis), {
+      problems: [],
+      notices: [
+        'the test line of acme/web (npm test): Foedrum does not know its test runner, so it cannot tell whether it saves a test report; the survey of the first test-first order checks it (ADR 0376)',
+      ],
+    });
+    assert.match(formatDiagnosis(diagnosis), /Foedrum has everything it needs\./);
+  });
+
+  it('says nothing of a repository with no test check', () => {
+    assert.deepEqual(about(diagnose(facts(null))), { problems: [], notices: [] });
+  });
+
+  it('names every test-first recipe of the Brewery', () => {
+    const both = diagnose(facts('pytest', [recipe('nip'), recipe('stout')]));
+    assert.deepEqual(
+      about(both).problems.map(({ what }) => what),
+      [
+        'the test line of acme/web saves no test report, which recipes nip, stout prove their tests with',
+      ],
+    );
+  });
+
+  it("reads a test check given per platform on doctor's own platform", () => {
+    const test = { run: 'make test', windows: 'pytest' };
+    assert.deepEqual(about(diagnose({ ...facts(test), ...windows })).problems, [
+      {
+        required: false,
+        what: 'the test line of acme/web saves no test report, which recipe nip proves its tests with',
+        fix: 'use the test line "pytest --junit-xml=junit.xml"; for coverage, add pytest-cov to the repository, then --cov --cov-report=lcov:lcov.info to the test line; until then the Maltster maps it with "coverage": "none"',
+      },
+    ]);
+    assert.match(
+      about(diagnose(facts(test))).notices.join(),
+      /\(make test\): Foedrum does not know/,
+    );
+  });
+});

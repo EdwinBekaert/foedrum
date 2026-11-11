@@ -3,6 +3,8 @@
 // is missing. doctor-facts.ts gathers the facts.
 
 import { assembleBrewerPrompt } from '../brewers/prompt.ts';
+import { commandLine } from '../checks/gravity.ts';
+import { readTestLine } from '../checks/test-line.ts';
 import {
   type BreweryFile,
   type BreweryFiles,
@@ -582,6 +584,40 @@ const catalogNotices = (
     .map(({ name, path }) => `${path}: no brewer's input names the lens "${name}" (ADR 0141)`),
 ];
 
+/**
+ * Whether each repository's test line saves a test report, when a recipe proves its tests red:
+ * read from the line on this platform, never run (ADR 0376). A runner Foedrum knows without a
+ * report is an optional problem; one it does not know, a notice.
+ */
+const testLinesOf = (
+  config: BreweryConfig,
+  testFirst: readonly string[],
+  platform: NodeJS.Platform,
+): { problems: Problem[]; notices: string[] } => {
+  const problems: Problem[] = [];
+  const notices: string[] = [];
+  if (testFirst.length === 0) return { problems, notices };
+  const named = `${testFirst.length === 1 ? 'recipe' : 'recipes'} ${testFirst.join(', ')}`;
+  for (const [repo, { checks }] of Object.entries(config.repositories)) {
+    if (checks.test === null) continue;
+    const line = commandLine(checks.test, platform);
+    const read = readTestLine(line);
+    if (read.runner === undefined) {
+      notices.push(
+        `the test line of ${repo} (${line}): Foedrum does not know its test runner, so it cannot tell whether it saves a test report; the survey of the first test-first order checks it (ADR 0376)`,
+      );
+    } else if (!read.saves) {
+      const use = read.withReport === undefined ? [] : [`use the test line "${read.withReport}"`];
+      problems.push({
+        required: false,
+        what: `the test line of ${repo} saves no test report, which ${named} ${testFirst.length === 1 ? 'proves its' : 'prove their'} tests with`,
+        fix: [...use, ...read.advice].join('; '),
+      });
+    }
+  }
+  return { problems, notices };
+};
+
 // The recipe and brewer files, when doctor read them: files that do not load stop every command
 // that needs recipes, with this same line (ADR 0053).
 // The defaults in use, when they load (ADR 0098); prompt sizes and notices (ADR 0141). A default
@@ -589,6 +625,7 @@ const catalogNotices = (
 const recipesOf = ({
   brewery,
   config,
+  platform,
 }: DoctorFacts): {
   problems: Problem[];
   defaults?: string[];
@@ -606,11 +643,21 @@ const recipesOf = ({
     const defaulted = read?.valid
       ? defaultRecipeProblem(read.value.defaultRecipe, loaded.recipes)
       : undefined;
+    const lines = read?.valid
+      ? testLinesOf(read.value, loaded.testFirst, platform)
+      : { problems: [], notices: [] };
     return {
-      problems: defaulted === undefined ? [] : [{ required: true, ...defaulted }],
+      problems: [
+        ...(defaulted === undefined ? [] : [{ required: true, ...defaulted }]),
+        ...lines.problems,
+      ],
       defaults: [...loaded.defaults],
       prompts,
-      notices: [...catalogNotices(loaded.catalog, loaded.defaults, prompts), ...replacements],
+      notices: [
+        ...catalogNotices(loaded.catalog, loaded.defaults, prompts),
+        ...replacements,
+        ...lines.notices,
+      ],
     };
   }
   return {

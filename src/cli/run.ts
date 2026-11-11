@@ -131,6 +131,8 @@ export interface CliContext {
    * 0212).
    */
   init: (input: InitCommand) => Promise<CliResult>;
+  /** The version of the Foedrum that runs, from its own package.json (ADR 0377). */
+  version: () => string;
 }
 
 export interface CliResult {
@@ -141,6 +143,7 @@ export interface CliResult {
 }
 
 const HELP = new Set(['-h', '--help']);
+const VERSION = '--version';
 const SEE_HELP = 'run foedrum --help for the commands';
 
 // Every control character but the line feed, DEL and the C1 controls: model-written text in the
@@ -231,6 +234,7 @@ const runCommand = async (argv: readonly string[], context: CliContext): Promise
   const [name, ...rest] = argv;
   if (name === undefined) return usageError(`foedrum: no command given; ${SEE_HELP}`);
   if (HELP.has(name)) return usage();
+  if (name === VERSION) return { exitCode: 0, stdout: `${context.version()}\n`, stderr: '' };
   if (name.startsWith('-')) {
     return usageError(`foedrum: unknown option ${JSON.stringify(name)}; ${SEE_HELP}`);
   }

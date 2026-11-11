@@ -343,6 +343,8 @@ export const wireDriver = async (
     repoTools: (repo) => tools.get(repo.toLowerCase()) ?? [],
     // Every attempt of a brewer with a shell gets its repository's dependencies first (ADR 0163).
     repoSetup: (repo) => repositoryNamed(repo)?.setup,
+    // The Maltster reads the test line it maps the reports of (ADR 0376).
+    repoTestLine: (repo) => repositoryNamed(repo)?.checks.test,
     // Where a commit-producing attempt's commits are counted (ADR 0074).
     clone,
     // A plan's paths are checked in each repository once it is done (ADR 0233).

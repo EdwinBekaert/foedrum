@@ -18,6 +18,10 @@ import { readJsonc } from '../../src/schemas/read.ts';
 
 const node = (scripts: Record<string, string>): string => JSON.stringify({ name: 'web', scripts });
 
+/** The flags init puts after a script's `node --test`: a JUnit report and LCOV coverage (ADR 0376). */
+const NODE_REPORTS =
+  '--experimental-test-coverage --test-reporter=spec --test-reporter-destination=stdout --test-reporter=junit --test-reporter-destination=junit.xml --test-reporter=lcov --test-reporter-destination=lcov.info';
+
 /** acme/web is a Node repository on trunk; acme/api has no package.json. */
 const GITHUB: Readonly<Record<string, RepositoryFacts>> = {
   'acme/web': {
@@ -35,6 +39,14 @@ const GITHUB: Readonly<Record<string, RepositoryFacts>> = {
   },
   // GitHub sends a file over 1 MB without its content.
   'big/web': { base: 'main', packageJson: '', lockfile: true },
+  'acme/vite': { base: 'main', packageJson: node({ test: 'vitest run' }), lockfile: true },
+  'acme/jest': { base: 'main', packageJson: node({ test: 'jest' }), lockfile: true },
+  // A TypeScript package that builds before it tests, through npm's pretest.
+  'acme/tsc': {
+    base: 'main',
+    packageJson: node({ pretest: 'tsc -p .', test: 'node --test dist/' }),
+    lockfile: true,
+  },
 };
 
 interface Clone {
@@ -234,7 +246,7 @@ describe('foedrum init (ADR 0199)', () => {
       typecheck: null,
       lint: 'npm run lint',
       format: null,
-      test: 'npm test',
+      test: `node --test ${NODE_REPORTS}`,
     });
     // The shapes the default Cellarman runs: lint with --write on a path, one test file (ADR 0163).
     const rules = [
@@ -259,7 +271,7 @@ describe('foedrum init (ADR 0199)', () => {
       '  typecheck: none',
       '  lint: npm run lint',
       '  format: none',
-      '  test: npm test',
+      `  test: node --test ${NODE_REPORTS}`,
       '  setup: npm ci',
       '  tools: Bash(npm run build), Bash(npm run lint), Bash(npm run lint -- --write *), Bash(npm run test), Bash(node --test *)',
     ]);
@@ -294,7 +306,7 @@ describe('foedrum init (ADR 0199)', () => {
       lines.join('\n'),
     );
     const config = parsed(clone, 'foedrum.jsonc', BreweryConfig);
-    assert.equal(config.repositories['bom/web']?.checks.test, 'npm test');
+    assert.equal(config.repositories['bom/web']?.checks.test, `node --test ${NODE_REPORTS}`);
   });
 
   it('says a package.json it could not read is there, and asks for the checks', async () => {
@@ -1332,5 +1344,74 @@ describe('foedrum init with its answers as options (ADR 0212)', () => {
   it('refuses a keyed option with an empty key', async () => {
     const { result } = await init([], outside(), { given: { ...ALL, alias: ['=web'] } });
     assert.equal(result.stderr, 'foedrum init: --alias =web: Give it as <key>=<answer>\n');
+  });
+});
+
+describe('foedrum init sets the test line up to save its reports (ADR 0376)', () => {
+  /** The test line init wrote for `repo`, and what it said, after `answers`. */
+  const tested = async (answers: readonly string[], repo: string) => {
+    const clone: Clone = { files: new Map() };
+    const { lines } = await init(answers, clone);
+    const config = parsed(clone, 'foedrum.jsonc', BreweryConfig);
+    return { line: config.repositories[repo]?.checks.test, lines };
+  };
+  /** The answers for a repository with no package.json: no build, typecheck, lint or format. */
+  const typed = (repo: string, test: string) => ['', repo, '', '', '', '', '', test];
+  const notes = (lines: readonly string[]) =>
+    lines.filter((line) => line.startsWith('  test line: '));
+
+  it('foedrum init writes a node --test line that saves a junit report and lcov coverage', async () => {
+    const { line, lines } = await tested(['', 'acme/web', '', ''], 'acme/web');
+    assert.equal(line, `node --test ${NODE_REPORTS}`);
+    // node needs no package for either report, so init has nothing more to say.
+    assert.deepEqual(notes(lines), []);
+  });
+
+  it('foedrum init writes a vitest line that saves a junit report and names the coverage package to add', async () => {
+    const { line, lines } = await tested(['', 'acme/vite', '', ''], 'acme/vite');
+    assert.equal(
+      line,
+      'npm test -- --reporter=default --reporter=junit --outputFile.junit=junit.xml',
+    );
+    assert.deepEqual(notes(lines), [
+      '  test line: for coverage, add @vitest/coverage-v8 to the repository, then --coverage --coverage.reporter=lcov to the test line; until then the Maltster maps it with "coverage": "none"',
+    ]);
+  });
+
+  it('foedrum init adds a junit report to a pytest line and names pytest-cov for coverage', async () => {
+    const { line, lines } = await tested(typed('acme/api', 'python -m pytest tests'), 'acme/api');
+    assert.equal(line, 'python -m pytest tests --junit-xml=junit.xml');
+    assert.deepEqual(notes(lines), [
+      '  test line: for coverage, add pytest-cov to the repository, then --cov --cov-report=lcov:lcov.info to the test line; until then the Maltster maps it with "coverage": "none"',
+    ]);
+  });
+
+  it('foedrum init keeps a dotnet test line and names the packages its reports need', async () => {
+    const { line, lines } = await tested(typed('acme/api', 'dotnet test Svc.sln'), 'acme/api');
+    assert.equal(line, 'dotnet test Svc.sln');
+    assert.deepEqual(notes(lines), [
+      '  test line: for a test report Foedrum reads, add JunitXml.TestLogger to each test project, then --logger:"junit;LogFilePath=TestResults/{assembly}.junit.xml" to the test line',
+      '  test line: for coverage, add coverlet.collector to each test project (dotnet\'s test templates have it), then --collect:"XPlat Code Coverage" to the test line; until then the Maltster maps it with "coverage": "none"',
+    ]);
+  });
+
+  it('foedrum init keeps npm test for a node --test script npm runs beside pretest, and names the flags to add to it', async () => {
+    const { line, lines } = await tested(['', 'acme/tsc', '', ''], 'acme/tsc');
+    assert.equal(line, 'npm test');
+    assert.deepEqual(notes(lines), [
+      `  test line: the test script runs after npm's pretest or before its posttest, so init keeps npm test: for a test report and coverage, add ${NODE_REPORTS} right after --test in the repository's test script, since npm test -- would hand them to the tests instead`,
+    ]);
+  });
+
+  it('foedrum init says what it could not set up for a test line it does not know', async () => {
+    const unknown =
+      "  test line: Foedrum does not know this test runner and added no report settings; the line must save a JUnit or TAP test report, and LCOV or Cobertura coverage or none; the first test-first order's survey checks it";
+    const jest = await tested(['', 'acme/jest', '', ''], 'acme/jest');
+    assert.equal(jest.line, 'npm test');
+    assert.deepEqual(notes(jest.lines), [unknown]);
+    // A line of two commands is not read, even with a runner Foedrum knows in it.
+    const joined = await tested(typed('acme/api', 'make && pytest'), 'acme/api');
+    assert.equal(joined.line, 'make && pytest');
+    assert.deepEqual(notes(joined.lines), [unknown]);
   });
 });
