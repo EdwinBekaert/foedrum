@@ -44,6 +44,8 @@ const SETUP_NAMES = Object.keys(PLAN_SETUPS) as PlanSetupName[];
 
 /** A default recipe's Taster steps that review a plan, as its group names them. */
 const lensStepsOf = (name: string) => {
+  const shipped = readdirSync(join(root, 'defaults', 'recipes'));
+  assert.ok(shipped.includes(`${name}.jsonc`), `no default recipe ${name}: ${shipped.join(', ')}`);
   const recipe = Recipe.parse(parseJsonc(readText(root, 'defaults', 'recipes', `${name}.jsonc`)));
   const group = recipe.steps.find((step) => 'parallel' in step);
   assert.ok(group !== undefined && 'parallel' in group);
@@ -149,7 +151,7 @@ describe('the plan setups', () => {
     assert.deepEqual(PLAN_SETUPS['plan-apart-7'].lenses.toSorted(), shipped);
     assert.deepEqual(PLAN_SETUPS['plan-together-7'].lenses.toSorted(), shipped);
     assert.deepEqual(
-      lensStepsOf('decoction')
+      lensStepsOf('deep-mash')
         .map(({ lens }) => lens)
         .sort(),
       shipped,
@@ -191,13 +193,13 @@ describe('the plan setups', () => {
     }
   });
 
-  it('each apart step names the model decoction gives its lens, and a together step none', () => {
+  it('each apart step names the model deep-mash gives its lens, and a together step none', () => {
     const [plan, group] = stepsOf('plan-apart-7');
     assert.deepEqual(plan, { id: 'plan', brewer: 'brewmaster' });
     assert.ok(group !== undefined && 'parallel' in group);
     const models = (children: typeof group.parallel) =>
       children.map(({ lens, model }) => [lens, model]).sort();
-    assert.deepEqual(models(group.parallel), models(lensStepsOf('decoction')));
+    assert.deepEqual(models(group.parallel), models(lensStepsOf('deep-mash')));
     for (const setup of ['plan-together-7', 'plan-together-mash'] as const) {
       const step = stepsOf(setup)[1];
       assert.ok(step !== undefined && 'brewer' in step);

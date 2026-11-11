@@ -736,10 +736,12 @@ describe('foedrum status', () => {
 });
 
 describe('foedrum status <order> (ADR 0295)', () => {
+  // A choice of one of Foedrum's default recipes, with the type it records (ADR 0365).
   const chosen = (batchId: string, recipe: string): Event => ({
     type: 'batch.recipe_chosen',
     batchId,
     recipe,
+    recipeType: ['mash', 'mash-in', 'deep-mash'].includes(recipe) ? 'mash' : 'brew',
     reason: `label recipe:${recipe}`,
     source: 'label',
   });
@@ -936,16 +938,24 @@ describe('foedrum status <order> (ADR 0295)', () => {
     );
   });
 
-  it('status counts an attempt of decoction whose choice recorded no type, from before types, as planning (ADR 0365): regression test', async () => {
-    const older: Event[] = [
+  it('status counts an attempt whose choice recorded no type as brewing, though it is named mash (ADR 0372): regression test', async () => {
+    // A choice with no recipeType, which the schema still admits: status reads no name instead.
+    const untyped: Event = {
+      type: 'batch.recipe_chosen',
+      batchId: '11-1',
+      recipe: 'mash',
+      reason: 'label recipe:mash',
+      source: 'label',
+    };
+    const events: Event[] = [
       ordered(11),
-      chosen('11-1', 'decoction'),
-      ...attempt('11-1', 'plan', 1, [100, 20, 1000, 0]),
+      untyped,
+      ...attempt('11-1', 'plan', 1, [1000, 200, 5000, 100]),
     ];
-    const result = await run(['status', '11'], { openStore: () => storeWith(older) });
+    const result = await run(['status', '11'], { openStore: () => storeWith(events) });
     assert.match(
       result.stdout,
-      /\nplanning: 1,120 tokens \(100 input, 20 output, 1,000 cache read, 0 cache write\)\nbrewing: none reported\n$/,
+      /\nplanning: none reported\nbrewing: 6,300 tokens \(1,000 input, 200 output, 5,000 cache read, 100 cache write\)\n$/,
     );
   });
 
