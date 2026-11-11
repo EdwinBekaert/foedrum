@@ -254,7 +254,7 @@ describe('runServe', () => {
       // The Brewery issue that is the order of acme/web#7, after the Brewery's own #12 (ADR 0144).
       const order = () => github.issue('acme/brewery', 13);
       const takenOff =
-        /^DELETE \/repos\/acme\/brewery\/issues\/13\/labels\/foedrum%3Aawaiting-merge$/i;
+        /^DELETE \/repos\/acme\/brewery\/issues\/13\/labels\/foedrum%3Areview-and-merge$/i;
       const done = () => {
         // A person labels the Brewery issue once the driver opened it, between two passes; the
         // driver's lane label may already be on it (#413).

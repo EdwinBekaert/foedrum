@@ -4,10 +4,23 @@
 import { z } from './zod.ts';
 
 /**
- * The lane labels, in the order a batch moves through them: where the batch is, or the person's
- * action while it waits on them (ADR 0316).
+ * The state labels: what a batch is to a person, and while it waits for them, for what (ADR 0379).
  */
 export const LaneLabelName = z.enum([
+  'foedrum:queued',
+  'foedrum:running',
+  'foedrum:approve-plan',
+  'foedrum:answer',
+  'foedrum:review-and-merge',
+  'foedrum:open-session',
+  'foedrum:choose-recipe',
+  'foedrum:look-at-failure',
+]);
+export type LaneLabelName = z.infer<typeof LaneLabelName>;
+
+/** The labels an older Foedrum set, which a revision still takes off (ADR 0316, ADR 0379). */
+export const RetiredLaneLabel = z.enum([
+  'foedrum:on-tap',
   'foedrum:ordered',
   'foedrum:brewing',
   'foedrum:conditioning',
@@ -17,10 +30,6 @@ export const LaneLabelName = z.enum([
   'foedrum:awaiting-merge',
   'foedrum:sub-orders',
 ]);
-export type LaneLabelName = z.infer<typeof LaneLabelName>;
-
-/** The lane labels an older Foedrum set, which a revision still takes off (ADR 0316). */
-export const RetiredLaneLabel = z.enum(['foedrum:on-tap']);
 export type RetiredLaneLabel = z.infer<typeof RetiredLaneLabel>;
 
 export const LaneLabelRevision = z.strictObject({

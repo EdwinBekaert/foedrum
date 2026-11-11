@@ -6,16 +6,14 @@
 
 import { LaneLabelName, LaneLabelRevision, RetiredLaneLabel } from '../schemas/lane-label.ts';
 import type { BatchEffectKey } from '../schemas/store.ts';
-import type { BatchState } from './batch-state.ts';
+import { type BatchState, stateOf } from './batch-state.ts';
 import type { IssueMarks } from './claim-effects.ts';
 import { breweryIssueOf, latestOf } from './claim-orders.ts';
 import type { DriverEffects } from './driver.ts';
 import { effectKey, numberedEffects } from './effect-key.ts';
-import type { Batch } from './fold.ts';
 import { same } from './issue-claims.ts';
-import { orderEnd, type SubOrderRow, subOrderRows } from './order-end.ts';
 
-/** The labels of the lanes, in the order a batch moves through them. */
+/** The state labels: queued, running, then what a batch waits for a person to do. */
 export const laneLabels = LaneLabelName.options;
 
 /** Every label a revision takes off: the lanes', and those an older Foedrum set (ADR 0316). */
@@ -28,54 +26,18 @@ export interface LaneLabelHost extends Pick<IssueMarks, 'labels' | 'addLabel' | 
 }
 
 /** The label of a batch in `state`: what a person sees on its issue (ADR 0379); none once done. */
-export const stateLabel = (_state: BatchState): LaneLabelName | undefined => {
-  throw new Error('not implemented');
-};
-
-/**
- * The label of `batch`'s lane: the person's action while it waits on them (ADR 0316). None for a
- * cancelled batch, nor for one on tap that waits on nobody: its pull requests ended, its order's
- * sub-orders all merged, or it has none and no approved plan.
- */
-export const laneLabel = (
-  batch: Batch,
-  /** Its order's sub-orders, in merge order, once it is split (ADR 0293). */
-  subOrders: readonly SubOrderRow[] = [],
-): LaneLabelName | undefined => {
-  const { lane } = batch;
-  switch (lane.kind) {
-    case 'ordered':
-      return 'foedrum:ordered';
-    case 'brewing':
-      return 'foedrum:brewing';
-    case 'conditioning':
-      return 'foedrum:conditioning';
-    case 'stuck':
-      switch (lane.reason.kind) {
-        case 'plan_review':
-          return 'foedrum:awaiting-approval';
-        case 'needs_input':
-        // An issue that changed since its approval waits for continue or stop (ADR 0368).
-        case 'order_changed':
-          return 'foedrum:awaiting-answer';
-        default:
-          return 'foedrum:stuck';
-      }
-    case 'on_tap': {
-      if (lane.pullRequests.some((url) => batch.pullRequestEnds?.[url] === undefined)) {
-        return 'foedrum:awaiting-merge';
-      }
-      // A plan a person approved: its sub-orders brew until every one merged (ADR 0281, ADR 0293).
-      return lane.pullRequests.length === 0 &&
-        batch.approval !== undefined &&
-        orderEnd(subOrders)?.kind !== 'done'
-        ? 'foedrum:sub-orders'
-        : undefined;
-    }
-    case 'cancelled':
+export const stateLabel = (state: BatchState): LaneLabelName | undefined => {
+  switch (state.kind) {
+    case 'queued':
+      return 'foedrum:queued';
+    case 'running':
+      return 'foedrum:running';
+    case 'waiting':
+      return `foedrum:${state.for.kind}`;
+    case 'done':
       return undefined;
     default:
-      return lane satisfies never;
+      return state satisfies never;
   }
 };
 
@@ -131,8 +93,7 @@ export const laneLabelEffects = (options: LaneLabelEffectsOptions): DriverEffect
       );
       const revision = revisions.length + 1;
       const previous = revisions.at(-1);
-      const rows = batch.decomposed === true ? subOrderRows(state, batch.issue) : [];
-      const label = laneLabel(batch, rows) ?? null;
+      const label = stateLabel(stateOf(state, batch)) ?? null;
       // Nothing to show, or shown already; a batch cancelled before its first label has none.
       if (previous === undefined ? label === null : previous.label === label) return [];
       // An older Foedrum's on-tap label stays until the lane changes: no upgrade rewrites every

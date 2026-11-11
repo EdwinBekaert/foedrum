@@ -237,7 +237,7 @@ describe('laneLabelEffects', () => {
 
   it('reads lane labels without case, as GitHub does', async () => {
     order();
-    labels.of(brewery, 7).push('Foedrum:Ordered');
+    labels.of(brewery, 7).push('Foedrum:Queued');
     const driver = await open();
     await driver.tick();
     assert.deepEqual(revision(1), { result: { label: 'foedrum:queued' } });
@@ -465,6 +465,8 @@ describe('the lane label of a split order, through its effects (ADR 0293, ADR 03
         reason: 'label',
         source: 'label',
       },
+      { type: 'step.scheduled', batchId: '3-1', stepId: 'code', attempt: 1, deadlineAt: routeBy },
+      { type: 'step.started', batchId: '3-1', stepId: 'code', attempt: 1 },
     ];
     assert.deepEqual(await next([...split, ...merged(2, lib), ...brewing]), {
       label: 'foedrum:running',
