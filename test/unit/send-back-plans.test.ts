@@ -4,6 +4,7 @@
 // them (ADR 0021: a fake git and test map, the defaults as they ship).
 
 import assert from 'node:assert/strict';
+import { readdirSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { describe, it } from 'node:test';
 import { createAttemptPlans } from '../../src/brewers/attempt-plans.ts';
@@ -74,8 +75,8 @@ const gaugeDiff = [
   '',
 ].join('\n');
 const ok = (stdout: string): GitResult => ({ code: 0, stdout, stderr: '' });
-const git: Git = async (_cwd, args) =>
-  args.includes('diff') ? ok(gaugeDiff) : { code: 2, stdout: '', stderr: 'unexpected call' };
+// The Finer's change is read with git log and diff too: the log names no commit.
+const git: Git = async (_cwd, args) => ok(args.includes('diff') ? gaugeDiff : '');
 const map: MapRead = {
   kind: 'map',
   map: {
@@ -167,12 +168,21 @@ describe('createAttemptPlans: the checks before the end (ADR 0381)', () => {
     assert.equal(plan.sendBack, undefined);
     // Every brewer of every default recipe: only the Cellarman and the Finer ask for them.
     const asking = new Set<string>();
-    for (const { path } of noFiles.recipes) {
-      const name = basename(path, '.jsonc');
+    const every = new Set<string>();
+    const recipes = readdirSync(join(FOEDRUM_DEFAULTS, 'recipes')).filter((file) =>
+      file.endsWith('.jsonc'),
+    );
+    for (const file of recipes) {
+      const name = basename(file, '.jsonc');
       for (const id of loaded.recipes.find(name)?.steps ?? []) {
         const found = loaded.brewers.find(name, id);
+        if (found !== undefined) every.add(found.brewer.name);
         if (found?.brewer.checksBeforeEnd === true) asking.add(found.brewer.name);
       }
+    }
+    // The walk reached the other brewers too, so finding none of them asking means something.
+    for (const brewer of ['gauger', 'taster', 'brewmaster', 'innkeeper', 'maltster', 'brett']) {
+      assert.ok(every.has(brewer), brewer);
     }
     assert.deepEqual([...asking].sort(), ['cellarman', 'finer']);
   });
