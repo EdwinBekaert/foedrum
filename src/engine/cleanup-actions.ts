@@ -8,7 +8,8 @@ import { type ArchiveFacts, archivable, archivedOf } from './archive.ts';
 import type { AttemptRef } from './attempt-key.ts';
 import type { CommandLog } from './command-log.ts';
 import type { Ending } from './decide.ts';
-import type { DriverActions } from './driver.ts';
+import type { DriverActions, DriverEffects } from './driver.ts';
+import type { EventStore } from './event-store.ts';
 import { effectKey } from './effect-key.ts';
 import type { State } from './fold.ts';
 import type { RecipeAction, Recipes } from './recipes.ts';
@@ -43,6 +44,21 @@ const CleanupResult = z.union([
 
 /** The one effect of a cleanup action's attempt, named for its action. */
 const keyOf = (ref: AttemptRef, effect: 'archive' | 'sweep'): EffectKey => ({ ...ref, effect });
+
+/**
+ * What the archive reads beside the fold, from the driver's sources and its store (ADR 0380): a
+ * batch has an effect due while a key a source gives is not in the ledger, or a source throws;
+ * and a batch is leased while it, or one of its attempts, has a live lease.
+ */
+export const storeFacts =
+  (
+    _effects: Pick<DriverEffects, 'due'>,
+    _store: Pick<EventStore, 'findEffect' | 'batchLeases' | 'currentLeases'>,
+    _clock: () => Date,
+  ) =>
+  (_state: State): ArchiveFacts => {
+    throw new Error('not implemented');
+  };
 
 export const cleanupActions = (options: CleanupActionsOptions): DriverActions => {
   const { recipes, log, facts, temp, clock } = options;

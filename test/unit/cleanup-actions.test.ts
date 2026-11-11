@@ -7,7 +7,8 @@ import { existsSync, mkdirSync, utimesSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import type { ArchiveFacts } from '../../src/engine/archive.ts';
-import { actionsByKind, cleanupActions } from '../../src/engine/cleanup-actions.ts';
+import { attemptKey } from '../../src/engine/attempt-key.ts';
+import { actionsByKind, cleanupActions, storeFacts } from '../../src/engine/cleanup-actions.ts';
 import { type CommandLog, createCommandLog } from '../../src/engine/command-log.ts';
 import { type Driver, type DriverActions, openDriver } from '../../src/engine/driver.ts';
 import { effectKey } from '../../src/engine/effect-key.ts';
@@ -204,5 +205,65 @@ describe('cleanupActions (ADR 0380)', () => {
     const actions = cleanupActions({ recipes, log, facts: noFacts, temp, clock: () => at });
     const ending = actions.ending(log.state(), { batchId: '9-1', stepId: 'sweep', attempt: 1 });
     assert.equal(ending.kind === 'failed' && ending.retryable, true);
+  });
+});
+
+describe('storeFacts (ADR 0380)', () => {
+  const at = new Date('2026-11-11T12:00:00.000Z');
+  const later = new Date(at.getTime() + 60_000);
+  const statusKey = (batchId: string) => ({ batchId, effect: 'status.1' });
+
+  it('counts an effect due while its key is not in the ledger, or while a source throws', () => {
+    const store = openSqliteEventStore(':memory:');
+    store.withTransaction((tx) => {
+      tx.append({
+        type: 'batch.ordered',
+        batchId: '1-1',
+        order: { issue: 1 },
+        routeBy: at.toISOString(),
+      });
+      tx.append({
+        type: 'batch.ordered',
+        batchId: '2-1',
+        order: { issue: 2 },
+        routeBy: at.toISOString(),
+      });
+      tx.recordEffect(statusKey('2-1'), { comment: 1, digest: '0123456789abcdef' });
+    });
+    const effects = {
+      due: (_state: unknown, batchId: string) => {
+        if (batchId === '3-1') throw new Error('the source cannot read');
+        return [statusKey(batchId)];
+      },
+    };
+    const facts = storeFacts(
+      effects,
+      store,
+      () => at,
+    )(createCommandLog({ store, recipes }).state());
+    assert.equal(facts.due('1-1'), true);
+    assert.equal(facts.due('2-1'), false);
+    assert.equal(facts.due('3-1'), true);
+    store.close();
+  });
+
+  it('counts a batch leased by its own lease or by a live lease of one of its attempts', () => {
+    const store = openSqliteEventStore(':memory:');
+    store.withTransaction((tx) => {
+      tx.putBatchLease({ batchId: '1-1', owner: 'cellar', expiresAt: later });
+      tx.putLease({
+        attemptKey: attemptKey.encode({ batchId: '2-1', stepId: 'plan', attempt: 1 }),
+        owner: 'cellar',
+        expiresAt: later,
+      });
+      tx.putBatchLease({ batchId: '3-1', owner: 'cellar', expiresAt: at });
+    });
+    const facts = storeFacts(
+      { due: () => [] },
+      store,
+      () => at,
+    )(createCommandLog({ store, recipes }).state());
+    assert.deepStrictEqual([...facts.leased].sort(), ['1-1', '2-1']);
+    store.close();
   });
 });
