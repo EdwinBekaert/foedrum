@@ -7,7 +7,7 @@
   "$schema": "../../schemas/recipe.json",
   "name": "deep-mash",
   "type": "mash",
-  "description": "A careful plan of a large order, through all seven plan lenses, shown on its issue; nothing is built",
+  "description": "A careful plan of an order whose cut carries a risk, through all seven plan lenses, shown on its issue; nothing is built",
   "guidance": {
     "chooseWhen": "An order to plan before anything is built whose cut carries a risk: it can reach a lot across repositories, or touches a credential, a migration or a public interface.",
     "notWhen": "An order clear enough to build as written: choose a brew recipe. A broad order whose cut is plain: mash plans it for less.",
