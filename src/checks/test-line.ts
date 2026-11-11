@@ -31,6 +31,8 @@ const VITEST_REPORTS = '--reporter=default --reporter=junit --outputFile.junit=j
 
 const PYTEST_REPORT = '--junit-xml=junit.xml';
 
+const NODE_HOOKS = `the test script runs after npm's pretest or before its posttest, so init keeps npm test: for a test report and coverage, add ${NODE_REPORTS} right after --test in the repository's test script, since npm test -- would hand them to the tests instead`;
+
 const NODE_PAIRING =
   'for a test report, add --test-reporter=junit --test-reporter-destination=junit.xml right after --test, and give every --test-reporter of the line a --test-reporter-destination of its own: node refuses a line where they do not pair up';
 
@@ -103,7 +105,7 @@ const runnerOf = (words: readonly Word[]): TestRunner | undefined => {
   const texts = words.map(({ text }) => text);
   const programs = texts.map(programOf);
   if (programs[0] === 'node' && texts.includes('--test')) return 'node';
-  if (programs.includes('vitest') || texts.some((text) => text.startsWith('--outputFile.junit='))) {
+  if (programs.includes('vitest') || valuesOf(texts, '--outputFile.junit').length > 0) {
     return 'vitest';
   }
   if (programs.includes('pytest')) return 'pytest';
@@ -113,6 +115,14 @@ const runnerOf = (words: readonly Word[]): TestRunner | undefined => {
   return undefined;
 };
 
+/** The values of the flag `name` in `texts`, in order: `name=value`, or `name` and the next word. */
+const valuesOf = (texts: readonly string[], name: string): string[] =>
+  texts.flatMap((text, at) => {
+    if (text.startsWith(`${name}=`)) return [text.slice(name.length + 1)];
+    const next = texts[at + 1];
+    return text === name && next !== undefined ? [next] : [];
+  });
+
 /** Whether `words` save a test report for `runner`, and whether they save coverage. */
 const savesOf = (
   runner: TestRunner,
@@ -121,25 +131,29 @@ const savesOf = (
   const texts = words.map(({ text }) => text);
   const has = (test: (text: string) => boolean) => texts.some(test);
   switch (runner) {
-    case 'node':
-      // A JUnit or TAP reporter, and a destination that is a file.
+    case 'node': {
+      // A JUnit or TAP reporter whose destination, paired by position as node pairs them, is a file.
+      const destinations = valuesOf(texts, '--test-reporter-destination');
       return {
-        report:
-          has((text) => /^--test-reporter=(?:junit|tap)$/.test(text)) &&
-          has(
-            (text) =>
-              text.startsWith('--test-reporter-destination=') && !/=(?:stdout|stderr)$/.test(text),
-          ),
+        report: valuesOf(texts, '--test-reporter').some((reporter, at) => {
+          const to = destinations[at];
+          return (
+            (reporter === 'junit' || reporter === 'tap') &&
+            to !== undefined &&
+            to !== 'stdout' &&
+            to !== 'stderr'
+          );
+        }),
         coverage: has((text) => text === '--experimental-test-coverage'),
       };
+    }
     case 'vitest':
       // A plain --outputFile is the JUnit report's only beside the junit reporter.
       return {
         report:
-          has((text) => text.startsWith('--outputFile.junit=')) ||
-          (has((text) => text === '--outputFile' || text.startsWith('--outputFile=')) &&
-            (has((text) => text === '--reporter=junit') ||
-              texts.some((text, at) => text === '--reporter' && texts[at + 1] === 'junit'))),
+          valuesOf(texts, '--outputFile.junit').length > 0 ||
+          (valuesOf(texts, '--outputFile').length > 0 &&
+            valuesOf(texts, '--reporter').includes('junit')),
         coverage: has((text) => text === '--coverage' || text.startsWith('--coverage.')),
       };
     case 'pytest':
@@ -199,14 +213,23 @@ export const readTestLine = (line: string): TestLine => {
 
 /**
  * The test line `foedrum init` writes for a Node repository whose `test` script is `script`: the
- * script itself with node's flags, which `npm test --` would hand to the tests, `npm test` with
- * vitest's, and `npm test` for any other runner (ADR 0376).
+ * script itself with node's flags, which `npm test --` would hand to the tests, unless npm runs it
+ * with `hooks`, a `pretest` or `posttest` script the line would skip; `npm test` with vitest's; and
+ * `npm test` for any other runner (ADR 0376).
  */
-export const npmTestLine = (script: string): string => {
+export const npmTestLine = (script: string, hooks = false): string => {
   const read = readTestLine(script);
-  if (read.runner === 'node') return read.withReport ?? script;
+  if (read.runner === 'node' && !hooks) return read.withReport ?? script;
   if (read.runner === 'vitest' && !read.saves) return `npm test -- ${VITEST_REPORTS}`;
   return 'npm test';
+};
+
+/** What `foedrum init` says of the line `npmTestLine` writes for `script` (ADR 0376). */
+export const npmTestNotes = (script: string, hooks = false): string[] => {
+  const read = readTestLine(script);
+  if (read.runner === 'node' && hooks && read.withReport !== undefined) return [NODE_HOOKS];
+  if (read.runner === 'node' && hooks) return [...read.advice];
+  return testLineNotes(npmTestLine(script, hooks));
 };
 
 /** What `foedrum init` says of the test line it writes: what it could not set up (ADR 0376). */

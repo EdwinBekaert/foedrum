@@ -6,7 +6,7 @@
 // then runs doctor. The ports are the terminal, the files, GitHub through gh, git, doctor and the
 // machine the command goes on; init-main.ts gives the real ones.
 
-import { npmTestLine, readTestLine, testLineNotes } from '../checks/test-line.ts';
+import { npmTestLine, npmTestNotes, readTestLine, testLineNotes } from '../checks/test-line.ts';
 import { parseJsonc } from '../formats/jsonc.ts';
 import { LABEL_COLOR } from '../github/brewery-repository.ts';
 import type { RepositoryFacts } from '../github/repository-facts.ts';
@@ -201,14 +201,17 @@ const nodeChecks = (scripts: Json): Record<CheckName, string | null> =>
     CheckName.options.map((check) => {
       const script = scripts[check];
       if (typeof script !== 'string') return [check, null];
-      return [check, check === 'test' ? npmTestLine(script) : `npm run ${check}`];
+      return [check, check === 'test' ? npmTestLine(script, hooksOf(scripts)) : `npm run ${check}`];
     }),
   ) as Record<CheckName, string | null>;
 
+/** Whether npm runs a `pretest` or `posttest` script around the test script (ADR 0376). */
+const hooksOf = (scripts: Json): boolean =>
+  typeof scripts.pretest === 'string' || typeof scripts.posttest === 'string';
+
 /** What init says it could not set up of a test line (ADR 0376). */
-const sayTestLine = (say: (line: string) => void, line: string | null | undefined): void => {
-  if (typeof line !== 'string') return;
-  for (const note of testLineNotes(line)) say(`  test line: ${note}`);
+const sayTestLine = (say: (line: string) => void, notes: readonly string[]): void => {
+  for (const note of notes) say(`  test line: ${note}`);
 };
 
 /**
@@ -469,7 +472,8 @@ export const runInit = async (ports: InitPorts, given: InitAnswers = {}): Promis
       if (scripts !== undefined) {
         const proposed = nodeChecks(scripts);
         for (const check of CheckName.options) say(`  ${check}: ${proposed[check] ?? 'none'}`);
-        sayTestLine(say, proposed.test);
+        const script = scripts.test;
+        if (typeof script === 'string') sayTestLine(say, npmTestNotes(script, hooksOf(scripts)));
         say(`  setup: ${read.lockfile ? 'npm ci' : 'none'}`);
         say(`  tools: ${nodeTools(proposed).join(', ') || 'none'}`);
         const use = { name: 'use-checks', key: repo } as const;
@@ -495,7 +499,7 @@ export const runInit = async (ports: InitPorts, given: InitAnswers = {}): Promis
         if (typeof typed === 'string') {
           checks.test = readTestLine(typed).withReport ?? typed;
           say(`  test: ${checks.test}`);
-          sayTestLine(say, checks.test);
+          sayTestLine(say, testLineNotes(checks.test));
         }
       } else {
         checks = nodeChecks(scripts);
