@@ -466,7 +466,7 @@ describe('a resumed session hears the comments made since (ADR 0338)', () => {
     const { prompt } = await plans.plan(startOf('12-1', 2));
     assert.match(
       prompt,
-      /The inputs named issue below are comments maintainers made on the order's issue since this session last read them: they are part of the order\./,
+      /The inputs named issue below are comments made on the order's issue since this session last read them, each source saying who wrote it: they are part of the order\./,
     );
   });
 
@@ -1075,6 +1075,47 @@ describe("a label-approved order's comments are those made before its approval (
       listed(802, 'mallory', 'NONE', '2026-11-05T09:00:00Z', 'THE-BREWERY-STRANGER'),
     ]);
     assert.deepEqual((await textsOf(plans)).slice(1), ['THE-BREWERY-OWNER-AFTER']);
+  });
+
+  it("a resumed session is not told that a stranger's approved comment is a maintainer's", async () => {
+    const claude = { version: '2.1.301', model: 'claude-haiku-5-5' };
+    const events = [
+      ...claimed,
+      {
+        type: 'step.finished',
+        batchId: 'web-7',
+        stepId: 'brew',
+        attempt: 1,
+        outcome: { kind: 'failed', retryable: true, reason: 'it stopped' },
+        claude,
+      },
+      {
+        type: 'step.scheduled',
+        batchId: 'web-7',
+        stepId: 'brew',
+        attempt: 2,
+        deadlineAt,
+        retry: true,
+      },
+      {
+        type: 'step.started',
+        batchId: 'web-7',
+        stepId: 'brew',
+        attempt: 2,
+        session: { id: sessionId, resumes: sessionId, worktree },
+      },
+    ] as Event[];
+    const plans = plansWith(
+      [listed(701, 'mallory', 'NONE', '2026-11-05T09:00:00Z', 'THE-STRANGER-BEFORE')],
+      labelled,
+      [],
+      events,
+      { brewers: loadedWith('resume') },
+    );
+    const { prompt } = await plans.plan(startOf('web-7', 2));
+    assert.match(prompt, /THE-STRANGER-BEFORE/);
+    assert.doesNotMatch(prompt, /comments maintainers made/);
+    assert.match(prompt, /each source saying who wrote it/);
   });
 
   it('a resumed session is told only the comments the approval approved', async () => {
