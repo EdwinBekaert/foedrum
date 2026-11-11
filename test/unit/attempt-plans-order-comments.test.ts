@@ -1069,6 +1069,14 @@ describe("a label-approved order's comments are those made before its approval (
     );
   });
 
+  it("a Brewery issue's comments are still read by association", async () => {
+    const plans = plansWith([], labelled, [
+      listed(801, 'ada', 'OWNER', '2026-11-05T12:00:00Z', 'THE-BREWERY-OWNER-AFTER'),
+      listed(802, 'mallory', 'NONE', '2026-11-05T09:00:00Z', 'THE-BREWERY-STRANGER'),
+    ]);
+    assert.deepEqual((await textsOf(plans)).slice(1), ['THE-BREWERY-OWNER-AFTER']);
+  });
+
   it('a resumed session is told only the comments the approval approved', async () => {
     const claude = { version: '2.1.301', model: 'claude-haiku-5-5' };
     const events = [
