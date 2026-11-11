@@ -276,6 +276,10 @@ describe('stateLine', () => {
         'Waiting for you: look at sub-order #9, closed without merging',
       ],
       [
+        { kind: 'waiting', for: { kind: 'look-at-failure' }, subOrder: 9 },
+        'Waiting for you: look at a failure of sub-order #9 that Foedrum could not get past',
+      ],
+      [
         { kind: 'waiting', for: { kind: 'approve-plan' }, subOrder: 9 },
         'Waiting for you: approve the plan of sub-order #9',
       ],

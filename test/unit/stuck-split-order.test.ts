@@ -89,6 +89,29 @@ describe('foedrum stuck and a split order', () => {
     );
   });
 
+  it('lists a sub-order Stuck on a failure as itself, not its order too', () => {
+    const failed: Event[] = [
+      { type: 'batch.ordered', batchId: '2-1', order: { issue: 2 }, parentBatchId: '1-1', routeBy },
+      {
+        type: 'batch.stuck',
+        batchId: '2-1',
+        reason: { kind: 'deadline_passed', stepId: 'implement', deadlineAt: routeBy },
+        options: ['retry', 'cancel'],
+        remindAt: routeBy,
+      },
+    ];
+    assert.equal(
+      formatStuck(fold([...split, ...failed])),
+      [
+        '1 batch waits for you',
+        '',
+        '2-1  #2  Waiting for you: look at a failure Foedrum could not get past: step implement ran past its deadline, 1 Nov 13:00 UTC',
+        '  Next: look at what failed above, then try the step again with foedrum retry 2, or end it with foedrum cancel 2.',
+        '',
+      ].join('\n'),
+    );
+  });
+
   it('lists the order when a sub-order closed without merging keeps it open, with its Next line', () => {
     const closed: Event[] = [
       ...opened,
