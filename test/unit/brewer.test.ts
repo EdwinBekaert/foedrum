@@ -114,7 +114,7 @@ describe('BrewerFrontmatter', () => {
     assert.equal(read.success, false);
     assert.match(
       read.error?.issues[0]?.message ?? '',
-      /"plan", "plan-entry", "release", "checks", "step:<step id>"/,
+      /"plan", "plan-entry", "release", "checks", "test-line", "step:<step id>"/,
     );
   });
 
