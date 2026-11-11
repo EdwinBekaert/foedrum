@@ -145,6 +145,11 @@ export const ladderRecipeText = (): string =>
       name: LADDER_RECIPE,
       type: 'brew',
       description: 'One change, then its pull request, with no checks',
+      guidance: {
+        chooseWhen: "A sub-order of the ladder's plan",
+        notWhen: 'An order that needs its checks run',
+        bestUsed: 'To show the path of an order across two repositories',
+      },
       testFirst: false,
       steps: [{ id: 'implement', brewer: 'cellarman' }, { action: 'openPullRequest' }],
     },

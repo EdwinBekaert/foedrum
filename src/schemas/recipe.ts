@@ -339,6 +339,27 @@ function misplaced(kind: Reference['kind'], from: Place, to: Place): string | un
 export const RecipeType = z.enum(['mash', 'brew', 'tend']);
 export type RecipeType = z.infer<typeof RecipeType>;
 
+/** The longest line of a recipe's guidance, in UTF-16 units (ADR 0375). */
+const MAX_GUIDANCE_LINE = 300;
+
+// One line: a line break would forge a line of the recipes input it is shown in (ADR 0375).
+const GuidanceLine = NonEmpty.max(MAX_GUIDANCE_LINE).regex(
+  /^[^\r\n\u2028\u2029]*$/,
+  'Must be one line',
+);
+
+/** When to choose a recipe, when not, and how it is best used: what a model choosing it reads (ADR 0375). */
+export const RecipeGuidance = z
+  .strictObject({
+    chooseWhen: GuidanceLine.describe('The orders the recipe is for'),
+    notWhen: GuidanceLine.describe('The orders it is not for, and what to choose for them'),
+    bestUsed: GuidanceLine.describe('How it is best used'),
+  })
+  .describe(
+    'What a model choosing a recipe reads beside its description; required for every recipe offered as a choice, each one line of at most 300 characters (ADR 0375)',
+  );
+export type RecipeGuidance = z.infer<typeof RecipeGuidance>;
+
 const RecipeFields = z.strictObject({
   $schema: z.string().optional().describe('The JSON Schema of this file, for editors'),
   name: PathSafeId,
@@ -353,6 +374,7 @@ const RecipeFields = z.strictObject({
       'mash: chooses a recipe or makes a plan, and builds nothing; brew: builds. A sub-order runs a brew recipe (ADR 0365)',
     ),
   description: NonEmpty,
+  guidance: RecipeGuidance.optional(),
   // Gone (ADR 0194, ADR 0253): refused by name, so a recipe that still has one says why.
   match: z
     .never({

@@ -4,6 +4,7 @@
 
 import { isDeepStrictEqual } from 'node:util';
 import { parseJson } from '../formats/json.ts';
+import { findSecrets } from '../formats/secrets.ts';
 import { Event } from '../schemas/events.ts';
 import { PathSafeId } from '../schemas/ids.ts';
 import {
@@ -226,13 +227,47 @@ export const mergeLogs = (files: readonly BranchFile[]): LoggedEvent[] => {
 };
 
 /**
- * A kept out doc as a file on the branch: model output, stored as it is and never read back as a
- * log or an order (ADR 0103). Past `MAX_BRANCH_OUT_DOC_BYTES` a fixed line takes its place.
+ * A full commit hash in an out doc: out docs name the commits they made and read, and a hash is no
+ * key a brewer can choose (ADR 0378). `findSecrets` asks this only of a 40-character hexadecimal word.
+ */
+const namedCommit = (): boolean => true;
+
+// A private key's block, PEM's or PGP's: its body lines need not look like a secret one by one
+// (ADR 0378).
+const KEY_BEGINS = /-----BEGIN [A-Z ]*PRIVATE KEY(?: BLOCK)?-----/;
+const KEY_ENDS = /-----END [A-Z ]*PRIVATE KEY(?: BLOCK)?-----/;
+
+/**
+ * `text` with each line that looks like a secret replaced where it stood by a fixed line naming
+ * the attempt, its line end kept: never the line, nor `findSecrets`' excerpt of it. Every line of
+ * a private key's block goes, through its end line or, without one, to the end (ADR 0378).
+ */
+const withoutSecretLines = (text: string, stepId: string, attempt: number): string => {
+  let inKey = false;
+  return text
+    .split(/(?<=\n)/)
+    .map((line) => {
+      const end = line.endsWith('\r\n') ? '\r\n' : line.endsWith('\n') ? '\n' : '';
+      const content = line.slice(0, line.length - end.length);
+      const keyLine = inKey || KEY_BEGINS.test(content);
+      inKey = keyLine && !KEY_ENDS.test(content);
+      if (!keyLine && findSecrets(content, namedCommit).length === 0) return line;
+      return `[left out: a line of ${stepId}#${attempt} that looks like a secret]${end}`;
+    })
+    .join('');
+};
+
+/**
+ * A kept out doc as a file on the branch: model output, never read back as a log or an order (ADR
+ * 0103), stored as it is but for its lines that look like a secret (ADR 0378). Past
+ * `MAX_BRANCH_OUT_DOC_BYTES` a fixed line takes its place.
  */
 const outDocFile = (doc: KeptOutDoc): BranchFile => {
   const path = outDocPath(doc);
   const bytes = Buffer.byteLength(doc.text, 'utf8');
-  if (bytes <= MAX_BRANCH_OUT_DOC_BYTES) return { path, text: doc.text };
+  if (bytes <= MAX_BRANCH_OUT_DOC_BYTES) {
+    return { path, text: withoutSecretLines(doc.text, doc.stepId, doc.attempt) };
+  }
   const text = `[left out: the out doc of ${doc.stepId}#${doc.attempt} is ${bytes} bytes, more than the ${MAX_BRANCH_OUT_DOC_BYTES} the state branch keeps]\n`;
   return { path, text };
 };
@@ -439,19 +474,60 @@ export const remoteCommitOf = (lsRemote: string, ref: string): string | undefine
   return undefined;
 };
 
-export type PushOutcome = 'pushed' | 'rejected' | 'failed';
+export type PushOutcome = 'pushed' | 'rejected' | 'secret' | 'failed';
 
-/** Reads `git push --porcelain`: rejected means the remote moved (non-fast-forward). */
+// What GitHub's push protection prints on stderr when it refuses a push (ADR 0378): its heading,
+// its rule, and the older message.
+const PUSH_PROTECTION = /push protection|push cannot contain secrets|secrets detected/i;
+
+/**
+ * Reads `git push --porcelain`: rejected means the remote moved (non-fast-forward); secret, that
+ * the remote refused it and its stderr names push protection (ADR 0378).
+ */
 export const classifyPush = ({
   code,
   stdout,
+  stderr = '',
 }: {
   code: number | null;
   stdout: string;
+  stderr?: string;
 }): PushOutcome => {
   if (code === 0) return 'pushed';
-  const rejected = stdout
-    .split(/\r?\n/)
-    .some((line) => line.startsWith('!') && line.includes('\t[rejected]'));
-  return rejected ? 'rejected' : 'failed';
+  const refused = stdout.split(/\r?\n/).filter((line) => line.startsWith('!'));
+  if (refused.some((line) => line.includes('\t[rejected]'))) return 'rejected';
+  const remote = refused.some((line) => line.includes('\t[remote rejected]'));
+  return remote && PUSH_PROTECTION.test(stderr) ? 'secret' : 'failed';
+};
+
+// The page where the account that pushed allows a secret push protection found, as GitHub prints it.
+const UNBLOCK_URL =
+  /https:\/\/[A-Za-z0-9.-]+\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/security\/secret-scanning\/unblock-secret\/[A-Za-z0-9]+/g;
+
+/**
+ * Why the engine stops when push protection refused `commit` (ADR 0378): the commit and the events
+ * it holds (`from` to `through`; none when `through` is below `from`), each unblock page `stderr`
+ * names, and the way on without one. Never the secret, nor any other line of `stderr`.
+ */
+export const secretRefusal = ({
+  commit,
+  from,
+  through,
+  stderr,
+}: {
+  commit: string;
+  from: number;
+  through: number;
+  stderr: string;
+}): string => {
+  const what = through >= from ? `with ${range(from, through)}` : 'with out docs only';
+  const urls = [...new Set(stderr.match(UNBLOCK_URL) ?? [])];
+  const page = urls.length === 0 ? 'the page GitHub printed for this push' : urls.join(' and ');
+  return (
+    `GitHub push protection refused the state branch: commit ${commit} ${what} holds a text it reads as a secret, ` +
+    'and every later commit carries it. The engine stops; Foedrum never rewrites state history. ' +
+    `To go on, if the secret is real, revoke or rotate it first, since the branch keeps it for good; then open ${page} as the account that pushed, allow the secret, and start again within three hours ` +
+    '(without that right, ask an admin of the repository for a bypass). ' +
+    'Else start again after moving the database aside, which rebuilds it from the branch and loses what is not on it.'
+  );
 };

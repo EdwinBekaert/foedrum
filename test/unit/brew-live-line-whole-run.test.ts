@@ -13,6 +13,7 @@ import { serveSetup } from '../../src/cli/serve-config.ts';
 import type { AttemptStart, BrewerRunner } from '../../src/engine/brewer-runner.ts';
 import type { ExecProcess } from '../../src/platform/processes.ts';
 import { brewFixture, idle, request, t0 } from '../helpers/brew-fixture.ts';
+import { testGuidance } from '../helpers/brewery-files.ts';
 import { type Behaviour, behave, fakeBrewerRunner } from '../helpers/fake-brewer-runner.ts';
 import { flagValue, ghOver } from '../helpers/fake-gh.ts';
 import { fakeGitHubApi } from '../helpers/fake-github-api.ts';
@@ -340,6 +341,7 @@ describe('runBrew', () => {
           name: 'tasting',
           type: 'brew',
           description: 'Brews, tastes through three lenses side by side, opens a pull request.',
+          guidance: testGuidance,
           testFirst: false,
           steps: [
             { id: 'brew', brewer: 'cellarman' },

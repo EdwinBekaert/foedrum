@@ -46,6 +46,11 @@ export const recipeText = (): string =>
       name: RECIPE,
       type: 'brew',
       description: 'Quick fix in one repository, test-first, tasted through four lenses at once',
+      guidance: {
+        chooseWhen: "The demo's orders, whose fix stays inside the code it changes",
+        notWhen: 'A change that can reach a lot, however small: choose deep-brew',
+        bestUsed: 'With one clear outcome a test can show',
+      },
       steps: [
         { id: 'survey', brewer: 'maltster', when: 'recipe.testFirst' },
         {

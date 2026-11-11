@@ -19,6 +19,7 @@ import type { ExecProcess } from '../../src/platform/processes.ts';
 import type { MutantEdit } from '../../src/schemas/out-doc.ts';
 import type { Git } from '../../src/workspace/git.ts';
 import type { CommitTree } from '../../src/workspace/merge-tree-git.ts';
+import { testGuidance } from '../helpers/brewery-files.ts';
 import { ghOver } from '../helpers/fake-gh.ts';
 import { fakeGitHubApi } from '../helpers/fake-github-api.ts';
 import { fakeLock } from '../helpers/fake-lock.ts';
@@ -33,6 +34,7 @@ const tasting = JSON.stringify({
   name: 'tasting',
   type: 'brew',
   description: 'Brews an order, then has Brett mutate its change.',
+  guidance: testGuidance,
   steps: [
     { id: 'brew', brewer: 'cellarman' },
     { id: 'brett', brewer: 'brett' },
@@ -287,6 +289,7 @@ describe('runServe: a Brett step (ADR 0313)', () => {
       name: 'tasting',
       type: 'brew',
       description: 'Brews an order, then has a blocking Brett mutate its change.',
+      guidance: testGuidance,
       steps: [
         { id: 'brew', brewer: 'cellarman' },
         {

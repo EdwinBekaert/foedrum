@@ -15,6 +15,7 @@ import type { EventStore } from '../../src/engine/event-store.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import type { ExecProcess } from '../../src/platform/processes.ts';
 import type { Git } from '../../src/workspace/git.ts';
+import { testGuidance } from '../helpers/brewery-files.ts';
 import { ghOver } from '../helpers/fake-gh.ts';
 import { fakeGitHubApi } from '../helpers/fake-github-api.ts';
 import { fakeLock } from '../helpers/fake-lock.ts';
@@ -28,6 +29,7 @@ const recipe = JSON.stringify({
   name: 'gauged',
   type: 'brew',
   description: 'Proves its tests red, brews, and reads its tests again.',
+  guidance: testGuidance,
   steps: [
     { id: 'gauge', brewer: 'gauger' },
     {
