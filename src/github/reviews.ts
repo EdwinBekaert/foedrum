@@ -28,6 +28,13 @@ const startOf = (text: string, most: number): string => {
 };
 
 /**
+ * A full commit hash in a review: reviewers name the commits they read, and a hash is no key anyone
+ * chooses, as in an out doc (ADR 0378). `findSecrets` asks this only of a 40-character hexadecimal
+ * word, so a secret of exactly that shape passes (ADR 0382).
+ */
+const namedCommit = (): boolean => true;
+
+/**
  * `text` as a record keeps it: its line ends as line feeds, each line that looks like a secret left
  * out for a fixed line (ADR 0088), read before the cut so the cut never hides half of one, and the
  * start of what is left.
@@ -37,7 +44,7 @@ const keptText = (text: string): string => {
     .replace(/\r\n?/g, '\n')
     .split('\n')
     .map((line) => {
-      const [secret] = findSecrets(line, () => false);
+      const [secret] = findSecrets(line, namedCommit);
       return secret === undefined
         ? line.replace(CONTROLS, '')
         : `[left out: a line that looks like a secret (${secret.kind})]`;
