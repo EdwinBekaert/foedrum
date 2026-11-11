@@ -1239,8 +1239,8 @@ describe('forgetting a batch (ADR 0380)', () => {
 
   it("names a batch's last event, none once forgotten", () => {
     two();
-    assert.equal(store.lastEventOf('b1'), 6);
-    assert.equal(store.lastEventOf('b2'), 7);
+    assert.equal(store.lastEventOf('b1'), 5);
+    assert.equal(store.lastEventOf('b2'), 6);
     store.withTransaction((tx) => tx.forget(['b1']));
     assert.equal(store.lastEventOf('b1'), undefined);
   });
@@ -1266,11 +1266,13 @@ describe('forgetting a batch (ADR 0380)', () => {
 
   it('keeps counting ids past forgotten ones, so a marker past them still moves', () => {
     two();
-    store.withTransaction((tx) => tx.markPushed({ eventId: 9, commit: 'c1' }));
+    // The last event is b2's.
+    store.withTransaction((tx) => tx.append(stuck('b2')));
+    store.withTransaction((tx) => tx.markPushed({ eventId: 8, commit: 'c1' }));
     store.withTransaction((tx) => tx.forget(['b2']));
-    assert.equal(store.lastEventId(), 9);
-    store.withTransaction((tx) => tx.markPushed({ eventId: 9, commit: 'c2' }));
-    assert.deepEqual(store.pushedThrough(), { eventId: 9, commit: 'c2' });
+    assert.equal(store.lastEventId(), 8);
+    store.withTransaction((tx) => tx.markPushed({ eventId: 8, commit: 'c2' }));
+    assert.deepEqual(store.pushedThrough(), { eventId: 8, commit: 'c2' });
   });
 });
 
@@ -1395,9 +1397,9 @@ describe('SqliteEventStore on a file', () => {
 
   it('refuses a database written by a newer schema version', () => {
     const db = raw(path);
-    db.exec('PRAGMA user_version = 5');
+    db.exec('PRAGMA user_version = 6');
     db.close();
-    assert.throws(() => open(path), /schema version 5/);
+    assert.throws(() => open(path), /schema version 6/);
     // The refused connection is closed: on Windows an open file could not be removed.
     rmSync(path);
   });
@@ -1571,8 +1573,8 @@ describe('SqliteEventStore read-only', () => {
     open(path);
     closeAll();
     const db = raw(path);
-    db.exec('PRAGMA user_version = 5');
+    db.exec('PRAGMA user_version = 6');
     db.close();
-    assert.throws(() => open(path, { readOnly: true }), /schema version 5/);
+    assert.throws(() => open(path, { readOnly: true }), /schema version 6/);
   });
 });
