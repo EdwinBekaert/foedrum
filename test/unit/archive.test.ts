@@ -10,6 +10,7 @@ import { claimOfOrder, claimOrderOf } from '../../src/engine/claim-orders.ts';
 import { effectKey } from '../../src/engine/effect-key.ts';
 import { batchEnded, fold, foldedBatch, type State } from '../../src/engine/fold.ts';
 import { orderEffects } from '../../src/engine/issue-claims.ts';
+import { batchOf } from '../../src/engine/state-branch.ts';
 import type { Event, OrderRef } from '../../src/schemas/events.ts';
 
 const routeBy = '2026-12-31T00:00:00.000Z';
@@ -152,6 +153,63 @@ describe('the archive in the fold (ADR 0380)', () => {
     const state = fold([ordered('web-7-2', claimed)], archive(first, 'web-7'));
     assert.deepStrictEqual(claimOrderOf(state, 'web-7-2'), { earlier: { issue: 41 }, issue: 41 });
     assert.equal(claimOfOrder(state, 41)?.id, 'web-7-2');
+  });
+});
+
+describe('the archive folds as a rebuild from batches/ alone: regression tests (ADR 0380)', () => {
+  const parts = ['batches', 'orders', 'subOrders', 'effects', 'merges', 'releases', 'archived'];
+  /** `log` folded live, then archived in `order`, against the log without those batches' events. */
+  const sameAsRebuilt = (log: readonly Event[], order: readonly string[]): void => {
+    let live = fold(log);
+    const archived: Event[] = [];
+    for (const batchId of order) {
+      const event = archivedOf(live, foldedBatch(live, batchId));
+      archived.push(event);
+      live = fold([event], live);
+    }
+    const kept = log.filter((event) => !order.includes(batchOf(event) ?? ''));
+    const rebuilt = fold([...kept, ...archived]);
+    for (const part of parts) {
+      assert.deepStrictEqual(live[part as keyof State], rebuilt[part as keyof State], part);
+    }
+  };
+
+  it('moves the later merges and releases down past the archived merge', () => {
+    sameAsRebuilt(
+      [
+        ...mergedBatch('7-1', 7, 3),
+        ...mergedBatch('8-1', 8, 4),
+        { type: 'release.observed', repo: 'acme/web', package: 'web', version: '1.0.0' },
+        ...mergedBatch('9-1', 9, 5),
+      ],
+      ['7-1'],
+    );
+  });
+
+  it('takes a split family with its breakdown, its sub-orders and their dependencies', () => {
+    sameAsRebuilt(
+      [
+        ordered('6-1', { issue: 6 }),
+        {
+          type: 'order.decomposed',
+          batchId: '6-1',
+          subOrders: [
+            { issue: 61, repo: 'acme/web' },
+            { issue: 62, repo: 'acme/web' },
+          ],
+          dependencies: [{ subOrder: 62, blockedBy: 61, kind: 'code' }],
+        },
+        onTap('6-1'),
+        ordered('61-1', { issue: 61 }, '6-1'),
+        onTap('61-1', pr(61)),
+        merged('61-1', pr(61)),
+        ordered('62-1', { issue: 62 }, '6-1'),
+        onTap('62-1', pr(62)),
+        merged('62-1', pr(62)),
+        applied('6-1', 'close.issue', null),
+      ],
+      ['6-1', '61-1', '62-1'],
+    );
   });
 });
 
