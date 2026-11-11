@@ -7,12 +7,17 @@ import { describe, it } from 'node:test';
 import { runBrew } from '../../src/cli/brew.ts';
 import { BRAILLE_MARKS } from '../../src/cli/live-terminal.ts';
 import type { ServeShell } from '../../src/cli/serve.ts';
+import { nextBatchId } from '../../src/engine/batch-id.ts';
 import { takeOver } from '../../src/engine/batch-leases.ts';
+import { emptyState } from '../../src/engine/fold.ts';
 import type { AttemptProgress } from '../../src/engine/supervisor.ts';
 import { brewFixture, idle, request, t0 } from '../helpers/brew-fixture.ts';
 import { behave, fakeBrewerRunner } from '../helpers/fake-brewer-runner.ts';
 import { fakeScreen } from '../helpers/fake-screen.ts';
 import { virtualTimeline } from '../helpers/virtual-timeline.ts';
+
+// Batch ids carry the time they were ordered (ADR 0380): those made at `t0`.
+const breweryIdOf = (issue: number): string => nextBatchId(emptyState, issue, t0);
 
 describe('runBrew', () => {
   const f = brewFixture();
@@ -299,7 +304,7 @@ describe('runBrew', () => {
             flushes += 1;
             if (flushes === 2) {
               const handover = {
-                batchId: '12-1',
+                batchId: breweryIdOf(12),
                 owner: 'bob',
                 by: 'bob',
                 via: 'terminal',

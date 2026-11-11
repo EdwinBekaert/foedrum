@@ -6,7 +6,9 @@ import assert from 'node:assert/strict';
 import { beforeEach, describe, it } from 'node:test';
 import { runBrew } from '../../src/cli/brew.ts';
 import { type ServeSetup, serveSetup } from '../../src/cli/serve-config.ts';
+import { nextBatchId, targetBatchId } from '../../src/engine/batch-id.ts';
 import { effectKey } from '../../src/engine/effect-key.ts';
+import { emptyState } from '../../src/engine/fold.ts';
 import { brewFixture, request, t0 } from '../helpers/brew-fixture.ts';
 import { testGuidance } from '../helpers/brewery-files.ts';
 import { behave } from '../helpers/fake-brewer-runner.ts';
@@ -14,6 +16,10 @@ import { ghOver } from '../helpers/fake-gh.ts';
 import { fakeGitHubApi } from '../helpers/fake-github-api.ts';
 import { fakeLock } from '../helpers/fake-lock.ts';
 import { brewer, config, local, serveInputs } from '../helpers/serve-brewery.ts';
+
+// Batch ids carry the time they were ordered (ADR 0380): those made at `t0`.
+const idOf = (alias: string, issue: number): string => targetBatchId(emptyState, alias, issue, t0);
+const breweryIdOf = (issue: number): string => nextBatchId(emptyState, issue, t0);
 
 describe('runBrew', () => {
   const f = brewFixture();
@@ -110,13 +116,17 @@ describe('runBrew', () => {
             ],
           },
         });
-      const ordered = { kind: 'order', batchId: 'web-7', order: { issue: 7, repo: 'acme/web' } };
+      const ordered = {
+        kind: 'order',
+        batchId: idOf('web', 7),
+        order: { issue: 7, repo: 'acme/web' },
+      };
       const inside = { noSessions: 'claude-code' } as const;
 
       it('names its number in the line that opens it, the lane and the status comment', async () => {
         const host = hosted([{ number: 40, labels: ['recipe:lauter'] }]);
         log().issue({ ...ordered, kind: 'order' }, t0);
-        const key = effectKey.encode({ batchId: 'web-7', effect: 'order.issue' });
+        const key = effectKey.encode({ batchId: idOf('web', 7), effect: 'order.issue' });
         log().issue({ kind: 'record', event: { type: 'effect.applied', key, result: 40 } }, t0);
         const byOrder = { ...request, target: { issue: 40 }, ...inside };
         const parked = shell(behave.succeed(), { gh: ghOver(host.fetch).exec });
@@ -135,7 +145,7 @@ describe('runBrew', () => {
         log().issue({ ...ordered, kind: 'order' }, t0);
         const route = {
           kind: 'route',
-          batchId: 'web-7',
+          batchId: idOf('web', 7),
           recipe: 'lauter',
           reason: 'label',
           source: 'label',
@@ -208,7 +218,7 @@ describe('runBrew', () => {
     it('waits for a session again, never retrying by itself, when the session closes without an out doc: exit 3', async () => {
       assert.equal(await runBrew(f.setup, shell(behave.fail(true)), request), 3);
       assert.deepStrictEqual(f.started, ['refine#1']);
-      assert.equal(log().state().batches.get('12-1')?.lane.kind, 'stuck');
+      assert.equal(log().state().batches.get(breweryIdOf(12))?.lane.kind, 'stuck');
       assert.equal(f.lines.at(-1), 'foedrum brew: run foedrum brew 12 again to reopen the session');
     });
 

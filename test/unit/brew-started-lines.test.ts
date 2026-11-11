@@ -5,11 +5,16 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { runBrew } from '../../src/cli/brew.ts';
+import { nextBatchId } from '../../src/engine/batch-id.ts';
+import { emptyState } from '../../src/engine/fold.ts';
 import { brewFixture, request, t0 } from '../helpers/brew-fixture.ts';
 import { behave } from '../helpers/fake-brewer-runner.ts';
 import { ghOver } from '../helpers/fake-gh.ts';
 import { fakeGitHubApi } from '../helpers/fake-github-api.ts';
 import { fakeLock } from '../helpers/fake-lock.ts';
+
+// Batch ids carry the time they were ordered (ADR 0380): those made at `t0`.
+const breweryIdOf = (issue: number): string => nextBatchId(emptyState, issue, t0);
 
 describe('runBrew', () => {
   const f = brewFixture();
@@ -23,7 +28,7 @@ describe('runBrew', () => {
       f.lines.some((line) => line.includes('brew #1')),
       f.lines.join('\n'),
     );
-    f.log().issue({ kind: 'retry', batchId: '12-1', ...by }, t0);
+    f.log().issue({ kind: 'retry', batchId: breweryIdOf(12), ...by }, t0);
     f.lines.length = 0;
     f.lock = fakeLock('ann');
   };
@@ -41,7 +46,7 @@ describe('runBrew', () => {
     await failedOnceThenRetried();
     const cellarUntil = new Date(t0.getTime() + 60_000);
     f.store.withTransaction((tx) =>
-      tx.putBatchLease({ batchId: '12-1', owner: 'cellar', expiresAt: cellarUntil }),
+      tx.putBatchLease({ batchId: breweryIdOf(12), owner: 'cellar', expiresAt: cellarUntil }),
     );
     // The clock moves on a minute per wait, so the effects' wait for the Cellar's lease ends.
     let now = t0;
