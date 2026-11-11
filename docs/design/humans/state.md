@@ -21,7 +21,7 @@ The lanes (`on_tap`, `stuck`, …) stay inside the engine: every decision it mak
 
 Done is the engine's own rule, `batchEnded`, and `orderEnd` for a split order ([ADR 0293](../../adr/0293-a-split-order-ends-once-every-sub-order-merged-and-the-engine-closes-it.md)), plus a recipe that ended with no pull request; when #921 lands, `batchEnded` will take that last case too.
 A split order, an approved plan on tap with no pull request of its own, takes its sub-orders' most pressing state, waiting before running before queued, the first in merge order of those as pressing, and names that sub-order (`Running: sub-order #12`).
-A sub-order that keeps the order open (cancelled, closed without merging, needs refinement) waits for you to look at it, and one with no batch yet is queued for the sub-orders it depends on.
+A sub-order that keeps the order open (cancelled, closed without merging, needs refinement) waits for you to look at it, and one with no batch yet is queued: it is not ordered yet.
 
 ## The words
 

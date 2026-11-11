@@ -675,7 +675,8 @@ export const commands: readonly RegisteredCommand[] = [
   }),
   define({
     name: 'status',
-    summary: "List the batches and their lanes, or an order's with its planning and brewing tokens",
+    summary:
+      "List the batches and what each is, or an order's with its planning and brewing tokens",
     changesState: false,
     positionals: [],
     optional: ['order'],
@@ -718,7 +719,7 @@ export const commands: readonly RegisteredCommand[] = [
   }),
   define({
     name: 'brewers',
-    summary: "Report each brewer's attempts, outcomes, Stuck batches and tokens",
+    summary: "Report each brewer's attempts, outcomes, the batches waiting for you and tokens",
     changesState: false,
     positionals: [],
     schema: BrewersCommand,
@@ -861,7 +862,7 @@ export const commands: readonly RegisteredCommand[] = [
   }),
   define({
     name: 'retry',
-    summary: 'Give the step a Stuck batch stopped at another attempt',
+    summary: 'Try again the step a batch waiting for you stopped at',
     changesState: true,
     positionals: ['issue'],
     terminalOnly: STUCK_DECISION,
@@ -874,7 +875,7 @@ export const commands: readonly RegisteredCommand[] = [
   }),
   define({
     name: 'skip',
-    summary: 'Go on after the step a Stuck batch stopped at',
+    summary: 'Go past the step a batch waiting for you stopped at',
     changesState: true,
     positionals: ['issue'],
     terminalOnly: STUCK_DECISION,
@@ -884,7 +885,7 @@ export const commands: readonly RegisteredCommand[] = [
   }),
   define({
     name: 'answer',
-    summary: "Answer a Stuck batch's questions, one answer each, in order",
+    summary: 'Answer the questions a batch waits for, one answer each, in order',
     changesState: true,
     positionals: ['issue'],
     rest: 'answers',
@@ -908,7 +909,7 @@ export const commands: readonly RegisteredCommand[] = [
   }),
   define({
     name: 'approve',
-    summary: 'Sign off the plan a Stuck batch waits with a review of; the batch goes on tap',
+    summary: 'Approve the plan a batch waits for you to review; its sub-orders are opened',
     changesState: true,
     positionals: ['issue'],
     schema: ApproveCommand,
@@ -920,8 +921,7 @@ export const commands: readonly RegisteredCommand[] = [
   }),
   define({
     name: 'lauter',
-    summary:
-      'Correct the plan a Stuck batch waits with a review of, with the Brewmaster in a session',
+    summary: 'Correct the plan a batch waits for you to review, with the Brewmaster in a session',
     changesState: true,
     positionals: ['issue'],
     options: { as: 'name' },
@@ -1013,7 +1013,7 @@ export const commands: readonly RegisteredCommand[] = [
   }),
   define({
     name: 'rewind',
-    summary: 'Take a Stuck batch back to a step, each repository at its commit',
+    summary: 'Take a batch waiting for you back to a step, each repository at its commit',
     changesState: true,
     positionals: ['issue', 'step'],
     rest: 'commits',
@@ -1116,7 +1116,8 @@ export const commands: readonly RegisteredCommand[] = [
   }),
   define({
     name: 'stop',
-    summary: 'Stop an order now: what runs of it is killed, and its batches are Stuck until retry',
+    summary:
+      'Stop an order now: what runs of it is killed, and its batches wait for you until retry',
     changesState: true,
     positionals: ['order'],
     options: { why: 'reason' },

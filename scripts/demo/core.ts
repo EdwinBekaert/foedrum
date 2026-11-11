@@ -172,22 +172,24 @@ export type Life = 'crash' | 'finish' | 'brew';
 
 /** The line the Cellar prints right before its process is killed. */
 export const CRASH_LINE = 'demo: the Gauger committed its test; the Cellar is killed mid-attempt';
-/** The start of the line the Cellar prints once the batch is on tap. */
-export const ON_TAP_LINE = 'demo: #1 is on tap';
-/** The start of foedrum brew's last line once the second order's batch is on tap. */
-export const BREW_ON_TAP_LINE = 'foedrum brew: #2 is on tap';
+/** The start of the line the Cellar prints once the batch waits for the review of its pull request. */
+export const ON_TAP_LINE = 'demo: #1 waits for you to review and merge its pull request';
+/** The start of foedrum brew's last line once the second order's batch waits for its review. */
+export const BREW_ON_TAP_LINE =
+  'foedrum brew: #2 is waiting for you: review and merge the pull request';
 /** The bottle branch of the second order's batch on the target's remote. */
 export const BREW_BOTTLE = `foedrum/${BREWERY.replace('/', '.')}/${BREW_ORDER.number}-1/${TARGET.replace('/', '.')}`;
 /** The message of the Cellarman's third fix, after the blocking lens's finding (ADR 0193). */
 export const FIX_MESSAGE = 'Greet a visitor whose name is only spaces as a stranger';
 /** The line foedrum mash stops at: the Innkeeper's question of the third order's batch. */
-export const QUESTION_LINE = 'foedrum mash: #3 needs input at innkeep:';
+export const QUESTION_LINE =
+  'foedrum mash: #3 is waiting for you: answer a question: step innkeep asks:';
 /**
  * The start of foedrum brew's last line once the Brewmaster's plan waits for its review: its second,
  * after the naive reader's note sent the first back (ADR 0354).
  */
 export const PLAN_REVIEW_LINE =
-  'foedrum brew: #3 is stuck: the plan of plan #2 is ready for your review';
+  'foedrum brew: #3 is waiting for you: approve the plan: the plan from step plan (try 2) is ready for you to read';
 
 /**
  * The demo's scratch folder: `.foedrum/tmp/demo` in the checkout, or `asked` resolved against

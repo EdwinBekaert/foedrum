@@ -53,7 +53,7 @@ export const LADDER_STEPS: readonly (Omit<Step, 'id'> & { id: string })[] = [
   {
     id: 'approve',
     title: `foedrum approve ${LADDER_ORDER.number}`,
-    lookFor: 'the plan signed off by its digest: the batch goes on tap.',
+    lookFor: 'the plan signed off by its digest: its sub-orders are opened.',
   },
   {
     id: 'sub-issues',
@@ -248,14 +248,17 @@ export const ladderLifeEnd = (
       return reviewing(state.batches.get(PLANNED))
         ? {
             kind: 'ended',
-            line: `demo: #${LADDER_ORDER.number} waits Stuck for the review of its plan`,
+            line: `demo: #${LADDER_ORDER.number} waits for you to approve its plan`,
           }
         : { kind: 'brewing' };
     case 'lib':
     case 'web': {
       const wanted = life === 'lib' ? 1 : 2;
       return tapped.length >= wanted
-        ? { kind: 'ended', line: `demo: #${tapped[wanted - 1]?.issue} is on tap` }
+        ? {
+            kind: 'ended',
+            line: `demo: #${tapped[wanted - 1]?.issue} waits for you to review and merge its pull request`,
+          }
         : { kind: 'brewing' };
     }
     case 'close': {
@@ -454,7 +457,9 @@ export const runLadder = async (shell: LadderShell): Promise<number> => {
     await foedrum(['approve', String(LADDER_ORDER.number)]);
 
     await next();
-    say('demo: the Cellar starts again, and brews until the first pull request is on tap');
+    say(
+      'demo: the Cellar starts again, and brews until the first pull request waits for its review',
+    );
     const lib = await live('lib');
     const subIssues = (await read(`${BREWERY}/issues/${LADDER_ORDER.number}/sub_issues`)) as {
       number: number;
@@ -511,7 +516,9 @@ export const runLadder = async (shell: LadderShell): Promise<number> => {
     );
 
     await next();
-    say('demo: the Cellar starts again, and brews until the second pull request is on tap');
+    say(
+      'demo: the Cellar starts again, and brews until the second pull request waits for its review',
+    );
     const web = outputLines(await live('web'));
     const told = web.findIndex((line) => line.startsWith(TOLD_LINE));
     const cut = told === -1 ? web.length : told;
