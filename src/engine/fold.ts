@@ -360,6 +360,8 @@ export interface Batch {
   skips?: ReadonlyMap<string, number | undefined>;
   /** Its status comment showed it ended, and a text that differs later is no reason to edit it (ADR 0345). */
   endShown?: true;
+  /** The engine closed its Brewery issue (ADR 0296, ADR 0380); absent while it has not. */
+  issueClosed?: true;
   rewinds: readonly Rewind[];
   /** Its latest handover from one driver to another (ADR 0124); absent while it had none. */
   takeover?: Takeover;
