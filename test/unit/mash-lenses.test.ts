@@ -627,6 +627,40 @@ describe('foedrum brew on recipe:mash and recipe:deep-mash, through the default 
     assert.deepStrictEqual(stuckReason(), { kind: 'plan_review', stepId: 'plan', attempt: 1 });
   });
 
+  it("a recipe's guidance reaches recipe-fit's recipes input", async () => {
+    api = fakeGitHubApi({ login: 'ann', issues: { 'acme/brewery': [issue('deep-mash')] } });
+    const lenses = [
+      'coverage',
+      'sizing',
+      'naive-reader',
+      'order-and-overlap',
+      'testability',
+      'recipe-fit',
+      'security',
+    ];
+    const script = {
+      plan: [planned],
+      ...Object.fromEntries(lenses.map((lens) => [lens, [approves]])),
+    };
+    assert.equal(await runBrew(setup, shell(script), request), 3, lines.join('\n'));
+    const recipes =
+      /source="[^"]*" name="recipes">\n([^<]*)</.exec(prompts.get('recipe-fit#1') ?? '')?.[1] ?? '';
+    const offered = defaults().brewers.find('deep-mash', 'recipe-fit')?.choices ?? [];
+    assert.deepEqual(
+      offered.map(({ name }) => name),
+      ['deep-brew', 'nip'],
+    );
+    for (const { name, guidance } of offered) {
+      assert.ok(guidance !== undefined, `${name} has no guidance`);
+      assert.ok(
+        recipes.includes(
+          `  Choose when: ${guidance.chooseWhen}\n  Not when: ${guidance.notWhen}\n  Best used: ${guidance.bestUsed}\n`,
+        ),
+        recipes,
+      );
+    }
+  });
+
   it('a Brewery recipe of plan then a single plan/naive-reader still runs: regression test', async () => {
     const files = serveInputs().files;
     const brewery = readBreweryFiles(dir.path);

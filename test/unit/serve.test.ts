@@ -24,6 +24,7 @@ import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import { StateBranchStopError } from '../../src/engine/state-branch.ts';
 import type { Event } from '../../src/schemas/events.ts';
 import type { Git } from '../../src/workspace/git.ts';
+import { testGuidance } from '../helpers/brewery-files.ts';
 import {
   type FakeApiReview,
   fakeGitHubApi,
@@ -43,6 +44,7 @@ describe('runServe', () => {
       name: 'porter',
       type: 'brew',
       description: 'Brews an order in one step and opens its pull request.',
+      guidance: testGuidance,
       steps: [{ id: 'brew', brewer: 'cellarman' }, { action: 'openPullRequest' }],
       testFirst: false,
     });
@@ -104,6 +106,7 @@ describe('runServe', () => {
       name: 'porter',
       type: 'brew',
       description: 'The Cellarman, then the pull request, with no Gauger.',
+      guidance: testGuidance,
       steps: [{ id: 'implement', brewer: 'cellarman' }, { action: 'openPullRequest' }],
       testFirst: false,
     });
@@ -147,6 +150,7 @@ describe('runServe', () => {
       name: 'porter',
       type: 'brew',
       description: 'Brews an order in one step and opens its pull request.',
+      guidance: testGuidance,
       steps: [{ id: 'brew', brewer: 'cellarman' }, { action: 'openPullRequest' }],
       testFirst: false,
     });
@@ -217,6 +221,7 @@ describe('runServe', () => {
       name: 'porter',
       type: 'brew',
       description: 'Brews an order in one step and opens its pull request.',
+      guidance: testGuidance,
       steps: [{ id: 'brew', brewer: 'cellarman' }, { action: 'openPullRequest' }],
       testFirst: false,
     });
@@ -328,6 +333,7 @@ describe('runServe', () => {
       name: 'porter',
       type: 'brew',
       description: 'Brews an order in one step and opens its pull request.',
+      guidance: testGuidance,
       // With `passed`, a red proof its `when` skips, which the brief names (ADR 0225).
       steps: [
         { id: 'brew', brewer: 'cellarman' },
@@ -480,6 +486,7 @@ describe('runServe', () => {
       name: 'porter',
       type: 'brew',
       description: 'Brews an order in one step and opens its pull request.',
+      guidance: testGuidance,
       steps: [{ id: 'brew', brewer: 'cellarman' }, { action: 'openPullRequest' }],
       testFirst: false,
     });
@@ -964,6 +971,7 @@ Plan the order in {order}.
       name: 'mash',
       type: 'mash',
       description: 'Plans an order.',
+      guidance: testGuidance,
       steps: [{ id: 'plan', brewer: 'brewmaster' }],
       testFirst: false,
     });
@@ -1052,6 +1060,7 @@ Plan the order in {order}.
       name: 'mash',
       type: 'mash',
       description: 'Plans an order.',
+      guidance: testGuidance,
       steps: [{ id: 'plan', brewer: 'brewmaster' }],
       testFirst: false,
     });

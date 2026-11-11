@@ -78,9 +78,9 @@ Choose a recipe by what the work is and what it can reach, not by its size ([ADR
 | Recipe | Use |
 |---|---|
 | Mash-in | Suggest a recipe for an order and ask which brews it (`foedrum mash`) |
-| Nip | Quick fix |
+| Nip | A change in one repository whose effect stays inside the code it changes, test-first |
 | Mash | A plan of sub-orders for an order, reviewed through three plan lenses, shown on its issue, corrected in a lauter session if the engineer chooses; nothing built |
-| Deep-mash | A careful plan of a large order: Mash through all seven plan lenses |
+| Deep-mash | A careful plan of an order whose cut carries a risk: Mash through all seven plan lenses |
 | Deep-brew | A change that can reach a lot, whatever its size: every diff lens and Brett's mutants |
 | Keg | Multi-repository change with release dependencies |
 | Pilot batch | Spike or research |

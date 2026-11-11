@@ -4,6 +4,11 @@
   "name": "growler",
   "type": "brew",
   "description": "Large feature, split into sub-orders",
+  "guidance": {
+    "chooseWhen": "An order a test brews",
+    "notWhen": "An order no test brews",
+    "bestUsed": "In a test"
+  },
   "testFirst": false, // the sub-orders' own recipes write the tests
   "steps": [
     { "id": "context", "brewer": "maltster" },
