@@ -420,6 +420,22 @@ const killableStore = (inner: EventStore, life: Life, watch: StoreWatch): EventS
       life.point('in a transaction');
       tx.forgetOutDocs(attempts);
     },
+    forget: (batchIds, shelve) => {
+      life.point('in a transaction');
+      tx.forget(batchIds, shelve);
+    },
+    shelved: (batchIds) => {
+      life.point('in a transaction');
+      tx.shelved(batchIds);
+    },
+    expire: (before) => {
+      life.point('in a transaction');
+      tx.expire(before);
+    },
+    expired: () => {
+      life.point('in a transaction');
+      tx.expired();
+    },
   });
   const reading =
     <A extends unknown[], R>(fn: (...args: A) => R) =>
@@ -446,6 +462,10 @@ const killableStore = (inner: EventStore, life: Life, watch: StoreWatch): EventS
     keptOutDocs: reading(inner.keptOutDocs),
     restore: reading(inner.restore),
     findEffect: reading(inner.findEffect),
+    shelving: reading(inner.shelving),
+    expiring: reading(inner.expiring),
+    forgets: reading(inner.forgets),
+    lastEventOf: reading(inner.lastEventOf),
     // The run's connection outlives every driver.
     close: () => {},
   };

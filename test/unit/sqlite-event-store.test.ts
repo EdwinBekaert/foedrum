@@ -1174,6 +1174,106 @@ describe('SqliteEventStore in memory', () => {
   });
 });
 
+describe('forgetting a batch (ADR 0380)', () => {
+  let store: EventStore;
+  beforeEach(() => {
+    store = open(':memory:');
+  });
+  afterEach(closeAll);
+
+  const b2key: EffectKey = { batchId: 'b2', stepId: 'open-pr', attempt: 1, effect: 'pull_request' };
+  /** Two batches with events, an effect, a kept out doc, a deadline and leases each. */
+  const two = (): void =>
+    store.withTransaction((tx) => {
+      for (const batchId of ['b1', 'b2']) {
+        tx.append(ordered(batchId));
+        tx.append(scheduled(batchId, '2026-10-15T11:00:00Z'));
+        tx.keepOutDoc(keptDoc({ batchId }));
+        tx.putLease({ ...lease, attemptKey: `["${batchId}","plan",1]` });
+        tx.putBatchLease({ batchId, owner: 'cellar', expiresAt: at('2026-10-15T10:01:00Z') });
+      }
+      tx.recordEffect(key, 'https://github.com/acme/api/pull/1');
+      tx.recordEffect(b2key, 'https://github.com/acme/api/pull/2');
+      tx.append({ type: 'release.observed', repo: 'acme/lib', package: 'lib', version: '1.0.0' });
+    });
+  const now = at('2026-10-15T10:00:00Z');
+
+  it("forgets a batch's events, ledger, out docs, deadlines and leases, and no other's", () => {
+    two();
+    store.withTransaction((tx) => tx.forget(['b1']));
+    const types = store
+      .eventsAfter(0)
+      .map(({ event }) => [event.type, 'batchId' in event ? event.batchId : '']);
+    assert.deepEqual(types, [
+      ['batch.ordered', 'b2'],
+      ['step.scheduled', 'b2'],
+      ['effect.applied', ''],
+      ['release.observed', ''],
+    ]);
+    assert.equal(store.findEffect(key), undefined);
+    assert.deepEqual(store.findEffect(b2key), { result: 'https://github.com/acme/api/pull/2' });
+    assert.deepEqual(
+      store.keptOutDocs().map(({ batchId }) => batchId),
+      ['b2'],
+    );
+    assert.deepEqual(
+      store.batchesPastDeadline(at('2026-10-16T00:00:00Z')).map(({ batchId }) => batchId),
+      ['b2'],
+    );
+    assert.deepEqual(
+      store.currentLeases(now).map(({ attemptKey }) => attemptKey),
+      ['["b2","plan",1]'],
+    );
+    assert.deepEqual(
+      store.batchLeases(now).map(({ batchId }) => batchId),
+      ['b2'],
+    );
+  });
+
+  it('counts each forget, which tells a reader to fold again', () => {
+    two();
+    assert.equal(store.forgets(), 0);
+    store.withTransaction((tx) => tx.forget(['b1']));
+    assert.equal(store.forgets(), 1);
+  });
+
+  it("names a batch's last event, none once forgotten", () => {
+    two();
+    assert.equal(store.lastEventOf('b1'), 6);
+    assert.equal(store.lastEventOf('b2'), 7);
+    store.withTransaction((tx) => tx.forget(['b1']));
+    assert.equal(store.lastEventOf('b1'), undefined);
+  });
+
+  it('keeps the shelving of a forget until its push, and an expiry until its push', () => {
+    two();
+    store.withTransaction((tx) => {
+      tx.forget(['b1', 'b2'], { month: '2026-10' });
+      tx.expire('2026-04');
+    });
+    assert.deepEqual(store.shelving(), [
+      { batchId: 'b1', month: '2026-10' },
+      { batchId: 'b2', month: '2026-10' },
+    ]);
+    assert.equal(store.expiring(), '2026-04');
+    store.withTransaction((tx) => {
+      tx.shelved(['b1']);
+      tx.expired();
+    });
+    assert.deepEqual(store.shelving(), [{ batchId: 'b2', month: '2026-10' }]);
+    assert.equal(store.expiring(), undefined);
+  });
+
+  it('keeps counting ids past forgotten ones, so a marker past them still moves', () => {
+    two();
+    store.withTransaction((tx) => tx.markPushed({ eventId: 9, commit: 'c1' }));
+    store.withTransaction((tx) => tx.forget(['b2']));
+    assert.equal(store.lastEventId(), 9);
+    store.withTransaction((tx) => tx.markPushed({ eventId: 9, commit: 'c2' }));
+    assert.deepEqual(store.pushedThrough(), { eventId: 9, commit: 'c2' });
+  });
+});
+
 describe('SqliteEventStore on a file', () => {
   let dir: TempDir;
   let path: string;
@@ -1186,11 +1286,21 @@ describe('SqliteEventStore on a file', () => {
     dir.remove();
   });
 
-  it('uses WAL mode and records schema version 4', () => {
+  it('uses WAL mode and records schema version 5', () => {
     open(path);
     const db = raw(path);
     assert.deepEqual({ ...db.prepare('PRAGMA journal_mode').get() }, { journal_mode: 'wal' });
-    assert.deepEqual({ ...db.prepare('PRAGMA user_version').get() }, { user_version: 4 });
+    assert.deepEqual({ ...db.prepare('PRAGMA user_version').get() }, { user_version: 5 });
+  });
+
+  it('still refuses to delete an event or a ledger entry outside a forget: regression test (ADR 0380)', () => {
+    open(path).withTransaction((tx) => {
+      tx.append(ordered('b1'));
+      tx.recordEffect(key, 'https://github.com/acme/api/pull/1');
+    });
+    const db = raw(path);
+    assert.throws(() => db.exec('DELETE FROM events WHERE id = 1'), /append-only/);
+    assert.throws(() => db.exec('DELETE FROM effects'), /append-only/);
   });
 
   it('keeps events, leases and effects across a reopen', () => {
@@ -1230,7 +1340,7 @@ describe('SqliteEventStore on a file', () => {
     assert.equal(upgraded.pushedThrough(), undefined);
     upgraded.withTransaction((tx) => tx.markPushed({ eventId: 1, commit: 'e'.repeat(40) }));
     assert.deepEqual(upgraded.pushedThrough(), { eventId: 1, commit: 'e'.repeat(40) });
-    assert.deepEqual({ ...raw(path).prepare('PRAGMA user_version').get() }, { user_version: 4 });
+    assert.deepEqual({ ...raw(path).prepare('PRAGMA user_version').get() }, { user_version: 5 });
   });
 
   it('upgrades a schema version 2 database, which had no batch leases, and keeps its leases', () => {
@@ -1251,7 +1361,7 @@ describe('SqliteEventStore on a file', () => {
     upgraded.withTransaction((tx) => tx.putBatchLease(held));
     assert.deepEqual(upgraded.batchLeases(at('2026-10-15T10:00:00Z')), [held]);
     assert.deepEqual(upgraded.currentLeases(at('2026-10-15T10:00:00Z')), [lease]);
-    assert.deepEqual({ ...raw(path).prepare('PRAGMA user_version').get() }, { user_version: 4 });
+    assert.deepEqual({ ...raw(path).prepare('PRAGMA user_version').get() }, { user_version: 5 });
   });
 
   it('upgrades a schema version 3 database, which kept no out docs (ADR 0103)', () => {

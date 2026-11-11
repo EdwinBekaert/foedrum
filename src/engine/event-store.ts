@@ -54,6 +54,18 @@ export interface EventStoreTransaction {
   keepOutDoc(doc: KeptOutDoc): void;
   /** Lets go of the kept out docs of these attempts, once a push put them on the state branch. */
   forgetOutDocs(attempts: readonly { batchId: string; stepId: string; attempt: number }[]): void;
+  /**
+   * Forgets these batches (ADR 0380): deletes their events, ledger entries, kept out docs,
+   * deadlines and leases, and nothing else. With `shelve`, the next flush moves each one's folder
+   * on the state branch to `archive/<month>/`. Every reader of the store folds again after it.
+   */
+  forget(batchIds: readonly string[], shelve?: { month: string }): void;
+  /** Lets go of these batches' shelving, once a push put their folders in `archive/`. */
+  shelved(batchIds: readonly string[]): void;
+  /** Asks the next flush to delete `archive/<month>/` for every month before `before` (`YYYY-MM`). */
+  expire(before: string): void;
+  /** Lets go of the expiry, once a push removed those months. */
+  expired(): void;
 }
 
 export interface EventStore {
@@ -92,6 +104,14 @@ export interface EventStore {
   restore(log: readonly LoggedEvent[], commit: string): void;
   /** The recorded result of a side effect, or `undefined` when it was never applied. */
   findEffect(key: EffectKey): { result: unknown } | undefined;
+  /** The batches forgotten and not yet moved to `archive/` on the state branch, with each one's month. */
+  shelving(): { batchId: string; month: string }[];
+  /** The month before which the next flush deletes `archive/<month>/`, if one was asked. */
+  expiring(): string | undefined;
+  /** How many times a batch was forgotten in this store: a reader folds again when it changes. */
+  forgets(): number;
+  /** The id of the last event of `batchId`, or `undefined` when the store has none. */
+  lastEventOf(batchId: string): number | undefined;
   close(): void;
 }
 

@@ -45,6 +45,14 @@ describe('createCommandLog', () => {
   const log = () => createCommandLog({ store, recipes });
   const types = () => store.eventsAfter(0).map(({ event }) => event.type);
 
+  it('folds again after the store forgot a batch, so its state never holds one forgotten (ADR 0380)', () => {
+    const terminal = log();
+    terminal.issue({ kind: 'order', batchId: 'b2', order: { issue: 2 } }, t0);
+    assert.deepEqual([...terminal.state().batches.keys()], ['b1', 'b2']);
+    store.withTransaction((tx) => tx.forget(['b1']));
+    assert.deepEqual([...terminal.state().batches.keys()], ['b2']);
+  });
+
   it('appends the events of an accepted command, and its state folds them', () => {
     const terminal = log();
     const decision = terminal.issue(retry, t0);

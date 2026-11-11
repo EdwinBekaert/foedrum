@@ -439,6 +439,18 @@ export const openSqliteEventStore = (
           deleteOutDoc.run(batchId, stepId, attempt);
         }
       },
+      forget: () => {
+        throw new Error('not implemented');
+      },
+      shelved: () => {
+        throw new Error('not implemented');
+      },
+      expire: () => {
+        throw new Error('not implemented');
+      },
+      expired: () => {
+        throw new Error('not implemented');
+      },
     };
     return {
       tx,
@@ -550,6 +562,19 @@ export const openSqliteEventStore = (
         throw new Error(`Stored event ${row.id} is indexed as an effect but is ${event.type}`);
       }
       return { result: event.result };
+    },
+
+    shelving: () => {
+      throw new Error('not implemented');
+    },
+    expiring: () => {
+      throw new Error('not implemented');
+    },
+    forgets: () => {
+      throw new Error('not implemented');
+    },
+    lastEventOf: () => {
+      throw new Error('not implemented');
     },
 
     close: () => db.close(),
