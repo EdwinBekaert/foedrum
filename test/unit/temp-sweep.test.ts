@@ -90,6 +90,8 @@ describe('sweepTemp', () => {
     const outside = join(dir.path, 'outside');
     mkdirSync(outside);
     writeFileSync(join(outside, 'live.txt'), 'kept\n');
+    // Fresh by the sweep's own clock, so a sweep that followed the link would keep it.
+    utimesSync(join(outside, 'live.txt'), now, now);
     const link = join(tmp, 'link');
     symlinkSync(outside, link, 'junction');
     const old = ago(TEMP_AGE_MS + hour);

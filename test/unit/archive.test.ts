@@ -120,10 +120,12 @@ describe('the archive in the fold (ADR 0380)', () => {
       cancelled('7-1'),
       applied('7-1', 'plan.2', { comment: 900, digest: 'fedcba9876543210' }),
       event,
-      ordered('7-1', { issue: 7 }),
     ]) {
-      assert.equal(admit(live, [write]).kind, 'refused', write.type);
+      const decision = admit(live, [write]);
+      assert.match(decision.kind === 'refused' ? decision.reason : '', /batch 7-1 is archived/);
     }
+    const again = admit(live, [ordered('7-1', { issue: 7 })]);
+    assert.match(again.kind === 'refused' ? again.reason : '', /batch 7-1 was already ordered/);
   });
 
   it('refuses to archive a batch that has not ended', () => {
