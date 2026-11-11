@@ -12,6 +12,7 @@ import {
   type State,
   sameHeadChecks,
 } from './fold.ts';
+import { sameReviews } from './pr-reviews.ts';
 import { digestOf } from './pull-request.ts';
 import { sentBackFrom } from './pull-request-fix.ts';
 
@@ -461,12 +462,9 @@ function unreviewed(
   event: Extract<Event, { type: 'pull_request.reviews_read' }>,
 ): string | undefined {
   const latest = state.batches.get(event.batchId)?.pullRequestReviews?.[event.pullRequest];
-  const ids = (reviews: readonly { id: number }[]): string => reviews.map(({ id }) => id).join(',');
-  const same =
-    latest === undefined
-      ? event.reviews.length === 0
-      : ids(latest.reviews) === ids(event.reviews) && latest.more === event.more;
-  return same ? `the reviews of ${event.pullRequest} are already recorded` : undefined;
+  return sameReviews(latest, event.reviews, event.more ?? 0)
+    ? `the reviews of ${event.pullRequest} are already recorded`
+    : undefined;
 }
 
 /** A pair of heads is recorded once on each batch (ADR 0230). */

@@ -99,7 +99,20 @@ export const askedOf = (
   };
 };
 
-const idsOf = (reviews: readonly { id: number }[]): string => reviews.map(({ id }) => id).join(',');
+/**
+ * Whether `reviews` and `more` say nothing new against `latest`, the batch's latest record of a
+ * pull request's reviews that ask for changes (ADR 0382): with no record, when they name none.
+ */
+export const sameReviews = (
+  latest: { reviews: readonly { id: number }[]; more?: number } | undefined,
+  reviews: readonly { id: number }[],
+  more: number,
+): boolean => {
+  const idsOf = (list: readonly { id: number }[]): string => list.map(({ id }) => id).join(',');
+  return latest === undefined
+    ? reviews.length === 0
+    : idsOf(latest.reviews) === idsOf(reviews) && (latest.more ?? 0) === more;
+};
 
 /**
  * One pass: reads the reviews of the open pull request of every batch on tap that follows one,
@@ -131,11 +144,7 @@ export const recordReviews = async (
     const shown = asking.slice(0, MOST_REVIEWS);
     const more = asking.length - shown.length;
     const latest = batch.pullRequestReviews?.[open.url];
-    const unchanged =
-      latest === undefined
-        ? shown.length === 0
-        : idsOf(latest.reviews) === idsOf(shown) && (latest.more ?? 0) === more;
-    if (unchanged) continue;
+    if (sameReviews(latest, shown, more)) continue;
     // A review keeps the text it was recorded with: its comments are read once.
     const known = new Map((latest?.reviews ?? []).map((review) => [review.id, review]));
     const reviews: AskedReview[] = [];
