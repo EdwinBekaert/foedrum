@@ -126,6 +126,7 @@ describe('fold', () => {
       ranks: new Map(),
       usageWindows: {},
       systemMap: new Map(),
+      archived: new Map(),
     };
     assert.deepStrictEqual(fold([]), empty);
     assert.deepStrictEqual(emptyState, empty);
