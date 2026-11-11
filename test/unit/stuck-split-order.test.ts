@@ -88,4 +88,21 @@ describe('foedrum stuck and a split order', () => {
       ].join('\n'),
     );
   });
+
+  it('lists the order when a sub-order closed without merging keeps it open, with its Next line', () => {
+    const closed: Event[] = [
+      ...opened,
+      { type: 'pull_request.ended', batchId: '2-1', pullRequest: lib, state: 'closed' },
+    ];
+    assert.equal(
+      formatStuck(fold([...split, ...closed])),
+      [
+        '1 batch waits for you',
+        '',
+        '1-1  #1  Waiting for you: look at sub-order #2, closed without merging: plan approved by grace from a terminal',
+        '  Next: see to what keeps the order open (#2).',
+        '',
+      ].join('\n'),
+    );
+  });
 });

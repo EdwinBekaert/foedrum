@@ -238,6 +238,12 @@ describe('stateOf', () => {
       by: { kind: 'usage-limit' },
     });
   });
+
+  it("a family's window alone holds only that family's brewers: a batch between steps is still running", () => {
+    assert.deepEqual(stateOf(store({ Opus: { ...closed, limit: 'Opus' } }), brewing), {
+      kind: 'running',
+    });
+  });
 });
 
 describe('stateLine', () => {
