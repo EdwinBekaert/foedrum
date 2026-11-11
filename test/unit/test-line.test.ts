@@ -144,3 +144,19 @@ describe('readTestLine: the fixes of the review (ADR 0376)', () => {
     });
   });
 });
+
+describe('readTestLine: flags read as node and vitest read them (ADR 0376)', () => {
+  it("pairs each node reporter with its destination by position, and reads node's and vitest's spaced flags", () => {
+    for (const [line, saves] of [
+      [
+        'node --test --test-reporter=junit --test-reporter-destination=stdout --test-reporter=lcov --test-reporter-destination=lcov.info test/',
+        false,
+      ],
+      ['node --test --test-reporter junit --test-reporter-destination junit.xml test/', true],
+      ['vitest run --reporter=junit --outputFile.junit junit.xml', true],
+      ['npm test -- --outputFile.junit junit.xml', true],
+    ] as const) {
+      assert.equal(readTestLine(line).saves, saves, line);
+    }
+  });
+});

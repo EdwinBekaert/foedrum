@@ -41,6 +41,12 @@ const GITHUB: Readonly<Record<string, RepositoryFacts>> = {
   'big/web': { base: 'main', packageJson: '', lockfile: true },
   'acme/vite': { base: 'main', packageJson: node({ test: 'vitest run' }), lockfile: true },
   'acme/jest': { base: 'main', packageJson: node({ test: 'jest' }), lockfile: true },
+  // A TypeScript package that builds before it tests, through npm's pretest.
+  'acme/tsc': {
+    base: 'main',
+    packageJson: node({ pretest: 'tsc -p .', test: 'node --test dist/' }),
+    lockfile: true,
+  },
 };
 
 interface Clone {
@@ -1386,6 +1392,14 @@ describe('foedrum init sets the test line up to save its reports (ADR 0376)', ()
     assert.deepEqual(notes(lines), [
       '  test line: for a test report Foedrum reads, add JunitXml.TestLogger to each test project, then --logger:"junit;LogFilePath=TestResults/{assembly}.junit.xml" to the test line',
       '  test line: for coverage, add coverlet.collector to each test project (dotnet\'s test templates have it), then --collect:"XPlat Code Coverage" to the test line; until then the Maltster maps it with "coverage": "none"',
+    ]);
+  });
+
+  it('foedrum init keeps npm test for a node --test script npm runs beside pretest, and names the flags to add to it', async () => {
+    const { line, lines } = await tested(['', 'acme/tsc', '', ''], 'acme/tsc');
+    assert.equal(line, 'npm test');
+    assert.deepEqual(notes(lines), [
+      `  test line: the test script runs after npm's pretest or before its posttest, so init keeps npm test: for a test report and coverage, add ${NODE_REPORTS} right after --test in the repository's test script, since npm test -- would hand them to the tests instead`,
     ]);
   });
 
