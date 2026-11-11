@@ -4,11 +4,13 @@
 
 import assert from 'node:assert/strict';
 import { afterEach, beforeEach, describe, it } from 'node:test';
+import { archivedOf } from '../../src/engine/archive.ts';
 import { claimEffects } from '../../src/engine/claim-effects.ts';
 import { type CommandLog, createCommandLog } from '../../src/engine/command-log.ts';
 import type { Ending } from '../../src/engine/decide.ts';
 import { effectKey } from '../../src/engine/effect-key.ts';
 import type { EventStore } from '../../src/engine/event-store.ts';
+import { foldedBatch } from '../../src/engine/fold.ts';
 import {
   createIntake,
   freeCapacity,
@@ -155,6 +157,18 @@ describe('createIntake', () => {
     );
     assert.equal(github.refs.get(`${web}#7`), record(alice.brewery, 7));
     assert.deepStrictEqual(notices, [{ kind: 'ordered', repo: web, issue: 7, batchId: 'web-7' }]);
+  });
+
+  it('never claims again an issue whose batch a cleanup archived, as one it has a batch of (ADR 0380)', async () => {
+    accept({ kind: 'order', batchId: 'web-7', order: { issue: 7, repo: web } });
+    accept({ kind: 'cancel', batchId: 'web-7', by: 'ada', via: 'terminal' });
+    const ended = log.state();
+    accept({ kind: 'record', event: archivedOf(ended, foldedBatch(ended, 'web-7')) });
+    const { tracker, asked } = fakeTracker({ [web]: [issue(7)], [api]: [] });
+    await intake(tracker).poll();
+    assert.deepStrictEqual(batches(), []);
+    assert.ok(!asked.includes(`labels ${web}#7`), asked.join(', '));
+    assert.equal(github.refs.has(`${web}#7`), false);
   });
 
   it('orders the oldest candidates first, only up to the free capacity', async () => {
