@@ -711,7 +711,7 @@ describe('pullRequestActions: a push that cannot carry the batch (review of #198
     assert.deepEqual(actions.ending(state, action), {
       kind: 'failed',
       retryable: false,
-      reason: `batch 12-1 pushed ${earlier} for its pull request, and its task tree has moved to ${from} since: updating an open bottle is not supported yet (ADR 0071)`,
+      reason: `batch 12-1 pushed ${earlier} for its pull request, and its task tree has moved to ${from} since: updating an open bottle is not supported yet`,
     });
   });
 });
@@ -772,7 +772,7 @@ describe('pullRequestActions: the secret scan before the push (ADR 0079)', () =>
     { commit: other, place: 'notes/aws.txt', kind: 'AWS access key id' },
   ];
   const summary =
-    'the push of batch 12-1 stopped before anything left the machine: its commits hold what looks like a secret, or what the scan cannot read (ADR 0079): ' +
+    'the push of batch 12-1 stopped before anything left the machine: its commits hold what looks like a secret, or what the scan cannot read: ' +
     `commit ${tip}, GitHub token in message; commit ${other}, AWS access key id in notes/aws.txt`;
 
   it('scans every commit from the base to the tip, then pushes a clean task tree as before', async () => {
@@ -813,7 +813,7 @@ describe('pullRequestActions: the secret scan before the push (ADR 0079)', () =>
         outcome: {
           kind: 'failed',
           retryable: true,
-          reason: `the attempt's commits hold what looks like a secret, or what the scan cannot read (ADR 0187): commit ${tip.slice(0, 12)}, GitHub token in message`,
+          reason: `the attempt's commits hold what looks like a secret, or what the scan cannot read: commit ${tip.slice(0, 12)}, GitHub token in message`,
           secrets: true,
         },
       },

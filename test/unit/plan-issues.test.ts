@@ -363,10 +363,7 @@ describe('planIssueEffects (ADR 0285)', () => {
     assert.equal(api.issue(brewery, 8)?.title, left);
     assert.ok(!JSON.stringify(api.issues).includes(token));
     const body = api.issue(brewery, 10)?.body ?? '';
-    assert.ok(
-      body.startsWith('Sub-order `cli` of #7, from the plan of batch `7-1` (ADR 0285).'),
-      body,
-    );
+    assert.ok(body.startsWith('Sub-order `cli` of #7, from the plan of batch `7-1`.'), body);
     for (const line of [
       '- Builds in acme/api: one endpoint, about 300 lines',
       '- Done when: cli answers 200',

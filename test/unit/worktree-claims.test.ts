@@ -537,7 +537,7 @@ describe('worktreeClaims: the task tree no push recorded (ADR 0084)', () => {
         { kind: 'delete-branch', branch: 'foedrum/12-1/brew/1', tip: TIP },
       ],
       kept: [
-        'kept branch foedrum/12-1/brew/2: it holds the task tree of batch 12-1, which no push recorded (ADR 0084)',
+        'kept branch foedrum/12-1/brew/2: it holds the task tree of batch 12-1, which no push recorded',
       ],
     });
   });

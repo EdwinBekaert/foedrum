@@ -430,7 +430,7 @@ describe('formatBrewerReport', () => {
         'reviewer  brewers/reviewer.md',
         '  no attempts',
         '',
-        'Steps the recipe files no longer have (ADR 0059):',
+        'Steps the recipe files no longer have:',
         'old/plan',
         '  1 attempt: 1 cancelled',
         '  tokens: 1 input, 1 output, 1 cache read, 1 cache write',

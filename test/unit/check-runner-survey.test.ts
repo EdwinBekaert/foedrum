@@ -195,7 +195,7 @@ describe("createCheckRunner: a survey's check against one run (ADR 0298)", () =>
       kind: 'failed',
       retryable: false,
       reason:
-        'the test map the survey proposed disagrees with a run of acme/api: module "api" wrote no test report at reports/test.tap (ADR 0298)',
+        'the test map the survey proposed disagrees with a run of acme/api: module "api" wrote no test report at reports/test.tap',
     });
     // The readings stay as they ran.
     assert.deepEqual(
@@ -215,7 +215,7 @@ describe("createCheckRunner: a survey's check against one run (ADR 0298)", () =>
       kind: 'failed',
       retryable: false,
       reason:
-        'the test map the survey proposed disagrees with a run of acme/api: out/junit.xml (a report outside the map) (ADR 0298)',
+        'the test map the survey proposed disagrees with a run of acme/api: out/junit.xml (a report outside the map)',
     });
   });
 
@@ -226,7 +226,7 @@ describe("createCheckRunner: a survey's check against one run (ADR 0298)", () =>
       kind: 'blocked',
       blockerKind: 'environment',
       summary:
-        'no test map the survey proposed agrees with a run of acme/api: module "api" wrote no test report at reports/test.tap (ADR 0298)',
+        'no test map the survey proposed agrees with a run of acme/api: module "api" wrote no test report at reports/test.tap',
     });
   });
 
@@ -237,7 +237,7 @@ describe("createCheckRunner: a survey's check against one run (ADR 0298)", () =>
       kind: 'blocked',
       blockerKind: 'environment',
       summary:
-        'no test map the survey proposed agrees with a run of acme/api: the check "test" (npm test) failed with exit code 1 (ADR 0298)',
+        'no test map the survey proposed agrees with a run of acme/api: the check "test" (npm test) failed with exit code 1',
     });
   });
 

@@ -80,7 +80,7 @@ const finding = (
   severity: TastingFinding['severity'] = 'major',
   introduced = true,
 ): Found => ({ point: 'Fix this.', file, line, severity, why: `why ${file}:${line}`, introduced });
-/** A finding a Taster of several lenses found through `lens` (ADR 0220). */
+/** A finding a Taster of several lenses found through `lens`. */
 const through = (lens: string, found: Found): Found => ({ ...found, lens });
 
 const ordered = (batchId: string, issue: number, recipe = 'nip'): Event[] => [
@@ -837,7 +837,7 @@ describe('formatLensReport', () => {
         'diff/security  lenses/diff/security.md',
         '  no rounds',
         '',
-        'Lens steps the recipe files no longer have (ADR 0059):',
+        'Lens steps the recipe files no longer have:',
         'old/review',
         '  1 round, 1 finding: 1 minor',
         '  ended: 1 open',
@@ -888,7 +888,7 @@ describe('formatLensReport', () => {
         '  ended: 1 open',
         '  tokens: none reported',
         '',
-        'Lenses together, their tokens not split (ADR 0220):',
+        'Lenses together, their tokens not split:',
         'diff/correctness + diff/security',
         '  1 round',
         '  tokens: 1 input, 2 output, 3 cache read, 4 cache write',

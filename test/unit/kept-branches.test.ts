@@ -26,7 +26,7 @@ describe('keptBranchLines', () => {
     const readings = new Map([['foedrum/12-1/brew/2', read(3)]]);
 
     assert.deepEqual(keptBranchLines(unpushed, readings), [
-      '1 kept branch: commits of ended batches that no push recorded (ADR 0084); take them, then drop the branch',
+      '1 kept branch: commits of ended batches that no push recorded; take them, then drop the branch',
       '',
       '  12-1  foedrum/12-1/brew/2  3 commits past the start  in /src/app: git branch -D foedrum/12-1/brew/2',
     ]);
@@ -58,7 +58,7 @@ describe('keptBranchLines', () => {
     ]);
 
     assert.deepEqual(keptBranchLines(unpushed, readings), [
-      '2 kept branches: commits of ended batches that no push recorded (ADR 0084); take them, then drop the branch',
+      '2 kept branches: commits of ended batches that no push recorded; take them, then drop the branch',
       '',
       '  9-1   foedrum/9-1/brew/1   1 commit past the start    in /src/app: git branch -D foedrum/9-1/brew/1',
       '  12-1  foedrum/12-1/brew/2  12 commits past the start  in /src/app: git branch -D foedrum/12-1/brew/2',

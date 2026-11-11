@@ -73,7 +73,7 @@ describe('touchesChecked (ADR 0233)', () => {
       kind: 'failed',
       retryable: true,
       reason:
-        'the plan touches paths that do not exist; mark a path new: true when its sub-order creates it (ADR 0233): sub-order api, src/gone.ts in acme/api at aaaaaaaaaaaa',
+        'the plan touches paths that do not exist; mark a path new: true when its sub-order creates it: sub-order api, src/gone.ts in acme/api at aaaaaaaaaaaa',
     });
   });
 
@@ -109,8 +109,7 @@ describe('touchesChecked (ADR 0233)', () => {
     assert.deepEqual(await touchesChecked(read, ending, repositories), {
       kind: 'failed',
       retryable: true,
-      reason:
-        'the plan names repositories the Brewery does not list (ADR 0233): sub-order db, acme/db',
+      reason: 'the plan names repositories the Brewery does not list: sub-order db, acme/db',
     });
     assert.deepEqual(calls, []);
   });

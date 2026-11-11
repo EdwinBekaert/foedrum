@@ -389,7 +389,7 @@ describe("foedrum with the Brewery's recipe files (ADR 0053)", () => {
 
   it("is refused with doctor's line when a recipe file is not valid, and changes nothing", async () => {
     writeRecipe([{ brewer: 'roaster' }, { id: 'approve', gate: 'human', deadline: '1d' }]);
-    const line = `${INVALID_RECIPES}: recipes/pale.jsonc: step "approve" is a gate step, which the engine does not brew yet (ADR 0053)`;
+    const line = `${INVALID_RECIPES}: recipes/pale.jsonc: step "approve" is a gate step, which the engine does not brew yet`;
     const retry = await foedrum('retry', '12-1');
     assert.deepEqual(
       { exitCode: retry.exitCode, stdout: retry.stdout, stderr: retry.stderr },

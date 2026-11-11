@@ -229,7 +229,7 @@ describe('a parallel group (ADR 0168)', () => {
       {
         kind: 'refused',
         reason:
-          'step tasting is a parallel group: rewind to one of its children, which runs the whole group again (ADR 0168)',
+          'step tasting is a parallel group: rewind to one of its children, which runs the whole group again',
       },
     );
   });

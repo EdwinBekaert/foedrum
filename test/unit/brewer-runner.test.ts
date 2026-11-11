@@ -571,7 +571,7 @@ describe('scannedEnding: the secret scan of a done attempt with commits (ADR 018
       kind: 'failed',
       retryable: true,
       reason:
-        "the attempt's commits hold what looks like a secret, or what the scan cannot read (ADR 0187): commit 111111111111, GitHub token in test/keys1.test.ts",
+        "the attempt's commits hold what looks like a secret, or what the scan cannot read: commit 111111111111, GitHub token in test/keys1.test.ts",
       secrets: true,
     });
   });
@@ -590,7 +590,7 @@ describe('scannedEnding: the secret scan of a done attempt with commits (ADR 018
     );
     assert.equal(
       ending.kind === 'failed' ? ending.reason : '',
-      "the attempt's commits hold what looks like a secret, or what the scan cannot read (ADR 0187): commit 111111111111, GitHub token in test/keys1.test.ts; commit 222222222222, AWS access key id in message; commit 333333333333, GitHub token in test/keys3.test.ts; and 2 more",
+      "the attempt's commits hold what looks like a secret, or what the scan cannot read: commit 111111111111, GitHub token in test/keys1.test.ts; commit 222222222222, AWS access key id in message; commit 333333333333, GitHub token in test/keys3.test.ts; and 2 more",
     );
   });
 

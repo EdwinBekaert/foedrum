@@ -1682,7 +1682,7 @@ describe('foedrum brewers', () => {
       cwd,
       gatherDoctorFacts: async () => linux(),
       openStore: () => ({ ...store, close: () => {} }),
-      openWritableStore: () => assert.fail('brewers only reads (ADR 0030)'),
+      openWritableStore: () => assert.fail('brewers only reads'),
       recipes: () => assert.fail('brewers needs no Recipes'),
       brewers: () => source,
       lenses: () => assert.fail('brewers reads no lenses'),
@@ -1798,7 +1798,7 @@ describe('foedrum lenses (ADR 0221)', () => {
       cwd,
       gatherDoctorFacts: async () => linux(),
       openStore: () => ({ ...store, close: () => {} }),
-      openWritableStore: () => assert.fail('lenses only reads (ADR 0030)'),
+      openWritableStore: () => assert.fail('lenses only reads'),
       recipes: () => assert.fail('lenses needs no Recipes'),
       brewers: () => assert.fail('lenses reads no brewers'),
       lenses: () => source,
@@ -2127,7 +2127,7 @@ describe('foedrum order: order an issue again (ADR 0105)', () => {
       const { brewery: _, ...nameless } = config;
       assert.deepStrictEqual(
         await run(['order', 'web#7'], { config: () => nameless }),
-        refused('foedrum.jsonc: name the Brewery with "brewery": "<owner>/<name>" (ADR 0063)'),
+        refused('foedrum.jsonc: name the Brewery with "brewery": "<owner>/<name>"'),
       );
     });
 

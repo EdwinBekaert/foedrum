@@ -68,7 +68,7 @@ describe('runServe', () => {
       web: Record<string, unknown>,
       recipeText = nip,
       gaugerText = gauger,
-      /** The Brewery's test maps, for a repository whose map it keeps (ADR 0018). */
+      /** The Brewery's test maps, for a repository whose map it keeps. */
       testMaps: { path: string; text: string }[] = [],
     ) => {
       const files = serveInputs().files;
@@ -103,9 +103,9 @@ describe('runServe', () => {
       testFirst: ServeSetup,
       taps: string[] = [],
       clonedGit?: Git,
-      /** The text of the clone's test map at every commit, when it has one (ADR 0274). */
+      /** The text of the clone's test map at every commit, when it has one. */
       testMap?: string,
-      /** Where in its worktree the test run also writes its TAP, as a test map names it (ADR 0274). */
+      /** Where in its worktree the test run also writes its TAP, as a test map names it. */
       reportAt?: string,
       /** The brewers' runner; default one whose every attempt succeeds. */
       brewing?: BrewerRunner,
@@ -191,7 +191,7 @@ describe('runServe', () => {
         stepId: 'gauge',
         blockerKind: 'environment',
         summary:
-          'recipe nip proves its tests red, which needs a test map of acme/web: commit .foedrum/test-map.jsonc to acme/web, or add a survey step to the recipe (ADR 0297)',
+          'recipe nip proves its tests red, which needs a test map of acme/web: commit .foedrum/test-map.jsonc to acme/web, or add a survey step to the recipe',
       });
     });
 
@@ -205,7 +205,7 @@ describe('runServe', () => {
         stepId: 'gauge',
         blockerKind: 'environment',
         summary:
-          'recipe nip proves its tests red, which needs a test map of acme/web: the Brewery keeps it and has none, so add test-maps/acme/web.jsonc to the Brewery (ADR 0297)',
+          'recipe nip proves its tests red, which needs a test map of acme/web: the Brewery keeps it and has none, so add test-maps/acme/web.jsonc to the Brewery',
       });
     });
 
@@ -231,7 +231,7 @@ describe('runServe', () => {
         stepId: 'survey',
         blockerKind: 'environment',
         summary:
-          'recipe nip proves its tests red, which needs a test map of acme/web: the Brewery keeps it and has none, so add test-maps/acme/web.jsonc to the Brewery (ADR 0297)',
+          'recipe nip proves its tests red, which needs a test map of acme/web: the Brewery keeps it and has none, so add test-maps/acme/web.jsonc to the Brewery',
       });
     });
 
@@ -274,7 +274,7 @@ describe('runServe', () => {
         stepId: 'survey',
         attempts: 1,
         lastReason:
-          'the guard testMapOnly: the attempt changed src/app.ts; it may change .foedrum/test-map.jsonc only (ADR 0298)',
+          'the guard testMapOnly: the attempt changed src/app.ts; it may change .foedrum/test-map.jsonc only',
       });
     });
 

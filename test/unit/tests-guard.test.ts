@@ -131,9 +131,9 @@ const setup = ({
   before?: Readonly<Record<string, readonly string[]>>;
   /** The files `ls-tree` lists at another commit, by commit, in place of `before` and `tip`. */
   listings?: Readonly<Record<string, Readonly<Record<string, readonly string[]>>>>;
-  /** The diff of the attempt's own change: every range but the proven step's (ADR 0358). */
+  /** The diff of the attempt's own change: every range but the proven step's. */
   changed?: string;
-  /** What rev-list lists of the attempt's commits: none, so its change is one stretch (ADR 0358). */
+  /** What rev-list lists of the attempt's commits: none, so its change is one stretch. */
   revList?: string;
   /** Whose case rule the guard matches the map's globs by. */
   platform?: NodeJS.Platform;
@@ -597,7 +597,7 @@ describe('guardTests: regression tests', () => {
       kind: 'blocked',
       blockerKind: 'environment',
       summary:
-        'the guard testsUnchanged finds no test map of acme/api where the batch started or at the tip of step gauge (ADR 0297)',
+        'the guard testsUnchanged finds no test map of acme/api where the batch started or at the tip of step gauge',
     });
   });
 
@@ -651,7 +651,7 @@ describe('guardTests on the test files the base holds (ADR 0358)', () => {
       kind: 'failed',
       retryable: true,
       reason:
-        "the guard testsUnchanged: the attempt changed a test file the batch's base holds, test/older.test.mjs: a test that must change goes back to the Gauger as a finding (ADR 0358)",
+        "the guard testsUnchanged: the attempt changed a test file the batch's base holds, test/older.test.mjs: a test that must change goes back to the Gauger as a finding",
     });
     const asked = calls.map(({ args }) => args.join(' '));
     // Its own change, from where it started to its branch, in the clone.
@@ -669,7 +669,7 @@ describe('guardTests on the test files the base holds (ADR 0358)', () => {
     const end = await runner.start({ ref, limits: defaultLimits }).ended;
     assert.equal(
       end.ending.kind === 'failed' && end.ending.reason,
-      "the guard testsUnchanged: the attempt changed 2 test files the batch's base holds, test/older.test.mjs (and 1 more): a test that must change goes back to the Gauger as a finding (ADR 0358)",
+      "the guard testsUnchanged: the attempt changed 2 test files the batch's base holds, test/older.test.mjs (and 1 more): a test that must change goes back to the Gauger as a finding",
     );
   });
 

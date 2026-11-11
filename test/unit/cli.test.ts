@@ -51,7 +51,7 @@ const watchedStore = (events: readonly Event[]) => {
   return { store, afterRun };
 };
 
-/** A foedrum.jsonc with room for every order, so no limit line comes above the board (ADR 0217). */
+/** A foedrum.jsonc with room for every order, so no limit line comes above the board. */
 const roomy = (): BreweryConfig =>
   ({ ...BreweryConfig.parse({ repositories: {} }), openOrders: 20 }) as BreweryConfig;
 
@@ -685,7 +685,7 @@ describe('foedrum status', () => {
           '  11-1  #11  Done: cancelled               by ann from a terminal',
           '  12-1  #12  Queued: waiting for a recipe  a recipe is chosen by 31 Dec 00:00 UTC',
           '',
-          '1 kept branch: commits of ended batches that no push recorded (ADR 0084); take them, then drop the branch',
+          '1 kept branch: commits of ended batches that no push recorded; take them, then drop the branch',
           '',
           '  11-1  foedrum/11-1/brew/1  2 commits past the start  in /src/app: git branch -D foedrum/11-1/brew/1',
           '',

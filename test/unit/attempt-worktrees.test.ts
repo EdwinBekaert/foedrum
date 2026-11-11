@@ -533,7 +533,7 @@ describe('planClean', () => {
   describe('the task tree no push recorded (ADR 0084)', () => {
     const taskTree = ref('12-1', 'brew', 2);
     const name = attemptBranch(taskTree);
-    const keptLine = `kept branch ${name}: it holds the task tree of batch 12-1, which no push recorded (ADR 0084)`;
+    const keptLine = `kept branch ${name}: it holds the task tree of batch 12-1, which no push recorded`;
     const unpushed = (start: string): Claims => ({
       ...claims({ '12-1': 'ended' }),
       unpushed: new Map([[name, start]]),
@@ -587,7 +587,7 @@ describe('planClean', () => {
   describe('the task tree of an open pull request (ADR 0219)', () => {
     const taskTree = ref('12-1', 'brew', 2);
     const name = attemptBranch(taskTree);
-    const keptLine = `kept branch ${name}: it holds the task tree of batch 12-1, whose pull request is open (ADR 0219)`;
+    const keptLine = `kept branch ${name}: it holds the task tree of batch 12-1, whose pull request is open`;
     const open: Claims = { ...claims({ '12-1': 'ended' }), open: new Set([name]) };
 
     it('removes its worktree but keeps its branch for a fix round, and says why', () => {

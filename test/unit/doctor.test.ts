@@ -498,7 +498,7 @@ describe('diagnose: isolation (ADR 0010)', () => {
       {
         required: false,
         what: 'slirp4netns or pasta (passt) not found',
-        fix: "a repository's setup does not start without it; install slirp4netns (Debian and Ubuntu: sudo apt install slirp4netns; Fedora and Arch usually have slirp4netns or passt with Podman) (ADR 0218)",
+        fix: "a repository's setup does not start without it; install slirp4netns (Debian and Ubuntu: sudo apt install slirp4netns; Fedora and Arch usually have slirp4netns or passt with Podman)",
       },
     ]);
     const pasta = linux({
@@ -528,7 +528,7 @@ describe('diagnose: isolation (ADR 0010)', () => {
     const diagnosis = diagnose(windows);
     assert.equal(diagnosis.isolation.level, 'permissions only');
     assert.equal(diagnosis.ok, true);
-    assert.equal(diagnosis.advice.length, 2, 'WSL2, and what the level leaves open (ADR 0082)');
+    assert.equal(diagnosis.advice.length, 2, 'WSL2, and what the level leaves open');
     assert.match(diagnosis.advice[0] ?? '', /WSL2/);
   });
 
@@ -714,7 +714,7 @@ describe("diagnose: what each isolation level keeps from gh's login (ADR 0082, #
     for (const facts of sandboxed) {
       assert.match(
         keyring(facts)[0] ?? '',
-        /apart from the worktree, git's global configuration, parts of ~\/\.claude and the toolchain folders of serve's PATH \(ADR 0162\),/,
+        /apart from the worktree, git's global configuration, parts of ~\/\.claude and the toolchain folders of serve's PATH,/,
       );
     }
   });
@@ -727,7 +727,7 @@ describe("diagnose: what each isolation level keeps from gh's login (ADR 0082, #
       const [line = ''] = keyring(facts);
       assert.match(
         line,
-        /Under WSL, the user folders include the Windows user's logins under \/mnt \(ADR 0160\)\./,
+        /Under WSL, the user folders include the Windows user's logins under \/mnt\./,
       );
       assert.doesNotMatch(line, /doesn't hide the Windows user's logins/);
     }
@@ -742,7 +742,7 @@ describe("diagnose: what each isolation level keeps from gh's login (ADR 0082, #
       const [line = ''] = keyring(facts);
       assert.match(
         line,
-        /A login a brewer did read is stopped at the push \(ADR 0079\) and left out of the pull request and the status comment \(ADR 0088\) when it looks like one\./,
+        /A login a brewer did read is stopped at the push and left out of the pull request and the status comment when it looks like one\./,
       );
     }
   });
@@ -754,17 +754,17 @@ describe("diagnose: what each isolation level keeps from gh's login (ADR 0082, #
     for (const facts of sandboxed) {
       assert.match(
         last(facts),
-        /Check steps run in an OS sandbox of their own, with no network and the home folder hidden, so they can't read gh's login \(ADR 0076\)\.$/,
+        /Check steps run in an OS sandbox of their own, with no network and the home folder hidden, so they can't read gh's login\.$/,
       );
     }
     assert.match(
       last(windows),
-      /On native Windows, check steps run outside any sandbox, so they can still read gh's login \(ADR 0076\)\.$/,
+      /On native Windows, check steps run outside any sandbox, so they can still read gh's login\.$/,
     );
     for (const facts of [wsl1, linux({ bwrap: undefined }), freebsd]) {
       assert.match(
         last(facts),
-        /Check steps run only in bubblewrap's sandbox, with no network and the home folder hidden; where it cannot start, they do not run \(ADR 0076\)\.$/,
+        /Check steps run only in bubblewrap's sandbox, with no network and the home folder hidden; where it cannot start, they do not run\.$/,
       );
     }
     for (const facts of [...sandboxed, ...permissionsOnly]) {
@@ -857,7 +857,7 @@ describe("diagnose: the Brewery's recipes (ADR 0053)", () => {
       {
         required: true,
         what: INVALID_RECIPES,
-        fix: 'lenses/security.md: a lens belongs in lenses/diff/, to review a diff, or lenses/plan/, to review a plan (ADR 0143)',
+        fix: 'lenses/security.md: a lens belongs in lenses/diff/, to review a diff, or lenses/plan/, to review a plan',
       },
     ]);
   });
@@ -867,7 +867,7 @@ describe("diagnose: the Brewery's recipes (ADR 0053)", () => {
     assert.equal(diagnosis.ok, false);
     const problem = diagnosis.problems.find(({ what }) => what === INVALID_RECIPES);
     const line =
-      'recipes/pale.jsonc: step "approve" is a gate step, which the engine does not brew yet (ADR 0053)';
+      'recipes/pale.jsonc: step "approve" is a gate step, which the engine does not brew yet';
     assert.deepEqual(problem, { required: true, what: INVALID_RECIPES, fix: line });
     assert.equal(`${problem?.what}: ${problem?.fix}`, invalidRecipes([line]));
     // Valid recipe files, none, or none read: no problem.
@@ -887,15 +887,15 @@ describe("formatDiagnosis: the local gate's denylist (ADR 0114)", () => {
   const lines: [DoctorFacts['denylist'], RegExp][] = [
     [
       { kind: 'set', path },
-      /\nDenylist: \/home\/ada\/\.config\/foedrum\/denylist\.txt \(the local gate blocks its words in what git push and gh send, ADR 0114, ADR 0132\)\n/,
+      /\nDenylist: \/home\/ada\/\.config\/foedrum\/denylist\.txt \(the local gate blocks its words in what git push and gh send\)\n/,
     ],
     [
       { kind: 'none', path },
-      /\nDenylist: none \(optional; the local gate reads FOEDRUM_DENYLIST or \/home\/ada\/\.config\/foedrum\/denylist\.txt, ADR 0114\)\n/,
+      /\nDenylist: none \(optional; the local gate reads FOEDRUM_DENYLIST or \/home\/ada\/\.config\/foedrum\/denylist\.txt\)\n/,
     ],
     [
       { kind: 'unreadable', path, why: 'EACCES' },
-      /\nDenylist: \/home\/ada\/\.config\/foedrum\/denylist\.txt cannot be read \(EACCES\); the local gate blocks every push and every gh text until it can \(ADR 0114, ADR 0132\)\n/,
+      /\nDenylist: \/home\/ada\/\.config\/foedrum\/denylist\.txt cannot be read \(EACCES\); the local gate blocks every push and every gh text until it can\n/,
     ],
   ];
   for (const [denylist, line] of lines) {
@@ -1081,7 +1081,7 @@ describe("diagnose: notices about the Brewery's files (ADR 0141)", () => {
       },
     ]);
     const report = formatDiagnosis(diagnosis);
-    assert.match(report, /\nBrewer prompts \(instructions and lens inputs, ADR 0141\):\n/);
+    assert.match(report, /\nBrewer prompts \(instructions and lens inputs\):\n/);
     assert.match(
       report,
       new RegExp(
@@ -1116,7 +1116,7 @@ describe("diagnose: notices about the Brewery's files (ADR 0141)", () => {
       },
     });
     assert.deepEqual(diagnosis.notices, [
-      'brewers/brewer-above.md: the brewer "brewer-above" has a prompt of about 8001 tokens before its other inputs, above 8000 (ADR 0141)',
+      'brewers/brewer-above.md: the brewer "brewer-above" has a prompt of about 8001 tokens before its other inputs, above 8000',
     ]);
     assert.equal(diagnosis.ok, true);
     assert.deepEqual(diagnosis.problems, []);
@@ -1136,14 +1136,14 @@ describe("diagnose: notices about the Brewery's files (ADR 0141)", () => {
       },
     });
     assert.deepEqual(diagnosis.notices, [
-      'brewers/spare.md: no recipe names the brewer "spare" (ADR 0141)',
-      'lenses/diff/old.md: no brewer\'s input names the lens "diff/old" (ADR 0141)',
+      'brewers/spare.md: no recipe names the brewer "spare"',
+      'lenses/diff/old.md: no brewer\'s input names the lens "diff/old"',
     ]);
     assert.equal(diagnosis.ok, true);
     const report = formatDiagnosis(diagnosis);
     assert.match(
       report,
-      /\nNotices:\n {2}brewers\/spare\.md: no recipe names the brewer "spare" \(ADR 0141\)\n {2}lenses\/diff\/old\.md: no brewer's input names the lens "diff\/old" \(ADR 0141\)\n\nFoedrum has everything it needs\.\n$/,
+      /\nNotices:\n {2}brewers\/spare\.md: no recipe names the brewer "spare"\n {2}lenses\/diff\/old\.md: no brewer's input names the lens "diff\/old"\n\nFoedrum has everything it needs\.\n$/,
     );
   });
 
@@ -1199,9 +1199,9 @@ describe("diagnose: notices about the Brewery's files (ADR 0141)", () => {
     assert.equal(diagnosis.ok, false);
     assert.equal(diagnosis.prompts, undefined);
     assert.deepEqual(diagnosis.notices, [
-      'recipes/nip.jsonc replaces defaults/recipes/nip.jsonc (ADR 0141)',
-      'brewers/gauger.md replaces defaults/brewers/gauger.md and drops: heading "How to work", marked line "Red for the right reason." (ADR 0141)',
-      'lenses/diff/style.md replaces defaults/lenses/diff/style.md and keeps every heading and marked line of it (ADR 0141)',
+      'recipes/nip.jsonc replaces defaults/recipes/nip.jsonc',
+      'brewers/gauger.md replaces defaults/brewers/gauger.md and drops: heading "How to work", marked line "Red for the right reason."',
+      'lenses/diff/style.md replaces defaults/lenses/diff/style.md and keeps every heading and marked line of it',
     ]);
   });
 
@@ -1230,7 +1230,7 @@ describe('diagnose: the headings and marked lines a Brewery file drops from its 
     return notices.filter((notice) => notice.includes(' replaces '));
   };
   const drops = (what: string) =>
-    `lenses/diff/style.md replaces defaults/lenses/diff/style.md and drops: ${what} (ADR 0141)`;
+    `lenses/diff/style.md replaces defaults/lenses/diff/style.md and drops: ${what}`;
 
   it('closes a fence only with the same character, at least as long, and opens none on inline code', () => {
     const original = [
@@ -1261,14 +1261,14 @@ describe('diagnose: the headings and marked lines a Brewery file drops from its 
   it('names only the replacement when the Brewery file cannot be read', () => {
     const unreadable = { path: 'lenses/diff/style.md', unreadable: 'EACCES: permission denied' };
     assert.deepEqual(replacing('# Style\n\n**Rule.** Keep it.\n', unreadable), [
-      'lenses/diff/style.md replaces defaults/lenses/diff/style.md (ADR 0141)',
+      'lenses/diff/style.md replaces defaults/lenses/diff/style.md',
     ]);
   });
 
   it('reads a heading on the first line after a byte order mark', () => {
     const bom = String.fromCodePoint(0xfeff);
     assert.deepEqual(replacing('# Style\n', `${bom}# Style\n`), [
-      'lenses/diff/style.md replaces defaults/lenses/diff/style.md and keeps every heading and marked line of it (ADR 0141)',
+      'lenses/diff/style.md replaces defaults/lenses/diff/style.md and keeps every heading and marked line of it',
     ]);
   });
 
@@ -1278,15 +1278,15 @@ describe('diagnose: the headings and marked lines a Brewery file drops from its 
     const notices = replacing(line, line);
     const used = process.cpuUsage(before);
     assert.deepEqual(notices, [
-      'lenses/diff/style.md replaces defaults/lenses/diff/style.md and keeps every heading and marked line of it (ADR 0141)',
+      'lenses/diff/style.md replaces defaults/lenses/diff/style.md and keeps every heading and marked line of it',
     ]);
     // About 900 ms of CPU with a regular expression that backtracks over the spaces.
     assert.ok((used.user + used.system) / 1000 < 100, `${used.user + used.system} µs`);
   });
 
-  const plain = 'lenses/diff/style.md replaces defaults/lenses/diff/style.md (ADR 0141)';
+  const plain = 'lenses/diff/style.md replaces defaults/lenses/diff/style.md';
   const keeps =
-    'lenses/diff/style.md replaces defaults/lenses/diff/style.md and keeps every heading and marked line of it (ADR 0141)';
+    'lenses/diff/style.md replaces defaults/lenses/diff/style.md and keeps every heading and marked line of it';
   // Each rule of ADR 0141's marks, and its near miss: the default's text, the copy's, the notice.
   const rows: [string, string, string, string][] = [
     ['six #s are a heading', '###### Six', '', drops('heading "Six"')],
@@ -1363,8 +1363,8 @@ describe('diagnose: notices when the files load (ADR 0141)', () => {
     });
     assert.equal(diagnosis.ok, true);
     assert.deepEqual(diagnosis.notices, [
-      'brewers/spare.md: no recipe names the brewer "spare" (ADR 0141)',
-      'lenses/diff/style.md replaces defaults/lenses/diff/style.md and keeps every heading and marked line of it (ADR 0141)',
+      'brewers/spare.md: no recipe names the brewer "spare"',
+      'lenses/diff/style.md replaces defaults/lenses/diff/style.md and keeps every heading and marked line of it',
     ]);
   });
 });
@@ -1385,8 +1385,8 @@ describe('diagnose: what keeps a file in use and a mark of a default (ADR 0141)'
       },
     });
     assert.deepEqual(diagnosis.notices, [
-      'brewers/spare.md: no recipe names the brewer "spare" (ADR 0141)',
-      'lenses/diff/old.md: no brewer\'s input names the lens "diff/old" (ADR 0141)',
+      'brewers/spare.md: no recipe names the brewer "spare"',
+      'lenses/diff/old.md: no brewer\'s input names the lens "diff/old"',
     ]);
   });
 
@@ -1407,7 +1407,7 @@ describe('diagnose: what keeps a file in use and a mark of a default (ADR 0141)'
     assert.deepEqual(
       notices.filter((notice) => notice.includes(' replaces ')),
       [
-        'lenses/diff/style.md replaces defaults/lenses/diff/style.md and drops: heading "Same words", marked line "Other words" (ADR 0141)',
+        'lenses/diff/style.md replaces defaults/lenses/diff/style.md and drops: heading "Same words", marked line "Other words"',
       ],
     );
   });
@@ -1424,7 +1424,7 @@ describe('formatDiagnosis: keeping the machine awake (ADR 0195)', () => {
         program: '/usr/bin/systemd-inhibit',
         tail: '/usr/bin/tail',
       }),
-      /\nKeep awake: systemd-inhibit at \/usr\/bin\/systemd-inhibit while an attempt runs \(keepAwake: false turns it off, ADR 0195\)\n/,
+      /\nKeep awake: systemd-inhibit at \/usr\/bin\/systemd-inhibit while an attempt runs \(keepAwake: false turns it off\)\n/,
     );
     assert.match(
       report({ kind: 'caffeinate', program: '/usr/bin/caffeinate' }),
@@ -1446,7 +1446,7 @@ describe('formatDiagnosis: keeping the machine awake (ADR 0195)', () => {
     };
     assert.match(
       formatDiagnosis(diagnose(facts)),
-      /\nKeep awake: none \(no systemd-inhibit on PATH\); the machine may sleep while an attempt runs \(ADR 0195\)\n/,
+      /\nKeep awake: none \(no systemd-inhibit on PATH\); the machine may sleep while an attempt runs\n/,
     );
     assert.deepStrictEqual(diagnose(facts).problems, diagnose(linux()).problems);
   });
@@ -1519,7 +1519,7 @@ describe("diagnose: whether a test-first recipe's test line saves a report (ADR 
     assert.deepEqual(about(diagnosis), {
       problems: [],
       notices: [
-        'the test line of acme/web (npm test): Foedrum does not know its test runner, so it cannot tell whether it saves a test report; the survey of the first test-first order checks it (ADR 0376)',
+        'the test line of acme/web (npm test): Foedrum does not know its test runner, so it cannot tell whether it saves a test report; the survey of the first test-first order checks it',
       ],
     });
     assert.match(formatDiagnosis(diagnosis), /Foedrum has everything it needs\./);

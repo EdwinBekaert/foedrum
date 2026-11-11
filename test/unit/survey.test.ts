@@ -281,7 +281,7 @@ describe('surveyed: the Maltster runs only for a missing or stale map (ADR 0298)
       kind: 'failed',
       retryable: true,
       reason:
-        'the guard testMapOnly: the attempt changed src/app.ts, package.json; it may change .foedrum/test-map.jsonc only (ADR 0298)',
+        'the guard testMapOnly: the attempt changed src/app.ts, package.json; it may change .foedrum/test-map.jsonc only',
     });
   });
 
@@ -304,7 +304,7 @@ describe('surveyed: the Maltster runs only for a missing or stale map (ADR 0298)
     assert.deepEqual(end.ending, {
       kind: 'failed',
       retryable: true,
-      reason: `the guard testMapOnly: the attempt changed ${files.slice(0, 10).join(', ')} and 2 more; it may change .foedrum/test-map.jsonc only (ADR 0298)`,
+      reason: `the guard testMapOnly: the attempt changed ${files.slice(0, 10).join(', ')} and 2 more; it may change .foedrum/test-map.jsonc only`,
     });
   });
 
@@ -339,7 +339,7 @@ describe('surveyed: the Maltster runs only for a missing or stale map (ADR 0298)
       kind: 'failed',
       retryable: true,
       reason:
-        'the survey says its map is brewery, which only Foedrum says before a survey runs: say new or stale (ADR 0298)',
+        'the survey says its map is brewery, which only Foedrum says before a survey runs: say new or stale',
     });
   });
 
@@ -353,7 +353,7 @@ describe('surveyed: the Maltster runs only for a missing or stale map (ADR 0298)
       kind: 'failed',
       retryable: true,
       reason:
-        'the survey says its map is fresh, which only Foedrum says before a survey runs: say new or stale (ADR 0298)',
+        'the survey says its map is fresh, which only Foedrum says before a survey runs: say new or stale',
     });
   });
 });

@@ -264,8 +264,8 @@ describe('serveSetup', () => {
         }),
       ),
       [
-        'foedrum.jsonc: name the Brewery with "brewery": "<owner>/<name>" (ADR 0063)',
-        '.foedrum/local.jsonc: acme/web has the source local, so name its clone in "clones" (ADR 0063)',
+        'foedrum.jsonc: name the Brewery with "brewery": "<owner>/<name>"',
+        '.foedrum/local.jsonc: acme/web has the source local, so name its clone in "clones"',
       ],
     );
   });
@@ -427,7 +427,7 @@ describe('serveSetup', () => {
     for (const users of [undefined, []]) {
       const problems = refused(inputs({ files: { ...inputs().files, config: config({ users }) } }));
       assert.deepStrictEqual(problems, [
-        'foedrum.jsonc: list the GitHub users who may order work under "users" (ADR 0068)',
+        'foedrum.jsonc: list the GitHub users who may order work under "users"',
       ]);
     }
   });
@@ -446,7 +446,7 @@ describe('serveSetup: the isolation level of check steps (ADR 0076)', () => {
       }),
     );
     assert.deepStrictEqual(problems, [
-      'foedrum.jsonc requires the sandboxed isolation level, and check steps would run at permissions only (native Windows has no sandbox for shell commands) (ADR 0076)',
+      'foedrum.jsonc requires the sandboxed isolation level, and check steps would run at permissions only (native Windows has no sandbox for shell commands)',
     ]);
     // Where the level is sandboxed, where the Brewery requires no more, or without a check step.
     ready(inputs({ files: { ...files, config: requires('sandboxed') } }));
@@ -494,7 +494,7 @@ describe('serveSetup: the isolation level of check steps (ADR 0076)', () => {
       }),
     );
     assert.deepStrictEqual(problems, [
-      'foedrum.jsonc requires the sandboxed isolation level, and check steps would run at permissions only (native Windows has no sandbox for shell commands) (ADR 0076)',
+      'foedrum.jsonc requires the sandboxed isolation level, and check steps would run at permissions only (native Windows has no sandbox for shell commands)',
     ]);
   });
 
@@ -512,7 +512,7 @@ describe('serveSetup: the isolation level of check steps (ADR 0076)', () => {
     assert.deepStrictEqual(
       refused(inputs({ platform: 'win32', files: noChecks, diagnosis: diagnose(windows) })),
       [
-        "foedrum.jsonc requires the sandboxed isolation level, and acme/web's setup runs outside a sandbox on native Windows (ADR 0163)",
+        "foedrum.jsonc requires the sandboxed isolation level, and acme/web's setup runs outside a sandbox on native Windows",
       ],
     );
     ready(inputs({ platform: 'darwin', files: noChecks, diagnosis: diagnose(macos) }));

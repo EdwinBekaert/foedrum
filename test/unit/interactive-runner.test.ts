@@ -217,7 +217,7 @@ describe('interactiveBrewerRunnerWith (ADR 0127)', () => {
       kind: 'failed',
       retryable: true,
       reason:
-        "the attempt's commits hold what looks like a secret, or what the scan cannot read (ADR 0187): commit ffffffffffff, GitHub token in test/keys.test.ts",
+        "the attempt's commits hold what looks like a secret, or what the scan cannot read: commit ffffffffffff, GitHub token in test/keys.test.ts",
       secrets: true,
     });
   });

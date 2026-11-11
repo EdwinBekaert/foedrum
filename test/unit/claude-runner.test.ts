@@ -100,15 +100,15 @@ const setup = (
     outDoc?: string | undefined | { unread: string };
     /** A wait that never ends, so the attempt can be stopped while it waits. */
     waitForever?: boolean;
-    /** What git says of the commits after the start (ADR 0074); default one. */
+    /** What git says of the commits after the start; default one. */
     commits?: CommitsSeen;
-    /** What the secret scan finds in the commits after the start (ADR 0187); default nothing. */
+    /** What the secret scan finds in the commits after the start; default nothing. */
     scanned?: CommitsScanned;
     /** Runs while the commits are scanned, before the scan answers. */
     whileScanning?: () => void;
-    /** The paths git finds at a plan's commit (ADR 0233); default every path asked for. */
+    /** The paths git finds at a plan's commit; default every path asked for. */
     touched?: PathsRead;
-    /** Runs while a plan's paths are read, before the read answers (ADR 0233). */
+    /** Runs while a plan's paths are read, before the read answers. */
     whileReading?: () => void;
     /** Runs while the commits are counted, before the count answers. */
     whileCounting?: () => void;
@@ -146,9 +146,9 @@ const setup = (
   const read: { file: string; maxBytes: number; root: string }[] = [];
   /** Each out doc cleared, with how many starts of claude came before it. */
   const cleared: { file: string; root: string; starts: number }[] = [];
-  /** Each out doc put back from a copy, with how many starts of claude came before it (ADR 0175). */
+  /** Each out doc put back from a copy, with how many starts of claude came before it. */
   const restored: { file: string; root: string; copy: string; starts: number }[] = [];
-  /** Each copy of an out doc kept as an attempt ended (ADR 0175). */
+  /** Each copy of an out doc kept as an attempt ended. */
   const copied: { file: string; text: string }[] = [];
   let clock = 0;
   const deps: ClaudeRunnerDeps = {
@@ -596,7 +596,7 @@ describe('claudeBrewerRunner', () => {
           kind: 'failed',
           retryable: true,
           reason:
-            "the attempt's commits hold what looks like a secret, or what the scan cannot read (ADR 0187): commit 0123456789ab, GitHub token in test/keys.test.ts",
+            "the attempt's commits hold what looks like a secret, or what the scan cannot read: commit 0123456789ab, GitHub token in test/keys.test.ts",
           secrets: true,
         });
       });

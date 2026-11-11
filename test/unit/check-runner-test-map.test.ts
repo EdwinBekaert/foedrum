@@ -140,7 +140,7 @@ const setup = ({
   testExit = 0 as number | null,
   /** The typecheck check's exit code. */
   typecheckExit = 0,
-  /** Where the map is kept (ADR 0018). */
+  /** Where the map is kept. */
   keptIn = 'repo' as 'repo' | 'brewery',
   /** The tip map's manifests against the worktree's files. */
   manifests = { kind: 'fresh' } as ManifestFreshness,
@@ -555,7 +555,7 @@ describe('createCheckRunner: a stale test map (ADR 0274, ADR 0282)', () => {
       reason:
         'the test map of acme/api is stale: its derivedFrom.globs match ' +
         'svc/test/Billing.Tests/Billing.Tests.csproj (added), old/Old.csproj (removed); ' +
-        'update .foedrum/test-map.jsonc in this change (ADR 0274, ADR 0282)',
+        'update .foedrum/test-map.jsonc in this change',
     });
     // Before the run: no check ran.
     assert.equal(end.readings, undefined);

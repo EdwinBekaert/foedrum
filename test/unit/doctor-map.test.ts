@@ -65,7 +65,7 @@ describe('foedrum doctor: the system map (ADR 0317)', () => {
     const shown = report.slice(report.indexOf('System map'));
     assert.match(
       shown,
-      /^System map \(the planners' repositories input, ADR 0317\):\n- acme\/ladderlib, base origin\/main at e{12}\n {2}the greet library; tags a release on every merge\n {2}manifests: package\.json \(npm\)\n {2}publishes `@demo\/greet` \(npm\)\n- acme\/ladderapp, base origin\/main at e{12}\n {2}manifests: package\.json \(npm\)\n {2}publishes `web` \(npm\)\n {2}depends on `@demo\/greet` from acme\/ladderlib by version `1\.0\.0` \(npm\)\n- acme\/docs, base origin\/main: not read, it has no clone here yet\n\n/,
+      /^System map \(the planners' repositories input\):\n- acme\/ladderlib, base origin\/main at e{12}\n {2}the greet library; tags a release on every merge\n {2}manifests: package\.json \(npm\)\n {2}publishes `@demo\/greet` \(npm\)\n- acme\/ladderapp, base origin\/main at e{12}\n {2}manifests: package\.json \(npm\)\n {2}publishes `web` \(npm\)\n {2}depends on `@demo\/greet` from acme\/ladderlib by version `1\.0\.0` \(npm\)\n- acme\/docs, base origin\/main: not read, it has no clone here yet\n\n/,
     );
     assert.doesNotMatch(formatDiagnosis(diagnose(linux())), /System map/);
   });

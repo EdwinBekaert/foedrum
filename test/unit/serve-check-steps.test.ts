@@ -24,7 +24,7 @@ describe('runServe', () => {
 
   describe('a recipe with a check step (ADR 0069)', () => {
     const outsideSandbox =
-      'foedrum serve: check steps run outside an OS sandbox on native Windows: their commands can run code a brewer wrote, with network and home-folder access (ADR 0076)';
+      'foedrum serve: check steps run outside an OS sandbox on native Windows: their commands can run code a brewer wrote, with network and home-folder access';
 
     it('says at its start, once, that check steps run outside an OS sandbox on native Windows', async () => {
       assert.equal(await runServe({ ...f.setup, unsandboxedChecks: true }, shell()), 0);
@@ -58,7 +58,7 @@ describe('runServe', () => {
     // it, outside a sandbox on native Windows (ADR 0163).
     it("says at its start, once, that a repository's setup runs outside an OS sandbox on native Windows, with or without a check step", async () => {
       const setupOutside =
-        "foedrum serve: acme/web's setup runs outside an OS sandbox on native Windows, before brewer attempts and check steps: it can run code a brewer wrote, with network and home-folder access (ADR 0163)";
+        "foedrum serve: acme/web's setup runs outside an OS sandbox on native Windows, before brewer attempts and check steps: it can run code a brewer wrote, with network and home-folder access";
       const files = serveInputs().files;
       const withSetup = (recipes: typeof files.brewery.recipes) => {
         const ready = serveSetup(
@@ -576,7 +576,7 @@ describe('runServe', () => {
         retryable: false,
         reason:
           'the test map of acme/web is stale: its derivedFrom.globs match api/package.json (added); ' +
-          'update .foedrum/test-map.jsonc in this change (ADR 0274, ADR 0282)',
+          'update .foedrum/test-map.jsonc in this change',
       });
       // The change is read in the repository's clone, never in the check step's worktree.
       assert.ok(diffs.length > 0);

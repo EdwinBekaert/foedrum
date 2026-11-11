@@ -120,15 +120,15 @@ const setup = ({
   /** Why clearing the report fails, when it does. */
   clearFails = undefined as string | undefined,
   platform = 'linux' as NodeJS.Platform,
-  /** The repository's setup command, when it has one (ADR 0140). */
+  /** The repository's setup command, when it has one. */
   prepare = undefined as string | undefined,
   /** The setup's exit code. */
   prepareExit = 0,
-  /** The test map at each commit, when the runner reads maps (ADR 0274). */
+  /** The test map at each commit, when the runner reads maps. */
   maps = undefined as Record<string, MapRead> | undefined,
-  /** Where the repository's map is kept, when the runner is told (ADR 0018). */
+  /** Where the repository's map is kept, when the runner is told. */
   keptIn = undefined as 'repo' | 'brewery' | undefined,
-  /** The tip map's manifests against the worktree's files (ADR 0282). */
+  /** The tip map's manifests against the worktree's files. */
   manifests = { kind: 'fresh' } as ManifestFreshness,
   /** The paths among the map and its globs that the batch's change touched. */
   touched = [] as string[],
@@ -278,7 +278,7 @@ describe('createCheckRunner: the red proof (ADR 0078)', () => {
       kind: 'blocked',
       blockerKind: 'environment',
       summary:
-        'recipe nip proves its tests red, which needs a test map of acme/api: commit .foedrum/test-map.jsonc to acme/api, or add a survey step to the recipe (ADR 0297)',
+        'recipe nip proves its tests red, which needs a test map of acme/api: commit .foedrum/test-map.jsonc to acme/api, or add a survey step to the recipe',
     });
     assert.deepEqual(order, []);
   });
@@ -457,7 +457,7 @@ describe('createCheckRunner: the red proof (ADR 0078)', () => {
       kind: 'blocked',
       blockerKind: 'environment',
       summary:
-        'recipe nip proves its tests red, which needs a test map of acme/api: commit .foedrum/test-map.jsonc to acme/api, or add a survey step to the recipe (ADR 0297)',
+        'recipe nip proves its tests red, which needs a test map of acme/api: commit .foedrum/test-map.jsonc to acme/api, or add a survey step to the recipe',
     });
     assert.deepEqual(order, []);
   });
@@ -469,7 +469,7 @@ describe('createCheckRunner: the red proof (ADR 0078)', () => {
       kind: 'blocked',
       blockerKind: 'environment',
       summary:
-        'recipe nip proves its tests red, which needs a test map of acme/api: the Brewery keeps it and has none, so add test-maps/acme/api.jsonc to the Brewery (ADR 0297)',
+        'recipe nip proves its tests red, which needs a test map of acme/api: the Brewery keeps it and has none, so add test-maps/acme/api.jsonc to the Brewery',
     });
     assert.deepEqual(order, []);
   });
@@ -569,7 +569,7 @@ describe('createCheckRunner: the red proof and the test map (ADR 0274)', () => {
       retryable: false,
       reason:
         'the test map of acme/api is stale: its derivedFrom.globs match api/package.json (added); ' +
-        'update .foedrum/test-map.jsonc in this change (ADR 0274, ADR 0282)',
+        'update .foedrum/test-map.jsonc in this change',
     });
     assert.ok(!order.some((line) => line.startsWith('exec')), order.join('\n'));
   });
@@ -773,7 +773,7 @@ describe('createCheckRunner: the red proof reads every module of the test map (A
       kind: 'blocked',
       blockerKind: 'environment',
       summary:
-        'the test report pattern api/* of module "api" names a folder, api/TestResults: name the report file in the test map, such as api/TestResults/<file>.xml (ADR 0274)',
+        'the test report pattern api/* of module "api" names a folder, api/TestResults: name the report file in the test map, such as api/TestResults/<file>.xml',
     });
   });
 
@@ -839,7 +839,7 @@ describe('createCheckRunner: the red proof reads every module of the test map (A
       kind: 'blocked',
       blockerKind: 'environment',
       summary:
-        'module "billing" of the test map writes a TRX test report, which Foedrum does not read yet: make its tests write JUnit XML to a file and name that file in the test map (ADR 0274)',
+        'module "billing" of the test map writes a TRX test report, which Foedrum does not read yet: make its tests write JUnit XML to a file and name that file in the test map',
     });
     assert.ok(!order.some((line) => line.startsWith('exec')), order.join('\n'));
   });

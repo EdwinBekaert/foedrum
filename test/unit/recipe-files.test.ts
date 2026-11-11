@@ -232,7 +232,7 @@ describe('loadRecipes: fails closed', () => {
 
   it('refuses a recipe that names a brewer the Brewery does not have', () => {
     assert.deepEqual(problemsOf(brewery({ brewers: [brewmaster] })), [
-      'recipes/pale.jsonc: it names no brewer "maltster" that the Brewery\'s brewers/ or Foedrum\'s defaults have (ADR 0098)',
+      'recipes/pale.jsonc: it names no brewer "maltster" that the Brewery\'s brewers/ or Foedrum\'s defaults have',
     ]);
   });
 
@@ -257,7 +257,7 @@ describe('loadRecipes: fails closed', () => {
       problemsOf(brewery({ recipes: [recipe('pale', steps)] })),
       ids.map(
         (id, i) =>
-          `recipes/pale.jsonc: step "${id}" is a ${kinds[i]} step, which the engine does not brew yet (ADR 0053)`,
+          `recipes/pale.jsonc: step "${id}" is a ${kinds[i]} step, which the engine does not brew yet`,
       ),
     );
   });
@@ -274,7 +274,7 @@ describe('loadRecipes: fails closed', () => {
     assert.deepEqual(problemsOf(files), [
       'brewers/maltster.md: EACCES',
       'recipes/amber.jsonc: EISDIR',
-      'recipes/pale.jsonc: it names no brewer "gauger" that the Brewery\'s brewers/ or Foedrum\'s defaults have (ADR 0098)',
+      'recipes/pale.jsonc: it names no brewer "gauger" that the Brewery\'s brewers/ or Foedrum\'s defaults have',
     ]);
   });
 });
@@ -302,8 +302,8 @@ describe('loadRecipes: fails closed on what a brewer step cannot do yet (#151)',
         }),
       ),
       [
-        'recipes/pale.jsonc: step "taste" has a "lens", but its brewer "brewmaster" is no Taster: a lens step\'s brewer answers with the out doc schema "tasting" (ADR 0161)',
-        'recipes/pale.jsonc: step "mutants" has "blocking", which the engine does not follow yet (ADR 0053)',
+        'recipes/pale.jsonc: step "taste" has a "lens", but its brewer "brewmaster" is no Taster: a lens step\'s brewer answers with the out doc schema "tasting"',
+        'recipes/pale.jsonc: step "mutants" has "blocking", which the engine does not follow yet',
       ],
     );
   });
@@ -378,8 +378,8 @@ describe("loadRecipes: a when that reads the recipe's settings (ADR 0064)", () =
       { id: 'again', brewer: 'maltster', when: 'recipe.budget' },
     ];
     assert.deepEqual(problemsOf(brewery({ recipes: [recipe('pale', steps)] })), [
-      'recipes/pale.jsonc: step "taste" has a "when" that reads step "plan", which the engine does not follow yet (ADR 0064)',
-      'recipes/pale.jsonc: step "again" has a "when" that reads recipe.budget, which is not a recipe setting (ADR 0064)',
+      'recipes/pale.jsonc: step "taste" has a "when" that reads step "plan", which the engine does not follow yet',
+      'recipes/pale.jsonc: step "again" has a "when" that reads recipe.budget, which is not a recipe setting',
     ]);
   });
 });
@@ -487,9 +487,9 @@ describe('loadRecipes: a test-first recipe needs a red proof (ADR 0028, ADR 0064
     brewery({ recipes, brewers: [maltster, brewmaster, ...writers] });
   const red = { id: 'red', check: 'test', expect: 'fail', of: 'gauge' };
   const noProof = (name: string) =>
-    `recipes/${name}.jsonc: it is a test-first recipe without a red proof: add a check step with "expect": "fail" whose "of" names the step that commits the failing tests, or set testFirst: false (ADR 0064)`;
+    `recipes/${name}.jsonc: it is a test-first recipe without a red proof: add a check step with "expect": "fail" whose "of" names the step that commits the failing tests, or set testFirst: false`;
   const proofOfNothing =
-    'recipes/pale.jsonc: step "red" proves the tests of step "plan", whose brewer commits nothing (ADR 0078)';
+    'recipes/pale.jsonc: step "red" proves the tests of step "plan", whose brewer commits nothing';
 
   it('refuses a test-first recipe without a red proof, naming the fix', () => {
     const files = withWriters(
@@ -525,7 +525,7 @@ describe('loadRecipes: a test-first recipe needs a red proof (ADR 0028, ADR 0064
       { id: 'tidy', brewer: 'cellarman' },
     ];
     assert.deepEqual(problemsOf(withWriters(opened('pale', steps))), [
-      'recipes/pale.jsonc: step "implement" commits before the red proof "red" of step "gauge" (ADR 0064)',
+      'recipes/pale.jsonc: step "implement" commits before the red proof "red" of step "gauge"',
     ]);
   });
 
@@ -539,9 +539,9 @@ describe('loadRecipes: a test-first recipe needs a red proof (ADR 0028, ADR 0064
       red,
     ];
     const before = (id: string) =>
-      `recipes/pale.jsonc: step "${id}" commits before the red proof "red" of step "gauge" (ADR 0064)`;
+      `recipes/pale.jsonc: step "${id}" commits before the red proof "red" of step "gauge"`;
     assert.deepEqual(problemsOf(withWriters(opened('pale', steps))), [
-      'recipes/pale.jsonc: step "review" is a loop step, which the engine does not brew yet (ADR 0053)',
+      'recipes/pale.jsonc: step "review" is a loop step, which the engine does not brew yet',
       before('fix'),
     ]);
   });
@@ -554,7 +554,7 @@ describe('loadRecipes: a test-first recipe needs a red proof (ADR 0028, ADR 0064
       },
     ];
     assert.deepEqual(problemsOf(withWriters(opened('pale', steps))), [
-      'recipes/pale.jsonc: step "review" is a loop step, which the engine does not brew yet (ADR 0053)',
+      'recipes/pale.jsonc: step "review" is a loop step, which the engine does not brew yet',
     ]);
   });
 
@@ -836,9 +836,9 @@ describe('loadRecipes: check steps, the gravity readings (ADR 0069)', () => {
     assert.deepEqual(
       problemsOf(brewery({ recipes: [recipe('pale', steps, { testFirst: false })] })),
       [
-        'recipes/pale.jsonc: step "green" has a "when" that reads step "maltster", which the engine does not follow yet (ADR 0064)',
+        'recipes/pale.jsonc: step "green" has a "when" that reads step "maltster", which the engine does not follow yet',
         'recipes/pale.jsonc: step "slow" has a deadline of 366d, longer than 365 days',
-        'recipes/pale.jsonc: step "red" proves the tests of step "maltster", whose brewer commits nothing (ADR 0078)',
+        'recipes/pale.jsonc: step "red" proves the tests of step "maltster", whose brewer commits nothing',
       ],
     );
   });
@@ -897,7 +897,7 @@ describe('loadRecipes: fails closed on what an attempt plan cannot carry yet (#1
       brewers: [maltster, brewmaster, cellarman],
     });
     const refused = (what: string) =>
-      `recipes/stout.jsonc: step "brew" has the brewer "cellarman", with ${what}, which the engine does not follow yet (ADR 0059)`;
+      `recipes/stout.jsonc: step "brew" has the brewer "cellarman", with ${what}, which the engine does not follow yet`;
     assert.deepEqual(problemsOf(files), [
       refused('"skills"'),
       refused('"mcp"'),
@@ -927,7 +927,7 @@ describe('loadRecipes: fails closed on what an attempt plan cannot carry yet (#1
         ['scribbler', 'scratch'],
       ].map(
         ([name, tree]) =>
-          `recipes/stout.jsonc: step "${name}" has the brewer "${name}", with "tree": "${tree}", which the engine does not follow yet (ADR 0059)`,
+          `recipes/stout.jsonc: step "${name}" has the brewer "${name}", with "tree": "${tree}", which the engine does not follow yet`,
       ),
     );
   });
@@ -1058,7 +1058,7 @@ describe('loadRecipes: the openPullRequest action (ADR 0071)', () => {
         }),
       ),
       [
-        'recipes/pale.jsonc: step "open-pull-request" opens the pull request, so it must be the last step of the recipe (ADR 0071)',
+        'recipes/pale.jsonc: step "open-pull-request" opens the pull request, so it must be the last step of the recipe',
       ],
     );
   });
@@ -1094,8 +1094,8 @@ describe('loadRecipes: commits end in a pull request (ADR 0084)', () => {
         ]),
       ),
       [
-        'recipes/stout.jsonc: step "review" is a loop step, which the engine does not brew yet (ADR 0053)',
-        'recipes/stout.jsonc: step "fix" has the brewer "cellarman", which produces commits, and no step opens a pull request with them: end the recipe with { "action": "openPullRequest" } (ADR 0084)',
+        'recipes/stout.jsonc: step "review" is a loop step, which the engine does not brew yet',
+        'recipes/stout.jsonc: step "fix" has the brewer "cellarman", which produces commits, and no step opens a pull request with them: end the recipe with { "action": "openPullRequest" }',
       ],
     );
   });
@@ -1110,14 +1110,14 @@ describe('loadRecipes: commits end in a pull request (ADR 0084)', () => {
         ]),
       ),
       [
-        'recipes/stout.jsonc: step "open-pull-request" opens the pull request, so it must be the last step of the recipe (ADR 0071)',
+        'recipes/stout.jsonc: step "open-pull-request" opens the pull request, so it must be the last step of the recipe',
       ],
     );
   });
 
   it('refuses a recipe whose brewer commits and that does not end by opening the pull request', () => {
     assert.deepEqual(problemsOf(withCellarman([{ id: 'brew', brewer: 'cellarman' }])), [
-      'recipes/stout.jsonc: step "brew" has the brewer "cellarman", which produces commits, and no step opens a pull request with them: end the recipe with { "action": "openPullRequest" } (ADR 0084)',
+      'recipes/stout.jsonc: step "brew" has the brewer "cellarman", which produces commits, and no step opens a pull request with them: end the recipe with { "action": "openPullRequest" }',
     ]);
   });
 
@@ -1132,7 +1132,7 @@ describe('loadRecipes: commits end in a pull request (ADR 0084)', () => {
       ),
       ['brew', 'polish'].map(
         (id) =>
-          `recipes/stout.jsonc: step "${id}" has the brewer "cellarman", which produces commits, and no step opens a pull request with them: end the recipe with { "action": "openPullRequest" } (ADR 0084)`,
+          `recipes/stout.jsonc: step "${id}" has the brewer "cellarman", which produces commits, and no step opens a pull request with them: end the recipe with { "action": "openPullRequest" }`,
       ),
     );
   });
@@ -1257,7 +1257,7 @@ describe("loadRecipes: Foedrum's defaults under the Brewery's files (ADR 0098)",
         defaults: { lenses: [lens('test-design', 'Look at the tests.', 'defaults/lenses/diff')] },
       }),
       [
-        'brewers/taster.md: the brewer "taster" has the input "focus" from the lens "diff/sparkle", which neither the Brewery\'s lenses/ nor Foedrum\'s defaults have (ADR 0098)',
+        'brewers/taster.md: the brewer "taster" has the input "focus" from the lens "diff/sparkle", which neither the Brewery\'s lenses/ nor Foedrum\'s defaults have',
       ],
     );
   });
@@ -1289,9 +1289,7 @@ describe("loadRecipes: Foedrum's defaults under the Brewery's files (ADR 0098)",
     const atLimit = 'é'.repeat(512 * 1024);
     assert.deepEqual(
       problemsOf({ recipes: [], brewers: [], lenses: [lens('security', `${atLimit}x`)] }),
-      [
-        "lenses/diff/security.md: it is larger than 1048576 bytes, the limit of a brewer's input (ADR 0098)",
-      ],
+      ["lenses/diff/security.md: it is larger than 1048576 bytes, the limit of a brewer's input"],
     );
     valid({ recipes: [], brewers: [], lenses: [lens('security', atLimit)] });
   });
@@ -1321,9 +1319,7 @@ describe("loadRecipes: Foedrum's defaults under the Brewery's files (ADR 0098)",
     const tooLarge = lens('security', 'x'.repeat(1024 * 1024 + 1));
     assert.deepEqual(
       problemsOf({ recipes: [], brewers: [taster('lens:diff/security')], lenses: [tooLarge] }),
-      [
-        "lenses/diff/security.md: it is larger than 1048576 bytes, the limit of a brewer's input (ADR 0098)",
-      ],
+      ["lenses/diff/security.md: it is larger than 1048576 bytes, the limit of a brewer's input"],
     );
   });
 });
@@ -1349,7 +1345,7 @@ describe('loadRecipes: lenses in two folders, lenses/diff/ and lenses/plan/ (ADR
     );
     assert.ok(
       problems.includes(
-        'recipes/amber.jsonc: step "taste" reviews a plan, since no step before it commits, and names the lens "diff/security", which reviews a diff: name a lens of lenses/plan/ (ADR 0143)',
+        'recipes/amber.jsonc: step "taste" reviews a plan, since no step before it commits, and names the lens "diff/security", which reviews a diff: name a lens of lenses/plan/',
       ),
       problems.join('\n'),
     );
@@ -1365,7 +1361,7 @@ describe('loadRecipes: lenses in two folders, lenses/diff/ and lenses/plan/ (ADR
     );
     assert.ok(
       problems.includes(
-        'recipes/amber.jsonc: step "taste" reviews a diff, since step "cellarman" before it commits, and names the lens "plan/coverage", which reviews a plan: name a lens of lenses/diff/ (ADR 0143)',
+        'recipes/amber.jsonc: step "taste" reviews a diff, since step "cellarman" before it commits, and names the lens "plan/coverage", which reviews a plan: name a lens of lenses/diff/',
       ),
       problems.join('\n'),
     );
@@ -1395,7 +1391,7 @@ describe('loadRecipes: lenses in two folders, lenses/diff/ and lenses/plan/ (ADR
     );
     assert.ok(
       nestedLens.includes(
-        'recipes/amber.jsonc: step "taste" reviews a diff, since step "cellarman" before it commits, and names the lens "plan/coverage", which reviews a plan: name a lens of lenses/diff/ (ADR 0143)',
+        'recipes/amber.jsonc: step "taste" reviews a diff, since step "cellarman" before it commits, and names the lens "plan/coverage", which reviews a plan: name a lens of lenses/diff/',
       ),
       nestedLens.join('\n'),
     );
@@ -1411,7 +1407,7 @@ describe('loadRecipes: lenses in two folders, lenses/diff/ and lenses/plan/ (ADR
     );
     assert.ok(
       nestedCommit.includes(
-        'recipes/amber.jsonc: step "taste" reviews a diff, since step "fix" before it commits, and names the lens "plan/coverage", which reviews a plan: name a lens of lenses/diff/ (ADR 0143)',
+        'recipes/amber.jsonc: step "taste" reviews a diff, since step "fix" before it commits, and names the lens "plan/coverage", which reviews a plan: name a lens of lenses/diff/',
       ),
       nestedCommit.join('\n'),
     );
@@ -1436,7 +1432,7 @@ describe('loadRecipes: lenses in two folders, lenses/diff/ and lenses/plan/ (ADR
 
   it('says where a lens directly in lenses/ belongs even when it cannot be read or is too large', () => {
     const misplaced =
-      'lenses/security.md: a lens belongs in lenses/diff/, to review a diff, or lenses/plan/, to review a plan (ADR 0143)';
+      'lenses/security.md: a lens belongs in lenses/diff/, to review a diff, or lenses/plan/, to review a plan';
     for (const file of [
       { path: 'lenses/security.md', unreadable: 'EACCES: permission denied' },
       lensFile('lenses/security.md', 'x'.repeat(1024 * 1024 + 1)),
@@ -1454,8 +1450,8 @@ describe('loadRecipes: lenses in two folders, lenses/diff/ and lenses/plan/ (ADR
         defaults: { lenses: [lensFile('defaults/lenses/style.md')] },
       }),
       [
-        'lenses/security.md: a lens belongs in lenses/diff/, to review a diff, or lenses/plan/, to review a plan (ADR 0143)',
-        'defaults/lenses/style.md: a lens belongs in defaults/lenses/diff/, to review a diff, or defaults/lenses/plan/, to review a plan (ADR 0143)',
+        'lenses/security.md: a lens belongs in lenses/diff/, to review a diff, or lenses/plan/, to review a plan',
+        'defaults/lenses/style.md: a lens belongs in defaults/lenses/diff/, to review a diff, or defaults/lenses/plan/, to review a plan',
       ],
     );
   });
@@ -1571,7 +1567,7 @@ describe('loadRecipes: lens steps with a Taster (ADR 0161)', () => {
 
   it('refuses a Taster without a lens', () => {
     assert.deepEqual(problemsOf(tasting([{ id: 'taste', brewer: 'taster' }])), [
-      'recipes/amber.jsonc: step "taste" has the Taster "taster" and no "lens": name the lens it reviews through (ADR 0161)',
+      'recipes/amber.jsonc: step "taste" has the Taster "taster" and no "lens": name the lens it reviews through',
     ]);
   });
 
@@ -1579,7 +1575,7 @@ describe('loadRecipes: lens steps with a Taster (ADR 0161)', () => {
     assert.deepEqual(
       problemsOf(tasting([{ id: 'taste', brewer: 'taster', lens: 'diff/sparkle' }])),
       [
-        'recipes/amber.jsonc: step "taste" names the lens "diff/sparkle", which neither the Brewery\'s lenses/ nor Foedrum\'s defaults have (ADR 0161)',
+        'recipes/amber.jsonc: step "taste" names the lens "diff/sparkle", which neither the Brewery\'s lenses/ nor Foedrum\'s defaults have',
       ],
     );
   });
@@ -1594,7 +1590,7 @@ describe('loadRecipes: lens steps with a Taster (ADR 0161)', () => {
         tasting([{ id: 'taste', brewer: 'taster', lens: 'diff/security' }], [committer, own]),
       ),
       [
-        'recipes/amber.jsonc: step "taste" gives the Taster "taster" its lens as the input "lens", which the brewer has already (ADR 0161)',
+        'recipes/amber.jsonc: step "taste" gives the Taster "taster" its lens as the input "lens", which the brewer has already',
       ],
     );
   });
@@ -1654,7 +1650,7 @@ describe('loadRecipes: a parallel group of lens steps (ADR 0168)', () => {
         grouped([security, { id: 'notes', brewer: 'scribe' }], [committer, taster, scribe]),
       ),
       [
-        'recipes/amber.jsonc: step "notes" in the parallel group "tasting" has the brewer "scribe", which is no Taster: a parallel group runs Tasters\' lens steps (ADR 0168)',
+        'recipes/amber.jsonc: step "notes" in the parallel group "tasting" has the brewer "scribe", which is no Taster: a parallel group runs Tasters\' lens steps',
       ],
     );
   });
@@ -1674,14 +1670,14 @@ describe('loadRecipes: a parallel group of lens steps (ADR 0168)', () => {
         ),
       ),
       [
-        'recipes/amber.jsonc: step "rewrite" in the parallel group "tasting" has the Taster "writer", which produces commits: no child of a parallel group writes the task tree (ADR 0168)',
+        'recipes/amber.jsonc: step "rewrite" in the parallel group "tasting" has the Taster "writer", which produces commits: no child of a parallel group writes the task tree',
       ],
     );
   });
 
   it('refuses a child with a when', () => {
     assert.deepEqual(problemsOf(grouped([{ ...security, when: 'recipe.testFirst' }])), [
-      'recipes/amber.jsonc: step "security" in the parallel group "tasting" has a "when", which the engine does not follow in a parallel group yet (ADR 0168)',
+      'recipes/amber.jsonc: step "security" in the parallel group "tasting" has a "when", which the engine does not follow in a parallel group yet',
     ]);
   });
 
@@ -1722,7 +1718,7 @@ describe('loadRecipes: a parallel group of lens steps (ADR 0168)', () => {
         ],
       }),
       [
-        'recipes/amber.jsonc: step "tasting" has a "when" that reads step "cellarman", which the engine does not follow yet (ADR 0064)',
+        'recipes/amber.jsonc: step "tasting" has a "when" that reads step "cellarman", which the engine does not follow yet',
       ],
     );
   });
@@ -1742,7 +1738,7 @@ describe('loadRecipes: a parallel group of lens steps (ADR 0168)', () => {
         defaults: { lenses },
       }),
       [
-        'recipes/amber.jsonc: step "review" routes back to the parallel group "tasting": route to one of the steps before it (ADR 0168)',
+        'recipes/amber.jsonc: step "review" routes back to the parallel group "tasting": route to one of the steps before it',
       ],
     );
   });
@@ -1760,7 +1756,7 @@ describe('loadRecipes: a parallel group of lens steps (ADR 0168)', () => {
         defaults: { lenses },
       }),
       [
-        'recipes/amber.jsonc: step "recheck" routes back to the parallel group "tasting": route to one of the steps before it (ADR 0168)',
+        'recipes/amber.jsonc: step "recheck" routes back to the parallel group "tasting": route to one of the steps before it',
       ],
     );
   });
@@ -1778,7 +1774,7 @@ describe('loadRecipes: a parallel group of lens steps (ADR 0168)', () => {
         defaults: { lenses },
       }),
       [
-        'recipes/amber.jsonc: step "open-pull-request" routes back to the parallel group "tasting": route to one of the steps before it (ADR 0168)',
+        'recipes/amber.jsonc: step "open-pull-request" routes back to the parallel group "tasting": route to one of the steps before it',
       ],
     );
   });
@@ -1825,14 +1821,14 @@ describe('loadRecipes: an interactive brewer step (ADR 0222)', () => {
     const child = { id: 'security', brewer: 'taster', lens: 'diff/security', ...talking };
     const onFindings = { goto: 'cellarman', maxRounds: 1 };
     assert.deepEqual(problemsOf(tasting([{ id: 'taste', parallel: [child], onFindings }])), [
-      'recipes/amber.jsonc: step "security" in the parallel group "taste" is interactive: a parallel group runs its children side by side, and a session needs the terminal to itself (ADR 0222)',
+      'recipes/amber.jsonc: step "security" in the parallel group "taste" is interactive: a parallel group runs its children side by side, and a session needs the terminal to itself',
     ]);
   });
 
   it("refuses one with a lens: a lens step is a Taster's headless review", () => {
     const step = { id: 'taste', brewer: 'taster', lens: 'diff/security', ...talking };
     assert.deepEqual(problemsOf(tasting([step])), [
-      'recipes/amber.jsonc: step "taste" is interactive and has a "lens": a lens step is a Taster\'s headless review (ADR 0222)',
+      'recipes/amber.jsonc: step "taste" is interactive and has a "lens": a lens step is a Taster\'s headless review',
     ]);
   });
 
@@ -1840,7 +1836,7 @@ describe('loadRecipes: an interactive brewer step (ADR 0222)', () => {
     const lenses = ['diff/security', 'diff/correctness'];
     const step = { id: 'taste', brewer: 'taster', lenses, ...talking };
     assert.deepEqual(problemsOf(tasting([step])), [
-      'recipes/amber.jsonc: step "taste" is interactive and has a "lenses": a lens step is a Taster\'s headless review (ADR 0222)',
+      'recipes/amber.jsonc: step "taste" is interactive and has a "lenses": a lens step is a Taster\'s headless review',
     ]);
   });
 });
@@ -1937,7 +1933,7 @@ describe('loadRecipes: a step a person chooses at gate 1 (ADR 0286, #589)', () =
   it('refuses two steps chosen by the same option (#589)', () => {
     const steps = [{ id: 'plan', brewer: 'brewmaster' }, lauter('fix'), lauter('mend')];
     assert.deepEqual(problemsOf(brewery({ recipes: [recipe('pale', steps)] })), [
-      'recipes/pale.jsonc: steps "fix" and "mend" are both chosen by lauter: a person\'s choice schedules one step (ADR 0286)',
+      'recipes/pale.jsonc: steps "fix" and "mend" are both chosen by lauter: a person\'s choice schedules one step',
     ]);
   });
 });
@@ -2250,15 +2246,15 @@ describe('loadRecipes: a Taster step that names several lenses together (#560, A
   it('refuses lenses on a brewer that is no Taster, as it refuses a lens', () => {
     const { onFindings: _route, ...unrouted } = together;
     assert.deepEqual(problemsOf(tasting([{ ...unrouted, brewer: 'cellarman' }])), [
-      'recipes/amber.jsonc: step "taste" has "lenses", but its brewer "cellarman" is no Taster: a lens step\'s brewer answers with the out doc schema "tasting" (ADR 0161, ADR 0220)',
+      'recipes/amber.jsonc: step "taste" has "lenses", but its brewer "cellarman" is no Taster: a lens step\'s brewer answers with the out doc schema "tasting"',
     ]);
   });
 
   it('refuses each lens of the list that neither the Brewery nor the defaults have, naming it', () => {
     const unknown = { ...together, lenses: ['diff/sparkle', 'diff/security', 'diff/glitter'] };
     assert.deepEqual(problemsOf(tasting([unknown])), [
-      'recipes/amber.jsonc: step "taste" names the lens "diff/sparkle", which neither the Brewery\'s lenses/ nor Foedrum\'s defaults have (ADR 0161)',
-      'recipes/amber.jsonc: step "taste" names the lens "diff/glitter", which neither the Brewery\'s lenses/ nor Foedrum\'s defaults have (ADR 0161)',
+      'recipes/amber.jsonc: step "taste" names the lens "diff/sparkle", which neither the Brewery\'s lenses/ nor Foedrum\'s defaults have',
+      'recipes/amber.jsonc: step "taste" names the lens "diff/glitter", which neither the Brewery\'s lenses/ nor Foedrum\'s defaults have',
     ]);
   });
 
@@ -2270,7 +2266,7 @@ describe('loadRecipes: a Taster step that names several lenses together (#560, A
       defaults: { lenses: [...lensFiles, { path: 'defaults/lenses/plan/coverage.md', text: 'x' }] },
     });
     assert.deepEqual(problems, [
-      'recipes/amber.jsonc: step "taste" reviews a diff, since step "cellarman" before it commits, and names the lens "plan/coverage", which reviews a plan: name a lens of lenses/diff/ (ADR 0143)',
+      'recipes/amber.jsonc: step "taste" reviews a diff, since step "cellarman" before it commits, and names the lens "plan/coverage", which reviews a plan: name a lens of lenses/diff/',
     ]);
   });
 });
@@ -2324,7 +2320,7 @@ describe('loadRecipes: a step whose answer chooses the recipe (ADR 0232)', () =>
 
   it('refuses the step without "chooses", whose answer nothing would act on', () => {
     assert.deepEqual(problemsOf(files({})), [
-      'recipes/mash-in.jsonc: step "innkeep" has the brewer "innkeeper", which answers with the out doc schema "recipeChoice": give the step "chooses": "recipe" (ADR 0232)',
+      'recipes/mash-in.jsonc: step "innkeep" has the brewer "innkeeper", which answers with the out doc schema "recipeChoice": give the step "chooses": "recipe"',
     ]);
   });
 
@@ -2333,7 +2329,7 @@ describe('loadRecipes: a step whose answer chooses the recipe (ADR 0232)', () =>
       recipes: [recipe('pale', [{ brewer: 'maltster', chooses: 'recipe' }])],
     });
     assert.deepEqual(problemsOf(files), [
-      'recipes/pale.jsonc: step "maltster" has "chooses", but its brewer "maltster" does not answer with the out doc schema "recipeChoice" (ADR 0232)',
+      'recipes/pale.jsonc: step "maltster" has "chooses", but its brewer "maltster" does not answer with the out doc schema "recipeChoice"',
     ]);
   });
 });
@@ -2417,7 +2413,7 @@ describe("loadRecipes: a check that reads a survey's test map (ADR 0298)", () =>
     });
     assert.ok(
       problemsOf(refused).includes(
-        'recipes/stout.jsonc: step "survey-check" reads the test map of step "survey", which is no earlier step whose brewer answers with the out doc schema "survey" (ADR 0298)',
+        'recipes/stout.jsonc: step "survey-check" reads the test map of step "survey", which is no earlier step whose brewer answers with the out doc schema "survey"',
       ),
       problemsOf(refused).join('\n'),
     );
@@ -2430,7 +2426,7 @@ describe("loadRecipes: a check that reads a survey's test map (ADR 0298)", () =>
     });
     assert.ok(
       problemsOf(unguarded).includes(
-        'recipes/stout.jsonc: it is a test-first recipe without a red proof: add a check step with "expect": "fail" whose "of" names the step that commits the failing tests, or set testFirst: false (ADR 0064)',
+        'recipes/stout.jsonc: it is a test-first recipe without a red proof: add a check step with "expect": "fail" whose "of" names the step that commits the failing tests, or set testFirst: false',
       ),
       problemsOf(unguarded).join('\n'),
     );
@@ -2438,7 +2434,7 @@ describe("loadRecipes: a check that reads a survey's test map (ADR 0298)", () =>
 
   it("refuses a survey's check that runs no test check", () => {
     assert.deepEqual(problemsOf(files({ check: 'lint' })), [
-      'recipes/stout.jsonc: step "survey-check" reads the test map of survey "survey" against one run, so its checks must include "test" (ADR 0298)',
+      'recipes/stout.jsonc: step "survey-check" reads the test map of survey "survey" against one run, so its checks must include "test"',
     ]);
   });
 });
@@ -2471,34 +2467,34 @@ describe("loadRecipes: a Taster's findings always have a route, onFindings (ADR 
 
   it('refuses a group of Tasters without onFindings, naming the fix', () => {
     assert.deepEqual(problemsOf(amber([{ id: 'tasting', parallel: [correctness, security] }])), [
-      'recipes/amber.jsonc: step "tasting" is a parallel group of Tasters without "onFindings": add "onFindings": { "goto": <a step before the group>, "maxRounds": 2 }, where their findings send the batch back (ADR 0354)',
+      'recipes/amber.jsonc: step "tasting" is a parallel group of Tasters without "onFindings": add "onFindings": { "goto": <a step before the group>, "maxRounds": 2 }, where their findings send the batch back',
     ]);
   });
 
   it("refuses a Taster's step on its own without onFindings, naming the fix", () => {
     assert.deepEqual(problemsOf(amber([security])), [
-      'recipes/amber.jsonc: step "security" is a Taster\'s step without "onFindings": add "onFindings": { "goto": <a step before it>, "maxRounds": 2 }, where its findings send the batch back (ADR 0354)',
+      'recipes/amber.jsonc: step "security" is a Taster\'s step without "onFindings": add "onFindings": { "goto": <a step before it>, "maxRounds": 2 }, where its findings send the batch back',
     ]);
   });
 
   it('refuses blocking on a Taster in a group, whose findings go back along the group', () => {
     const blocking = { ...correctness, blocking: true };
     assert.deepEqual(problemsOf(amber([group({ parallel: [blocking, security] })])), [
-      'recipes/amber.jsonc: step "correctness" has "blocking": a Taster\'s findings always go back, along "onFindings" on its parallel group (ADR 0354)',
+      'recipes/amber.jsonc: step "correctness" has "blocking": a Taster\'s findings always go back, along "onFindings" on its parallel group',
     ]);
   });
 
   it("refuses onBlocked on a Taster's step on its own, naming onFindings", () => {
     const routed = { ...security, onBlocked: { findings: back } };
     assert.deepEqual(problemsOf(amber([routed])), [
-      'recipes/amber.jsonc: step "security" has "onBlocked": a Taster\'s findings go back along "onFindings" on its step (ADR 0354)',
+      'recipes/amber.jsonc: step "security" has "onBlocked": a Taster\'s findings go back along "onFindings" on its step',
     ]);
   });
 
   it("refuses onFindings on a child of a group, which is the group's", () => {
     const child = { ...security, onFindings: back };
     assert.deepEqual(problemsOf(amber([group({ parallel: [correctness, child] })])), [
-      'recipes/amber.jsonc: step "security" in the parallel group "tasting" has "onFindings": put it on the group, whose children share its rounds (ADR 0354)',
+      'recipes/amber.jsonc: step "security" in the parallel group "tasting" has "onFindings": put it on the group, whose children share its rounds',
     ]);
   });
 
@@ -2506,7 +2502,7 @@ describe("loadRecipes: a Taster's findings always have a route, onFindings (ADR 
     const scribe = brewer('scribe');
     const notes = { id: 'notes', brewer: 'scribe', onFindings: back };
     assert.deepEqual(problemsOf(amber([notes], [committer, taster, scribe])), [
-      'recipes/amber.jsonc: step "notes" has "onFindings", but its brewer "scribe" is no Taster: only a Taster\'s findings take that route (ADR 0354)',
+      'recipes/amber.jsonc: step "notes" has "onFindings", but its brewer "scribe" is no Taster: only a Taster\'s findings take that route',
     ]);
   });
 
@@ -2526,7 +2522,7 @@ describe("loadRecipes: a Taster's findings always have a route, onFindings (ADR 
       { id: 'second', parallel: [security], onFindings: { goto: 'first', maxRounds: 1 } },
     ];
     assert.deepEqual(problemsOf(amber(steps)), [
-      'recipes/amber.jsonc: step "second" routes back to the parallel group "first": route to one of the steps before it (ADR 0168)',
+      'recipes/amber.jsonc: step "second" routes back to the parallel group "first": route to one of the steps before it',
     ]);
   });
 
@@ -2624,7 +2620,7 @@ describe("loadRecipes: a Taster's findings always have a route, onFindings (ADR 
   it("refuses everyRound on a Taster's step on its own, naming the fix (ADR 0357)", () => {
     const alone = { ...security, onFindings: back, everyRound: true };
     assert.deepEqual(problemsOf(amber([alone])), [
-      'recipes/amber.jsonc: step "security" has "everyRound", but is in no parallel group: a Taster\'s step on its own runs again after every round back; take "everyRound" off (ADR 0357)',
+      'recipes/amber.jsonc: step "security" has "everyRound", but is in no parallel group: a Taster\'s step on its own runs again after every round back; take "everyRound" off',
     ]);
   });
 
@@ -2632,7 +2628,7 @@ describe("loadRecipes: a Taster's findings always have a route, onFindings (ADR 
     const scribe = brewer('scribe');
     const notes = { id: 'notes', brewer: 'scribe', everyRound: true };
     assert.deepEqual(problemsOf(amber([notes], [committer, taster, scribe])), [
-      'recipes/amber.jsonc: step "notes" has "everyRound", but its brewer "scribe" is no Taster: only a Taster\'s step in a parallel group with "onFindings" runs again every round; take "everyRound" off (ADR 0357)',
+      'recipes/amber.jsonc: step "notes" has "everyRound", but its brewer "scribe" is no Taster: only a Taster\'s step in a parallel group with "onFindings" runs again every round; take "everyRound" off',
     ]);
   });
 });
