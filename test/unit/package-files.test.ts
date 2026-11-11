@@ -1,5 +1,5 @@
 // The package ships the program, never the tests' fakes or the development scripts that use them,
-// such as npm run demo's (ADR 0097).
+// such as npm run demo's (ADR 0097): the JavaScript emitted from src/ and the files it reads (ADR 0377).
 
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
@@ -28,7 +28,12 @@ describe('the shipped package', () => {
     const { files } = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')) as {
       files?: string[];
     };
-    assert.deepStrictEqual(files, ['src/', 'defaults/', 'schemas/']);
+    assert.deepStrictEqual(files, [
+      'dist/',
+      'defaults/',
+      'schemas/',
+      'src/platform/job-object.ps1',
+    ]);
   });
 
   it('has no module under src/ that imports from test/ or scripts/', () => {
