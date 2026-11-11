@@ -17,6 +17,10 @@ describe('plainWithin', () => {
     assert.doesNotMatch(plain('@alice'), /&#64;/);
   });
 
+  it("leaves a name's trailing -, / or . outside its code span: regression test", () => {
+    assert.equal(plain('@alice-, @org/ x @bob.'), '`@alice`-, `@org`/ x `@bob`.');
+  });
+
   it('keeps an @ that starts no login as it is', () => {
     assert.equal(plain('a @ b, @@, @_x, @'), 'a @ b, @@, @\\_x, @');
   });

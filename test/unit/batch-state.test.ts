@@ -97,6 +97,38 @@ describe('batchState', () => {
     });
   });
 
+  it('a paused ordered batch is queued by the pause, not for its recipe: regression test', () => {
+    assert.deepEqual(of({ kind: 'ordered', routeBy: at }, { paused: true }), {
+      kind: 'queued',
+      by: { kind: 'pause' },
+    });
+  });
+
+  it('every Stuck reason of a failure waits for you to look at it: regression test', () => {
+    const reasons: StuckReason[] = [
+      { kind: 'blocked', stepId: 'plan', blockerKind: 'findings', summary: 'open findings' },
+      { kind: 'attempts_exhausted', stepId: 'plan', attempts: 3, lastReason: 'tests fail' },
+      { kind: 'failing', stepId: 'plan', pass: 'effects', since: at, summary: 'gh failed' },
+      { kind: 'stalled', stepId: 'plan', lastProgressAt: at, turnsWithoutProgress: 30 },
+      {
+        kind: 'pull_request_failed',
+        stepId: 'open-pull-request',
+        pullRequest: pr,
+        head: 'c'.repeat(40),
+        rounds: 2,
+        failed: [],
+        more: 0,
+      },
+    ];
+    for (const reason of reasons) {
+      assert.deepEqual(
+        of(stuck(reason)),
+        { kind: 'waiting', for: { kind: 'look-at-failure' } },
+        reason.kind,
+      );
+    }
+  });
+
   it('each Stuck reason waits for you, for what a person does about it', () => {
     const question = { q: 'Which?', options: ['a', 'b'], recommended: 'a', whyBlocking: 'Both.' };
     const cases: [StuckReason, string][] = [
@@ -204,6 +236,18 @@ describe('batchState', () => {
       by: { kind: 'not-ordered' },
       subOrder: 8,
     });
+  });
+
+  it("a merged sub-order with no batch is over: the order takes the next sub-order's state: regression test", () => {
+    assert.deepEqual(
+      batchState(split, {
+        subOrders: [
+          { row: row(8, { state: 'merged', pullRequest: pr }) },
+          { row: row(9, { state: 'open' }), latest: { kind: 'queued', by: { kind: 'recipe' } } },
+        ],
+      }),
+      { kind: 'queued', by: { kind: 'recipe' }, subOrder: 9 },
+    );
   });
 
   it('a sub-order that keeps its order open waits for you to look at it, with why', () => {

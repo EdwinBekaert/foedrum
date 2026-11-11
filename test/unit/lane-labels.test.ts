@@ -294,6 +294,19 @@ describe('laneLabelEffects', () => {
     assert.deepEqual(revision(2), { result: { label: 'foedrum:look-at-failure' } });
   });
 
+  it('a revision takes off a label this Foedrum retired, such as foedrum:awaiting-merge: regression test', async () => {
+    // A driver before ADR 0379 left foedrum:awaiting-merge on the issue, and recorded it.
+    order();
+    store.withTransaction((tx) =>
+      tx.recordEffect({ batchId: '7-1', effect: 'label.1' }, { label: 'foedrum:awaiting-merge' }),
+    );
+    labels.of(brewery, 7).push('foedrum:awaiting-merge');
+    const driver = await open();
+    await driver.tick();
+    assert.deepEqual(labels.of(brewery, 7), ['foedrum:queued']);
+    assert.ok(labels.calls.includes('remove foedrum:awaiting-merge'));
+  });
+
   describe('a claimed target issue (ADR 0144)', () => {
     const order = { issue: 3, repo: 'alice/web' };
     /** The ledger records that `batchId` opened the Brewery issue #20 as its order. */
