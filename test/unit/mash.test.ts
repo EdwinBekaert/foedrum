@@ -13,10 +13,12 @@ import { type BrewRequest, runBrew } from '../../src/cli/brew.ts';
 import type { ServeShell } from '../../src/cli/serve.ts';
 import { type ServeSetup, serveSetup } from '../../src/cli/serve-config.ts';
 import { planDigest } from '../../src/engine/admit.ts';
+import { nextBatchId } from '../../src/engine/batch-id.ts';
 import type { AttemptStart, BrewerRunner } from '../../src/engine/brewer-runner.ts';
 import { readBreweryFiles } from '../../src/engine/brewery-files.ts';
 import { createCommandLog } from '../../src/engine/command-log.ts';
 import type { EventStore } from '../../src/engine/event-store.ts';
+import { emptyState } from '../../src/engine/fold.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import { code, plain } from '../../src/engine/status-comment.ts';
 import { recipeText } from '../helpers/brewery-files.ts';
@@ -34,6 +36,9 @@ import { config, local, serveInputs } from '../helpers/serve-brewery.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 
 const t0 = new Date('2026-10-28T12:00:00.000Z');
+
+// Batch ids carry the time they were ordered (ADR 0380): those made at `t0`.
+const breweryIdOf = (issue: number): string => nextBatchId(emptyState, issue, t0);
 
 /** Three sub-orders, every field of the plan among them (ADR 0233). */
 const subOrders = [
@@ -258,7 +263,7 @@ describe('foedrum brew on recipe:mash, with the default Brewmaster (ADR 0234)', 
 
   it('ends Stuck for a review of its plan, not on tap, naming the plan comment (#658)', async () => {
     assert.equal(await runBrew(setup, shell([planned]), request), 3, lines.join('\n'));
-    assert.deepEqual(log().state().batches.get('12-1')?.lane, {
+    assert.deepEqual(log().state().batches.get(breweryIdOf(12))?.lane, {
       kind: 'stuck',
       reason: { kind: 'plan_review', stepId: 'plan', attempt: 1 },
       options: ['approve', 'lauter', 'retry', 'recipe', 'cancel'],
@@ -374,7 +379,10 @@ describe('foedrum brew on recipe:mash, with the default Brewmaster (ADR 0234)', 
   it('asks its question, and the answer resumes the same session to the plan', async () => {
     assert.equal(await runBrew(setup, shell([behave.needInput()]), request), 4);
     const answers = [{ q: question.q, answer: 'sqlite' }];
-    log().issue({ kind: 'answer', batchId: '12-1', by: 'ann', via: 'terminal', answers }, t0);
+    log().issue(
+      { kind: 'answer', batchId: breweryIdOf(12), by: 'ann', via: 'terminal', answers },
+      t0,
+    );
     assert.equal(await runBrew(setup, shell([planned]), request), 3, lines.join('\n'));
     assert.deepStrictEqual(started, ['plan#1', 'plan#2']);
     const [one, two] = sessions();
@@ -444,7 +452,7 @@ describe('foedrum brew on recipe:mash, with the default Brewmaster (ADR 0234)', 
     it("a Brewery order's plan attempt in a Brewery of two repositories gets a checkout of each at its base", async () => {
       assert.equal(await runBrew(setup, inCheckouts([behave.needInput()]), request), 4);
       assert.deepStrictEqual(started, ['plan#1']);
-      const folder = join(dir.path, 'brewery-orders', '12-1', 'plan', '1');
+      const folder = join(dir.path, 'brewery-orders', breweryIdOf(12), 'plan', '1');
       assert.deepStrictEqual(cwds, [folder]);
       // Beside the Brewmaster's out doc, which it writes in its working directory.
       const listed = readdirSync(folder, { withFileTypes: true });
@@ -559,7 +567,8 @@ describe('foedrum brew on recipe:mash, with the default Brewmaster (ADR 0234)', 
         lines.join('\n'),
       );
       assert.doesNotMatch(prompts[1] ?? '', /name="change"/);
-      const { lane } = log().state().batches.get('12-1') ?? assert.fail('no batch 12-1');
+      const { lane } =
+        log().state().batches.get(breweryIdOf(12)) ?? assert.fail(`no batch ${breweryIdOf(12)}`);
       assert.equal(lane.kind === 'stuck' ? lane.reason.kind : lane.kind, 'blocked');
       const status = comments().find(({ body }) => body.includes('Foedrum · batch'))?.body ?? '';
       assert.ok(status.includes(finding.why), status);
@@ -662,7 +671,8 @@ describe('foedrum brew on recipe:mash, with the default Brewmaster (ADR 0234)', 
         lines.join('\n'),
       );
       assert.deepStrictEqual(started, ['plan#1', 'naive#1', 'plan#2', 'naive#2']);
-      const { lane } = log().state().batches.get('12-1') ?? assert.fail('no batch 12-1');
+      const { lane } =
+        log().state().batches.get(breweryIdOf(12)) ?? assert.fail(`no batch ${breweryIdOf(12)}`);
       assert.deepStrictEqual(lane.kind === 'stuck' ? lane.reason : lane, {
         kind: 'plan_review',
         stepId: 'plan',
@@ -773,7 +783,8 @@ describe('foedrum brew on recipe:mash, with the default Brewmaster (ADR 0234)', 
       );
       const script = [planned, blocks, replanned, stillBlocks, replanned, stillBlocks];
       assert.equal(await runBrew(setup, tasting(script), request), 3, lines.join('\n'));
-      const { lane } = log().state().batches.get('12-1') ?? assert.fail('no batch 12-1');
+      const { lane } =
+        log().state().batches.get(breweryIdOf(12)) ?? assert.fail(`no batch ${breweryIdOf(12)}`);
       assert.equal(lane.kind === 'stuck' ? lane.reason.kind : lane.kind, 'blocked');
       const last = started.filter((ref) => ref.startsWith('naive#')).length;
       const shown = planComment() ?? assert.fail(JSON.stringify(comments()));
@@ -836,7 +847,7 @@ describe('foedrum brew on recipe:mash, with the default Brewmaster (ADR 0234)', 
       },
       'Corrected',
     );
-    const lauter: BrewRequest = { ...request, lauter: '12-1' };
+    const lauter: BrewRequest = { ...request, lauter: breweryIdOf(12) };
     const resumedBy = () =>
       store
         .eventsAfter(0)
@@ -849,7 +860,8 @@ describe('foedrum brew on recipe:mash, with the default Brewmaster (ADR 0234)', 
       assert.equal(await runBrew(setup, shell([corrected]), lauter), 3, lines.join('\n'));
       assert.deepStrictEqual(started, ['plan#1', 'lauter#1']);
       assert.deepStrictEqual(resumedBy(), ['lauter by ann via terminal']);
-      const { lane } = log().state().batches.get('12-1') ?? assert.fail('no batch 12-1');
+      const { lane } =
+        log().state().batches.get(breweryIdOf(12)) ?? assert.fail(`no batch ${breweryIdOf(12)}`);
       assert.deepStrictEqual(lane.kind === 'stuck' ? lane.reason : lane, {
         kind: 'plan_review',
         stepId: 'lauter',
@@ -879,7 +891,8 @@ describe('foedrum brew on recipe:mash, with the default Brewmaster (ADR 0234)', 
       assert.equal(await runBrew(setup, shell([planned]), request), 3, lines.join('\n'));
       assert.equal(await runBrew(setup, shell([invalid]), lauter), 3, lines.join('\n'));
       assert.deepStrictEqual(started, ['plan#1', 'lauter#1']);
-      const { lane } = log().state().batches.get('12-1') ?? assert.fail('no batch 12-1');
+      const { lane } =
+        log().state().batches.get(breweryIdOf(12)) ?? assert.fail(`no batch ${breweryIdOf(12)}`);
       assert.deepStrictEqual(lane.kind === 'stuck' ? lane.reason : lane, {
         kind: 'waiting_for_session',
         stepId: 'lauter',
@@ -889,9 +902,15 @@ describe('foedrum brew on recipe:mash, with the default Brewmaster (ADR 0234)', 
     it("signs off the session's plan, by its digest, on an approve after it (#589)", async () => {
       assert.equal(await runBrew(setup, shell([planned]), request), 3, lines.join('\n'));
       assert.equal(await runBrew(setup, shell([corrected]), lauter), 3, lines.join('\n'));
-      const approve = { kind: 'approve', batchId: '12-1', by: 'ann', via: 'terminal' } as const;
+      const approve = {
+        kind: 'approve',
+        batchId: breweryIdOf(12),
+        by: 'ann',
+        via: 'terminal',
+      } as const;
       assert.equal(log().issue(approve, t0).kind, 'accepted');
-      const batch = log().state().batches.get('12-1') ?? assert.fail('no batch 12-1');
+      const batch =
+        log().state().batches.get(breweryIdOf(12)) ?? assert.fail(`no batch ${breweryIdOf(12)}`);
       const digest = planDigest(batch, 'lauter', 1) ?? assert.fail('no plan of lauter #1');
       assert.notEqual(digest, planDigest(batch, 'plan', 1));
       assert.deepStrictEqual(batch.approval && { ...batch.approval }, {
@@ -910,7 +929,8 @@ describe('foedrum brew on recipe:mash, with the default Brewmaster (ADR 0234)', 
       assert.equal(await runBrew(setup, shell([]), piped), 3, lines.join('\n'));
       assert.deepStrictEqual(started, ['plan#1']);
       assert.deepStrictEqual(resumedBy(), ['lauter by ann via terminal']);
-      const { lane } = log().state().batches.get('12-1') ?? assert.fail('no batch 12-1');
+      const { lane } =
+        log().state().batches.get(breweryIdOf(12)) ?? assert.fail(`no batch ${breweryIdOf(12)}`);
       assert.deepStrictEqual(lane.kind === 'stuck' ? lane.reason : lane, {
         kind: 'waiting_for_session',
         stepId: 'lauter',
@@ -922,7 +942,7 @@ describe('foedrum brew on recipe:mash, with the default Brewmaster (ADR 0234)', 
       assert.equal(await runBrew(setup, shell([]), lauter), 5, lines.join('\n'));
       assert.equal(
         lines.at(-1),
-        'foedrum lauter: batch 12-1 is stuck on needs input, not on a plan to review',
+        `foedrum lauter: batch ${breweryIdOf(12)} is stuck on needs input, not on a plan to review`,
       );
       assert.deepStrictEqual(resumedBy(), []);
     });
@@ -980,10 +1000,18 @@ describe('foedrum brew on recipe:mash, with the default Brewmaster (ADR 0234)', 
 
     it("refuses a lauter of a batch on tap, in decide's words: regression test (#589)", async () => {
       assert.equal(await runBrew(setup, shell([planned]), request), 3, lines.join('\n'));
-      const approve = { kind: 'approve', batchId: '12-1', by: 'ann', via: 'terminal' } as const;
+      const approve = {
+        kind: 'approve',
+        batchId: breweryIdOf(12),
+        by: 'ann',
+        via: 'terminal',
+      } as const;
       assert.equal(log().issue(approve, t0).kind, 'accepted');
       assert.equal(await runBrew(setup, shell([]), lauter), 5, lines.join('\n'));
-      assert.equal(lines.at(-1), 'foedrum lauter: batch 12-1 is on_tap; lauter needs it stuck');
+      assert.equal(
+        lines.at(-1),
+        `foedrum lauter: batch ${breweryIdOf(12)} is on_tap; lauter needs it stuck`,
+      );
       assert.deepStrictEqual(resumedBy(), []);
     });
 
@@ -996,12 +1024,17 @@ describe('foedrum brew on recipe:mash, with the default Brewmaster (ADR 0234)', 
 
     it("lauters the batch it names, never the issue's later batch (#589)", async () => {
       assert.equal(await runBrew(setup, shell([planned]), request), 3, lines.join('\n'));
-      const approve = { kind: 'approve', batchId: '12-1', by: 'ann', via: 'terminal' } as const;
+      const approve = {
+        kind: 'approve',
+        batchId: breweryIdOf(12),
+        by: 'ann',
+        via: 'terminal',
+      } as const;
       assert.equal(log().issue(approve, t0).kind, 'accepted');
       const order = { issue: 12 };
       const again = {
         kind: 'order_again',
-        batchId: '12-2',
+        batchId: `${breweryIdOf(12)}-2`,
         order,
         by: 'ann',
         via: 'terminal',
@@ -1009,7 +1042,10 @@ describe('foedrum brew on recipe:mash, with the default Brewmaster (ADR 0234)', 
       assert.equal(log().issue(again, t0).kind, 'accepted');
       assert.equal(await runBrew(setup, shell([planned]), request), 3, lines.join('\n'));
       assert.equal(await runBrew(setup, shell([corrected]), lauter), 5, lines.join('\n'));
-      assert.equal(lines.at(-1), 'foedrum lauter: batch 12-1 is on_tap; lauter needs it stuck');
+      assert.equal(
+        lines.at(-1),
+        `foedrum lauter: batch ${breweryIdOf(12)} is on_tap; lauter needs it stuck`,
+      );
       assert.deepStrictEqual(resumedBy(), []);
     });
 

@@ -9,8 +9,10 @@ import { afterEach, beforeEach } from 'node:test';
 import type { BrewRequest } from '../../src/cli/brew.ts';
 import type { ServeShell } from '../../src/cli/serve.ts';
 import { type ServeSetup, serveSetup } from '../../src/cli/serve-config.ts';
+import { nextBatchId } from '../../src/engine/batch-id.ts';
 import { createCommandLog } from '../../src/engine/command-log.ts';
 import type { EventStore } from '../../src/engine/event-store.ts';
+import { emptyState } from '../../src/engine/fold.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import type { AttemptProgress } from '../../src/engine/supervisor.ts';
 import { type Behaviour, fakeBrewerRunner } from './fake-brewer-runner.ts';
@@ -99,7 +101,8 @@ export const brewFixture = (): BrewFixture => {
   afterEach(() => f.dir.remove());
 
   f.log = () => createCommandLog({ store: f.store, recipes: f.setup.recipes });
-  f.leaseOf = () => f.store.batchLeases(t0).find(({ batchId }) => batchId === '12-1');
+  f.leaseOf = () =>
+    f.store.batchLeases(t0).find(({ batchId }) => batchId === nextBatchId(emptyState, 12, t0));
 
   f.shell = (brew: Behaviour, overrides: Partial<ServeShell> = {}): ServeShell => {
     let ticks = 0;

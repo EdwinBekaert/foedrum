@@ -7,16 +7,21 @@ import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import { type BrewRequest, runBrew } from '../../src/cli/brew.ts';
 import { type ServeSetup, serveSetup } from '../../src/cli/serve-config.ts';
+import { nextBatchId, targetBatchId } from '../../src/engine/batch-id.ts';
 import { readBreweryFiles } from '../../src/engine/brewery-files.ts';
 import { createCommandLog } from '../../src/engine/command-log.ts';
 import { effectKey } from '../../src/engine/effect-key.ts';
 import type { EventStoreTransaction as Transaction } from '../../src/engine/event-store.ts';
+import { emptyState } from '../../src/engine/fold.ts';
 import type { Question } from '../../src/schemas/step-outcome.ts';
 import { brewFixture, request, t0 } from '../helpers/brew-fixture.ts';
 import { type Behaviour, behave, fakeBrewerRunner } from '../helpers/fake-brewer-runner.ts';
 import { fakeGitHubApi } from '../helpers/fake-github-api.ts';
 import { fakeLock } from '../helpers/fake-lock.ts';
 import { config, local, recipe, serveInputs } from '../helpers/serve-brewery.ts';
+
+/** The id the mash orders issue's batch under, on the fixture's clock (ADR 0380). */
+const breweryIdOf = (issue: number): string => nextBatchId(emptyState, issue, t0);
 
 describe('runBrew', () => {
   const f = brewFixture();
@@ -77,7 +82,7 @@ describe('runBrew', () => {
       const asks = shell(behave.needInput([which(13)]));
       assert.equal(await runBrew(mashSetup(), asks, mash(13)), 4, f.lines.join('\n'));
       assert.deepStrictEqual(f.started, ['innkeep#1']);
-      assert.deepStrictEqual(log().state().batches.get('13-1')?.recipe, {
+      assert.deepStrictEqual(log().state().batches.get(breweryIdOf(13))?.recipe, {
         name: 'mash-in',
         type: 'mash',
         reason: 'the engineer ran foedrum mash',
@@ -101,7 +106,7 @@ describe('runBrew', () => {
         const answered = createCommandLog({ store: f.store, recipes: brewing.recipes }).issue(
           {
             kind: 'answer',
-            batchId: '13-1',
+            batchId: breweryIdOf(13),
             by: 'ann',
             via: 'terminal',
             answers: [{ q: which(13).q, answer: choice }],
@@ -114,7 +119,7 @@ describe('runBrew', () => {
         const again = shell(behave.succeed(), { lock: () => fakeLock('ann') });
         assert.equal(await runBrew(brewing, again, brew), 0, f.lines.join('\n'));
         assert.deepStrictEqual(f.started, ['innkeep#1', 'brew#1']);
-        assert.equal(log().state().batches.get('13-1')?.recipe?.name, choice);
+        assert.equal(log().state().batches.get(breweryIdOf(13))?.recipe?.name, choice);
         const labels = f.api.issue('acme/brewery', 13)?.labels ?? [];
         assert.deepStrictEqual(
           labels.filter((label) => label.startsWith('recipe:')),
@@ -128,7 +133,7 @@ describe('runBrew', () => {
       [12, true],
     ] as const) {
       it(`routes ${stuck ? 'a batch Stuck on routing' : 'an Ordered batch'}, ordering it not again: exit 4`, async () => {
-        const id = `${issue}-1`;
+        const id = breweryIdOf(issue);
         log().issue({ kind: 'order', batchId: id, order: { issue } }, t0);
         // Past its routing deadline (ADR 0032).
         const late = new Date(t0.getTime() + 24 * 3_600_000);
@@ -155,15 +160,21 @@ describe('runBrew', () => {
       };
       const brewing = { ...mashSetup(), github: { hostname: 'github.localhost' } };
       const mashLog = createCommandLog({ store: f.store, recipes: brewing.recipes });
-      mashLog.issue({ kind: 'order', batchId: '13-1', order: { issue: 13 } }, t0);
+      mashLog.issue({ kind: 'order', batchId: breweryIdOf(13), order: { issue: 13 } }, t0);
       mashLog.issue(
-        { kind: 'route', batchId: '13-1', recipe: 'mash', reason: 'label', source: 'label' },
+        {
+          kind: 'route',
+          batchId: breweryIdOf(13),
+          recipe: 'mash',
+          reason: 'label',
+          source: 'label',
+        },
         t0,
       );
       const plans = behave.succeedWith({ assumptions: ['Kept the flag'], subOrders: [subOrder] });
       await runBrew(brewing, shell(plans), { ...request, target: { issue: 13 } });
       const bodies = (f.api.comments.get('acme/brewery#13') ?? []).map(({ body }) => body);
-      const link = `[13-1/plan-1.md](<https://github.localhost/${f.setup.brewery}/blob/foedrum/state/batches/13-1/plan-1.md>)`;
+      const link = `[${breweryIdOf(13)}/plan-1.md](<https://github.localhost/${f.setup.brewery}/blob/foedrum/state/batches/${breweryIdOf(13)}/plan-1.md>)`;
       assert.ok(
         bodies.some((body) => body.includes(`Full plan: ${link}`)),
         bodies.join('\n---\n'),
@@ -185,15 +196,21 @@ describe('runBrew', () => {
       const brewing = mashSetup();
       const mashLog = createCommandLog({ store: f.store, recipes: brewing.recipes });
       for (const command of [
-        { kind: 'order', batchId: '13-1', order: { issue: 13 } },
-        { kind: 'route', batchId: '13-1', recipe: 'mash', reason: 'label', source: 'label' },
+        { kind: 'order', batchId: breweryIdOf(13), order: { issue: 13 } },
+        {
+          kind: 'route',
+          batchId: breweryIdOf(13),
+          recipe: 'mash',
+          reason: 'label',
+          source: 'label',
+        },
       ] as const) {
         const decision = mashLog.issue(command, t0);
         assert.equal(decision.kind, 'accepted', JSON.stringify(decision));
       }
       const plans = behave.succeedWith({ assumptions: ['Kept the flag'], subOrders: [subOrder] });
       await runBrew(brewing, shell(plans), { ...request, target: { issue: 13 } });
-      const link = `[13-1/plan-1.md](<https://github.com/${f.setup.brewery}/blob/foedrum/state/batches/13-1/plan-1.md>)`;
+      const link = `[${breweryIdOf(13)}/plan-1.md](<https://github.com/${f.setup.brewery}/blob/foedrum/state/batches/${breweryIdOf(13)}/plan-1.md>)`;
       const bodies = (f.api.comments.get('acme/brewery#13') ?? []).map(({ body }) => body);
       const shown = bodies.join('\n---\n');
       assert.ok(
@@ -302,13 +319,23 @@ describe('runBrew', () => {
       const asks = shell(behave.needInput([which(7)]));
       const fresh = { ...request, target: { alias: 'web', issue: 7 }, mash: true } as const;
       assert.equal(await runBrew(claimed, asks, fresh), 4, f.lines.join('\n'));
-      assert.equal(log().state().batches.get('web-7')?.recipe?.name, 'mash-in');
+      assert.equal(
+        log()
+          .state()
+          .batches.get(targetBatchId(emptyState, 'web', 7, t0))?.recipe?.name,
+        'mash-in',
+      );
       assert.ok(f.lines.includes('foedrum mash: ordered web#7'), f.lines.join('\n'));
     });
 
     it('refuses a batch that started a recipe, naming foedrum recipe: exit 5', async () => {
-      log().issue({ kind: 'order', batchId: '12-1', order: { issue: 12 } }, t0);
-      const route = { kind: 'route', batchId: '12-1', recipe: 'stout', reason: 'label' } as const;
+      log().issue({ kind: 'order', batchId: breweryIdOf(12), order: { issue: 12 } }, t0);
+      const route = {
+        kind: 'route',
+        batchId: breweryIdOf(12),
+        recipe: 'stout',
+        reason: 'label',
+      } as const;
       log().issue({ ...route, source: 'label' }, t0);
       assert.equal(await runBrew(mashSetup(), shell(behave.succeed()), mash(12)), 5);
       assert.deepStrictEqual(f.started, []);
@@ -422,8 +449,8 @@ describe('runBrew', () => {
       /** #12, labelled recipe:stout, brewed to Stuck at stout's first step. */
       const stuckOnStout = async (setup: ServeSetup): Promise<void> => {
         assert.equal(await runBrew(setup, steps(12, blocked), brew(12)), 3, f.lines.join('\n'));
-        assert.equal(log().state().batches.get('12-1')?.lane.kind, 'stuck');
-        assert.equal(log().state().batches.get('12-1')?.recipe?.name, 'stout');
+        assert.equal(log().state().batches.get(breweryIdOf(12))?.lane.kind, 'stuck');
+        assert.equal(log().state().batches.get(breweryIdOf(12))?.recipe?.name, 'stout');
       };
 
       it('foedrum mash --override on a Stuck batch with a recipe asks the Innkeeper again', async () => {
@@ -432,10 +459,10 @@ describe('runBrew', () => {
         const asks = steps(12, blocked);
         assert.equal(await runBrew(brewing, asks, override(12)), 4, f.lines.join('\n'));
         assert.equal(f.started.at(-1)?.startsWith('innkeep#'), true, f.started.join(' '));
-        const batch = log().state().batches.get('12-1');
+        const batch = log().state().batches.get(breweryIdOf(12));
         assert.equal(batch?.recipe?.name, 'mash-in');
         assert.equal(batch?.recipe?.reason, 'the engineer ran foedrum mash --override');
-        assert.deepStrictEqual([...log().state().batches.keys()], ['12-1']);
+        assert.deepStrictEqual([...log().state().batches.keys()], [breweryIdOf(12)]);
         assert.equal(
           f.lines.at(-1),
           'foedrum mash: answer them in order with foedrum answer 12 <answer 1>, then brew again',
@@ -446,11 +473,11 @@ describe('runBrew', () => {
         const brewing = mashSetup();
         await stuckOnStout(brewing);
         assert.equal(await runBrew(brewing, steps(12, blocked), override(12)), 4);
-        answer(brewing, '12-1', 12, 'mild');
+        answer(brewing, breweryIdOf(12), 12, 'mild');
         const before = f.started.length;
         const done = steps(12, behave.succeed());
         assert.equal(await runBrew(brewing, done, brew(12)), 0, f.lines.join('\n'));
-        assert.equal(log().state().batches.get('12-1')?.recipe?.name, 'mild');
+        assert.equal(log().state().batches.get(breweryIdOf(12))?.recipe?.name, 'mild');
         // mild's first step, brew, runs again after stout's attempt and the Innkeeper's.
         assert.deepStrictEqual(f.started.slice(before), ['brew#2']);
       });
@@ -460,7 +487,7 @@ describe('runBrew', () => {
         await stuckOnStout(brewing);
         assert.deepStrictEqual(recipeLabels(12), ['recipe:stout']);
         assert.equal(await runBrew(brewing, steps(12, blocked), override(12)), 4);
-        answer(brewing, '12-1', 12, 'mild');
+        answer(brewing, breweryIdOf(12), 12, 'mild');
         assert.equal(await runBrew(brewing, steps(12, blocked), brew(12)), 3, f.lines.join('\n'));
         assert.deepStrictEqual(recipeLabels(12), ['recipe:mild']);
       });
@@ -469,14 +496,14 @@ describe('runBrew', () => {
         const brewing = mashSetup();
         // #13 has no label: the first mash's answer labels it.
         assert.equal(await runBrew(brewing, steps(13, blocked), mash(13)), 4, f.lines.join('\n'));
-        answer(brewing, '13-1', 13, 'stout');
+        answer(brewing, breweryIdOf(13), 13, 'stout');
         assert.equal(await runBrew(brewing, steps(13, blocked), brew(13)), 3, f.lines.join('\n'));
         assert.deepStrictEqual(recipeLabels(13), ['recipe:stout']);
         for (const choice of ['mild', 'stout']) {
           assert.equal(await runBrew(brewing, steps(13, blocked), override(13)), 4);
-          answer(brewing, '13-1', 13, choice);
+          answer(brewing, breweryIdOf(13), 13, choice);
           assert.equal(await runBrew(brewing, steps(13, blocked), brew(13)), 3);
-          assert.equal(log().state().batches.get('13-1')?.recipe?.name, choice);
+          assert.equal(log().state().batches.get(breweryIdOf(13))?.recipe?.name, choice);
           assert.deepStrictEqual(recipeLabels(13), [`recipe:${choice}`], f.lines.join('\n'));
         }
       });
@@ -484,25 +511,30 @@ describe('runBrew', () => {
       it('foedrum mash --override on a batch waiting for a session asks the Innkeeper, not the session', async () => {
         const at = new Date(t0.getTime() + 3_600_000).toISOString();
         f.store.withTransaction((tx) => {
-          tx.append({ type: 'batch.ordered', batchId: '12-1', order: { issue: 12 }, routeBy: at });
+          tx.append({
+            type: 'batch.ordered',
+            batchId: breweryIdOf(12),
+            order: { issue: 12 },
+            routeBy: at,
+          });
           tx.append({
             type: 'batch.recipe_chosen',
-            batchId: '12-1',
+            batchId: breweryIdOf(12),
             recipe: 'stout',
             reason: 'label',
             source: 'label',
           });
           tx.append({
             type: 'step.scheduled',
-            batchId: '12-1',
+            batchId: breweryIdOf(12),
             stepId: 'brew',
             attempt: 1,
             deadlineAt: at,
           });
-          tx.append({ type: 'step.started', batchId: '12-1', stepId: 'brew', attempt: 1 });
+          tx.append({ type: 'step.started', batchId: breweryIdOf(12), stepId: 'brew', attempt: 1 });
           tx.append({
             type: 'batch.stuck',
-            batchId: '12-1',
+            batchId: breweryIdOf(12),
             reason: { kind: 'waiting_for_session', stepId: 'brew' },
             options: ['retry', 'skip', 'recipe', 'rewind', 'cancel'],
             remindAt: at,
@@ -510,18 +542,23 @@ describe('runBrew', () => {
         });
         const asks = steps(12, blocked);
         assert.equal(await runBrew(mashSetup(), asks, override(12)), 4, f.lines.join('\n'));
-        assert.equal(log().state().batches.get('12-1')?.recipe?.name, 'mash-in');
+        assert.equal(log().state().batches.get(breweryIdOf(12))?.recipe?.name, 'mash-in');
         assert.deepStrictEqual(f.started, ['innkeep#1']);
       });
 
       it('foedrum mash --override on a Brewing batch is refused and names foedrum stop', async () => {
-        log().issue({ kind: 'order', batchId: '12-1', order: { issue: 12 } }, t0);
-        const route = { kind: 'route', batchId: '12-1', recipe: 'stout', reason: 'label' } as const;
+        log().issue({ kind: 'order', batchId: breweryIdOf(12), order: { issue: 12 } }, t0);
+        const route = {
+          kind: 'route',
+          batchId: breweryIdOf(12),
+          recipe: 'stout',
+          reason: 'label',
+        } as const;
         log().issue({ ...route, source: 'label' }, t0);
-        assert.equal(log().state().batches.get('12-1')?.lane.kind, 'brewing');
+        assert.equal(log().state().batches.get(breweryIdOf(12))?.lane.kind, 'brewing');
         assert.equal(await runBrew(mashSetup(), steps(12, blocked), override(12)), 5);
         assert.deepStrictEqual(f.started, []);
-        assert.equal(log().state().batches.get('12-1')?.recipe?.name, 'stout');
+        assert.equal(log().state().batches.get(breweryIdOf(12))?.recipe?.name, 'stout');
         assert.equal(
           f.lines.at(-1),
           'foedrum mash: #12 is brewing; foedrum stop 12 first, then foedrum mash 12 --override',
@@ -529,12 +566,17 @@ describe('runBrew', () => {
       });
 
       it("foedrum mash --override --take on another driver's Brewing batch takes nothing over and names foedrum stop", async () => {
-        log().issue({ kind: 'order', batchId: '12-1', order: { issue: 12 } }, t0);
-        const route = { kind: 'route', batchId: '12-1', recipe: 'stout', reason: 'label' } as const;
+        log().issue({ kind: 'order', batchId: breweryIdOf(12), order: { issue: 12 } }, t0);
+        const route = {
+          kind: 'route',
+          batchId: breweryIdOf(12),
+          recipe: 'stout',
+          reason: 'label',
+        } as const;
         log().issue({ ...route, source: 'label' }, t0);
         const expiresAt = new Date(t0.getTime() + 60_000);
         f.store.withTransaction((tx) =>
-          tx.putBatchLease({ batchId: '12-1', owner: 'cellar', expiresAt }),
+          tx.putBatchLease({ batchId: breweryIdOf(12), owner: 'cellar', expiresAt }),
         );
         const take = { ...override(12), take: true } as const;
         assert.equal(await runBrew(mashSetup(), steps(12, blocked), take), 5);
@@ -543,7 +585,7 @@ describe('runBrew', () => {
           'foedrum mash: #12 is brewing; foedrum stop 12 first, then foedrum mash 12 --override',
         );
         assert.equal(f.leaseOf()?.owner, 'cellar');
-        assert.equal(log().state().batches.get('12-1')?.takeover, undefined);
+        assert.equal(log().state().batches.get(breweryIdOf(12))?.takeover, undefined);
       });
 
       it('foedrum mash without --override on a batch with a recipe names the flag', async () => {
@@ -552,7 +594,7 @@ describe('runBrew', () => {
         const before = f.started.length;
         assert.equal(await runBrew(brewing, steps(12, blocked), mash(12)), 5);
         assert.equal(f.started.length, before);
-        assert.equal(log().state().batches.get('12-1')?.recipe?.name, 'stout');
+        assert.equal(log().state().batches.get(breweryIdOf(12))?.recipe?.name, 'stout');
         assert.equal(
           f.lines.at(-1),
           'foedrum mash: #12 already brews the recipe stout; foedrum mash 12 --override asks the Innkeeper again, or foedrum recipe 12 <recipe> <reason> brews it with another',
@@ -560,15 +602,28 @@ describe('runBrew', () => {
       });
 
       it('foedrum mash --override on a cancelled batch orders the issue again and asks the Innkeeper', async () => {
-        log().issue({ kind: 'order', batchId: '12-1', order: { issue: 12 } }, t0);
-        const route = { kind: 'route', batchId: '12-1', recipe: 'stout', reason: 'label' } as const;
+        log().issue({ kind: 'order', batchId: breweryIdOf(12), order: { issue: 12 } }, t0);
+        const route = {
+          kind: 'route',
+          batchId: breweryIdOf(12),
+          recipe: 'stout',
+          reason: 'label',
+        } as const;
         log().issue({ ...route, source: 'label' }, t0);
-        log().issue({ kind: 'cancel', batchId: '12-1', by: 'ann', via: 'terminal' }, t0);
-        assert.equal(log().state().batches.get('12-1')?.lane.kind, 'cancelled');
+        log().issue({ kind: 'cancel', batchId: breweryIdOf(12), by: 'ann', via: 'terminal' }, t0);
+        assert.equal(log().state().batches.get(breweryIdOf(12))?.lane.kind, 'cancelled');
         const asks = steps(12, blocked);
         assert.equal(await runBrew(mashSetup(), asks, override(12)), 4, f.lines.join('\n'));
-        assert.deepStrictEqual([...log().state().batches.keys()], ['12-1', '12-2']);
-        assert.equal(log().state().batches.get('12-2')?.recipe?.name, 'mash-in');
+        assert.deepStrictEqual(
+          [...log().state().batches.keys()],
+          [breweryIdOf(12), `${breweryIdOf(12)}-2`],
+        );
+        assert.equal(
+          log()
+            .state()
+            .batches.get(`${breweryIdOf(12)}-2`)?.recipe?.name,
+          'mash-in',
+        );
         assert.ok(f.lines.includes('foedrum mash: ordered #12'), f.lines.join('\n'));
       });
 
@@ -577,32 +632,42 @@ describe('runBrew', () => {
       /** Order #12 on tap with an approved plan's sub-orders, as `then` leaves them. */
       const planned = (subOrders: readonly number[], then: (tx: Transaction) => void) =>
         f.store.withTransaction((tx) => {
-          tx.append({ type: 'batch.ordered', batchId: '12-1', order: { issue: 12 }, routeBy });
+          tx.append({
+            type: 'batch.ordered',
+            batchId: breweryIdOf(12),
+            order: { issue: 12 },
+            routeBy,
+          });
           tx.append({
             type: 'order.decomposed',
-            batchId: '12-1',
+            batchId: breweryIdOf(12),
             subOrders: subOrders.map((issue) => ({ issue, repo: 'acme/web' })),
             dependencies: [],
           });
-          tx.append({ type: 'batch.on_tap', batchId: '12-1', pullRequests: [] });
+          tx.append({ type: 'batch.on_tap', batchId: breweryIdOf(12), pullRequests: [] });
           then(tx);
         });
       const subOrdered = (tx: Transaction, issue: number) =>
         tx.append({
           type: 'batch.ordered',
-          batchId: `${issue}-1`,
+          batchId: `${breweryIdOf(issue)}`,
           order: { issue },
-          parentBatchId: '12-1',
+          parentBatchId: breweryIdOf(12),
           routeBy,
         });
 
       it('foedrum mash --override refuses an issue on tap whose pull request is open, ordering nothing', async () => {
         f.store.withTransaction((tx) => {
-          tx.append({ type: 'batch.ordered', batchId: '12-1', order: { issue: 12 }, routeBy });
-          tx.append({ type: 'batch.on_tap', batchId: '12-1', pullRequests: [pull] });
+          tx.append({
+            type: 'batch.ordered',
+            batchId: breweryIdOf(12),
+            order: { issue: 12 },
+            routeBy,
+          });
+          tx.append({ type: 'batch.on_tap', batchId: breweryIdOf(12), pullRequests: [pull] });
         });
         assert.equal(await runBrew(mashSetup(), steps(12, blocked), override(12)), 5);
-        assert.deepStrictEqual([...log().state().batches.keys()], ['12-1']);
+        assert.deepStrictEqual([...log().state().batches.keys()], [breweryIdOf(12)]);
         assert.deepStrictEqual(f.started, []);
         assert.equal(
           f.lines.at(-1),
@@ -614,10 +679,13 @@ describe('runBrew', () => {
         planned([30, 31], (tx) => {
           subOrdered(tx, 30);
           subOrdered(tx, 31);
-          tx.append({ type: 'batch.on_tap', batchId: '31-1', pullRequests: [] });
+          tx.append({ type: 'batch.on_tap', batchId: breweryIdOf(31), pullRequests: [] });
         });
         assert.equal(await runBrew(mashSetup(), steps(12, blocked), override(12)), 5);
-        assert.deepStrictEqual([...log().state().batches.keys()], ['12-1', '30-1', '31-1']);
+        assert.deepStrictEqual(
+          [...log().state().batches.keys()],
+          [breweryIdOf(12), breweryIdOf(30), breweryIdOf(31)],
+        );
         assert.equal(
           f.lines.at(-1),
           "foedrum mash: #12's approved plan opened sub-orders #30; a new plan would leave them with no order: brew them, or foedrum recipe <sub-order> <recipe> <reason> changes one",
@@ -627,10 +695,13 @@ describe('runBrew', () => {
       it('foedrum mash --override refuses an order whose sub-order has an open pull request, naming it', async () => {
         planned([30], (tx) => {
           subOrdered(tx, 30);
-          tx.append({ type: 'batch.on_tap', batchId: '30-1', pullRequests: [pull] });
+          tx.append({ type: 'batch.on_tap', batchId: breweryIdOf(30), pullRequests: [pull] });
         });
         assert.equal(await runBrew(mashSetup(), steps(12, blocked), override(12)), 5);
-        assert.deepStrictEqual([...log().state().batches.keys()], ['12-1', '30-1']);
+        assert.deepStrictEqual(
+          [...log().state().batches.keys()],
+          [breweryIdOf(12), breweryIdOf(30)],
+        );
         assert.equal(
           f.lines.at(-1),
           "foedrum mash: #12's approved plan opened sub-orders #30; a new plan would leave them with no order: brew them, or foedrum recipe <sub-order> <recipe> <reason> changes one",
@@ -640,21 +711,36 @@ describe('runBrew', () => {
       it('foedrum mash --override plans an order again whose sub-orders all ended', async () => {
         planned([30], (tx) => {
           subOrdered(tx, 30);
-          tx.append({ type: 'batch.on_tap', batchId: '30-1', pullRequests: [] });
+          tx.append({ type: 'batch.on_tap', batchId: breweryIdOf(30), pullRequests: [] });
         });
         const asks = steps(12, blocked);
         assert.equal(await runBrew(mashSetup(), asks, override(12)), 4, f.lines.join('\n'));
-        assert.equal(log().state().batches.get('12-2')?.recipe?.name, 'mash-in');
+        assert.equal(
+          log()
+            .state()
+            .batches.get(`${breweryIdOf(12)}-2`)?.recipe?.name,
+          'mash-in',
+        );
       });
 
       it('foedrum mash --override plans an order again whose sub-order was cancelled: regression test', async () => {
         planned([30], (tx) => {
           subOrdered(tx, 30);
-          tx.append({ type: 'batch.cancelled', batchId: '30-1', by: 'ann', via: 'terminal' });
+          tx.append({
+            type: 'batch.cancelled',
+            batchId: breweryIdOf(30),
+            by: 'ann',
+            via: 'terminal',
+          });
         });
         const asks = steps(12, blocked);
         assert.equal(await runBrew(mashSetup(), asks, override(12)), 4, f.lines.join('\n'));
-        assert.equal(log().state().batches.get('12-2')?.recipe?.name, 'mash-in');
+        assert.equal(
+          log()
+            .state()
+            .batches.get(`${breweryIdOf(12)}-2`)?.recipe?.name,
+          'mash-in',
+        );
       });
 
       it("foedrum mash --override of a Stuck batch another driver holds names the re-mash's takeover: regression test", async () => {
@@ -662,7 +748,7 @@ describe('runBrew', () => {
         await stuckOnStout(brewing);
         const expiresAt = new Date(t0.getTime() + 60_000);
         f.store.withTransaction((tx) =>
-          tx.putBatchLease({ batchId: '12-1', owner: 'cellar', expiresAt }),
+          tx.putBatchLease({ batchId: breweryIdOf(12), owner: 'cellar', expiresAt }),
         );
         const before = f.started.length;
         assert.equal(await runBrew(brewing, steps(12, blocked), override(12)), 5);
@@ -675,49 +761,59 @@ describe('runBrew', () => {
 
       it('foedrum mash --override restarts a Conditioning batch on mash-in, ordering no second batch: regression test', async () => {
         f.store.withTransaction((tx) => {
-          tx.append({ type: 'batch.ordered', batchId: '12-1', order: { issue: 12 }, routeBy });
+          tx.append({
+            type: 'batch.ordered',
+            batchId: breweryIdOf(12),
+            order: { issue: 12 },
+            routeBy,
+          });
           tx.append({
             type: 'batch.recipe_chosen',
-            batchId: '12-1',
+            batchId: breweryIdOf(12),
             recipe: 'stout',
             reason: 'label',
             source: 'label',
           });
           tx.append({
             type: 'batch.waiting',
-            batchId: '12-1',
+            batchId: breweryIdOf(12),
             on: { kind: 'merge', pullRequest: pull },
             remindAt: routeBy,
           });
         });
-        assert.equal(log().state().batches.get('12-1')?.lane.kind, 'conditioning');
+        assert.equal(log().state().batches.get(breweryIdOf(12))?.lane.kind, 'conditioning');
         const asks = steps(12, blocked);
         assert.equal(await runBrew(mashSetup(), asks, override(12)), 4, f.lines.join('\n'));
-        assert.deepStrictEqual([...log().state().batches.keys()], ['12-1']);
-        assert.equal(log().state().batches.get('12-1')?.recipe?.name, 'mash-in');
+        assert.deepStrictEqual([...log().state().batches.keys()], [breweryIdOf(12)]);
+        assert.equal(log().state().batches.get(breweryIdOf(12))?.recipe?.name, 'mash-in');
       });
 
       it('foedrum mash --override refuses a batch Stuck on a changed order, which offers no recipe: regression test', async () => {
         f.store.withTransaction((tx) => {
-          tx.append({ type: 'batch.ordered', batchId: '12-1', order: { issue: 12 }, routeBy });
+          tx.append({
+            type: 'batch.ordered',
+            batchId: breweryIdOf(12),
+            order: { issue: 12 },
+            routeBy,
+          });
           tx.append({
             type: 'batch.recipe_chosen',
-            batchId: '12-1',
+            batchId: breweryIdOf(12),
             recipe: 'stout',
             reason: 'label',
             source: 'label',
           });
           tx.append({
             type: 'step.scheduled',
-            batchId: '12-1',
+            batchId: breweryIdOf(12),
             stepId: 'brew',
             attempt: 1,
             deadlineAt: routeBy,
           });
-          tx.append({ type: 'step.started', batchId: '12-1', stepId: 'brew', attempt: 1 });
+          tx.append({ type: 'step.started', batchId: breweryIdOf(12), stepId: 'brew', attempt: 1 });
           tx.append({
             type: 'batch.stuck',
-            batchId: '12-1',
+            batchId: breweryIdOf(12),
             reason: {
               kind: 'order_changed',
               stepId: 'brew',
@@ -731,47 +827,55 @@ describe('runBrew', () => {
         });
         assert.equal(await runBrew(mashSetup(), steps(12, blocked), override(12)), 5);
         assert.deepStrictEqual(f.started, []);
-        assert.equal(log().state().batches.get('12-1')?.recipe?.name, 'stout');
-        assert.equal(f.lines.at(-1), 'foedrum mash: batch 12-1 does not offer recipe');
+        assert.equal(log().state().batches.get(breweryIdOf(12))?.recipe?.name, 'stout');
+        assert.equal(
+          f.lines.at(-1),
+          `foedrum mash: batch ${breweryIdOf(12)} does not offer recipe`,
+        );
       });
 
       it("foedrum mash --override refuses an order whose batch is Stuck after its plan's breakdown while a sub-order is not ended: regression test", async () => {
         f.store.withTransaction((tx) => {
-          tx.append({ type: 'batch.ordered', batchId: '12-1', order: { issue: 12 }, routeBy });
+          tx.append({
+            type: 'batch.ordered',
+            batchId: breweryIdOf(12),
+            order: { issue: 12 },
+            routeBy,
+          });
           tx.append({
             type: 'batch.recipe_chosen',
-            batchId: '12-1',
+            batchId: breweryIdOf(12),
             recipe: 'stout',
             reason: 'label',
             source: 'label',
           });
           tx.append({
             type: 'order.decomposed',
-            batchId: '12-1',
+            batchId: breweryIdOf(12),
             subOrders: [{ issue: 30, repo: 'acme/web' }],
             dependencies: [],
           });
           subOrdered(tx, 30);
           tx.append({
             type: 'step.scheduled',
-            batchId: '12-1',
+            batchId: breweryIdOf(12),
             stepId: 'brew',
             attempt: 1,
             deadlineAt: routeBy,
           });
-          tx.append({ type: 'step.started', batchId: '12-1', stepId: 'brew', attempt: 1 });
+          tx.append({ type: 'step.started', batchId: breweryIdOf(12), stepId: 'brew', attempt: 1 });
           tx.append({
             type: 'batch.stuck',
-            batchId: '12-1',
+            batchId: breweryIdOf(12),
             reason: { kind: 'waiting_for_session', stepId: 'brew' },
             options: ['retry', 'skip', 'recipe', 'rewind', 'cancel'],
             remindAt: routeBy,
           });
         });
-        assert.equal(log().state().batches.get('12-1')?.lane.kind, 'stuck');
+        assert.equal(log().state().batches.get(breweryIdOf(12))?.lane.kind, 'stuck');
         assert.equal(await runBrew(mashSetup(), steps(12, blocked), override(12)), 5);
         assert.deepStrictEqual(f.started, []);
-        assert.equal(log().state().batches.get('12-1')?.recipe?.name, 'stout');
+        assert.equal(log().state().batches.get(breweryIdOf(12))?.recipe?.name, 'stout');
         assert.equal(
           f.lines.at(-1),
           "foedrum mash: #12's approved plan opened sub-orders #30; a new plan would leave them with no order: brew them, or foedrum recipe <sub-order> <recipe> <reason> changes one",
@@ -785,7 +889,7 @@ describe('runBrew', () => {
           // the order's sub-orders are the latest breakdown's, which no longer lists it.
           tx.append({
             type: 'order.decomposed',
-            batchId: '12-1',
+            batchId: breweryIdOf(12),
             subOrders: [{ issue: 30, repo: 'acme/web' }],
             dependencies: [],
           });
@@ -793,7 +897,12 @@ describe('runBrew', () => {
         assert.equal(log().state().subOrders.get(31)?.cancelled, true);
         const asks = steps(12, blocked);
         assert.equal(await runBrew(mashSetup(), asks, override(12)), 4, f.lines.join('\n'));
-        assert.equal(log().state().batches.get('12-2')?.recipe?.name, 'mash-in');
+        assert.equal(
+          log()
+            .state()
+            .batches.get(`${breweryIdOf(12)}-2`)?.recipe?.name,
+          'mash-in',
+        );
       });
     });
   });

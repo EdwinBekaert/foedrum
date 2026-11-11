@@ -13,10 +13,12 @@ import { attemptBrewers } from '../../src/cli/attempt-brewers.ts';
 import { type BrewRequest, runBrew } from '../../src/cli/brew.ts';
 import type { ServeShell } from '../../src/cli/serve.ts';
 import { type ServeSetup, serveSetup } from '../../src/cli/serve-config.ts';
+import { nextBatchId } from '../../src/engine/batch-id.ts';
 import type { AttemptStart, BrewerRunner } from '../../src/engine/brewer-runner.ts';
 import { FOEDRUM_DEFAULTS, readBreweryFiles } from '../../src/engine/brewery-files.ts';
 import { createCommandLog } from '../../src/engine/command-log.ts';
 import type { EventStore } from '../../src/engine/event-store.ts';
+import { emptyState } from '../../src/engine/fold.ts';
 import { loadRecipes } from '../../src/engine/recipe-files.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import { code, plain } from '../../src/engine/status-comment.ts';
@@ -28,6 +30,10 @@ import { fakeLock } from '../helpers/fake-lock.ts';
 import { FAKE_COMMIT, fakeWorktreeMerge, fakeWorktrees } from '../helpers/fake-worktrees.ts';
 import { local, serveInputs } from '../helpers/serve-brewery.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
+
+// Batch ids carry the time they were ordered (ADR 0380): those made at 2026-11-05T12:00:00Z.
+const breweryIdOf = (issue: number): string =>
+  nextBatchId(emptyState, issue, new Date('2026-11-05T12:00:00.000Z'));
 
 const defaults = () => {
   const loaded = loadRecipes(readBreweryFiles(join(FOEDRUM_DEFAULTS, 'no-such-brewery')));
@@ -330,7 +336,8 @@ describe('foedrum brew on recipe:mash and recipe:deep-mash, through the default 
       'Planned again',
     );
   const stuckReason = () => {
-    const { lane } = log().state().batches.get('12-1') ?? assert.fail('no batch 12-1');
+    const { lane } =
+      log().state().batches.get(breweryIdOf(12)) ?? assert.fail(`no batch ${breweryIdOf(12)}`);
     return lane.kind === 'stuck' ? lane.reason : assert.fail(lane.kind);
   };
   const review = (): string => {
@@ -366,7 +373,8 @@ describe('foedrum brew on recipe:mash and recipe:deep-mash, through the default 
       brewers: setup.brewers,
       models: setup.models,
     });
-    const family = (stepId: string) => brewers.family({ batchId: '12-1', stepId, attempt: 1 });
+    const family = (stepId: string) =>
+      brewers.family({ batchId: breweryIdOf(12), stepId, attempt: 1 });
     assert.equal(family('coverage'), 'Opus');
     assert.equal(family('sizing'), 'Sonnet');
   });
@@ -444,7 +452,7 @@ describe('foedrum brew on recipe:mash and recipe:deep-mash, through the default 
       'naive-reader': [approves, approves, approves],
     };
     assert.equal(await runBrew(setup, shell(script), request), 3, lines.join('\n'));
-    const attempts = log().state().batches.get('12-1')?.steps.get('plan')?.attempts;
+    const attempts = log().state().batches.get(breweryIdOf(12))?.steps.get('plan')?.attempts;
     assert.equal(attempts?.get(2)?.route?.from, 'coverage');
     assert.equal(attempts?.get(3)?.route?.from, 'sizing');
     assert.deepStrictEqual(stuckReason(), { kind: 'plan_review', stepId: 'plan', attempt: 3 });
@@ -540,7 +548,10 @@ describe('foedrum brew on recipe:mash and recipe:deep-mash, through the default 
     assert.equal(await runBrew(setup, shell(script), request), 3, lines.join('\n'));
     assert.equal(stuckReason().kind, 'blocked');
     const at = new Date('2026-11-08T12:00:00.000Z');
-    const skipped = log().issue({ kind: 'skip', batchId: '12-1', by: 'ann', via: 'terminal' }, at);
+    const skipped = log().issue(
+      { kind: 'skip', batchId: breweryIdOf(12), by: 'ann', via: 'terminal' },
+      at,
+    );
     assert.equal(skipped.kind, 'accepted', JSON.stringify(skipped));
     assert.deepStrictEqual(stuckReason(), { kind: 'plan_review', stepId: 'plan', attempt: 3 });
   });
@@ -555,7 +566,7 @@ describe('foedrum brew on recipe:mash and recipe:deep-mash, through the default 
     assert.equal(await runBrew(setup, shell(script), request), 3, lines.join('\n'));
     const before = started.length;
     const corrected = behave.succeedWith({ subOrders, alternatives }, 'Corrected');
-    const lauter: BrewRequest = { ...request, lauter: '12-1' };
+    const lauter: BrewRequest = { ...request, lauter: breweryIdOf(12) };
     assert.equal(await runBrew(setup, shell({ lauter: [corrected] }), lauter), 3, lines.join('\n'));
     assert.deepStrictEqual(started.slice(before), ['lauter#1']);
     assert.ok(
@@ -574,7 +585,10 @@ describe('foedrum brew on recipe:mash and recipe:deep-mash, through the default 
     };
     assert.equal(await runBrew(setup, shell(script), request), 3, lines.join('\n'));
     const at = new Date('2026-11-05T12:00:00.000Z');
-    const retried = log().issue({ kind: 'retry', batchId: '12-1', by: 'ann', via: 'terminal' }, at);
+    const retried = log().issue(
+      { kind: 'retry', batchId: breweryIdOf(12), by: 'ann', via: 'terminal' },
+      at,
+    );
     assert.equal(retried.kind, 'accepted', JSON.stringify(retried));
     assert.equal(await runBrew(setup, shell(script), request), 3, lines.join('\n'));
     assert.deepStrictEqual(started.slice(4).sort(), [
@@ -596,7 +610,10 @@ describe('foedrum brew on recipe:mash and recipe:deep-mash, through the default 
     assert.equal(await runBrew(setup, shell(script), request), 3, lines.join('\n'));
     assert.deepStrictEqual(stuckReason(), { kind: 'plan_review', stepId: 'plan', attempt: 3 });
     const at = new Date('2026-11-05T12:00:00.000Z');
-    const retried = log().issue({ kind: 'retry', batchId: '12-1', by: 'ann', via: 'terminal' }, at);
+    const retried = log().issue(
+      { kind: 'retry', batchId: breweryIdOf(12), by: 'ann', via: 'terminal' },
+      at,
+    );
     assert.equal(retried.kind, 'accepted', JSON.stringify(retried));
     assert.equal(await runBrew(setup, shell(script), request), 3, lines.join('\n'));
     assert.ok(started.includes('coverage#4'), started.join(' '));
