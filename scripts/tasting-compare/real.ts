@@ -944,6 +944,7 @@ export const scriptedRealTastings = (file: string): Record<string, readonly Scri
               ...(lenses.length === 1 ? {} : { lens }),
               file,
               line: 1,
+              point: 'A scripted finding of the dry run.',
               severity: 'minor',
               why: `scripted by the dry run, through ${lens}`,
               introduced: true,

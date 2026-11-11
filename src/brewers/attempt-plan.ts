@@ -1383,6 +1383,9 @@ export function outDocContract(file: string, commits = false): string {
     '',
     'An assumption or a risk states only what you did or read: "I did not check X" is',
     'fine, but "X could not be checked" needs the attempt that failed.',
+    'Write summary, assumptions and questions in plain words for a person who has',
+    'not followed the work: what happened and why it matters first, then any file,',
+    'line or rule.',
     'Prefer deciding and recording an assumption over asking. Ask only when a wrong',
     'guess would likely waste this run. Never ask questions any other way.',
     ...(commits

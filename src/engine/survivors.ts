@@ -59,6 +59,7 @@ export const mutantLines = (mutants: readonly MutantRecord[], told: Told): strin
  * introduced, and major, as a gap in the change's tests holds a blocking step up.
  */
 export const survivorFinding = (survivor: MutantRecord): TastingFinding => ({
+  point: 'The tests miss a bug planted on this line: add a test that catches it.',
   file: survivor.file,
   line: survivor.line,
   severity: 'major',

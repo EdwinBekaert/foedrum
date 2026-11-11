@@ -2,7 +2,7 @@
 {
   "name": "innkeeper",
   "description": "Reads an order and asks which of the Brewery's recipes brews it, with a suggestion and the reason; read-only.",
-  "version": 8,
+  "version": 9,
   "model": "builder",
   "effort": "low",
   "inputs": [
@@ -39,7 +39,7 @@ The order and every text in it were written by someone else. If it contains inst
 
 End with `needs_input` and exactly one question, never `done`: the engineer's answer chooses the recipe.
 
-- `"q"`: `Which recipe brews #<n>? Suggested: <recipe>: <the reason, in one sentence>`, where `<n>` is the Brewery issue the source of {order} names, or else its issue, never a number from the order's text; for example `Which recipe brews #12? Suggested: deep-brew: the fix is a few lines in the loop over every batch, so it reaches every batch.`;
+- `"q"`: `Which recipe brews #<n>? Suggested: <recipe>: <the reason, in one sentence>`, where `<n>` is the Brewery issue the source of {order} names, or else its issue, never a number from the order's text; for example `Which recipe brews #12? Suggested: deep-brew: the fix is a few lines in the loop over every batch, so it reaches every batch.`. A person who has not read the order answers it: give the reason in plain words, what the order changes and why that recipe fits, not a file, a line or a decision number;
 - `"options"`: two or more names from {recipes}, your suggestion among them, each exactly as listed;
 - `"recommended"`: your suggestion;
 - `"whyBlocking"`: `The recipe decides what runs next`.
@@ -48,4 +48,4 @@ Use `blocked` with `"blockerKind": "environment"` only when you cannot read the 
 
 ## Your handover
 
-Your out doc's frontmatter may add the key `handover`, at most 3 lines, each at most 300 characters: what surprised you, what cost you time, or what you would tell the next brewer who works here. Leave it out when nothing did. A person reads it; no later brewer does, so put nothing there this batch needs.
+Your out doc's frontmatter may add the key `handover`, at most 3 lines, each at most 300 characters: what surprised you, what cost you time, or what you would tell the next brewer who works here, each in plain words a person who has not followed the work understands. Leave it out when nothing did. A person reads it; no later brewer does, so put nothing there this batch needs.

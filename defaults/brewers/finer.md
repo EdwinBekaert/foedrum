@@ -2,7 +2,7 @@
 {
   "name": "finer",
   "description": "Simplifies the batch's change without changing what it does, and commits it; or says why there was nothing to simplify.",
-  "version": 4,
+  "version": 5,
   "model": "builder",
   "effort": "high",
   "inputs": [{ "name": "order", "from": "order" }],
@@ -64,11 +64,11 @@ Finding nothing to simplify is a good answer: do not change code to have somethi
 
 End with `done`. Your out doc's frontmatter adds one of two keys to the `done` example below, never both:
 
-- `"changes"`: when you committed simplifications, a list of `{ "file": "src/slug.ts", "line": 4, "why": "slugOf repeated toSlug in src/text.ts:12; it now calls it" }`, one per change, at most 50 changes, each `file` one line of at most 1,000 characters, with the line it has at HEAD (leave `line` out for a change to the file as a whole) and why it is smaller and does the same;
+- `"changes"`: when you committed simplifications, a list of `{ "file": "src/slug.ts", "line": 4, "why": "The slug was made twice; slugOf now calls toSlug from src/text.ts:12" }`, one per change, each `why` saying what got simpler in plain words before any file or name, at most 50 changes, each `file` one line of at most 1,000 characters, with the line it has at HEAD (leave `line` out for a change to the file as a whole) and why it is smaller and does the same;
 - `"unchanged"`: when you committed nothing, one line of at most 1,000 characters that says why there was nothing to simplify.
 
 In the body, say which commands you ran and how they ended.
 
 ## Your handover
 
-Your out doc's frontmatter may add the key `handover`, at most 3 lines, each at most 300 characters: what surprised you, what cost you time, or what you would tell the next brewer who works here. Leave it out when nothing did. A person reads it; no later brewer does, so put nothing there this batch needs.
+Your out doc's frontmatter may add the key `handover`, at most 3 lines, each at most 300 characters: what surprised you, what cost you time, or what you would tell the next brewer who works here, each in plain words a person who has not followed the work understands. Leave it out when nothing did. A person reads it; no later brewer does, so put nothing there this batch needs.

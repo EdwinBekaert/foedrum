@@ -248,6 +248,7 @@ export const scriptedPlanTastings = (
     [...tasterSteps(setup)].map(([stepId, lenses]) => {
       // A one-lens step's findings are its lens's; a lenses step's each name theirs (ADR 0220).
       const findings = mistakesOf(key, lenses).map(({ lens, subOrders, what }) => ({
+        point: `The plan has a mistake to fix: ${what}`,
         severity: 'major' as const,
         why: `${subOrders[0]}: ${what}`,
         introduced: true,

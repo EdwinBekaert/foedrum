@@ -2,7 +2,7 @@
 {
   "name": "maltster",
   "description": "Proposes the repository's test map from its manifests, when it has none or a stale one; changes nothing else.",
-  "version": 4,
+  "version": 5,
   "model": "builder",
   "effort": "medium",
   "output": { "doc": "survey.md", "schema": "survey" },
@@ -45,4 +45,4 @@ The map lists every module the repository's test command runs, records its manif
 
 ## Your handover
 
-Your out doc's frontmatter may add the key `handover`, at most 3 lines, each at most 300 characters: what surprised you, what cost you time, or what you would tell the next brewer who works here. Leave it out when nothing did. A person reads it; no later brewer does, so put nothing there this batch needs.
+Your out doc's frontmatter may add the key `handover`, at most 3 lines, each at most 300 characters: what surprised you, what cost you time, or what you would tell the next brewer who works here, each in plain words a person who has not followed the work understands. Leave it out when nothing did. A person reads it; no later brewer does, so put nothing there this batch needs.

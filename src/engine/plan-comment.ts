@@ -29,6 +29,7 @@ import { type OpenedSubIssue, openedSubIssues, SKIPS_TEST_FIRST } from './plan-a
 import { digestOf, findingText, knownCommits, quoted } from './pull-request.ts';
 import { outDocLink, outDocPlace } from './state-branch.ts';
 import { code, labelled, plain, type StatusComments } from './status-comment.ts';
+import { tryName } from './words.ts';
 
 /** The start of a plan comment's first line, before its batch; a status comment's never has it. */
 export const PLAN_HEADING = '### Foedrum · plan of batch';
@@ -237,7 +238,7 @@ const reviewLines = (
     const shown = ofStep
       .slice(0, mostReviewNotes)
       .flatMap(({ attempt, finding, left, why }) => [
-        `- ${code(stepId)} #${attempt}: ${told(findingText(finding), stepId)}, ${left}: ${told(finding.why, stepId)}`,
+        `- ${code(tryName(stepId, attempt))}: ${told(findingText(finding), stepId)}, ${left}: ${told(finding.why, stepId)}`,
         ...(why === undefined ? [] : [`  - why: ${told(why, planStep)}`]),
       ]);
     const more = ofStep.length - mostReviewNotes;

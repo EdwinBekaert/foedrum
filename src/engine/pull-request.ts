@@ -507,14 +507,14 @@ const preExistingOf = (step: Step): PreExisting[] => {
 };
 
 /**
- * Where a finding is, how bad, and whether it was there before the change, on one line, after its
- * lens when it names one.
+ * A finding on one line: its point first, in plain words (ADR 0379), then in parentheses its lens
+ * when it names one, how bad it is, where, and whether it was there before the change.
  */
 export const findingText = (finding: TastingFinding): string => {
-  const { file, line, severity, introduced } = finding;
+  const { point, file, line, severity, introduced } = finding;
   const where = file === undefined ? '' : ` in ${file}${line === undefined ? '' : `:${line}`}`;
   // The lens it was found through, on a step of several lenses together (ADR 0220).
-  return `${lensFirst(finding)}${severity}${where}${introduced ? '' : ', there before the change'}`;
+  return `${point} (${lensFirst(finding)}${severity}${where}${introduced ? '' : ', there before the change'})`;
 };
 
 /**

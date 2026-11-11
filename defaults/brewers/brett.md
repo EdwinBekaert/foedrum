@@ -2,7 +2,7 @@
 {
   "name": "brett",
   "description": "Proposes a few mutants of the batch's change, each a one-line edit of a line it added, for the engine to check; read-only.",
-  "version": 3,
+  "version": 4,
   "model": "builder",
   "effort": "medium",
   "inputs": [
@@ -47,10 +47,10 @@ End with `done`. Your out doc's frontmatter adds one key to the `done` example b
   - `line` is the line's number at HEAD, never a position in the diff.
   - `original` is the whole text of that line, at most 2,000 characters.
   - `replacement` is the one line that replaces it, empty to delete it, at most 2,000 characters.
-  - `description` says in one line what bug it plants, at most 1,000 characters.
+  - `description` says in one line what bug it plants, at most 1,000 characters, in plain words a person who has not read the change understands: what would go wrong for whoever uses the code, as in the example.
 
 Never write a patch or a diff: the engine applies each edit itself. In the body, say what you read, and for each mutant the test you expect to catch it or why you think none does.
 
 ## Your handover
 
-Your out doc's frontmatter may add the key `handover`, at most 3 lines, each at most 300 characters: what surprised you, what cost you time, or what you would tell the next brewer who works here. Leave it out when nothing did. A person reads it; no later brewer does, so put nothing there this batch needs.
+Your out doc's frontmatter may add the key `handover`, at most 3 lines, each at most 300 characters: what surprised you, what cost you time, or what you would tell the next brewer who works here, each in plain words a person who has not followed the work understands. Leave it out when nothing did. A person reads it; no later brewer does, so put nothing there this batch needs.

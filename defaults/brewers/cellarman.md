@@ -2,7 +2,7 @@
 {
   "name": "cellarman",
   "description": "Makes the Gauger's failing tests pass in one repository, without changing them.",
-  "version": 15,
+  "version": 16,
   "model": "builder",
   "effort": "high",
   "inputs": [
@@ -62,7 +62,7 @@ In your out doc, say what you changed and why, which of these commands you ran a
 When a tasting step sent the batch back to you, {route} holds the Taster's out doc with its `findings`. When that step is one of a group of Tasters, {route} then lists the findings of the group's other steps in the same round, each under its step, its lenses, and whether its Taster asks for changes or approves with findings. Every finding sent the batch back, a minor one in an approval too, and each is yours: fix it, or dismiss it with a reason, as below. A finding you cannot settle, because it needs a decision you cannot make from the order, the code or a decision record (who may control an input, which of two behaviours the order wants), is a question for a person: do not guess, end with your questions (`needs_input`), one per such finding, each naming its file and line. Work on every finding, and say in your out doc's frontmatter what you did with each one, in `dispositions`: one entry per finding, with its `file` and `line` exactly as the Taster wrote them (no `file` for a finding about the change as a whole), its `step` when it is listed under another step than the one whose out doc {route} holds, and its `disposition`:
 
 - `"fixed"`: you fixed it. A `why` is optional.
-- `"dismissed"`, with a `why`: it is not a defect, and the `why` says why and names the evidence that shows it: a file and line, a test, or the sentence of the order or of a decision record it relies on. The next round checks that evidence and may contest it once.
+- `"dismissed"`, with a `why`: it is not a defect, and the `why` says why in plain words first, then names the evidence that shows it: a file and line, a test, or the sentence of the order or of a decision record it relies on. The next round checks that evidence and may contest it once.
 - `"pre-existing"`, with a `why`: it was there before the change and the change does not make it worse, and the `why` names the evidence that shows it, as a dismissal's does. Do not fix it in this change; the pull request lists it for a person to file.
 
 For example: `"dispositions": [{ "file": "src/wait.ts", "line": 12, "disposition": "fixed" }, { "disposition": "dismissed", "why": "The order's second sentence sets the cap at five" }, { "step": "acceptance", "file": "src/status.ts", "line": 40, "disposition": "fixed" }]`. A `why` is one or two sentences, at most 2,000 characters. List at most 100 entries in `dispositions`: past 100 findings, dispose first of the findings of the step whose out doc {route} holds, then of the rest in the order {route} lists them, and the rest stay open. Write no `dispositions` when {route} holds no Taster's findings.
@@ -79,4 +79,4 @@ Do not write `Closes`, `Fixes` or `@`-mentions there: Foedrum closes the order's
 
 ## Your handover
 
-Your out doc's frontmatter may add the key `handover`, at most 3 lines, each at most 300 characters: what surprised you, what cost you time, or what you would tell the next brewer who works here. Leave it out when nothing did. A person reads it; no later brewer does, so put nothing there this batch needs.
+Your out doc's frontmatter may add the key `handover`, at most 3 lines, each at most 300 characters: what surprised you, what cost you time, or what you would tell the next brewer who works here, each in plain words a person who has not followed the work understands. Leave it out when nothing did. A person reads it; no later brewer does, so put nothing there this batch needs.

@@ -1092,6 +1092,17 @@
               "items": {
                 "type": "object",
                 "properties": {
+                  "point": {
+                    "type": "string",
+                    "allOf": [
+                      {
+                        "pattern": "\\S"
+                      },
+                      {
+                        "pattern": "^[^\\r\\n]*$"
+                      }
+                    ]
+                  },
                   "file": {
                     "type": "string",
                     "maxLength": 1000,
@@ -1131,6 +1142,7 @@
                   }
                 },
                 "required": [
+                  "point",
                   "severity",
                   "why",
                   "introduced"
@@ -1606,6 +1618,17 @@
                       "items": {
                         "type": "object",
                         "properties": {
+                          "point": {
+                            "type": "string",
+                            "allOf": [
+                              {
+                                "pattern": "\\S"
+                              },
+                              {
+                                "pattern": "^[^\\r\\n]*$"
+                              }
+                            ]
+                          },
                           "file": {
                             "type": "string",
                             "maxLength": 1000,
@@ -1645,6 +1668,7 @@
                           }
                         },
                         "required": [
+                          "point",
                           "severity",
                           "why",
                           "introduced"

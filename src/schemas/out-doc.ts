@@ -114,10 +114,14 @@ export const Verdict = z.enum(['approve', 'changes']);
 export const MAX_FINDING_POINT = 160;
 
 /**
- * One finding of a Taster (ADR 0161): where, how bad, and why; `introduced` is false for a defect
- * that was there before the change (ADR 0094). A finding about the change as a whole has no file.
+ * One finding of a Taster (ADR 0161): what goes wrong in plain words (ADR 0379), where, how bad, and
+ * why; `introduced` is false for a defect that was there before the change (ADR 0094). A finding
+ * about the change as a whole has no file.
  */
 export const TastingFinding = z.strictObject({
+  // What goes wrong and what to change, for a person who has not followed the work: shown first
+  // wherever the finding is, its place and `why`, the evidence for the brewer who fixes it, after.
+  point: OneLine.transform((line) => withinLimit(line, MAX_FINDING_POINT, 'point')),
   file: OneLine.optional(),
   line: z.int().positive().optional(),
   severity: z.enum(['blocker', 'major', 'minor']),

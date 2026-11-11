@@ -44,7 +44,7 @@ const tasting = (lens: string, file: string, line: number, why: string): Scripte
   summary: `One minor finding through ${lens}.`,
   tasting: {
     verdict: 'approve',
-    findings: [{ file, line, severity: 'minor', why, introduced: true }],
+    findings: [{ file, line, point: 'Fix this.', severity: 'minor', why, introduced: true }],
   },
 });
 
@@ -60,6 +60,7 @@ const approved = (lens: string): Scripted => ({
 const SPACES = {
   file: 'greet.mjs',
   line: 2,
+  point: 'Fix this.',
   severity: 'major',
   why: 'a name of only spaces is greeted as itself, not as a stranger',
   introduced: true,
@@ -303,6 +304,7 @@ export const DEMO_SCRIPT: Readonly<Record<string, readonly Scripted[]>> = {
   'naive-reader': [
     planTasting('One entry leaves a small guess.', [
       {
+        point: 'Fix this.',
         severity: 'minor',
         why: 'readme: "one section" does not say where in the README it goes',
         introduced: true,

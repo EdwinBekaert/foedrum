@@ -754,6 +754,7 @@ export const scriptedTastings = (setup: SetupName, key: Key): Record<string, rea
       const findings = defectsOf(key, lenses).map(({ lens, file, lines, what }) => ({
         file,
         line: lines[0]?.[0] ?? 1,
+        point: 'Fix this.',
         severity: 'major' as const,
         why: what,
         introduced: true,
