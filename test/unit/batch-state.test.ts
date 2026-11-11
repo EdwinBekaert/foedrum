@@ -8,8 +8,9 @@ import {
   batchState,
   type StateContext,
   stateLine,
+  stateOf,
 } from '../../src/engine/batch-state.ts';
-import type { Batch, Lane } from '../../src/engine/fold.ts';
+import { type Batch, emptyState, type Lane, type State } from '../../src/engine/fold.ts';
 import type { SubOrderRow } from '../../src/engine/order-end.ts';
 import type { StuckReason } from '../../src/schemas/events.ts';
 
@@ -219,6 +220,23 @@ describe('batchState', () => {
         subOrder: 9,
       },
     );
+  });
+});
+
+describe('stateOf', () => {
+  const closed = { limit: 'session', resets: '3:45pm', reopensAt: at, read: true } as const;
+  const brewing = batch({ kind: 'brewing' });
+  const store = (usageWindows: State['usageWindows']): State => ({
+    ...emptyState,
+    batches: new Map([[brewing.id, brewing]]),
+    usageWindows,
+  });
+
+  it("reads the store's usage window of every brewer: a brewing batch with nothing running is queued by it: regression test", () => {
+    assert.deepEqual(stateOf(store({ all: closed }), brewing), {
+      kind: 'queued',
+      by: { kind: 'usage-limit' },
+    });
   });
 });
 
