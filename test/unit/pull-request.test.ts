@@ -134,11 +134,17 @@ describe('stepReports', () => {
 const blocker = {
   file: 'src/wait.ts',
   line: 13,
+  point: 'Fix this.',
   severity: 'blocker' as const,
   why: 'The poll has no deadline',
   introduced: true,
 };
-const before = { severity: 'minor' as const, why: 'The module has no tests', introduced: false };
+const before = {
+  point: 'Fix this.',
+  severity: 'minor' as const,
+  why: 'The module has no tests',
+  introduced: false,
+};
 
 describe("stepReports and the body: a Gauger's tests (ADR 0170)", () => {
   it("gives a Gauger's new tests and regression tests with its summary", () => {
@@ -979,8 +985,8 @@ describe('pullRequestText', () => {
     assert.deepEqual(linesFrom(body, 'correctness: One blocker', 4), [
       'correctness: One blocker',
       '  verdict: changes',
-      '  finding: blocker in src/wait.ts:13: The poll has no deadline',
-      '  finding: minor, there before the change: The module has no tests',
+      '  finding: Fix this. (blocker in src/wait.ts:13): The poll has no deadline',
+      '  finding: Fix this. (minor, there before the change): The module has no tests',
     ]);
   });
 
@@ -1007,7 +1013,7 @@ describe('pullRequestText', () => {
     assert.deepEqual(linesFrom(body, 'correctness: One blocker', 6), [
       'correctness: One blocker',
       '  verdict: changes',
-      '  finding: blocker in src/wait.ts:13: The poll has no deadline',
+      '  finding: Fix this. (blocker in src/wait.ts:13): The poll has no deadline',
       '  risk left: Only a run shows verdict: approve',
       '  risk left: [left out: a text of step correctness that looks like a secret]',
       'security: Nothing',

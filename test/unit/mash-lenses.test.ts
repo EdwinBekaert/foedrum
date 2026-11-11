@@ -307,11 +307,13 @@ describe('foedrum brew on recipe:mash and recipe:deep-mash, through the default 
   const planned = behave.succeedWith({ subOrders, alternatives }, 'Planned');
   const approves = behave.succeedWith({ verdict: 'approve', findings: [] }, 'Nothing here');
   const guide = {
+    point: 'Fix this.',
     severity: 'major',
     why: 'writer: the guide the order asks for is built by no sub-order',
     introduced: true,
   };
   const big = {
+    point: 'Fix this.',
     severity: 'major',
     why: 'schema: its entry holds two mechanisms',
     introduced: true,
@@ -430,7 +432,7 @@ describe('foedrum brew on recipe:mash and recipe:deep-mash, through the default 
       [
         '**Review**',
         '',
-        `- ${code('coverage')} #1: major, dismissed: ${plain(guide.why)}`,
+        `- ${code('coverage')}: Fix this. (major), dismissed: ${plain(guide.why)}`,
         `  - why: ${plain(evidence)}`,
       ].join('\n'),
     );
@@ -469,7 +471,7 @@ describe('foedrum brew on recipe:mash and recipe:deep-mash, through the default 
     assert.ok(!started.includes('plan#4'), started.join(' '));
     assert.equal(stuckReason().kind, 'blocked');
     assert.ok(
-      review().includes(`- ${code('sizing')} #3: major, open: ${plain(big.why)}`),
+      review().includes(`- ${code('sizing (try 3)')}: Fix this. (major), open: ${plain(big.why)}`),
       review(),
     );
   });
@@ -525,7 +527,9 @@ describe('foedrum brew on recipe:mash and recipe:deep-mash, through the default 
     assert.ok(!started.includes('plan#4'), started.join(' '));
     assert.equal(stuckReason().kind, 'blocked');
     assert.ok(
-      review().includes(`- ${code('coverage')} #3: major, open: ${plain(guide.why)}`),
+      review().includes(
+        `- ${code('coverage (try 3)')}: Fix this. (major), open: ${plain(guide.why)}`,
+      ),
       review(),
     );
   });

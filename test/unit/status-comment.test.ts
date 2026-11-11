@@ -851,12 +851,13 @@ describe('renderStatus', () => {
           {
             file: 'src/a_b.ts',
             line: 3,
+            point: 'Fix this.',
             severity: 'major',
             why: 'no\n# deadline',
             introduced: true,
           },
-          { severity: 'minor', why: 'x'.repeat(300), introduced: false },
-          { severity: 'blocker', why: `Token ${token}`, introduced: true },
+          { point: 'Fix this.', severity: 'minor', why: 'x'.repeat(300), introduced: false },
+          { point: 'Fix this.', severity: 'blocker', why: `Token ${token}`, introduced: true },
         ],
         more: 4,
       },
@@ -866,9 +867,9 @@ describe('renderStatus', () => {
     assert.deepStrictEqual(lines.slice(at_, at_ + 9), [
       '🔔 **Waiting for you: look at a failure Foedrum could not get past**: step `taste` could not go on, as the review found problems that are still open: the Taster asks for changes: no deadline',
       'Still open after 2 rounds:',
-      '- `taste`: major in src/a\\_b.ts:3: no \\# deadline',
-      `- \`taste\`: minor, there before the change: ${'x'.repeat(199)}…`,
-      `- \`taste\`: blocker: ${leftOut('taste')}`,
+      '- `taste`: Fix this. (major in src/a\\_b.ts:3): no \\# deadline',
+      `- \`taste\`: Fix this. (minor, there before the change): ${'x'.repeat(199)}…`,
+      `- \`taste\`: Fix this. (blocker): ${leftOut('taste')}`,
       '- `taste`: and 4 more',
       'Another round is unlikely to help: plan the order again, or split it.',
       'Next: look at what failed above, then try the step again with `foedrum retry 7`, or end it with `foedrum cancel 7`.',
@@ -1327,6 +1328,7 @@ describe('renderStatus', () => {
     const finding = (n: number, introduced = true) => ({
       file: 'src/wait.ts',
       line: n,
+      point: 'Fix this.',
       severity: 'major',
       why: `finding ${n}`,
       introduced,
@@ -1364,9 +1366,9 @@ describe('renderStatus', () => {
     assert.ok(at_ >= 0, text);
     assert.equal(
       lines[at_ + 1],
-      '- `taste`: minor in src/wait.ts:1, there before the change: finding 1',
+      '- `taste`: Fix this. (minor in src/wait.ts:1, there before the change): finding 1',
     );
-    assert.equal(lines[at_ + 2], '- `security`: major in src/wait.ts:1: finding 1');
+    assert.equal(lines[at_ + 2], '- `security`: Fix this. (major in src/wait.ts:1): finding 1');
     assert.match(text, /finding 10\b/);
     assert.doesNotMatch(text, /finding 11\b/);
     assert.equal(lines[at_ + 12], '- `security`: and 2 more');
@@ -1481,7 +1483,9 @@ describe('renderStatus', () => {
           summary: 'Tasted',
           assumptions: [],
           verdict: 'approve',
-          findings: [{ severity: 'minor', why: 'a small thing', introduced: true }],
+          findings: [
+            { point: 'Fix this.', severity: 'minor', why: 'a small thing', introduced: true },
+          ],
         },
       },
     };
@@ -1510,7 +1514,7 @@ describe('renderStatus', () => {
     const lines = text.split('\n');
     const at_ = lines.indexOf('**Findings**');
     assert.deepEqual(lines.slice(at_ + 1, at_ + 4), [
-      '- `taste`: minor: a small thing',
+      '- `taste`: Fix this. (minor): a small thing',
       '- `mutants`: survived: src/clamp.ts:3: clamp at ten',
       '- `mutants`: 1 mutant: 1 survived',
     ]);
@@ -1580,7 +1584,9 @@ describe('renderStatus', () => {
           summary: 'Tasted',
           assumptions: [],
           verdict: 'approve',
-          findings: [{ severity: 'minor', why: 'an old round', introduced: true }],
+          findings: [
+            { point: 'Fix this.', severity: 'minor', why: 'an old round', introduced: true },
+          ],
         },
       },
     };
@@ -1603,7 +1609,9 @@ describe('renderStatus', () => {
         summary: 'Tasted',
         assumptions: [],
         verdict: 'approve',
-        findings: [{ severity: 'minor', why: 'a small thing', introduced: true }],
+        findings: [
+          { point: 'Fix this.', severity: 'minor', why: 'a small thing', introduced: true },
+        ],
         ...(riskLeft === undefined ? {} : { riskLeft }),
       },
     },
@@ -1688,11 +1696,12 @@ describe('renderStatus: out doc text that looks like a secret (#235)', () => {
       {
         // A file is one line (the schema), so only `why` can try to start a line of its own.
         file: 'src/a_b.ts',
+        point: 'Fix this.',
         severity: 'major',
         why: 'x\n# heading\n**Pull requests**',
         introduced: true,
       },
-      { severity: 'major', why: `Token ${token}`, introduced: true },
+      { point: 'Fix this.', severity: 'major', why: `Token ${token}`, introduced: true },
     ];
     const tasted: Attempt = {
       phase: 'finished',
@@ -1715,11 +1724,11 @@ describe('renderStatus: out doc text that looks like a secret (#235)', () => {
     assert.ok(at_ >= 0, text);
     assert.match(
       lines[at_ + 1] ?? '',
-      /^- `taste`: major in src\/a\\_b\.ts: x \\# heading \\\*\\\*Pull requests\\\*\\\*$/,
+      /^- `taste`: Fix this\. \(major in src\/a\\_b\.ts\): x \\# heading \\\*\\\*Pull requests\\\*\\\*$/,
     );
     assert.match(
       lines[at_ + 2] ?? '',
-      new RegExp(`^- \`taste\`: major: ${escaped(leftOut('taste'))}$`),
+      new RegExp(`^- \`taste\`: Fix this\\. \\(major\\): ${escaped(leftOut('taste'))}$`),
     );
     assert.doesNotMatch(text, /^# heading|^\*\*Pull requests\*\*/m);
     noToken(text);

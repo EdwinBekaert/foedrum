@@ -238,7 +238,7 @@ describe('renderPlan (ADR 0233)', () => {
     const note = (stepId: string, n: number): ReviewNote => ({
       stepId,
       attempt: 2,
-      finding: { severity: 'minor', why: `api: note ${n}`, introduced: true },
+      finding: { point: 'Fix this.', severity: 'minor', why: `api: note ${n}`, introduced: true },
       left: 'advisory',
     });
     // sizing's note comes between naive's: the section groups them by step.
@@ -248,10 +248,10 @@ describe('renderPlan (ADR 0233)', () => {
     assert.deepStrictEqual(lines, [
       ...Array.from(
         { length: 10 },
-        (_, n) => `- \`naive\` #2: minor, advisory: api: note ${n + 1}`,
+        (_, n) => `- \`naive (try 2)\`: Fix this. (minor), advisory: api: note ${n + 1}`,
       ),
       '- `naive`: and 2 more',
-      '- `sizing` #2: minor, advisory: api: note 1',
+      '- `sizing (try 2)`: Fix this. (minor), advisory: api: note 1',
     ]);
   });
 
@@ -261,6 +261,7 @@ describe('renderPlan (ADR 0233)', () => {
         stepId: 'plans',
         attempt: 3,
         finding: {
+          point: 'Fix this.',
           lens: 'plan/sizing',
           file: 'src/server.ts',
           line: 4,
@@ -273,7 +274,7 @@ describe('renderPlan (ADR 0233)', () => {
     ]);
     assert.equal(
       reviewOf(text),
-      '**Review**\n\n- `plans` #3: plan/sizing, major in src/server.ts:4, open: api: the endpoint is there already',
+      '**Review**\n\n- `plans (try 3)`: Fix this. (plan/sizing, major in src/server.ts:4), open: api: the endpoint is there already',
     );
   });
 
@@ -282,7 +283,12 @@ describe('renderPlan (ADR 0233)', () => {
       {
         stepId: 'naive',
         attempt: 1,
-        finding: { severity: 'major', why: `api: use ${token}`, introduced: true },
+        finding: {
+          point: 'Fix this.',
+          severity: 'major',
+          why: `api: use ${token}`,
+          introduced: true,
+        },
         left: 'dismissed',
         why: `the order names ${token}`,
       },
@@ -293,7 +299,7 @@ describe('renderPlan (ADR 0233)', () => {
       [
         '**Review**',
         '',
-        '- `naive` #1: major, dismissed: \\[left out: a text of step naive that looks like a secret\\]',
+        '- `naive`: Fix this. (major), dismissed: \\[left out: a text of step naive that looks like a secret\\]',
         // The why is the plan's: its step wrote it.
         '  - why: \\[left out: a text of step plan that looks like a secret\\]',
       ].join('\n'),
@@ -1120,7 +1126,7 @@ describe('reviewNotes (ADR 0318)', () => {
     status: 'done',
     summary: 'Each entry reads alone',
     verdict: 'approve',
-    findings: [{ severity: 'minor', why: `api: ${why}`, introduced: true }],
+    findings: [{ point: 'Fix this.', severity: 'minor', why: `api: ${why}`, introduced: true }],
   });
 
   it("lists each step's latest round after the latest plan, in the order the steps ran, and none before it: regression test", () => {

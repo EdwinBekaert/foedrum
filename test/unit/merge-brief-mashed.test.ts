@@ -313,6 +313,7 @@ describe('the merge brief of a batch mashed to a building recipe (#867)', () => 
     return briefBody();
   };
   const heldBack = {
+    point: 'Fix this.',
     severity: 'major',
     why: 'Breaks the plan',
     introduced: true,

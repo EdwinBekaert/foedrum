@@ -71,7 +71,14 @@ const blocked: Ending = {
   blockerKind: 'findings',
   summary: 'The plan skips a step',
   findings: [
-    { severity: 'major', why: 'A step is missing', introduced: true, file: 'plan.md', line: 3 },
+    {
+      point: 'Fix this.',
+      severity: 'major',
+      why: 'A step is missing',
+      introduced: true,
+      file: 'plan.md',
+      line: 3,
+    },
   ],
 };
 const ended: Ending = { kind: 'failed', retryable: true, reason: 'the session ended' };

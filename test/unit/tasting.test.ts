@@ -54,6 +54,7 @@ const PLANTED: Readonly<Record<string, Record<string, unknown>>> = {
   correctness: {
     file: 'src/engine/wait-for-merge.ts',
     line: 13,
+    point: 'Fix this.',
     severity: 'blocker',
     why: 'waitForMerge polls isMerged with no deadline, so a pull request never merged hangs it',
     introduced: true,
@@ -61,6 +62,7 @@ const PLANTED: Readonly<Record<string, Record<string, unknown>>> = {
   security: {
     file: 'src/engine/wait-for-merge.ts',
     line: 20,
+    point: 'Fix this.',
     severity: 'major',
     why: 'the Brewery name is not checked, so ../ in it leaves ~/.foedrum',
     introduced: true,
@@ -68,6 +70,7 @@ const PLANTED: Readonly<Record<string, Record<string, unknown>>> = {
   'cross-platform': {
     file: 'src/engine/wait-for-merge.ts',
     line: 20,
+    point: 'Fix this.',
     severity: 'blocker',
     why: "the path is built as homedir() + '/.foedrum/', with mixed separators on Windows",
     introduced: true,
@@ -75,6 +78,7 @@ const PLANTED: Readonly<Record<string, Record<string, unknown>>> = {
   'design-conformance': {
     file: 'src/workspace/current-branch.ts',
     line: 5,
+    point: 'Fix this.',
     severity: 'blocker',
     why: 'git runs through execFileSync, not the process runner in src/platform/processes.ts',
     introduced: true,
@@ -82,6 +86,7 @@ const PLANTED: Readonly<Record<string, Record<string, unknown>>> = {
   'test-design': {
     file: 'test/unit/brewery-name.test.ts',
     line: 6,
+    point: 'Fix this.',
     severity: 'major',
     why: 'every test passes against a stub that rejects every name: none accepts a valid one',
     introduced: true,
@@ -194,7 +199,7 @@ describe('the tasting room: one lens step per lens, one after another (#26)', ()
       const { file, line, severity, why } = PLANTED[lens] ?? {};
       assert.ok(
         body.includes(
-          `${lens}: One finding through diff/${lens}\n  verdict: changes\n  finding: ${severity} in ${file}:${line}: ${why}`,
+          `${lens}: One finding through diff/${lens}\n  verdict: changes\n  finding: Fix this. (${severity} in ${file}:${line}): ${why}`,
         ),
         body,
       );
@@ -813,7 +818,13 @@ describe('the default Taster (defaults/brewers/taster.md)', () => {
 
     it("holds a one-lens step's finding that names a lens to the step's lens (review of #571)", async () => {
       const { outDoc } = (await planTaster(answers)).limits;
-      const finding = { file: 'src/a.ts', severity: 'minor', why: 'x', introduced: true };
+      const finding = {
+        file: 'src/a.ts',
+        point: 'Fix this.',
+        severity: 'minor',
+        why: 'x',
+        introduced: true,
+      };
       const doc = (findings: readonly unknown[]) => ({
         status: 'done',
         summary: 'Tasted',
@@ -842,7 +853,13 @@ describe('the default Taster (defaults/brewers/taster.md)', () => {
 
     it("gives the runner a schema that holds each finding to the step's lenses", async () => {
       const { outDoc } = (await planTaster(answers, together)).limits;
-      const finding = { file: 'src/a.ts', severity: 'minor', why: 'x', introduced: true };
+      const finding = {
+        file: 'src/a.ts',
+        point: 'Fix this.',
+        severity: 'minor',
+        why: 'x',
+        introduced: true,
+      };
       const doc = (findings: readonly unknown[]) => ({
         status: 'done',
         summary: 'Tasted',
@@ -1075,11 +1092,11 @@ describe('a step of several lenses together, brewed (#560, ADR 0220)', () => {
     const status = renderStatus(batch, recipes.find('porter')?.steps);
     assert.ok(
       status.includes(
-        `- \`taste\`: diff/security, major in ${PLANTED.security?.file}:${PLANTED.security?.line}: `,
+        `- \`taste\`: Fix this. (diff/security, major in ${PLANTED.security?.file}:${PLANTED.security?.line}): `,
       ),
       status,
     );
-    assert.ok(status.includes('- `taste`: diff/correctness, minor in '), status);
+    assert.ok(status.includes('- `taste`: Fix this. (diff/correctness, minor in '), status);
   });
 
   it('fails an attempt whose finding names no lens, or a lens not of the step, as an invalid out doc', async () => {
@@ -1136,15 +1153,19 @@ describe('a step of several lenses together, brewed (#560, ADR 0220)', () => {
     });
     assert.ok(
       body.includes(
-        `  finding: diff/security, major in ${PLANTED.security?.file}:${PLANTED.security?.line}: ${PLANTED.security?.why}`,
+        `  finding: Fix this. (diff/security, major in ${PLANTED.security?.file}:${PLANTED.security?.line}): ${PLANTED.security?.why}`,
       ),
       body,
     );
     assert.ok(
-      body.includes(`  finding: diff/correctness, minor in ${PLANTED.correctness?.file}:12: `),
+      body.includes(
+        `  finding: Fix this. (diff/correctness, minor in ${PLANTED.correctness?.file}:12): `,
+      ),
     );
     const status = renderStatus(batch, valid(loadRecipes(files)).recipes.find('porter')?.steps);
-    const lines = status.split('\n').filter((line) => line.startsWith('- `taste`: diff/'));
+    const lines = status
+      .split('\n')
+      .filter((line) => line.startsWith('- `taste`: Fix this. (diff/'));
     assert.equal(lines.filter((line) => line.includes('diff/correctness, minor')).length, 10);
     assert.ok(status.includes('- `taste`: and 2 more of diff/correctness\n'), status);
     assert.equal(lines.filter((line) => line.includes('diff/security, major')).length, 1);

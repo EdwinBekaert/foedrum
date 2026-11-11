@@ -590,7 +590,7 @@ describe('decide finish', () => {
     it('with findings and no route makes the batch Stuck, as it did before ADR 0192', () => {
       const withFindings = {
         ...blocked('findings'),
-        findings: [{ severity: 'major', why: 'no deadline', introduced: true }],
+        findings: [{ point: 'Fix this.', severity: 'major', why: 'no deadline', introduced: true }],
       } as const;
       accepts(brewing(), finish(withFindings), [
         // With its findings (ADR 0221).
@@ -2157,6 +2157,7 @@ describe('decide: an onBlocked route of a recipe file (ADR 0064)', () => {
   ];
   const finding = (n: number) =>
     ({
+      point: 'Fix this.',
       file: 'src/poll.ts',
       line: n,
       severity: 'major',
@@ -2167,7 +2168,10 @@ describe('decide: an onBlocked route of a recipe file (ADR 0064)', () => {
     kind: 'blocked',
     blockerKind: 'findings',
     summary: 'the test is wrong',
-    findings: [finding(1), { severity: 'minor', why: 'a long name', introduced: false }],
+    findings: [
+      finding(1),
+      { point: 'Fix this.', severity: 'minor', why: 'a long name', introduced: false },
+    ],
   } as const;
   const finish = (attempt: number, ending: Ending = blocked): Command => ({
     kind: 'finish',

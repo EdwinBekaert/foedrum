@@ -371,6 +371,7 @@ describe("attemptLimits: a Taster's verdict (ADR 0161)", () => {
   const finding = {
     file: 'src/wait.ts',
     line: 13,
+    point: 'Fix this.',
     severity: 'blocker',
     why: 'The poll has no deadline',
     introduced: true,
@@ -1197,8 +1198,15 @@ describe('outDocContract (brewers-and-recipes §2)', () => {
     }
   });
 
-  it('stays around the 350 tokens ADR 0005 and ADR 0308 give it: at most 1,400 characters', () => {
-    assert.ok(outDocContract('brew.md').length <= 1400, `${outDocContract('brew.md').length}`);
+  it('stays around the 375 tokens ADR 0005, ADR 0308 and ADR 0379 give it: at most 1,500 characters: regression test', () => {
+    assert.ok(outDocContract('brew.md').length <= 1500, `${outDocContract('brew.md').length}`);
+  });
+
+  it('asks every brewer for plain words in what a person reads (ADR 0379)', () => {
+    assert.match(
+      outDocContract('brew.md'),
+      /\nWrite summary, assumptions and questions in plain words for a person who has\nnot followed the work: what happened and why it matters first, then any file,\nline or rule\.\n/,
+    );
   });
 
   it('the out doc contract tells a brewer to claim only what it did or read', () => {
@@ -1217,7 +1225,7 @@ describe('outDocContract (brewers-and-recipes §2)', () => {
     );
     assert.equal(contract.replace(/\nCommit [\s\S]* commit\./, ''), outDocContract('brew.md'));
     assert.doesNotMatch(outDocContract('brew.md'), /git commit/);
-    assert.ok(contract.length <= 1600, `${contract.length}`);
+    assert.ok(contract.length <= 1700, `${contract.length}`);
   });
 
   // Every `---` … `---` block of the contract, as the out doc a brewer that copies it writes (#195).
@@ -1540,7 +1548,7 @@ describe('planAttempt', () => {
       });
       const contract = prompt.slice('Brew the plan in {malt}.\n\n'.length);
       assert.match(contract, /Commit your changes/);
-      assert.ok(contract.length <= 1600, `${contract.length}`);
+      assert.ok(contract.length <= 1700, `${contract.length}`);
     });
 
     it('writes settings the attempt settings schema accepts, with the git rules in them', () => {

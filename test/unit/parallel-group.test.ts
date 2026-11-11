@@ -341,7 +341,14 @@ describe("a parallel group's findings, every child's along the group's route (AD
     }),
   };
   const found = (why: string) =>
-    ({ file: 'src/wait.ts', line: 3, severity: 'minor', why, introduced: true }) as const;
+    ({
+      file: 'src/wait.ts',
+      line: 3,
+      point: 'Fix this.',
+      severity: 'minor',
+      why,
+      introduced: true,
+    }) as const;
   const finishAgain = (stepId: string, why: string) =>
     ({
       kind: 'finish',

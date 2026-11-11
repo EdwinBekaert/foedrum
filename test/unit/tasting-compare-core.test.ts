@@ -59,6 +59,7 @@ const USAGE = { inputTokens: 100, outputTokens: 20, cacheReadTokens: 1000, cache
 const finding = (file: string | undefined, line: number | undefined, lens?: string) => ({
   ...(file === undefined ? {} : { file }),
   ...(line === undefined ? {} : { line }),
+  point: 'Fix this.',
   severity: 'major' as const,
   why: `a finding at ${file}:${line}`,
   introduced: true,

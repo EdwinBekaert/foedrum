@@ -419,6 +419,7 @@ describe('createAttemptPlans: plan', () => {
     const advice = {
       file: 'src/status.ts',
       line: 40,
+      point: 'Fix this.',
       severity: 'minor',
       why: 'The help text does not name --json',
       introduced: true,

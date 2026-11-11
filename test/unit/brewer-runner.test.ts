@@ -426,6 +426,7 @@ describe("settleAttempt: a Taster's riskLeft past its limit (#889, ADR 0337)", (
   const finding = {
     file: 'src/wait.ts',
     line: 13,
+    point: 'Fix this.',
     severity: 'major',
     why: 'it never ends',
     introduced: true,

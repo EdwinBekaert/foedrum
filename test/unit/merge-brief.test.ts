@@ -555,7 +555,13 @@ describe('the merge brief (ADR 0225)', () => {
         blockerKind: 'findings',
         summary: 'A change is asked',
         findings: [
-          { severity: 'major', why: 'Breaks the flag', introduced: true, file: 'src/a.ts' },
+          {
+            point: 'Fix this.',
+            severity: 'major',
+            why: 'Breaks the flag',
+            introduced: true,
+            file: 'src/a.ts',
+          },
         ],
       });
       assert.equal(batch().lane.kind, 'stuck');
@@ -760,7 +766,12 @@ describe('the merge brief (ADR 0225)', () => {
     it('says where the Taster that tasted last tasted, the first in the recipe, when the group ran in part: regression test', async () => {
       order('parted');
       run('implement');
-      const asked = { severity: 'major', why: 'Misses a case', introduced: true } as const;
+      const asked = {
+        point: 'Fix this.',
+        severity: 'major',
+        why: 'Misses a case',
+        introduced: true,
+      } as const;
       run(
         'correctness',
         { kind: 'blocked', blockerKind: 'findings', summary: 'x', findings: [asked] },
@@ -778,7 +789,12 @@ describe('the merge brief (ADR 0225)', () => {
       order('parted');
       run('implement');
       run('correctness', tasting(), { commit: tasted });
-      const asked = { severity: 'major', why: 'Misses an item', introduced: true } as const;
+      const asked = {
+        point: 'Fix this.',
+        severity: 'major',
+        why: 'Misses an item',
+        introduced: true,
+      } as const;
       run(
         'acceptance',
         { kind: 'blocked', blockerKind: 'findings', summary: 'x', findings: [asked] },
@@ -914,13 +930,14 @@ describe('the merge brief (ADR 0225)', () => {
         summary: 'Changes asked',
         findings: [
           {
+            point: 'Fix this.',
             severity: 'major',
             why: 'Breaks the flag',
             introduced: true,
             file: 'src/a.ts',
             line: 3,
           },
-          { severity: 'minor', why: 'Odd name', introduced: true },
+          { point: 'Fix this.', severity: 'minor', why: 'Odd name', introduced: true },
         ],
       });
       run('implement', {
@@ -939,6 +956,7 @@ describe('the merge brief (ADR 0225)', () => {
         'taste',
         tasting([
           {
+            point: 'Fix this.',
             severity: 'minor',
             why: 'A comment could be shorter',
             introduced: true,
@@ -959,7 +977,7 @@ describe('the merge brief (ADR 0225)', () => {
       );
       assert.match(
         body,
-        /- `taste`: open: diff\/correctness, minor in src\/b\.ts: A comment could be shorter/,
+        /- `taste`: open: Fix this\. \(diff\/correctness, minor in src\/b\.ts\): A comment could be shorter/,
       );
     });
 
@@ -971,7 +989,14 @@ describe('the merge brief (ADR 0225)', () => {
         blockerKind: 'findings',
         summary: 'Changes asked',
         findings: [
-          { severity: 'minor', why: 'No jitter', introduced: false, file: 'src/old.ts', line: 9 },
+          {
+            point: 'Fix this.',
+            severity: 'minor',
+            why: 'No jitter',
+            introduced: false,
+            file: 'src/old.ts',
+            line: 9,
+          },
         ],
       });
       run('implement', {
@@ -1002,7 +1027,14 @@ describe('the merge brief (ADR 0225)', () => {
         blockerKind: 'findings',
         summary: 'Changes asked',
         findings: [
-          { severity: 'minor', why: 'No jitter', introduced: false, file: 'src/old.ts', line: 9 },
+          {
+            point: 'Fix this.',
+            severity: 'minor',
+            why: 'No jitter',
+            introduced: false,
+            file: 'src/old.ts',
+            line: 9,
+          },
         ],
       });
       run('implement', {
@@ -1143,7 +1175,9 @@ describe('the merge brief (ADR 0225)', () => {
         kind: 'blocked',
         blockerKind: 'findings',
         summary: 'Changes asked',
-        findings: [{ severity: 'major', why: 'x', introduced: true, file: 'src/a.ts' }],
+        findings: [
+          { point: 'Fix this.', severity: 'major', why: 'x', introduced: true, file: 'src/a.ts' },
+        ],
       });
       run('implement', {
         kind: 'succeeded',
@@ -1156,7 +1190,10 @@ describe('the merge brief (ADR 0225)', () => {
       });
       run(
         'taste',
-        tasting([{ severity: 'minor', why: `token ${secret}`, introduced: true }], [loud]),
+        tasting(
+          [{ point: 'Fix this.', severity: 'minor', why: `token ${secret}`, introduced: true }],
+          [loud],
+        ),
         { commit: head },
       );
       open();
@@ -1194,6 +1231,7 @@ describe('the merge brief (ADR 0225)', () => {
         summary: 'Changes asked',
         findings: [
           {
+            point: 'Fix this.',
             severity: 'major',
             why: 'Breaks the flag',
             introduced: true,
@@ -1201,7 +1239,13 @@ describe('the merge brief (ADR 0225)', () => {
             line: 3,
             lens: 'diff/correctness',
           },
-          { severity: 'minor', why: 'Odd name', introduced: true, lens: 'diff/acceptance' },
+          {
+            point: 'Fix this.',
+            severity: 'minor',
+            why: 'Odd name',
+            introduced: true,
+            lens: 'diff/acceptance',
+          },
         ],
       });
       run('implement', {
@@ -1236,6 +1280,7 @@ describe('the merge brief (ADR 0225)', () => {
         summary: 'A change is asked',
         findings: [
           {
+            point: 'Fix this.',
             severity: 'major',
             why: 'Breaks the flag for @ann',
             introduced: true,
@@ -1250,7 +1295,7 @@ describe('the merge brief (ADR 0225)', () => {
       finished([passed('ci/build')]);
       assert.match(
         await brief(),
-        /- `taste`: left open by a skip: diff\/correctness, major in src\/a\.ts:7: Breaks the flag for ann/,
+        /- `taste`: left open by a skip: Fix this\. \(diff\/correctness, major in src\/a\.ts:7\): Breaks the flag for ann/,
       );
     });
   });
@@ -1734,6 +1779,7 @@ describe('the merge brief (ADR 0225)', () => {
       findings,
     });
     const at = (n: number): TastingFinding => ({
+      point: 'Fix this.',
       severity: 'major',
       why: `Finding ${n}`,
       introduced: true,
@@ -1774,7 +1820,7 @@ describe('the merge brief (ADR 0225)', () => {
       const body = await brief();
       assert.match(
         body,
-        /left open by a skip: major in src\/f9\.ts: Finding 9\n- `taste`: left open by a skip: and 4 more/,
+        /left open by a skip: Fix this\. \(major in src\/f9\.ts\): Finding 9\n- `taste`: left open by a skip: and 4 more/,
       );
       assert.doesNotMatch(body, /src\/f10\.ts/);
     });

@@ -789,6 +789,7 @@ describe('the default Nip', () => {
     const finding = (why: string, introduced = true) => ({
       file: 'docs/design/rounds.md',
       line: 4,
+      point: 'Fix this.',
       severity: 'minor',
       why,
       introduced,
@@ -1546,6 +1547,7 @@ describe("the default Nip's round back to the Cellarman carries every Taster's f
   const blockingFinding = {
     file: 'src/wait.ts',
     line: 12,
+    point: 'Fix this.',
     severity: 'major',
     why: 'waitForMerge polls with no deadline',
     introduced: true,
@@ -1553,6 +1555,7 @@ describe("the default Nip's round back to the Cellarman carries every Taster's f
   const advisoryFinding = {
     file: 'src/status.ts',
     line: 40,
+    point: 'Fix this.',
     severity: 'major',
     why: 'The order asks for --json; the flag added is --JSON',
     introduced: true,

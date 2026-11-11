@@ -110,6 +110,7 @@ const outDoc: Call = {
 const finding = (why: string) => ({
   file: 'src/a.ts',
   line: 3,
+  point: 'Fix this.',
   severity: 'major' as const,
   why,
   introduced: true,

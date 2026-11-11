@@ -318,6 +318,7 @@ describe('runServe: a Brett step (ADR 0313)', () => {
         {
           file: 'src/add.mjs',
           line: 2,
+          point: 'The tests miss a bug planted on this line: add a test that catches it.',
           severity: 'major',
           why: 'the tests let a mutant survive: - export const clamp = (n) => (n > 10 ? 10 : n); / + export const clamp = (n) => (n >= 10 ? 10 : n);: clamp at ten',
           introduced: true,

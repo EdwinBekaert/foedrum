@@ -683,6 +683,7 @@ describe('runBrew', () => {
         const finding = {
           file: 'src/old.ts',
           line: 9,
+          point: 'Fix this.',
           severity: 'minor',
           why: 'The retry loop sleeps without a jitter',
           introduced: false,

@@ -41,6 +41,7 @@ const attempt = (
 const json = {
   file: 'src/status.ts',
   line: 40,
+  point: 'Fix this.',
   severity: 'major',
   why: 'The order asks for --json',
   introduced: true,

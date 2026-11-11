@@ -33,7 +33,13 @@ const done = behave.succeed();
 const approve = behave.succeedWith({ verdict: 'approve', findings: [] }, 'Nothing found');
 const cellar = behave.succeedWith({ howItWorks: 'It works.', seeIt: 'Run it.' });
 const token = ['ghp', 'A1b2'.repeat(9)].join('_');
-const finding = (why: string) => ({ severity: 'major', why, introduced: true, file: 'src/a.ts' });
+const finding = (why: string) => ({
+  point: 'Fix this.',
+  severity: 'major',
+  why,
+  introduced: true,
+  file: 'src/a.ts',
+});
 const changes = (...whys: string[]) =>
   behave.succeedWith({ verdict: 'changes', findings: whys.map(finding) }, 'It asks for changes');
 const tasters = ['acceptance', 'security', 'design-conformance'];
@@ -220,11 +226,17 @@ describe('what a pull request says of a step a skip went past', () => {
     assert.doesNotMatch(body, /every Taster approved/);
     const line = /`correctness` is left open by a skip: its attempt 3 was blocked by its findings/;
     assert.match(body, line);
-    assert.match(body, /left open by a skip: major in src\/a\.ts: Round three: an Ordered/);
+    assert.match(
+      body,
+      /left open by a skip: Fix this\. \(major in src\/a\.ts\): Round three: an Ordered/,
+    );
     // Its latest round's, as the merge brief lists them: an earlier round's are no longer current.
     assert.doesNotMatch(body, /Round two: an Ordered/);
     assert.match(comment(), line);
-    assert.match(comment(), /left open by a skip: major in src\/a\.ts: Round three: an Ordered/);
+    assert.match(
+      comment(),
+      /left open by a skip: Fix this\. \(major in src\/a\.ts\): Round three: an Ordered/,
+    );
     assert.doesNotMatch(comment(), /every Taster approved/);
   });
 

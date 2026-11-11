@@ -573,6 +573,7 @@ describe('mutated, on a blocking step (ADR 0319)', () => {
         {
           file: 'src/add.mjs',
           line: 2,
+          point: 'The tests miss a bug planted on this line: add a test that catches it.',
           severity: 'major',
           why: 'the tests let a mutant survive: - export const clamp = (n) => (n > 10 ? 10 : n); / + export const clamp = (n) => (n >= 10 ? 10 : n);: clamp at ten',
           introduced: true,
@@ -580,6 +581,7 @@ describe('mutated, on a blocking step (ADR 0319)', () => {
         {
           file: 'src/add.mjs',
           line: 1,
+          point: 'The tests miss a bug planted on this line: add a test that catches it.',
           severity: 'major',
           why: 'the tests let a mutant survive: - export const add = (a, b) => a + b; / + export const add = (a, b) => a - b;: add subtracts',
           introduced: true,

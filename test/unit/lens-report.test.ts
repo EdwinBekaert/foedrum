@@ -69,7 +69,7 @@ const tally = (counts: Partial<LensTally> = {}): LensTally => ({
 });
 
 /** A finding at a file and line: what an out doc holds, as JSON. */
-type Found = Pick<TastingFinding, 'severity' | 'why' | 'introduced'> & {
+type Found = Pick<TastingFinding, 'point' | 'severity' | 'why' | 'introduced'> & {
   file: string;
   line: number;
   lens?: string;
@@ -79,7 +79,7 @@ const finding = (
   line: number,
   severity: TastingFinding['severity'] = 'major',
   introduced = true,
-): Found => ({ file, line, severity, why: `why ${file}:${line}`, introduced });
+): Found => ({ point: 'Fix this.', file, line, severity, why: `why ${file}:${line}`, introduced });
 /** A finding a Taster of several lenses found through `lens` (ADR 0220). */
 const through = (lens: string, found: Found): Found => ({ ...found, lens });
 
@@ -468,6 +468,7 @@ describe('lensReport', () => {
 
   it('counts two findings at one place of a round, and two about the change as a whole, each with its own disposition (review of #572)', () => {
     const whole = (severity: TastingFinding['severity']): TastingFinding => ({
+      point: 'Fix this.',
       severity,
       why: `the change as a whole: ${severity}`,
       introduced: true,

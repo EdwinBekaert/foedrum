@@ -222,6 +222,7 @@ describe('scoring a plan run', () => {
     ],
   };
   const finding = (why: string, lens?: string) => ({
+    point: 'Fix this.',
     severity: 'major' as const,
     why,
     introduced: true,
@@ -571,7 +572,7 @@ describe('the diff mode beside plan mode', () => {
       turns: 2,
       durationMs: 4_000,
     }) as RunRecord['attempts'][number];
-  const major = { severity: 'major', introduced: true } as const;
+  const major = { point: 'Fix this.', severity: 'major', introduced: true } as const;
   const records: RunRecord[] = [
     {
       setup: 'apart-7',

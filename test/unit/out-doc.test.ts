@@ -5,6 +5,7 @@ import {
   lensOfFinding,
   MAX_DISPOSITION_FILE,
   MAX_DISPOSITION_WHY,
+  MAX_FINDING_POINT,
   MAX_RISK_LEFT,
   MOST_DISPOSITIONS,
   MOST_RISKS_LEFT,
@@ -269,6 +270,40 @@ describe('dispositions (ADR 0191)', () => {
   });
 });
 
+describe("a finding's point, its plain first sentence (ADR 0379)", () => {
+  const minor = {
+    severity: 'minor',
+    why: 'The loop has no deadline',
+    introduced: true,
+  } as const;
+  const tasted = (finding: object) => ({
+    status: 'done',
+    summary: 'Tasted',
+    verdict: 'approve',
+    findings: [finding],
+  });
+  const pointOf = (point: string) => {
+    const read = TastingOutDoc.safeParse(tasted({ ...minor, point }));
+    return read.success ? read.data.findings[0]?.point : undefined;
+  };
+
+  it('is required: a finding without one is refused at its path', () => {
+    const read = TastingOutDoc.safeParse(tasted(minor));
+    assert.equal(read.success, false);
+    assert.deepEqual(read.error?.issues[0]?.path, ['findings', 0, 'point']);
+  });
+
+  it(`is one line of at most ${MAX_FINDING_POINT} characters, a longer one cut with a mark`, () => {
+    const point = 'p'.repeat(MAX_FINDING_POINT);
+    assert.equal(pointOf(point), point);
+    const cut = pointOf(`${point}p`) ?? '';
+    assert.equal(cut.length, MAX_FINDING_POINT);
+    assert.match(cut, /\[cut: the rest is past the limit of 160 characters\]$/);
+    assert.equal(TastingOutDoc.safeParse(tasted({ ...minor, point: 'one\ntwo' })).success, false);
+    assert.equal(TastingOutDoc.safeParse(tasted({ ...minor, point: ' ' })).success, false);
+  });
+});
+
 describe("a Taster's riskLeft (ADR 0214)", () => {
   const approved = { status: 'done', summary: 'Tasted', verdict: 'approve' } as const;
   const risks = ['The retry path only shows in a run', 'Could not read src/vendor/big.ts'];
@@ -384,7 +419,14 @@ describe("a Taster's riskLeft (ADR 0214)", () => {
 });
 
 describe("a finding's lens (#560, ADR 0220)", () => {
-  const finding = { file: 'src/a.ts', line: 3, severity: 'major', why: 'Wrong', introduced: true };
+  const finding = {
+    file: 'src/a.ts',
+    line: 3,
+    point: 'Fix this.',
+    severity: 'major',
+    why: 'Wrong',
+    introduced: true,
+  };
   const changes = { status: 'done', summary: 'Tasted', verdict: 'changes' } as const;
 
   it('takes a finding that names its lens, and reads one without it as before', () => {

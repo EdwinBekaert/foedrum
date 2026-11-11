@@ -525,6 +525,7 @@ describe('foedrum brew on recipe:mash, with the default Brewmaster (ADR 0234)', 
 
     it('a recipe of plan then a plan/naive-reader taste sends its findings back once, then lists them open (ADR 0354)', async () => {
       const finding = {
+        point: 'Fix this.',
         severity: 'major',
         why: 'writer: its entry says "the flag" without naming it, so its brewer cannot build it alone',
         introduced: true,
@@ -619,11 +620,13 @@ describe('foedrum brew on recipe:mash, with the default Brewmaster (ADR 0234)', 
 
     /** Two findings on two sub-orders: one the plan fixes, one it dismisses. */
     const flag = {
+      point: 'Fix this.',
       severity: 'major',
       why: 'writer: its entry says "the flag" without naming it',
       introduced: true,
     };
     const guide = {
+      point: 'Fix this.',
       severity: 'major',
       why: 'docs: its entry does not say where the guide goes',
       introduced: true,
@@ -750,7 +753,7 @@ describe('foedrum brew on recipe:mash, with the default Brewmaster (ADR 0234)', 
         [
           '**Review**',
           '',
-          `- ${code('naive')} #1: major, dismissed: ${plain(guide.why)}`,
+          `- ${code('naive')}: Fix this. (major), dismissed: ${plain(guide.why)}`,
           `  - why: ${plain(evidence)}`,
         ].join('\n'),
       );
@@ -785,15 +788,20 @@ describe('foedrum brew on recipe:mash, with the default Brewmaster (ADR 0234)', 
         [
           '**Review**',
           '',
-          `- ${code('naive')} #1: major, dismissed: ${plain(guide.why)}`,
+          `- ${code('naive')}: Fix this. (major), dismissed: ${plain(guide.why)}`,
           `  - why: ${plain(evidence)}`,
-          `- ${code('naive')} #${last}: major, open: ${plain(flag.why)}`,
+          `- ${code(`naive (try ${last})`)}: Fix this. (major), open: ${plain(flag.why)}`,
         ].join('\n'),
       );
     });
 
     it('lists a finding the plan left as there before, and none it fixed or left without a disposition: regression test (ADR 0318)', async () => {
-      const third = { severity: 'major', why: 'cli: its flags are open', introduced: true };
+      const third = {
+        point: 'Fix this.',
+        severity: 'major',
+        why: 'cli: its flags are open',
+        introduced: true,
+      };
       const three = behave.succeedWith(
         { verdict: 'changes', findings: [flag, guide, third] },
         'Three entries leave a guess',
@@ -817,7 +825,7 @@ describe('foedrum brew on recipe:mash, with the default Brewmaster (ADR 0234)', 
         [
           '**Review**',
           '',
-          `- ${code('naive')} #1: major, pre-existing: ${plain(guide.why)}`,
+          `- ${code('naive')}: Fix this. (major), pre-existing: ${plain(guide.why)}`,
           `  - why: ${plain(before)}`,
         ].join('\n'),
       );

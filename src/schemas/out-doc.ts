@@ -110,6 +110,9 @@ export const TASTING = 'tasting';
 /** A Taster's verdict: `changes` holds a blocking step up (ADR 0161). */
 export const Verdict = z.enum(['approve', 'changes']);
 
+/** The longest a finding's `point` is: one sentence a person reads first (ADR 0379). */
+export const MAX_FINDING_POINT = 160;
+
 /**
  * One finding of a Taster (ADR 0161): where, how bad, and why; `introduced` is false for a defect
  * that was there before the change (ADR 0094). A finding about the change as a whole has no file.

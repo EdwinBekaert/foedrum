@@ -19,7 +19,14 @@ const approves = behave.succeedWith({ verdict: 'approve', findings: [] });
 const asksChanges = behave.succeedWith(
   {
     verdict: 'changes',
-    findings: [{ severity: 'major', why: 'An Ordered sub-order holds nothing', introduced: true }],
+    findings: [
+      {
+        point: 'Fix this.',
+        severity: 'major',
+        why: 'An Ordered sub-order holds nothing',
+        introduced: true,
+      },
+    ],
   },
   'Changes asked for',
 );

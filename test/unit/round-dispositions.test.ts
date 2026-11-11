@@ -19,22 +19,26 @@ import { recipeText } from '../helpers/brewery-files.ts';
 const deadline: TastingFinding = {
   file: 'src/wait.ts',
   line: 12,
+  point: 'Fix this.',
   severity: 'major',
   why: 'The poll has no deadline',
   introduced: true,
 };
 const cap: TastingFinding = {
   file: 'src/retry.ts',
+  point: 'Fix this.',
   severity: 'minor',
   why: 'Five tries\nis too few',
   introduced: true,
 };
 const loop: TastingFinding = {
+  point: 'Fix this.',
   severity: 'minor',
   why: 'The retry loop sleeps without a jitter',
   introduced: false,
 };
 const log: TastingFinding = {
+  point: 'Fix this.',
   severity: 'blocker',
   why: 'The order asks for a log line',
   introduced: true,

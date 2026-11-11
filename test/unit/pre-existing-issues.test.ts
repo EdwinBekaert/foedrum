@@ -70,6 +70,7 @@ const recipes = fakeRecipes({
 const old: TastingFinding = {
   file: 'src/old.ts',
   line: 9,
+  point: 'Fix this.',
   severity: 'minor',
   lens: 'diff/correctness',
   why: 'The retry loop sleeps without a jitter',
@@ -78,6 +79,7 @@ const old: TastingFinding = {
 const made: TastingFinding = {
   file: 'src/new.ts',
   line: 3,
+  point: 'Fix this.',
   severity: 'major',
   why: 'The flag is read twice',
   introduced: true,
@@ -527,7 +529,7 @@ describe('preExistingIssueEffects (ADR 0356)', () => {
     assert.equal(brewery.issues.length, 1);
     assert.match(
       latest(),
-      /\*\*Filed\*\*\n- #40: diff\/correctness, minor in src\/old\.ts:9, there before the change/,
+      /\*\*Filed\*\*\n- #40: Fix this\. \(diff\/correctness, minor in src\/old\.ts:9, there before the change\)/,
     );
     assert.equal(shown(), true);
   });

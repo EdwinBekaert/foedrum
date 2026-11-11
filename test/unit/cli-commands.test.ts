@@ -1538,7 +1538,14 @@ describe('foedrum stuck', () => {
           summary: `the Taster asks for changes: ${commit} has no deadline`,
           roundsOut: {
             rounds: 1,
-            open: [{ severity: 'major', why: `${commit} has no deadline`, introduced: true }],
+            open: [
+              {
+                point: 'Fix this.',
+                severity: 'major',
+                why: `${commit} has no deadline`,
+                introduced: true,
+              },
+            ],
             more: 0,
           },
         },
@@ -1565,7 +1572,7 @@ describe('foedrum stuck', () => {
     const at12 = lines.findIndex((line) => line.startsWith('12-1'));
     assert.deepStrictEqual(lines.slice(at12 + 1, at12 + 5), [
       '  still open after 1 round:',
-      `    major: ${commit} has no deadline`,
+      `    Fix this. (major): ${commit} has no deadline`,
       '  Another round is unlikely to help: plan the order again, or split it.',
       '  Next: look at what failed above, then try the step again with foedrum retry 12, or end it with foedrum cancel 12.',
     ]);
@@ -1594,12 +1601,13 @@ describe('foedrum stuck', () => {
             {
               file: 'src/poll.ts',
               line: 3,
+              point: 'Fix this.',
               severity: 'major',
               why: 'no\ndeadline',
               introduced: true,
             },
-            { severity: 'minor', why: 'x'.repeat(300), introduced: false },
-            { severity: 'blocker', why: `Token ${token}`, introduced: true },
+            { point: 'Fix this.', severity: 'minor', why: 'x'.repeat(300), introduced: false },
+            { point: 'Fix this.', severity: 'blocker', why: `Token ${token}`, introduced: true },
           ],
           more: 4,
         },
@@ -1614,9 +1622,9 @@ describe('foedrum stuck', () => {
         '',
         '11-1  #11  Waiting for you: look at a failure Foedrum could not get past: step correctness could not go on, as the review found problems that are still open: the Taster asks for changes: no deadline',
         '  still open after 2 rounds:',
-        '    major in src/poll.ts:3: no deadline',
-        `    minor, there before the change: ${'x'.repeat(199)}…`,
-        '    blocker: [left out: a text of step correctness that looks like a secret]',
+        '    Fix this. (major in src/poll.ts:3): no deadline',
+        `    Fix this. (minor, there before the change): ${'x'.repeat(199)}…`,
+        '    Fix this. (blocker): [left out: a text of step correctness that looks like a secret]',
         '    and 4 more',
         '  Another round is unlikely to help: plan the order again, or split it.',
         '  Next: look at what failed above, then try the step again with foedrum retry 11, go past the step with foedrum skip 11, brew the issue with another recipe with foedrum recipe 11 <recipe> <reason>, take it back to an earlier step with foedrum rewind 11 <step>, or end it with foedrum cancel 11.',
@@ -1848,6 +1856,7 @@ describe('foedrum lenses (ADR 0221)', () => {
               {
                 file: 'src/poll.ts',
                 line: 3,
+                point: 'Fix this.',
                 severity: 'major',
                 why: 'no deadline',
                 introduced: true,
