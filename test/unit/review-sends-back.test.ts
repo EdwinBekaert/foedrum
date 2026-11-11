@@ -8,6 +8,7 @@ import assert from 'node:assert/strict';
 import { afterEach, describe, it } from 'node:test';
 import { routeInput, routeOf } from '../../src/brewers/attempt-plan.ts';
 import { assembleBrewerPrompt } from '../../src/brewers/prompt.ts';
+import { routedMerge } from '../../src/engine/base-merge.ts';
 import { type CommandLog, createCommandLog } from '../../src/engine/command-log.ts';
 import type { EventStore } from '../../src/engine/event-store.ts';
 import type { Batch } from '../../src/engine/fold.ts';
@@ -380,5 +381,21 @@ describe('a review that asks for changes sends the batch back (ADR 0382)', () =>
       ),
       prompt,
     );
+  });
+
+  it('a review round does not merge the base at its start, as a conflict round does', () => {
+    const conflictRound = {
+      ...sentBack([81]),
+      cause: 'conflict' as const,
+      tip: 'e'.repeat(40),
+      reviews: undefined,
+    };
+    const { reviews: _none, ...conflict } = conflictRound;
+    const routed = (route: Extract<Event, { type: 'step.scheduled' }>['route']) => {
+      const log = logOf([...openedOnTap(), ...round(2, route).slice(0, 2)]);
+      return routedMerge(batch(log), { batchId: 'b1', stepId: 'plan', attempt: 2 });
+    };
+    assert.equal(routed(conflict), true);
+    assert.equal(routed(sentBack([81])), false);
   });
 });
