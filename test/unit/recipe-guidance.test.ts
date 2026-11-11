@@ -127,6 +127,38 @@ describe('a Brewery recipe and its guidance (ADR 0375)', () => {
     );
   });
 
+  it("names a recipe offered without guidance at once, beside another recipe's problem", () => {
+    const amber = {
+      path: 'recipes/amber.jsonc',
+      text: JSON.stringify({
+        name: 'amber',
+        type: 'brew',
+        description: 'Brews an amber.',
+        guidance: stoutGuidance,
+        steps: [
+          { id: 'brew', brewer: 'cellarman' },
+          { id: 'green', check: 'test', onFail: { goto: 'nowhere', maxRounds: 1 } },
+          { action: 'openPullRequest' },
+        ],
+        testFirst: false,
+      }),
+    };
+    const problems = problemsOf({
+      ...defaults(),
+      recipes: [amber, stout({ guidance: undefined })],
+    });
+    assert.ok(
+      problems.some((line) => line.startsWith('recipes/amber.jsonc: ')),
+      problems.join('\n'),
+    );
+    assert.ok(
+      problems.some((line) =>
+        line.startsWith('recipes/stout.jsonc: the recipe stout is offered as a choice'),
+      ),
+      problems.join('\n'),
+    );
+  });
+
   it('loads a Brewery recipe that chooses a recipe without guidance, since it is never offered (regression test)', () => {
     const ask = {
       path: 'recipes/ask.jsonc',
