@@ -40,9 +40,12 @@ export interface CommandLog {
 
 export const createCommandLog = (options: CommandLogOptions): CommandLog => {
   const { store, recipes, reminderMs = defaultReminderMs, routingMs = defaultRoutingMs } = options;
-  // The folded state, caught up with whatever was committed since it was last read.
-  let folded = { state: emptyState, lastId: 0 };
+  // The folded state, caught up with whatever was committed since it was last read, and folded
+  // again from the start once the store forgot a batch since (ADR 0380).
+  let folded = { state: emptyState, lastId: 0, forgets: 0 };
   const state = (): State => {
+    const forgets = store.forgets();
+    if (forgets !== folded.forgets) folded = { state: emptyState, lastId: 0, forgets };
     const stored = store.eventsAfter(folded.lastId);
     if (stored.length === 0) return folded.state;
     folded = {
@@ -51,6 +54,7 @@ export const createCommandLog = (options: CommandLogOptions): CommandLog => {
         folded.state,
       ),
       lastId: stored.at(-1)?.id ?? folded.lastId,
+      forgets,
     };
     return folded.state;
   };

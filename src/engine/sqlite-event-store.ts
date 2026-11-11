@@ -34,6 +34,12 @@ export interface SqliteEventStoreOptions {
 // Migration n brings the database from schema version n to n + 1 (`PRAGMA user_version`).
 // Times are stored as epoch milliseconds, so they compare as times whatever their ISO precision.
 // `deadlines` and `effects` are indexes of the events, maintained on append (and so by `replay`).
+// The batch an event row belongs to, as `batchOf` in state-branch.ts reads it: an effect's by its
+// key, any other by its batchId; NULL for an event without a batch, or a body that is no JSON,
+// which the reader refuses (ADR 0380).
+const BATCH_OF = (row: string): string =>
+  `(CASE WHEN NOT json_valid(${row}.body) THEN NULL WHEN ${row}.type = 'effect.applied' THEN json_extract(json_extract(${row}.body, '$.key'), '$[0]') ELSE json_extract(${row}.body, '$.batchId') END)`;
+
 const migrations = [
   `
   CREATE TABLE events (
@@ -101,6 +107,34 @@ const migrations = [
     attempt INTEGER NOT NULL,
     text TEXT NOT NULL,
     PRIMARY KEY (batch_id, step_id, attempt)
+  ) STRICT;
+  `,
+  // Forgetting a finished batch (ADR 0380): its rows go, and only those, and the next flush moves
+  // its folder to archive/. Written to run again over a store that has some of it, as the tests
+  // that fake an older version do.
+  `
+  CREATE INDEX IF NOT EXISTS events_by_batch ON events (${BATCH_OF('events').replaceAll('events.', '')});
+  -- The batches a forget deletes, filled and emptied inside its transaction: what the triggers allow.
+  CREATE TABLE IF NOT EXISTS forgetting (batch_id TEXT PRIMARY KEY) STRICT;
+  DROP TRIGGER IF EXISTS events_no_delete;
+  CREATE TRIGGER events_no_delete BEFORE DELETE ON events
+    WHEN ${BATCH_OF('OLD')} IS NULL OR ${BATCH_OF('OLD')} NOT IN (SELECT batch_id FROM forgetting)
+    BEGIN SELECT RAISE(ABORT, 'events are append-only'); END;
+  DROP TRIGGER IF EXISTS effects_no_delete;
+  CREATE TRIGGER effects_no_delete BEFORE DELETE ON effects
+    WHEN json_extract(OLD.key, '$[0]') NOT IN (SELECT batch_id FROM forgetting)
+    BEGIN SELECT RAISE(ABORT, 'effects are append-only'); END;
+  -- The batches forgotten whose folders the next flush moves to archive/<month>/.
+  CREATE TABLE IF NOT EXISTS shelving (batch_id TEXT PRIMARY KEY, month TEXT NOT NULL) STRICT;
+  -- The month before which the next flush deletes the archive's months.
+  CREATE TABLE IF NOT EXISTS expiring (
+    singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+    before TEXT NOT NULL
+  ) STRICT;
+  -- How many forgets this store had: a reader folds again when it changes.
+  CREATE TABLE IF NOT EXISTS forgets (
+    singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+    count INTEGER NOT NULL
   ) STRICT;
   `,
 ];
@@ -189,7 +223,53 @@ export const openSqliteEventStore = (
   const insertEvent = db.prepare('INSERT INTO events (type, body) VALUES (?, ?)');
   // An id from the state branch; AUTOINCREMENT continues after it.
   const insertEventWithId = db.prepare('INSERT INTO events (id, type, body) VALUES (?, ?, ?)');
-  const selectLastId = db.prepare('SELECT COALESCE(MAX(id), 0) AS id FROM events');
+  // The highest id ever given, also once a forget deleted it (ADR 0380): AUTOINCREMENT keeps it.
+  const selectLastId = db.prepare(
+    "SELECT MAX(COALESCE((SELECT seq FROM sqlite_sequence WHERE name = 'events'), 0), " +
+      'COALESCE((SELECT MAX(id) FROM events), 0)) AS id',
+  );
+  // Statements on the tables of version 5, prepared at first use: a store opened read-only is not
+  // migrated (ADR 0030), and its reads answer as a store that never forgot (ADR 0380).
+  const lazy = (sql: string): (() => StatementSync) => {
+    let statement: StatementSync | undefined;
+    return () => {
+      statement ??= db.prepare(sql);
+      return statement;
+    };
+  };
+  const hasTable = (name: string): boolean =>
+    db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(name) !==
+    undefined;
+  const startForgetting = lazy('INSERT INTO forgetting (batch_id) VALUES (?)');
+  const deleteForgotten = [
+    `DELETE FROM effects WHERE json_extract(key, '$[0]') IN (SELECT batch_id FROM forgetting)`,
+    `DELETE FROM events WHERE ${BATCH_OF('events').replaceAll('events.', '')} IN (SELECT batch_id FROM forgetting)`,
+    'DELETE FROM out_docs WHERE batch_id IN (SELECT batch_id FROM forgetting)',
+    'DELETE FROM deadlines WHERE batch_id IN (SELECT batch_id FROM forgetting)',
+    "DELETE FROM leases WHERE json_extract(attempt_key, '$[0]') IN (SELECT batch_id FROM forgetting)",
+    'DELETE FROM batch_leases WHERE batch_id IN (SELECT batch_id FROM forgetting)',
+    'DELETE FROM forgetting',
+  ].map(lazy);
+  const countForget = lazy(
+    'INSERT INTO forgets (singleton, count) VALUES (1, 1) ' +
+      'ON CONFLICT (singleton) DO UPDATE SET count = count + 1',
+  );
+  const selectForgets = lazy('SELECT count FROM forgets');
+  const putShelving = lazy(
+    'INSERT INTO shelving (batch_id, month) VALUES (?, ?) ' +
+      'ON CONFLICT (batch_id) DO UPDATE SET month = excluded.month',
+  );
+  const deleteShelving = lazy('DELETE FROM shelving WHERE batch_id = ?');
+  const selectShelving = lazy('SELECT batch_id, month FROM shelving ORDER BY batch_id');
+  const putExpiring = lazy(
+    'INSERT INTO expiring (singleton, before) VALUES (1, ?) ' +
+      'ON CONFLICT (singleton) DO UPDATE SET before = excluded.before',
+  );
+  const deleteExpiring = lazy('DELETE FROM expiring');
+  const selectExpiring = lazy('SELECT before FROM expiring');
+  const selectLastOfBatch = lazy(
+    `SELECT MAX(id) AS id FROM events WHERE ${BATCH_OF('events').replaceAll('events.', '')} = ?`,
+  );
   const selectPushed = db.prepare('SELECT event_id, commit_sha FROM pushed');
   const putPushed = db.prepare(
     'INSERT INTO pushed (singleton, event_id, commit_sha) VALUES (1, ?, ?) ' +
@@ -439,17 +519,27 @@ export const openSqliteEventStore = (
           deleteOutDoc.run(batchId, stepId, attempt);
         }
       },
-      forget: () => {
-        throw new Error('not implemented');
+      forget: (batchIds, shelve) => {
+        ensureLive();
+        if (batchIds.length === 0) return;
+        for (const batchId of new Set(batchIds)) startForgetting().run(batchId);
+        for (const statement of deleteForgotten) statement().run();
+        if (shelve !== undefined) {
+          for (const batchId of batchIds) putShelving().run(batchId, shelve.month);
+        }
+        countForget().run();
       },
-      shelved: () => {
-        throw new Error('not implemented');
+      shelved: (batchIds) => {
+        ensureLive();
+        for (const batchId of batchIds) deleteShelving().run(batchId);
       },
-      expire: () => {
-        throw new Error('not implemented');
+      expire: (before) => {
+        ensureLive();
+        putExpiring().run(before);
       },
       expired: () => {
-        throw new Error('not implemented');
+        ensureLive();
+        deleteExpiring().run();
       },
     };
     return {
@@ -564,18 +654,23 @@ export const openSqliteEventStore = (
       return { result: event.result };
     },
 
-    shelving: () => {
-      throw new Error('not implemented');
-    },
-    expiring: () => {
-      throw new Error('not implemented');
-    },
-    forgets: () => {
-      throw new Error('not implemented');
-    },
-    lastEventOf: () => {
-      throw new Error('not implemented');
-    },
+    shelving: () =>
+      hasTable('shelving')
+        ? rows<{ batch_id: string; month: string }>(selectShelving()).map((row) => ({
+            batchId: row.batch_id,
+            month: row.month,
+          }))
+        : [],
+    expiring: () =>
+      hasTable('expiring')
+        ? (selectExpiring().get() as { before: string } | undefined)?.before
+        : undefined,
+    forgets: () =>
+      hasTable('forgets')
+        ? ((selectForgets().get() as { count: number } | undefined)?.count ?? 0)
+        : 0,
+    lastEventOf: (batchId) =>
+      (selectLastOfBatch().get(batchId) as { id: number | null } | undefined)?.id ?? undefined,
 
     close: () => db.close(),
   };
