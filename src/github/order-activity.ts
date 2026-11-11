@@ -2,7 +2,9 @@
 // added and by whom, and each change of its title, from its events (REST, conditional, ADR 0052);
 // each edit of its body, which only GraphQL tells; and when each comment was made and last changed.
 
-import type { OrderActivity } from '../engine/order-changes.ts';
+import type { Batch } from '../engine/fold.ts';
+import type { IntakeFilter } from '../engine/issue-claims.ts';
+import { type Approval, approvedAt, type OrderActivity } from '../engine/order-changes.ts';
 import { GitHubActivityComment, GitHubIssueEdits, GitHubIssueEvent } from '../schemas/github.ts';
 import { checked, graphqlData, repoPath } from './answers.ts';
 import type { GitHubClient } from './client.ts';
@@ -51,6 +53,25 @@ export const githubOrderEvents =
     });
     const renamed = timed('renamed').map(({ by, at }) => ({ by, at }));
     return { labelled, renamed };
+  };
+
+/**
+ * Reads when a claimed order's issue was last approved, from its label events (ADR 0368), whose
+ * comments then reach its brewers (ADR 0373); undefined for a Brewery order, or one never approved.
+ */
+export const githubOrderApproval =
+  (
+    reads: GitHubReads,
+    {
+      users,
+      filterOf,
+    }: { users: readonly string[]; filterOf: (repo: string) => IntakeFilter | undefined },
+  ) =>
+  async (batch: Batch, signal?: AbortSignal): Promise<Approval | undefined> => {
+    const { repo, issue } = batch;
+    if (repo === undefined) return undefined;
+    const { labelled } = await githubOrderEvents(reads)(repo, issue, signal);
+    return approvedAt(batch, { labelled }, filterOf(repo), users);
   };
 
 /** Reads the activity of `repo#issue` the order check compares with its approval. */
