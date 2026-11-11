@@ -19,6 +19,7 @@ import { createCommandLog } from '../../src/engine/command-log.ts';
 import type { EventStore } from '../../src/engine/event-store.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import { code, plain } from '../../src/engine/status-comment.ts';
+import { whenText } from '../../src/engine/when.ts';
 import { recipeText } from '../helpers/brewery-files.ts';
 import {
   type Behaviour,
@@ -894,9 +895,7 @@ describe('foedrum brew on recipe:mash, with the default Brewmaster (ADR 0234)', 
       assert.doesNotMatch(planComment() ?? '', /Changed in a session/);
       assert.equal(await runBrew(setup, shell([corrected]), lauter), 3, lines.join('\n'));
       assert.ok(
-        planComment()?.includes(
-          'Changed in a session by ann (terminal) at 2026-10-28T12:00:00.000Z.',
-        ),
+        planComment()?.includes('Changed in a session by ann from a terminal, 28 Oct 12:00 UTC.'),
         planComment(),
       );
     });
@@ -1002,8 +1001,8 @@ describe('foedrum brew on recipe:mash, with the default Brewmaster (ADR 0234)', 
       };
       assert.equal(await runBrew(setup, timed, lauter), 3, lines.join('\n'));
       const body = planComment() ?? '';
-      assert.ok(body.includes(`by ann (terminal) at ${t0.toISOString()}.`), body);
-      assert.doesNotMatch(body, new RegExp(later.toISOString().replaceAll('.', '\\.')));
+      assert.ok(body.includes(`by ann from a terminal, ${whenText(t0)}.`), body);
+      assert.ok(!body.includes(whenText(later)), body);
     });
 
     it("refuses a lauter of a batch on tap, in decide's words: regression test (#589)", async () => {
@@ -1050,7 +1049,7 @@ describe('foedrum brew on recipe:mash, with the default Brewmaster (ADR 0234)', 
       assert.equal(await runBrew(setup, shell([corrected]), request), 3, lines.join('\n'));
       assert.deepStrictEqual(started, ['plan#1', 'lauter#1', 'lauter#2']);
       assert.ok(
-        planComment()?.includes('Changed in a session by ann (terminal) at'),
+        planComment()?.includes('Changed in a session by ann from a terminal, '),
         planComment(),
       );
     });

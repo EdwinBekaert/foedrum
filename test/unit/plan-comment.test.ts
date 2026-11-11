@@ -69,7 +69,7 @@ describe('renderPlan (ADR 0233)', () => {
   it('says who changed the plan in a session without a time when it has none: regression test (#589)', () => {
     const changed = { by: 'ann', via: 'terminal' } as const;
     const text = renderPlan('7-1', 'lauter', three, undefined, undefined, true, undefined, changed);
-    assert.match(text, /\nChanged in a session by ann \(terminal\)\.\n/);
+    assert.match(text, /\nChanged in a session by ann from a terminal\.\n/);
   });
 
   const next =
@@ -336,7 +336,7 @@ describe('renderPlan (ADR 0233)', () => {
     const text = renderPlan('7-1', 'plan', three, undefined, fullPlan, false, approval);
     assert.ok(
       text.endsWith(
-        '**Gate** (your sign-off before anything is built)\n\nApproved by grace (plugin) at 2026-10-28T10:30:00.000Z.\n\nNot ready: `cli`.',
+        '**Gate** (your sign-off before anything is built)\n\nApproved by grace from Claude Code, 28 Oct 10:30 UTC.\n\nNot ready: `cli`.',
       ),
       text.slice(-120),
     );
@@ -356,7 +356,7 @@ describe('renderPlan (ADR 0233)', () => {
     const text = renderPlan('7-1', 'plan', four, undefined, fullPlan, false, approval);
     assert.ok(
       text.endsWith(
-        '**Gate** (your sign-off before anything is built)\n\nApproved by grace (plugin) at 2026-10-28T10:30:00.000Z.\n\nNot ready: `cli`, `docs`.',
+        '**Gate** (your sign-off before anything is built)\n\nApproved by grace from Claude Code, 28 Oct 10:30 UTC.\n\nNot ready: `cli`, `docs`.',
       ),
       text.slice(-160),
     );
@@ -388,7 +388,7 @@ describe('renderPlan (ADR 0233)', () => {
     );
     assert.ok(
       text.endsWith(
-        '**Gate** (your sign-off before anything is built)\n\nApproved by grace (plugin) at 2026-10-28T10:30:00.000Z.\n\nSub-issues: `api` #8, `ui` #9.\n\nNot ready: `cli`.',
+        '**Gate** (your sign-off before anything is built)\n\nApproved by grace from Claude Code, 28 Oct 10:30 UTC.\n\nSub-issues: `api` #8, `ui` #9.\n\nNot ready: `cli`.',
       ),
       text.slice(-200),
     );
@@ -851,7 +851,7 @@ describe('planEffects (ADR 0233)', () => {
     await driver.applyEffects();
     assert.ok(
       only().body.endsWith(
-        `**Gate** (your sign-off before anything is built)\n\nApproved by grace (terminal) at ${at}.\n\nNot ready: \`cli\`.\n\n${marker(2)}`,
+        `**Gate** (your sign-off before anything is built)\n\nApproved by grace from a terminal, 27 Oct 09:00 UTC.\n\nNot ready: \`cli\`.\n\n${marker(2)}`,
       ),
       only().body.slice(-200),
     );

@@ -423,7 +423,7 @@ describe('formatBrewerReport', () => {
         'coder  brewers/coder.md',
         '  1 attempt: 1 needs input',
         '  tokens: 5 input, 5 output, 5 cache read, 5 cache write',
-        '  Stuck: b1, b5',
+        '  Waiting for you: b1, b5',
         'planner  defaults/brewers/planner.md',
         '  3 attempts: 1 succeeded, 1 failed, 1 unfinished',
         '  tokens: 11 input, 22 output, 33 cache read, 44 cache write',
@@ -437,7 +437,7 @@ describe('formatBrewerReport', () => {
         'pint/review',
         '  1 attempt: 1 failed',
         '  tokens: none reported',
-        '  Stuck: b4',
+        '  Waiting for you: b4',
         '',
       ].join('\n'),
     );

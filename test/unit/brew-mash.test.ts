@@ -525,7 +525,7 @@ describe('runBrew', () => {
         assert.equal(log().state().batches.get('12-1')?.recipe?.name, 'stout');
         assert.equal(
           f.lines.at(-1),
-          'foedrum mash: #12 is brewing; foedrum stop 12 first, then foedrum mash 12 --override',
+          'foedrum mash: #12 is running; foedrum stop 12 first, then foedrum mash 12 --override',
         );
       });
 
@@ -541,7 +541,7 @@ describe('runBrew', () => {
         assert.equal(await runBrew(mashSetup(), steps(12, blocked), take), 5);
         assert.equal(
           f.lines.at(-1),
-          'foedrum mash: #12 is brewing; foedrum stop 12 first, then foedrum mash 12 --override',
+          'foedrum mash: #12 is running; foedrum stop 12 first, then foedrum mash 12 --override',
         );
         assert.equal(f.leaseOf()?.owner, 'cellar');
         assert.equal(log().state().batches.get('12-1')?.takeover, undefined);

@@ -452,7 +452,7 @@ describe('runBrew', () => {
         assert.deepStrictEqual(host.comments.get('acme/web#7') ?? [], []);
         assert.equal(
           f.lines.at(-1),
-          `foedrum brew: #40 is on tap and holds its claim until its pull requests end: ${open}; foedrum brew 40 reads them again`,
+          `foedrum brew: #40 is waiting for you to review and merge its pull requests, and holds its claim until they end: ${open}; foedrum brew 40 reads them again`,
         );
       });
 
@@ -471,7 +471,7 @@ describe('runBrew', () => {
         assert.equal(await runBrew(brewing, mashing, mash), 5, f.lines.join('\n'));
         assert.equal(
           f.lines.at(-1),
-          `foedrum mash: #${number} is on tap and holds its claim until its pull requests end: ${url(pull?.number ?? 0)}; foedrum brew ${number} reads them again`,
+          `foedrum mash: #${number} is waiting for you to review and merge its pull requests, and holds its claim until they end: ${url(pull?.number ?? 0)}; foedrum brew ${number} reads them again`,
         );
         assert.deepStrictEqual(log().state().batches.get('web-7')?.pullRequestEnds ?? {}, {});
       });
@@ -887,7 +887,7 @@ describe('runBrew', () => {
               : undefined,
         });
         const own = shell(behave.succeed(), { gh: ghOver(host.fetch).exec });
-        const open = `#12 is on tap with its pull request still open: ${url(90)}; close it first to order it again, and foedrum brew 12 reads it again once it ended`;
+        const open = `#12 is waiting for you to review and merge its pull request: ${url(90)}; close it first to order it again, and foedrum brew 12 reads it again once it ended`;
         assert.equal(await runBrew(f.setup, own, request), 5, f.lines.join('\n'));
         assert.equal(f.lines.at(-1), `foedrum brew: ${open}`);
         // foedrum mash reads no end, so it says none is recorded, and offers no order either.
@@ -933,7 +933,7 @@ describe('runBrew', () => {
         assert.equal(await runBrew(f.setup, own, request), 5, f.lines.join('\n'));
         assert.equal(
           f.lines.at(-1),
-          `foedrum brew: #12 is on tap with its pull request still open: ${url(90)}; foedrum brew 12 reads it again once it ended`,
+          `foedrum brew: #12 is waiting for you to review and merge its pull request: ${url(90)}; foedrum brew 12 reads it again once it ended`,
         );
       });
 
@@ -991,7 +991,7 @@ describe('runBrew', () => {
         });
         assert.equal(
           f.lines.at(-1),
-          `foedrum brew: #12 is on tap with its pull request still open: ${open}; close it first to order it again, and foedrum brew 12 reads it again once it ended`,
+          `foedrum brew: #12 is waiting for you to review and merge its pull request: ${open}; close it first to order it again, and foedrum brew 12 reads it again once it ended`,
         );
       });
 

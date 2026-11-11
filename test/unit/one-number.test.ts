@@ -449,7 +449,7 @@ describe('one number per piece of work (ADR 0329)', () => {
     const result = await run(['recipe', '43', 'pint', 'why not']);
     assert.equal(
       result.stderr,
-      'foedrum recipe: #43 is brewing; foedrum stop 43 first, then change its recipe\n',
+      'foedrum recipe: #43 is running; foedrum stop 43 first, then change its recipe\n',
     );
   });
 

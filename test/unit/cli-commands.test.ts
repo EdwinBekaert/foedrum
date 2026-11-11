@@ -1276,7 +1276,7 @@ describe('foedrum: commands that change state', () => {
       const applyEffects = async () => assert.fail('nothing was chosen');
       assert.deepStrictEqual(
         await run(['recipe', '#23', 'stout', 'the plan needs an analysis'], { applyEffects }),
-        refused('recipe', '#23 is brewing; foedrum stop 23 first, then change its recipe'),
+        refused('recipe', '#23 is running; foedrum stop 23 first, then change its recipe'),
       );
       assert.deepStrictEqual(
         await run(['recipe', '22-1', 'porter', 'why not'], { applyEffects }),
@@ -1288,7 +1288,7 @@ describe('foedrum: commands that change state', () => {
       const before = lastId();
       assert.deepStrictEqual(
         await run(['recipe', '#23', 'stout', 'the plan needs an analysis']),
-        refused('recipe', '#23 is brewing; foedrum stop 23 first, then change its recipe'),
+        refused('recipe', '#23 is running; foedrum stop 23 first, then change its recipe'),
       );
       assert.equal(lastId(), before);
     });
