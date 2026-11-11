@@ -29,7 +29,8 @@ import { type OpenedSubIssue, openedSubIssues, SKIPS_TEST_FIRST } from './plan-a
 import { digestOf, findingText, knownCommits, quoted } from './pull-request.ts';
 import { outDocLink, outDocPlace } from './state-branch.ts';
 import { code, labelled, plain, type StatusComments } from './status-comment.ts';
-import { tryName } from './words.ts';
+import { whenText } from './when.ts';
+import { surfaceText, tryName } from './words.ts';
 
 /** The start of a plan comment's first line, before its batch; a status comment's never has it. */
 export const PLAN_HEADING = '### Foedrum · plan of batch';
@@ -287,7 +288,7 @@ export const renderPlan = (
       ? []
       : [
           '',
-          `Changed in a session by ${plain(changed.by)} (${changed.via})${changed.at === undefined ? '' : ` at ${changed.at}`}.`,
+          `Changed in a session by ${plain(changed.by)} ${surfaceText[changed.via]}${changed.at === undefined ? '' : `, ${whenText(changed.at)}`}.`,
         ]),
   ];
   const table = [
@@ -307,7 +308,7 @@ export const renderPlan = (
   const gate =
     approval !== undefined
       ? [
-          `Approved by ${plain(approval.by)} (${approval.via}) at ${approval.at}.`,
+          `Approved by ${plain(approval.by)} ${surfaceText[approval.via]}, ${whenText(approval.at)}.`,
           ...(opened.length === 0
             ? []
             : [

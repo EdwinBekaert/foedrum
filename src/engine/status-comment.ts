@@ -540,7 +540,7 @@ const laneWords: Record<Lane['kind'], string> = {
 
 /**
  * A sub-order of the batch's order: its pull request by its state, and the release after its
- * merge (ADR 0292); before it has one, its lane, or that its plan entry needs refinement (ADR 0293).
+ * merge (ADR 0292); before it has one, its state in a word, or that its plan entry needs refinement (ADR 0293).
  */
 const subOrderPullLine = (row: SubOrderRow): string => {
   const { subOrder, repo, pullRequest, state, lane, release, left } = row;
@@ -1290,7 +1290,7 @@ const leftBodyText: Record<LeftBody['left'], string> = {
 };
 
 /**
- * The status comment's text for `batch`, without its marker: its lane, its recipe's `steps` (the
+ * The status comment's text for `batch`, without its marker: its state (ADR 0379), its recipe's `steps` (the
  * steps the batch has when the recipe is unknown) with the current one marked, the `sensitive`
  * files its pushed change touches (ADR 0201), the assumptions of its out docs and, on tap, its pull
  * requests, with a link to the `brief` that says one is ready to merge (ADR 0225), or a line that

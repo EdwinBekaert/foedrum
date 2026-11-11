@@ -709,7 +709,7 @@ export const commands: readonly RegisteredCommand[] = [
   }),
   define({
     name: 'stuck',
-    summary: 'List the Stuck batches with their options and questions',
+    summary: 'List the batches that wait for you, with their questions and what to do next',
     changesState: false,
     positionals: [],
     schema: StuckCommand,
@@ -969,7 +969,7 @@ export const commands: readonly RegisteredCommand[] = [
           if (latest?.lane.kind === 'brewing') {
             return failed(
               'recipe',
-              `${name} is brewing; foedrum stop ${name.replace(/^#/, '')} first, then change its recipe`,
+              `${name} is running; foedrum stop ${name.replace(/^#/, '')} first, then change its recipe`,
             );
           }
           const lines: string[] = [];
@@ -1175,7 +1175,7 @@ export const commands: readonly RegisteredCommand[] = [
   }),
   define({
     name: 'brew',
-    summary: "Brew an issue's batch here until it is on tap, Stuck or needs input",
+    summary: "Brew an issue's batch here until it is done or waits for you",
     changesState: true,
     positionals: ['issue'],
     options: { as: 'name' },

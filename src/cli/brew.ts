@@ -222,7 +222,7 @@ const endedLine = (
 /** How often `foedrum brew` says which steps still run, when nothing else changed. */
 const PROGRESS_MS = 30_000;
 
-/** An attempt of `batch` that runs now: named `<step> #<n>`, and the ref the driver reports it by. */
+/** An attempt of `batch` that runs now: named as `attemptName` does, and the ref the driver reports it by. */
 interface Running {
   label: string;
   ref: AttemptRef;
@@ -556,10 +556,10 @@ export const runBrew = async (
       const close = state.subOrders.has(batch.issue)
         ? ''
         : 'close it first to order it again, and ';
-      return `${named} is on tap with its pull request still open: ${unendedPullRequests(batch).join(' ')}; ${close}foedrum brew ${called(state)} reads it again once it ended`;
+      return `${named} is waiting for you to review and merge its pull request: ${unendedPullRequests(batch).join(' ')}; ${close}foedrum brew ${called(state)} reads it again once it ended`;
     };
     const heldLine = (state: State, batch: Batch): string =>
-      `${named} is on tap and holds its claim until its pull requests end: ${unendedPullRequests(batch).join(' ')}; foedrum brew ${called(state)} reads them again`;
+      `${named} is waiting for you to review and merge its pull requests, and holds its claim until they end: ${unendedPullRequests(batch).join(' ')}; foedrum brew ${called(state)} reads them again`;
     const standing =
       latest?.repo === undefined ? undefined : claimStandingOf(log.state(), latest, latest.repo);
     const ending =
@@ -636,7 +636,7 @@ export const runBrew = async (
     if (override && live?.lane.kind === 'brewing') {
       const number = called(log.state());
       return refuse(
-        `${named} is brewing; foedrum stop ${number} first, then foedrum mash ${number} --override`,
+        `${named} is running; foedrum stop ${number} first, then foedrum mash ${number} --override`,
       );
     }
     const leased = live === undefined ? undefined : heldElsewhere(live.id);

@@ -180,7 +180,7 @@ const outcomeNames: readonly [keyof Outcomes, string][] = [
 // The attempts and how they ended, the tokens they used, and the batches Stuck at the steps; a
 // batch can be Stuck at a step whose attempt never started.
 const tallyLines = ({ attempts, outcomes, stuck, usage }: Tally): string[] => {
-  const held = stuck.length === 0 ? [] : [`  Stuck: ${stuck.join(', ')}`];
+  const held = stuck.length === 0 ? [] : [`  Waiting for you: ${stuck.join(', ')}`];
   if (attempts === 0) return ['  no attempts', ...held];
   const ended = outcomeNames
     .filter(([kind]) => outcomes[kind] > 0)
