@@ -6,13 +6,19 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { runBrew } from '../../src/cli/brew.ts';
 import { type ServeSetup, serveSetup } from '../../src/cli/serve-config.ts';
+import { nextBatchId, targetBatchId } from '../../src/engine/batch-id.ts';
 import { effectKey } from '../../src/engine/effect-key.ts';
+import { emptyState } from '../../src/engine/fold.ts';
 import { brewFixture, request, t0 } from '../helpers/brew-fixture.ts';
 import { behave } from '../helpers/fake-brewer-runner.ts';
 import { ghOver } from '../helpers/fake-gh.ts';
 import { type FakeGitHubApi, fakeGitHubApi, type Instead } from '../helpers/fake-github-api.ts';
 import { fakeLock } from '../helpers/fake-lock.ts';
 import { config, local, serveInputs } from '../helpers/serve-brewery.ts';
+
+// Batch ids carry the time they were ordered (ADR 0380): those made at `t0`.
+const idOf = (alias: string, issue: number): string => targetBatchId(emptyState, alias, issue, t0);
+const breweryIdOf = (issue: number): string => nextBatchId(emptyState, issue, t0);
 
 describe('runBrew', () => {
   const f = brewFixture();
@@ -73,7 +79,7 @@ describe('runBrew', () => {
       const batches = [...log().state().batches.values()];
       assert.deepStrictEqual(
         batches.map(({ id, repo, issue, lane }) => ({ id, repo, issue, lane: lane.kind })),
-        [{ id: 'web-7', repo: 'acme/web', issue: 7, lane: 'on_tap' }],
+        [{ id: idOf('web', 7), repo: 'acme/web', issue: 7, lane: 'on_tap' }],
       );
       assert.ok(f.lines.includes('foedrum brew: ordered web#7'), f.lines.join('\n'));
     });
@@ -102,8 +108,11 @@ describe('runBrew', () => {
           ],
         },
       });
-      log().issue({ kind: 'order', batchId: 'web-7', order: { issue: 7, repo: 'acme/web' } }, t0);
-      const key = effectKey.encode({ batchId: 'web-7', effect: 'order.issue' });
+      log().issue(
+        { kind: 'order', batchId: idOf('web', 7), order: { issue: 7, repo: 'acme/web' } },
+        t0,
+      );
+      const key = effectKey.encode({ batchId: idOf('web', 7), effect: 'order.issue' });
       log().issue({ kind: 'record', event: { type: 'effect.applied', key, result: 40 } }, t0);
       const claimed = shell(behave.succeed(), { gh: ghOver(host.fetch).exec });
       const byOrder = { ...request, target: { issue: 40 } };
@@ -111,7 +120,7 @@ describe('runBrew', () => {
       const batches = [...log().state().batches.values()];
       assert.deepStrictEqual(
         batches.map(({ id, lane }) => ({ id, lane: lane.kind })),
-        [{ id: 'web-7', lane: 'on_tap' }],
+        [{ id: idOf('web', 7), lane: 'on_tap' }],
       );
     });
 
@@ -127,23 +136,34 @@ describe('runBrew', () => {
           ],
         },
       });
-      log().issue({ kind: 'order', batchId: 'web-7', order: { issue: 7, repo: 'acme/web' } }, t0);
-      const key = effectKey.encode({ batchId: 'web-7', effect: 'order.issue' });
+      log().issue(
+        { kind: 'order', batchId: idOf('web', 7), order: { issue: 7, repo: 'acme/web' } },
+        t0,
+      );
+      const key = effectKey.encode({ batchId: idOf('web', 7), effect: 'order.issue' });
       log().issue({ kind: 'record', event: { type: 'effect.applied', key, result: 40 } }, t0);
       const claimed = shell(behave.succeed(), { gh: ghOver(host.fetch).exec });
       const byOrder = { ...request, target: { issue: 40 } };
       assert.equal(await runBrew(targetSetup(), claimed, byOrder), 0, f.lines.join('\n'));
-      assert.equal(log().state().batches.get('web-7')?.recipe?.name, 'stout');
+      assert.equal(log().state().batches.get(idOf('web', 7))?.recipe?.name, 'stout');
     });
 
     it('brews a claimed batch routed before its Brewery issue is recorded, without waiting for a label: exit 0', async () => {
       const host = github();
-      log().issue({ kind: 'order', batchId: 'web-7', order: { issue: 7, repo: 'acme/web' } }, t0);
-      const route = { kind: 'route', batchId: 'web-7', recipe: 'stout', reason: 'label' } as const;
+      log().issue(
+        { kind: 'order', batchId: idOf('web', 7), order: { issue: 7, repo: 'acme/web' } },
+        t0,
+      );
+      const route = {
+        kind: 'route',
+        batchId: idOf('web', 7),
+        recipe: 'stout',
+        reason: 'label',
+      } as const;
       log().issue({ ...route, source: 'label' }, t0);
       const claimed = shell(behave.succeed(), { gh: ghOver(host.fetch).exec });
       assert.equal(await runBrew(targetSetup(), claimed, target), 0, f.lines.join('\n'));
-      assert.equal(log().state().batches.get('web-7')?.lane.kind, 'on_tap');
+      assert.equal(log().state().batches.get(idOf('web', 7))?.lane.kind, 'on_tap');
       assert.ok(!f.lines.some((line) => line.includes('waits for')), f.lines.join('\n'));
     });
 
@@ -153,7 +173,7 @@ describe('runBrew', () => {
       assert.equal(await runBrew(targetSetup(), claimed, target), 5, f.lines.join('\n'));
       const [order] = host.issues['acme/brewery'] ?? [];
       assert.ok(order !== undefined, 'its Brewery issue is opened');
-      const batch = log().state().batches.get('web-7');
+      const batch = log().state().batches.get(idOf('web', 7));
       assert.deepStrictEqual(
         { lane: batch?.lane.kind, recipe: batch?.recipe },
         { lane: 'ordered', recipe: undefined },
@@ -167,12 +187,15 @@ describe('runBrew', () => {
 
     it('never routes an Ordered claimed batch whose Brewery issue is not recorded yet by the label of its target issue (ADR 0156)', async () => {
       const host = github();
-      log().issue({ kind: 'order', batchId: 'web-7', order: { issue: 7, repo: 'acme/web' } }, t0);
+      log().issue(
+        { kind: 'order', batchId: idOf('web', 7), order: { issue: 7, repo: 'acme/web' } },
+        t0,
+      );
       const claimed = shell(behave.succeed(), { gh: ghOver(host.fetch).exec });
       assert.equal(await runBrew(targetSetup(), claimed, target), 5, f.lines.join('\n'));
       // Its target issue carries recipe:stout: a run that read it to route would say so.
       assert.ok(!f.lines.some((line) => line.includes('routed')), f.lines.join('\n'));
-      assert.equal(log().state().batches.get('web-7')?.recipe, undefined);
+      assert.equal(log().state().batches.get(idOf('web', 7))?.recipe, undefined);
       const [order] = host.issues['acme/brewery'] ?? [];
       assert.equal(
         f.lines.at(-1),
@@ -196,7 +219,7 @@ describe('runBrew', () => {
         `foedrum brew: web#7 carries recipe:stout, which Foedrum does not read; label #${order?.number}`,
       );
       assert.match(lines.at(-1) ?? '', /waits for a recipe:<name> label on its Brewery issue #/);
-      assert.equal(log().state().batches.get('web-7')?.recipe, undefined);
+      assert.equal(log().state().batches.get(idOf('web', 7))?.recipe, undefined);
     });
 
     it('names every recipe label a target issue carries', async () => {
@@ -244,7 +267,7 @@ describe('runBrew', () => {
       });
       const claimed = shell(behave.succeed(), { gh: ghOver(host.fetch).exec });
       assert.equal(await runBrew(targetSetup(), claimed, target), 1, f.lines.join('\n'));
-      assert.equal(log().state().batches.get('web-7')?.recipe, undefined);
+      assert.equal(log().state().batches.get(idOf('web', 7))?.recipe, undefined);
       assert.deepStrictEqual(host.issues['acme/brewery'] ?? [], []);
       assert.ok(
         f.lines.some((line) => line.includes('"order.issue"] failed: GitHub answered 500')),
@@ -258,8 +281,11 @@ describe('runBrew', () => {
 
     it('foedrum brew of a target issue whose Brewery issue is open refuses and names the number', async () => {
       const host = github();
-      log().issue({ kind: 'order', batchId: 'web-7', order: { issue: 7, repo: 'acme/web' } }, t0);
-      const key = effectKey.encode({ batchId: 'web-7', effect: 'order.issue' });
+      log().issue(
+        { kind: 'order', batchId: idOf('web', 7), order: { issue: 7, repo: 'acme/web' } },
+        t0,
+      );
+      const key = effectKey.encode({ batchId: idOf('web', 7), effect: 'order.issue' });
       log().issue({ kind: 'record', event: { type: 'effect.applied', key, result: 40 } }, t0);
       const claimed = shell(behave.succeed(), { gh: ghOver(host.fetch).exec });
       assert.equal(await runBrew(targetSetup(), claimed, target), 5, f.lines.join('\n'));
@@ -277,13 +303,13 @@ describe('runBrew', () => {
           kind: 'record',
           event: {
             type: 'effect.applied',
-            key: effectKey.encode({ batchId: 'web-7', effect }),
+            key: effectKey.encode({ batchId: idOf('web', 7), effect }),
             result,
           },
         });
-      issue({ kind: 'order', batchId: 'web-7', order: { issue: 7, repo: 'acme/web' } });
+      issue({ kind: 'order', batchId: idOf('web', 7), order: { issue: 7, repo: 'acme/web' } });
       record('order.issue', 40);
-      issue({ kind: 'cancel', batchId: 'web-7', by: 'ann', via: 'terminal' });
+      issue({ kind: 'cancel', batchId: idOf('web', 7), by: 'ann', via: 'terminal' });
       for (const effect of ['release.label', 'release.comment', 'release.ref']) {
         record(effect, 'done');
       }
@@ -291,7 +317,12 @@ describe('runBrew', () => {
       const claimed = shell(behave.succeed(), { gh: ghOver(host.fetch).exec });
       assert.equal(await runBrew(targetSetup(), claimed, target), 5, f.lines.join('\n'));
       assert.deepStrictEqual(host.created, ['acme/web refs/foedrum/claims/issues/7']);
-      assert.ok(log().state().batches.has('web-7-2'), f.lines.join('\n'));
+      assert.ok(
+        log()
+          .state()
+          .batches.has(`${idOf('web', 7)}-2`),
+        f.lines.join('\n'),
+      );
     });
 
     describe('on tap, brewed again by its number (ADR 0336)', () => {
@@ -335,7 +366,7 @@ describe('runBrew', () => {
       const onlyWeb7 = () => {
         assert.deepStrictEqual(
           [...log().state().batches.keys()],
-          ['web-7'],
+          [idOf('web', 7)],
           'no other order is claimed',
         );
       };
@@ -381,7 +412,7 @@ describe('runBrew', () => {
           comments.at(-1)?.body ?? '',
           /released its claim.*its pull requests were merged/,
         );
-        assert.deepStrictEqual(log().state().batches.get('web-7')?.pullRequestEnds, {
+        assert.deepStrictEqual(log().state().batches.get(idOf('web', 7))?.pullRequestEnds, {
           [url(pull)]: 'merged',
         });
         onlyWeb7();
@@ -428,17 +459,21 @@ describe('runBrew', () => {
         };
         const host = two(answers);
         const routeBy = new Date(t0.getTime() + 3_600_000).toISOString();
-        const key = effectKey.encode({ batchId: 'web-7', effect: 'order.issue' });
+        const key = effectKey.encode({ batchId: idOf('web', 7), effect: 'order.issue' });
         const order = { issue: 7, repo: 'acme/web' };
         f.store.withTransaction((tx) => {
-          tx.append({ type: 'batch.ordered', batchId: 'web-7', order, routeBy });
-          tx.append({ type: 'batch.on_tap', batchId: 'web-7', pullRequests: [merged, open] });
+          tx.append({ type: 'batch.ordered', batchId: idOf('web', 7), order, routeBy });
+          tx.append({
+            type: 'batch.on_tap',
+            batchId: idOf('web', 7),
+            pullRequests: [merged, open],
+          });
         });
         issue({ kind: 'record', event: { type: 'effect.applied', key, result: 40 } });
         const brewing = shell(behave.succeed(), { gh: ghOver(host.fetch).exec });
         const byNumber = { ...request, target: { issue: 40 } };
         assert.equal(await runBrew(targetSetup(), brewing, byNumber), 5, f.lines.join('\n'));
-        assert.deepStrictEqual(log().state().batches.get('web-7')?.pullRequestEnds, {
+        assert.deepStrictEqual(log().state().batches.get(idOf('web', 7))?.pullRequestEnds, {
           [merged]: 'merged',
         });
         const applied = [...log().state().effects.keys()];
@@ -467,7 +502,10 @@ describe('runBrew', () => {
           f.lines.at(-1),
           `foedrum mash: #${number} is on tap and holds its claim until its pull requests end: ${url(pull?.number ?? 0)}; foedrum brew ${number} reads them again`,
         );
-        assert.deepStrictEqual(log().state().batches.get('web-7')?.pullRequestEnds ?? {}, {});
+        assert.deepStrictEqual(
+          log().state().batches.get(idOf('web', 7))?.pullRequestEnds ?? {},
+          {},
+        );
       });
 
       it('finishes a release a run killed after the end left due: exit 0', async () => {
@@ -478,7 +516,7 @@ describe('runBrew', () => {
         const [pull] = host.pulls;
         const event = {
           type: 'pull_request.ended',
-          batchId: 'web-7',
+          batchId: idOf('web', 7),
           pullRequest: url(pull?.number ?? 0),
           state: 'merged',
         } as const;
@@ -497,11 +535,11 @@ describe('runBrew', () => {
         const host = two();
         host.issues['acme/brewery'] = [{ number: 40, labels: [], author: 'ann', title: 'Dark' }];
         const routeBy = new Date(t0.getTime() + 3_600_000).toISOString();
-        const key = effectKey.encode({ batchId: 'web-7', effect: 'order.issue' });
+        const key = effectKey.encode({ batchId: idOf('web', 7), effect: 'order.issue' });
         const order = { issue: 7, repo: 'acme/web' };
         f.store.withTransaction((tx) => {
-          tx.append({ type: 'batch.ordered', batchId: 'web-7', order, routeBy });
-          tx.append({ type: 'batch.on_tap', batchId: 'web-7', pullRequests: [] });
+          tx.append({ type: 'batch.ordered', batchId: idOf('web', 7), order, routeBy });
+          tx.append({ type: 'batch.on_tap', batchId: idOf('web', 7), pullRequests: [] });
         });
         issue({ kind: 'record', event: { type: 'effect.applied', key, result: 40 } });
         const brewing = shell(behave.succeed(), { gh: ghOver(host.fetch).exec });
@@ -524,7 +562,10 @@ describe('runBrew', () => {
         });
         assert.equal(code, 1, f.lines.join('\n'));
         assert.match(f.lines.at(-1) ?? '', /500/);
-        assert.deepStrictEqual(log().state().batches.get('web-7')?.pullRequestEnds ?? {}, {});
+        assert.deepStrictEqual(
+          log().state().batches.get(idOf('web', 7))?.pullRequestEnds ?? {},
+          {},
+        );
       });
 
       it('one pull request merged and one closed unmerged says not all merged, and the Brewery issue stays open: exit 0', async () => {
@@ -540,11 +581,15 @@ describe('runBrew', () => {
         const host = two(answers);
         host.issues['acme/brewery'] = [{ number: 40, labels: [], author: 'ann', title: 'Dark' }];
         const routeBy = new Date(t0.getTime() + 3_600_000).toISOString();
-        const key = effectKey.encode({ batchId: 'web-7', effect: 'order.issue' });
+        const key = effectKey.encode({ batchId: idOf('web', 7), effect: 'order.issue' });
         const order = { issue: 7, repo: 'acme/web' };
         f.store.withTransaction((tx) => {
-          tx.append({ type: 'batch.ordered', batchId: 'web-7', order, routeBy });
-          tx.append({ type: 'batch.on_tap', batchId: 'web-7', pullRequests: [url(101), url(102)] });
+          tx.append({ type: 'batch.ordered', batchId: idOf('web', 7), order, routeBy });
+          tx.append({
+            type: 'batch.on_tap',
+            batchId: idOf('web', 7),
+            pullRequests: [url(101), url(102)],
+          });
         });
         issue({ kind: 'record', event: { type: 'effect.applied', key, result: 40 } });
         const brewing = shell(behave.succeed(), { gh: ghOver(host.fetch).exec });
@@ -585,7 +630,7 @@ describe('runBrew', () => {
             f.store.withTransaction((tx) =>
               tx.append({
                 type: 'pull_request.ended',
-                batchId: 'web-7',
+                batchId: idOf('web', 7),
                 pullRequest,
                 state: 'merged',
               }),
@@ -609,7 +654,7 @@ describe('runBrew', () => {
         const number = host.issues['acme/brewery']?.[0]?.number ?? 0;
         const expiresAt = new Date(t0.getTime() + 60_000);
         f.store.withTransaction((tx) =>
-          tx.putBatchLease({ batchId: 'web-7', owner: 'cellar', expiresAt }),
+          tx.putBatchLease({ batchId: idOf('web', 7), owner: 'cellar', expiresAt }),
         );
         const asked = host.requests.length;
         const again = shell(behave.succeed(), {
@@ -649,8 +694,13 @@ describe('runBrew', () => {
       it('a batch of a Brewery issue records its merge and says so: exit 0', async () => {
         f.store.withTransaction((tx) => {
           const routeBy = new Date(t0.getTime() + 3_600_000).toISOString();
-          tx.append({ type: 'batch.ordered', batchId: '12-1', order: { issue: 12 }, routeBy });
-          tx.append({ type: 'batch.on_tap', batchId: '12-1', pullRequests: [url(90)] });
+          tx.append({
+            type: 'batch.ordered',
+            batchId: breweryIdOf(12),
+            order: { issue: 12 },
+            routeBy,
+          });
+          tx.append({ type: 'batch.on_tap', batchId: breweryIdOf(12), pullRequests: [url(90)] });
         });
         const host = fakeGitHubApi({
           login: 'ann',
@@ -667,7 +717,7 @@ describe('runBrew', () => {
           `foedrum brew: #12 merged: ${url(90)}; Brewery issue #12 closed`,
         );
         assert.equal(host.issue('acme/brewery', 12)?.state, 'closed');
-        assert.deepStrictEqual(log().state().batches.get('12-1')?.pullRequestEnds, {
+        assert.deepStrictEqual(log().state().batches.get(breweryIdOf(12))?.pullRequestEnds, {
           [url(90)]: 'merged',
         });
       });
@@ -684,11 +734,11 @@ describe('runBrew', () => {
         f.store.withTransaction((tx) => {
           tx.append({
             type: 'batch.ordered',
-            batchId: '12-1',
+            batchId: breweryIdOf(12),
             order: { issue: 12 },
             routeBy: deadlineAt,
           });
-          const taste = { batchId: '12-1', stepId: 'taste', attempt: 1 };
+          const taste = { batchId: breweryIdOf(12), stepId: 'taste', attempt: 1 };
           tx.append({ type: 'step.scheduled', ...taste, deadlineAt });
           tx.append({ type: 'step.started', ...taste });
           const verdict = {
@@ -699,7 +749,7 @@ describe('runBrew', () => {
           };
           const output = { ...verdict, findings: [finding] };
           tx.append({ type: 'step.finished', ...taste, outcome: { kind: 'succeeded', output } });
-          const fix = { batchId: '12-1', stepId: 'implement', attempt: 1 };
+          const fix = { batchId: breweryIdOf(12), stepId: 'implement', attempt: 1 };
           const route = { from: 'taste', why: 'findings' } as const;
           tx.append({ type: 'step.scheduled', ...fix, deadlineAt, route });
           tx.append({ type: 'step.started', ...fix });
@@ -715,7 +765,7 @@ describe('runBrew', () => {
             ...fix,
             outcome: { kind: 'succeeded', output: done },
           });
-          tx.append({ type: 'batch.on_tap', batchId: '12-1', pullRequests: [url(90)] });
+          tx.append({ type: 'batch.on_tap', batchId: breweryIdOf(12), pullRequests: [url(90)] });
         });
         const host = fakeGitHubApi({
           login: 'ann',
@@ -735,8 +785,13 @@ describe('runBrew', () => {
       it('a batch of a Brewery issue whose pull request closed unmerged says its issue stays open: exit 0', async () => {
         f.store.withTransaction((tx) => {
           const routeBy = new Date(t0.getTime() + 3_600_000).toISOString();
-          tx.append({ type: 'batch.ordered', batchId: '12-1', order: { issue: 12 }, routeBy });
-          tx.append({ type: 'batch.on_tap', batchId: '12-1', pullRequests: [url(90)] });
+          tx.append({
+            type: 'batch.ordered',
+            batchId: breweryIdOf(12),
+            order: { issue: 12 },
+            routeBy,
+          });
+          tx.append({ type: 'batch.on_tap', batchId: breweryIdOf(12), pullRequests: [url(90)] });
         });
         const host = fakeGitHubApi({
           login: 'ann',
@@ -759,18 +814,23 @@ describe('runBrew', () => {
       const mergedWith = (applied: readonly string[]) => {
         f.store.withTransaction((tx) => {
           const routeBy = new Date(t0.getTime() + 3_600_000).toISOString();
-          tx.append({ type: 'batch.ordered', batchId: '12-1', order: { issue: 12 }, routeBy });
-          tx.append({ type: 'batch.on_tap', batchId: '12-1', pullRequests: [url(90)] });
+          tx.append({
+            type: 'batch.ordered',
+            batchId: breweryIdOf(12),
+            order: { issue: 12 },
+            routeBy,
+          });
+          tx.append({ type: 'batch.on_tap', batchId: breweryIdOf(12), pullRequests: [url(90)] });
         });
         const event = {
           type: 'pull_request.ended',
-          batchId: '12-1',
+          batchId: breweryIdOf(12),
           pullRequest: url(90),
           state: 'merged',
         } as const;
         issue({ kind: 'record', event });
         for (const effect of applied) {
-          const key = effectKey.encode({ batchId: '12-1', effect });
+          const key = effectKey.encode({ batchId: breweryIdOf(12), effect });
           issue({ kind: 'record', event: { type: 'effect.applied', key, result: 1 } });
         }
         return fakeGitHubApi({
@@ -814,9 +874,9 @@ describe('runBrew', () => {
           wait: async () => {
             if (done) return;
             done = true;
-            issue({ kind: 'cancel', batchId: '12-1', by: 'ann', via: 'terminal' });
+            issue({ kind: 'cancel', batchId: breweryIdOf(12), by: 'ann', via: 'terminal' });
             f.store.withTransaction((tx) =>
-              tx.putBatchLease({ batchId: '12-1', owner: 'cellar', expiresAt }),
+              tx.putBatchLease({ batchId: breweryIdOf(12), owner: 'cellar', expiresAt }),
             );
           },
         });
@@ -830,12 +890,17 @@ describe('runBrew', () => {
       it("finishes a Brewery issue's close a run killed after the end left due: exit 0", async () => {
         f.store.withTransaction((tx) => {
           const routeBy = new Date(t0.getTime() + 3_600_000).toISOString();
-          tx.append({ type: 'batch.ordered', batchId: '12-1', order: { issue: 12 }, routeBy });
-          tx.append({ type: 'batch.on_tap', batchId: '12-1', pullRequests: [url(90)] });
+          tx.append({
+            type: 'batch.ordered',
+            batchId: breweryIdOf(12),
+            order: { issue: 12 },
+            routeBy,
+          });
+          tx.append({ type: 'batch.on_tap', batchId: breweryIdOf(12), pullRequests: [url(90)] });
         });
         const event = {
           type: 'pull_request.ended',
-          batchId: '12-1',
+          batchId: breweryIdOf(12),
           pullRequest: url(90),
           state: 'merged',
         } as const;
@@ -860,16 +925,24 @@ describe('runBrew', () => {
           gh: ghOver(host.fetch).exec,
           lock: () => fakeLock('ann'),
         });
-        const lauter = { ...request, lauter: 'web-7', target: { issue: number ?? 0 } };
+        const lauter = { ...request, lauter: idOf('web', 7), target: { issue: number ?? 0 } };
         assert.equal(await runBrew(brewing, correcting, lauter), 5, f.lines.join('\n'));
-        assert.deepStrictEqual(log().state().batches.get('web-7')?.pullRequestEnds ?? {}, {});
+        assert.deepStrictEqual(
+          log().state().batches.get(idOf('web', 7))?.pullRequestEnds ?? {},
+          {},
+        );
       });
 
       it('a batch of a Brewery issue whose pull request is open says to close it first, offering no order: exit 5', async () => {
         f.store.withTransaction((tx) => {
           const routeBy = new Date(t0.getTime() + 3_600_000).toISOString();
-          tx.append({ type: 'batch.ordered', batchId: '12-1', order: { issue: 12 }, routeBy });
-          tx.append({ type: 'batch.on_tap', batchId: '12-1', pullRequests: [url(90)] });
+          tx.append({
+            type: 'batch.ordered',
+            batchId: breweryIdOf(12),
+            order: { issue: 12 },
+            routeBy,
+          });
+          tx.append({ type: 'batch.on_tap', batchId: breweryIdOf(12), pullRequests: [url(90)] });
         });
         const host = fakeGitHubApi({
           login: 'ann',
@@ -898,21 +971,26 @@ describe('runBrew', () => {
       it('a sub-order whose pull request is open is not told to close it to order it again: exit 5', async () => {
         f.store.withTransaction((tx) => {
           const routeBy = new Date(t0.getTime() + 3_600_000).toISOString();
-          tx.append({ type: 'batch.ordered', batchId: '1-1', order: { issue: 1 }, routeBy });
+          tx.append({
+            type: 'batch.ordered',
+            batchId: breweryIdOf(1),
+            order: { issue: 1 },
+            routeBy,
+          });
           tx.append({
             type: 'order.decomposed',
-            batchId: '1-1',
+            batchId: breweryIdOf(1),
             subOrders: [{ issue: 12, repo: 'acme/web' }],
             dependencies: [],
           });
           tx.append({
             type: 'batch.ordered',
-            batchId: '12-1',
+            batchId: breweryIdOf(12),
             order: { issue: 12 },
-            parentBatchId: '1-1',
+            parentBatchId: breweryIdOf(1),
             routeBy,
           });
-          tx.append({ type: 'batch.on_tap', batchId: '12-1', pullRequests: [url(90)] });
+          tx.append({ type: 'batch.on_tap', batchId: breweryIdOf(12), pullRequests: [url(90)] });
         });
         const host = fakeGitHubApi({
           login: 'ann',
@@ -933,21 +1011,31 @@ describe('runBrew', () => {
       it("a sub-order's cancelled batch prints the order's refusal, offering no order: regression test", async () => {
         f.store.withTransaction((tx) => {
           const routeBy = new Date(t0.getTime() + 3_600_000).toISOString();
-          tx.append({ type: 'batch.ordered', batchId: '1-1', order: { issue: 1 }, routeBy });
+          tx.append({
+            type: 'batch.ordered',
+            batchId: breweryIdOf(1),
+            order: { issue: 1 },
+            routeBy,
+          });
           tx.append({
             type: 'order.decomposed',
-            batchId: '1-1',
+            batchId: breweryIdOf(1),
             subOrders: [{ issue: 12, repo: 'acme/web' }],
             dependencies: [],
           });
           tx.append({
             type: 'batch.ordered',
-            batchId: '12-1',
+            batchId: breweryIdOf(12),
             order: { issue: 12 },
-            parentBatchId: '1-1',
+            parentBatchId: breweryIdOf(1),
             routeBy,
           });
-          tx.append({ type: 'batch.cancelled', batchId: '12-1', by: 'ann', via: 'terminal' });
+          tx.append({
+            type: 'batch.cancelled',
+            batchId: breweryIdOf(12),
+            by: 'ann',
+            via: 'terminal',
+          });
         });
         assert.equal(await runBrew(f.setup, shell(behave.succeed()), request), 5);
         assert.equal(
@@ -961,8 +1049,17 @@ describe('runBrew', () => {
         const open = url(102);
         f.store.withTransaction((tx) => {
           const routeBy = new Date(t0.getTime() + 3_600_000).toISOString();
-          tx.append({ type: 'batch.ordered', batchId: '12-1', order: { issue: 12 }, routeBy });
-          tx.append({ type: 'batch.on_tap', batchId: '12-1', pullRequests: [merged, open] });
+          tx.append({
+            type: 'batch.ordered',
+            batchId: breweryIdOf(12),
+            order: { issue: 12 },
+            routeBy,
+          });
+          tx.append({
+            type: 'batch.on_tap',
+            batchId: breweryIdOf(12),
+            pullRequests: [merged, open],
+          });
         });
         const host = fakeGitHubApi({
           login: 'ann',
@@ -979,7 +1076,7 @@ describe('runBrew', () => {
         });
         const own = shell(behave.succeed(), { gh: ghOver(host.fetch).exec });
         assert.equal(await runBrew(f.setup, own, request), 5, f.lines.join('\n'));
-        assert.deepStrictEqual(log().state().batches.get('12-1')?.pullRequestEnds, {
+        assert.deepStrictEqual(log().state().batches.get(breweryIdOf(12))?.pullRequestEnds, {
           [merged]: 'merged',
         });
         assert.equal(
@@ -991,10 +1088,25 @@ describe('runBrew', () => {
       it('an older batch with no recorded end behind a cancelled one offers no order, and names foedrum serve: exit 5', async () => {
         f.store.withTransaction((tx) => {
           const routeBy = new Date(t0.getTime() + 3_600_000).toISOString();
-          tx.append({ type: 'batch.ordered', batchId: '12-1', order: { issue: 12 }, routeBy });
-          tx.append({ type: 'batch.on_tap', batchId: '12-1', pullRequests: [url(90)] });
-          tx.append({ type: 'batch.ordered', batchId: '12-2', order: { issue: 12 }, routeBy });
-          tx.append({ type: 'batch.cancelled', batchId: '12-2', by: 'ann', via: 'terminal' });
+          tx.append({
+            type: 'batch.ordered',
+            batchId: breweryIdOf(12),
+            order: { issue: 12 },
+            routeBy,
+          });
+          tx.append({ type: 'batch.on_tap', batchId: breweryIdOf(12), pullRequests: [url(90)] });
+          tx.append({
+            type: 'batch.ordered',
+            batchId: `${breweryIdOf(12)}-2`,
+            order: { issue: 12 },
+            routeBy,
+          });
+          tx.append({
+            type: 'batch.cancelled',
+            batchId: `${breweryIdOf(12)}-2`,
+            by: 'ann',
+            via: 'terminal',
+          });
         });
         assert.equal(await runBrew(f.setup, shell(behave.succeed()), request), 5);
         assert.equal(
@@ -1010,7 +1122,7 @@ describe('runBrew', () => {
         const number = host.issues['acme/brewery']?.[0]?.number ?? 0;
         const expiresAt = new Date(t0.getTime() + 60_000);
         f.store.withTransaction((tx) =>
-          tx.putBatchLease({ batchId: 'web-7', owner: 'cellar', expiresAt }),
+          tx.putBatchLease({ batchId: idOf('web', 7), owner: 'cellar', expiresAt }),
         );
         const asked = host.requests.length;
         const again = shell(behave.succeed(), {
@@ -1033,8 +1145,8 @@ describe('runBrew', () => {
       const issue = (command: Parameters<ReturnType<typeof log>['issue']>[0]) =>
         assert.equal(log().issue(command, t0).kind, 'accepted', JSON.stringify(command));
       const opened = () => {
-        issue({ kind: 'order', batchId: 'web-7', order: { issue: 7, repo: 'acme/web' } });
-        const key = effectKey.encode({ batchId: 'web-7', effect: 'order.issue' });
+        issue({ kind: 'order', batchId: idOf('web', 7), order: { issue: 7, repo: 'acme/web' } });
+        const key = effectKey.encode({ batchId: idOf('web', 7), effect: 'order.issue' });
         issue({ kind: 'record', event: { type: 'effect.applied', key, result: 40 } });
       };
       const byNumber = { ...request, target: { issue: 40 } };
@@ -1049,14 +1161,14 @@ describe('runBrew', () => {
         });
         host.issue('acme/web', 7)?.labels.push('foedrum:claimed');
         opened();
-        issue({ kind: 'cancel', batchId: 'web-7', by: 'ann', via: 'terminal' });
+        issue({ kind: 'cancel', batchId: idOf('web', 7), by: 'ann', via: 'terminal' });
         const brewing = shell(behave.succeed(), { gh: ghOver(host.fetch).exec });
         assert.equal(await runBrew(targetSetup(), brewing, byNumber), 6, f.lines.join('\n'));
         const comments = host.comments.get('acme/web#7') ?? [];
         assert.match(comments.at(-1)?.body ?? '', /released its claim.*was cancelled/);
         assert.ok(!host.issue('acme/web', 7)?.labels.includes('foedrum:claimed'));
         assert.notEqual(host.issue('acme/brewery', 40)?.state, 'closed');
-        assert.deepStrictEqual([...log().state().batches.keys()], ['web-7']);
+        assert.deepStrictEqual([...log().state().batches.keys()], [idOf('web', 7)]);
         assert.deepStrictEqual(host.created, []);
         assert.equal(
           f.lines.at(-2),
@@ -1068,7 +1180,7 @@ describe('runBrew', () => {
       it('foedrum mash of a batch whose release is still due names foedrum brew', async () => {
         opened();
         f.store.withTransaction((tx) =>
-          tx.append({ type: 'batch.on_tap', batchId: 'web-7', pullRequests: [] }),
+          tx.append({ type: 'batch.on_tap', batchId: idOf('web', 7), pullRequests: [] }),
         );
         const mash = { ...byNumber, mash: true as const };
         const mashing = () =>
@@ -1082,9 +1194,9 @@ describe('runBrew', () => {
 
       it('says foedrum order of the number for an ended batch', async () => {
         opened();
-        issue({ kind: 'cancel', batchId: 'web-7', by: 'ann', via: 'terminal' });
+        issue({ kind: 'cancel', batchId: idOf('web', 7), by: 'ann', via: 'terminal' });
         for (const effect of ['release.label', 'release.comment', 'release.ref']) {
-          const key = effectKey.encode({ batchId: 'web-7', effect });
+          const key = effectKey.encode({ batchId: idOf('web', 7), effect });
           issue({ kind: 'record', event: { type: 'effect.applied', key, result: 'done' } });
         }
         const brewing = shell(behave.succeed(), { gh: ghOver(github().fetch).exec });
@@ -1117,21 +1229,32 @@ describe('runBrew', () => {
           event: { type: 'effect.applied', key: effectKey.encode({ batchId, effect }), result },
         });
       const order = { issue: 7, repo: 'acme/web' };
-      issue({ kind: 'order', batchId: 'web-7', order });
-      record('web-7', 'order.issue', 40);
-      issue({ kind: 'cancel', batchId: 'web-7', by: 'ann', via: 'terminal' });
+      issue({ kind: 'order', batchId: idOf('web', 7), order });
+      record(idOf('web', 7), 'order.issue', 40);
+      issue({ kind: 'cancel', batchId: idOf('web', 7), by: 'ann', via: 'terminal' });
       for (const effect of ['release.label', 'release.comment', 'release.ref']) {
-        record('web-7', effect, 'done');
+        record(idOf('web', 7), effect, 'done');
       }
-      issue({ kind: 'order_again', batchId: 'web-7-2', order, by: 'ann', via: 'terminal' });
-      record('web-7-2', 'order.reopen', 'gone');
-      issue({ kind: 'cancel', batchId: 'web-7-2', by: 'ann', via: 'terminal' });
+      issue({
+        kind: 'order_again',
+        batchId: `${idOf('web', 7)}-2`,
+        order,
+        by: 'ann',
+        via: 'terminal',
+      });
+      record(`${idOf('web', 7)}-2`, 'order.reopen', 'gone');
+      issue({ kind: 'cancel', batchId: `${idOf('web', 7)}-2`, by: 'ann', via: 'terminal' });
       for (const effect of ['release.label', 'release.comment', 'release.ref']) {
-        record('web-7-2', effect, 'done');
+        record(`${idOf('web', 7)}-2`, effect, 'done');
       }
       const claimed = shell(behave.succeed(), { gh: ghOver(host.fetch).exec });
       assert.equal(await runBrew(targetSetup(), claimed, target), 5, f.lines.join('\n'));
-      assert.ok(log().state().batches.has('web-7-3'), f.lines.join('\n'));
+      assert.ok(
+        log()
+          .state()
+          .batches.has(`${idOf('web', 7)}-3`),
+        f.lines.join('\n'),
+      );
     });
 
     it('a rebrew after a deleted Brewery issue claims nothing while its pull request is open: regression test (ADR 0339)', async () => {
@@ -1143,17 +1266,17 @@ describe('runBrew', () => {
           kind: 'record',
           event: {
             type: 'effect.applied',
-            key: effectKey.encode({ batchId: 'web-7', effect }),
+            key: effectKey.encode({ batchId: idOf('web', 7), effect }),
             result,
           },
         });
       const routeBy = new Date(t0.getTime() + 3_600_000).toISOString();
       f.store.withTransaction((tx) => {
         const order = { issue: 7, repo: 'acme/web' };
-        tx.append({ type: 'batch.ordered', batchId: 'web-7', order, routeBy });
+        tx.append({ type: 'batch.ordered', batchId: idOf('web', 7), order, routeBy });
         tx.append({
           type: 'batch.on_tap',
-          batchId: 'web-7',
+          batchId: idOf('web', 7),
           pullRequests: ['https://github.com/acme/web/pull/90'],
         });
       });
@@ -1162,11 +1285,17 @@ describe('runBrew', () => {
       const claimed = shell(behave.succeed(), { gh: ghOver(host.fetch).exec });
       assert.equal(await runBrew(targetSetup(), claimed, target), 5, f.lines.join('\n'));
       assert.match(f.lines.at(-1) ?? '', /holds its claim until its pull requests end/);
-      assert.equal(log().state().batches.has('web-7-2'), false);
+      assert.equal(
+        log()
+          .state()
+          .batches.has(`${idOf('web', 7)}-2`),
+        false,
+      );
     });
 
     /** The live lease of the claimed batch web-7. */
-    const webLease = () => f.store.batchLeases(t0).find(({ batchId }) => batchId === 'web-7');
+    const webLease = () =>
+      f.store.batchLeases(t0).find(({ batchId }) => batchId === idOf('web', 7));
 
     it('lets a claimed batch go once it waits for a label on its Brewery issue, holding no lease: exit 5 (ADR 0123)', async () => {
       const host = github();
