@@ -111,26 +111,57 @@ const mostAssumptions = 10;
 const mostQuestions = 10;
 const mostOptions = 10;
 
-/** HTML's characters and `@`, as the entities GitHub shows as themselves. */
+/** HTML's characters, as the entities GitHub shows as themselves. */
 const entities: Readonly<Record<string, string>> = {
   '&': '&amp;',
   '<': '&lt;',
   '>': '&gt;',
-  '@': '&#64;',
 };
 
-/** One character as GitHub shows it as itself: Markdown's escaped, the rest of `entities`. */
+/**
+ * One character as GitHub shows it as itself: Markdown's escaped, HTML's as `entities`. `!` is not
+ * escaped: an image needs a `[` after it, which is (ADR 0379).
+ */
 const shownAsItself = (char: string): string =>
-  entities[char] ?? (/[\\`*_[\]#|~!]/.test(char) ? `\\${char}` : char);
+  entities[char] ?? (/[\\`*_[\]#|~]/.test(char) ? `\\${char}` : char);
+
+/** A character a login starts with: an `@` before one would mention someone. */
+const loginStart = /^[A-Za-z0-9]$/;
+/** A character of the name after an `@`: a login, a team's `org/team`, a package's `@scope/name`. */
+const nameChar = /^[A-Za-z0-9_./-]$/;
+
+/**
+ * `chars` as the pieces GitHub shows as themselves: each character escaped, and an `@` that would
+ * mention someone with the name after it as one code span, where GitHub mentions no one and the raw
+ * text reads as the rendered one (ADR 0379). A name ends before a `.`, `/` or `-` that ends it.
+ */
+const piecesOf = (chars: readonly string[]): string[] => {
+  const pieces: string[] = [];
+  let at = 0;
+  while (at < chars.length) {
+    const char = chars[at] ?? '';
+    if (char === '@' && loginStart.test(chars[at + 1] ?? '')) {
+      let end = at + 1;
+      while (end < chars.length && nameChar.test(chars[end] ?? '')) end += 1;
+      while (/^[./-]$/.test(chars[end - 1] ?? '')) end -= 1;
+      pieces.push(`\`${chars.slice(at, end).join('')}\``);
+      at = end;
+    } else {
+      pieces.push(shownAsItself(char));
+      at += 1;
+    }
+  }
+  return pieces;
+};
 
 /**
  * `text`, which a brewer or an issue wrote, as one line of at most `most` characters that
  * GitHub renders as it is: no Markdown, no HTML (so no marker), and no mention. It is cut after
- * escaping, between characters, so no escape is cut in half and the line never grows past
- * `most`.
+ * escaping, between pieces, so no escape or code span is cut in half and the line never grows
+ * past `most`.
  */
 export const plainWithin = (text: string, most: number): string => {
-  const shown = [...text.replace(/\s+/g, ' ').trim()].map(shownAsItself);
+  const shown = piecesOf([...text.replace(/\s+/g, ' ').trim()]);
   const whole = shown.join('');
   if (whole.length <= most) return whole;
   let line = '';
