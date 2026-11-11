@@ -13,7 +13,7 @@ Both are JSONC with a `$schema` reference for editor autocompletion; unknown fie
       "checks": {                                                // all five, a command or null
         "build": "dotnet build",
         "typecheck": null,                                       // not available: skipped and recorded
-        "lint": null,
+        "lint": { "run": "dotnet format style --verify-no-changes", "files": true }, // takes paths (ADR 0381)
         "format": { "run": "dotnet format --verify-no-changes", "windows": "…" },
         "test": "dotnet test --logger junit"
       },
@@ -33,6 +33,7 @@ Both are JSONC with a `$schema` reference for editor autocompletion; unknown fie
 
 - `checks` requires all five keys, so a missing check is always an explicit `null`.
   A command is one line, or `{ "run", "windows", "macos", "linux" }` with per-OS overrides.
+  `"files": true`, which any command object takes and only a `lint`, `format` or `test` command's is read, says its line takes paths: the checks before a brewer's end then add the changed files to lint and format, and the red step's test files to test, which otherwise does not run there; a check step runs the line as written ([ADR 0381](../../adr/0381-a-brewer-that-writes-code-runs-the-quick-checks-before-its-end-and-is-sent-back-once.md)).
 - `testReport` is `{ "format": "tap" }` (the test command writes TAP to standard output), `{ "format": "tap", "path": … }` or `{ "format": "junit", "path": … }`; the path is relative to the worktree, never leaves it, and uses only file names Windows can create (no device names such as `con`, no trailing dot or space, none of `<>:"|?*` or control characters).
   A test report needs a `test` command.
   The red proof reads the test map's reports, not this one; freshness by runs reads where it is written ([the test map](../checks/test-map.md)).

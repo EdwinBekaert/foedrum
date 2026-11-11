@@ -5,6 +5,8 @@
 
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
+import type { RepositoryChecks } from '../checks/gravity.ts';
+import { redTestFiles } from '../checks/red-tests.ts';
 import { checksEnv, setupRunOf } from '../checks/setup.ts';
 import { stepTests } from '../checks/step-commits.ts';
 import type { ReadTestMapAt } from '../checks/test-map.ts';
@@ -33,6 +35,7 @@ import { entryOf, type MapModules, manifestsAt, modulesOf } from '../engine/syst
 import { sameRepo } from '../engine/task-tree.ts';
 import type { OrderComment, OrderIssue } from '../github/order-text.ts';
 import { readOutDocFile } from '../platform/bounded-read.ts';
+import { checksRunUnsandboxed } from '../platform/check-sandbox.ts';
 import { messageOf } from '../platform/errors.ts';
 import type { RepositorySetup } from '../schemas/brewery-config.ts';
 import type { Event, HeardComments, WorktreeRef } from '../schemas/events.ts';
@@ -92,6 +95,7 @@ import {
   ruleBlobs,
 } from './house-yeast.ts';
 import type { PromptInput, RandomBytes } from './prompt.ts';
+import { sendBackChecks } from './send-back.ts';
 
 export interface AttemptPlansOptions {
   /** The folded state: the driver's, which has recorded the attempt's start and worktree. */
@@ -103,6 +107,13 @@ export interface AttemptPlansOptions {
   repoTools: (repo: string) => readonly string[];
   /** A repository's setup (`foedrum.jsonc`), run before every attempt's brewer (ADR 0163). */
   repoSetup?: (repo: string) => RepositorySetup | undefined;
+  /**
+   * A repository's checks (`foedrum.jsonc`): the checks before the end of a brewer that asks for
+   * them run those it has (ADR 0381).
+   */
+  repoChecks?: (repo: string) => RepositoryChecks | undefined;
+  /** The step a recipe's red proof proves, whose test files those checks run (ADR 0381). */
+  provenStep?: (recipe: string) => string | undefined;
   /** A repository's test line (`foedrum.jsonc`), for a brewer that asks for it (ADR 0376). */
   repoTestLine?: (repo: string) => Command | null | undefined;
   /** Whether the isolation level relies on Claude Code's sandbox (ADR 0010). */
@@ -949,7 +960,32 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
         );
       }
       const commits = { clone: options.clone(own.repo), branch: attemptBranch(ranIn.madeBy) };
-      return { ...checked, commits };
+      // A brewer that writes code runs the repository's quick checks before its end, and is sent
+      // back once on a failure (ADR 0381).
+      const repoChecks =
+        found.brewer.checksBeforeEnd === true ? options.repoChecks?.(own.repo) : undefined;
+      if (repoChecks === undefined || started === undefined) return { ...checked, commits };
+      const redTests =
+        options.git === undefined || options.testMapAt === undefined
+          ? []
+          : await redTestFiles({
+              git: options.git,
+              clone: commits.clone,
+              testMap: options.testMapAt,
+              state: state(),
+              batch,
+              repo: own.repo,
+              of: options.provenStep?.(recipe),
+              platform,
+            });
+      const sendBack = {
+        checks: sendBackChecks(repoChecks, platform),
+        redTests,
+        deadlineAt: started.deadlineAt,
+        env: checksEnv(options.env, platform),
+        unsandboxed: checksRunUnsandboxed(platform),
+      };
+      return { ...checked, commits, sendBack };
     },
     limits: (ref) => {
       const found = brewerOf(ref);

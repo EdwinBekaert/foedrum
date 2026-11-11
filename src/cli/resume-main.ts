@@ -62,6 +62,7 @@ const resumeRunning = async (
         claude,
         plan,
         setup: shell.setup,
+        checks: shell.exec,
         terminalEnv: terminalEnv(process.env, process.platform),
         platform: process.platform,
         say: write,

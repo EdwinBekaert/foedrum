@@ -5,7 +5,7 @@
 import { lstatSync, readFileSync, realpathSync, unlinkSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 import { passed, settleReadings } from '../checks/gravity.ts';
-import { runSetup, type SetupRun } from '../checks/setup.ts';
+import { readingOn, runLine, runSetup, type SetupRun } from '../checks/setup.ts';
 import { attemptKey } from '../engine/attempt-key.ts';
 import type { Env } from '../engine/brewer-env.ts';
 import {
@@ -35,10 +35,12 @@ import {
   type Timers,
 } from '../platform/processes.ts';
 import type { AttemptSettings } from '../schemas/attempt-settings.ts';
-import type { GravityReading, HeardComments } from '../schemas/events.ts';
+import type { GravityReading, HeardComments, Receipt } from '../schemas/events.ts';
 import type { HouseYeastSelection } from '../schemas/house-yeast.ts';
 import {
+  type ChangedPaths,
   type CountCommits,
+  changedPaths,
   countCommits,
   type ScanCommits,
   scanAttemptCommits,
@@ -54,6 +56,13 @@ import {
 import { type ClaudeCall, claudeArgs } from './claude-command.ts';
 import { cut, readClaudeStream, type StreamFacts, type StreamReader } from './claude-stream.ts';
 import type { BrewerPrompt } from './prompt.ts';
+import {
+  afterSendBack,
+  type Ran,
+  type SendBackPlan,
+  sendBackLines,
+  sendBackMessage,
+} from './send-back.ts';
 
 /** Everything one attempt needs, prepared by the engine (its worktree, prompt and session). */
 export interface ClaudeAttemptPlan {
@@ -82,6 +91,11 @@ export interface ClaudeAttemptPlan {
    * environment, killed before the attempt's deadline (ADR 0163).
    */
   setup?: { run: SetupRun; deadlineAt: string; env: Env };
+  /**
+   * For a brewer with checks before its end (ADR 0381): the repository's quick checks, run once
+   * its session ended done with commits, and a failure sent back to that session once.
+   */
+  sendBack?: SendBackPlan;
   /** The house-yeast rules the plan gave the brewer, which its end records (ADR 0169). */
   houseYeast?: HouseYeastSelection;
   /** The highest comment id per issue the prompt holds, which its end records (ADR 0338). */
@@ -147,6 +161,13 @@ export interface ClaudeRunnerDeps {
   scan: ScanCommits;
   /** Reads which paths of a done plan exist at a commit in a repository's clone (ADR 0233). */
   touches: ReadPaths;
+  /**
+   * The process runner the checks before a brewer's end run through: the check sandbox, as green's
+   * (ADR 0076, ADR 0381). Without it, no checks run before the end.
+   */
+  checks?: ExecProcess;
+  /** The paths an attempt's commits changed, for the checks before its end (ADR 0381). */
+  changed?: ChangedPaths;
 }
 
 /**
@@ -406,8 +427,11 @@ export function claudeBrewerRunnerWith(deps: ClaudeRunnerDeps): BrewerRunner {
     // The stall limit judges claude, so the repository's setup is progress while it runs, and
     // claude's clock starts when it ends (ADR 0027, ADR 0163).
     let settingUp = false;
+    // The checks before a brewer's end are progress while they run, as the setup is (ADR 0381).
+    let checking = false;
     let claudeFrom = startedAt;
     running.set(key, () => {
+      if (checking) return { lastProgressAt: deps.now(), turnsWithoutProgress: 0 };
       if (reader !== undefined) return reader.progress();
       return {
         lastProgressAt: settingUp ? deps.now() : claudeFrom,
@@ -472,30 +496,30 @@ export function claudeBrewerRunnerWith(deps: ClaudeRunnerDeps): BrewerRunner {
         before.length === 0 ? end : { ...end, readings: before };
       const { session, tools } = plan.call;
       const { cwd, env, prompt } = plan;
-      /** One start of claude, read by a reader of its own. */
-      const once = async (): Promise<{ stream: StreamReader; result: StreamResult }> => {
+      /** One start of claude, read by a reader of its own: the attempt's, or one that resumes it. */
+      const once = async (
+        line: readonly string[] = args,
+        stdin: BrewerPrompt = prompt,
+        resumes = session.kind === 'resume',
+        // When the stall clock starts: claude's first start, or a send-back's resume (ADR 0381).
+        from = claudeFrom,
+      ): Promise<{ stream: StreamReader; result: StreamResult }> => {
         const stream = readClaudeStream(
-          {
-            sessionId: session.id,
-            tools,
-            maxDenials: limits.maxDenials,
-            resumes: session.kind === 'resume',
-            worktree: cwd,
-          },
-          claudeFrom,
+          { sessionId: session.id, tools, maxDenials: limits.maxDenials, resumes, worktree: cwd },
+          from,
         );
         reader = stream;
-        const result = await deps.stream(deps.claude, args, {
+        const result = await deps.stream(deps.claude, line, {
           cwd,
           env,
-          stdin: prompt,
+          stdin,
           // On Windows the tree must not outlive a kill (ADR 0039, #128); ignored elsewhere.
           jobObject: true,
           signal: stopping.signal,
           maxLineBytes: MAX_LINE_BYTES,
           // A mismatched init or a denial at maxDenials stops the attempt at that line.
-          onLine: (line) => {
-            if (stream.read(line, deps.now()) === 'stop') stopping.abort();
+          onLine: (read) => {
+            if (stream.read(read, deps.now()) === 'stop') stopping.abort();
           },
         });
         return { stream, result };
@@ -514,66 +538,145 @@ export function claudeBrewerRunnerWith(deps: ClaudeRunnerDeps): BrewerRunner {
       } catch (error) {
         return withReadings(unstartable(error));
       }
-      const seen = stream.facts();
-      const exit = exitOf(result);
-      const out = deps.files.readOutDoc(
-        resolve(plan.cwd, limits.outDoc.file),
-        MAX_OUT_DOC_BYTES,
-        plan.cwd,
-      );
-      // What the next step starts from is the attempt's branch in the clone, not the stream, nor
-      // the worktree's own git files, which the brewer can write (ADR 0074).
-      // Not after a stop: the runner's own (a limit it saw in the stream) settles before any count.
-      const stopped = stopping.signal.aborted;
-      const commits = stopped
-        ? undefined
-        : await commitsOf(deps.commits, plan, limits.commitsSince, stopping.signal);
-      // What the stream reported stays with the attempt however it ends from here.
-      const reported = {
-        ...(seen.usage === undefined ? {} : { usage: seen.usage }),
-        // A claude that never started took nothing (ADR 0172).
-        ...(exit.kind === 'unstartable' ? {} : { receipt: stream.receipt() }),
-        ...(seen.session === undefined ? {} : { session: seen.session }),
+      /** How a run ended, from what its stream showed and took; or the stop that came meanwhile. */
+      const settle = async (
+        seen: StreamFacts,
+        receipt: Receipt,
+        ran: StreamResult,
+      ): Promise<{ end: AttemptEnd; facts?: AttemptFacts }> => {
+        const exit = exitOf(ran);
+        const out = deps.files.readOutDoc(
+          resolve(plan.cwd, limits.outDoc.file),
+          MAX_OUT_DOC_BYTES,
+          plan.cwd,
+        );
+        // What the next step starts from is the attempt's branch in the clone, not the stream,
+        // nor the worktree's own git files, which the brewer can write (ADR 0074).
+        // Not after a stop: the runner's own (a limit it saw in the stream) settles before any count.
+        const stopped = stopping.signal.aborted;
+        const commits = stopped
+          ? undefined
+          : await commitsOf(deps.commits, plan, limits.commitsSince, stopping.signal);
+        // What the stream reported stays with the attempt however it ends from here.
+        const reported = {
+          ...(seen.usage === undefined ? {} : { usage: seen.usage }),
+          // A claude that never started took nothing (ADR 0172).
+          ...(exit.kind === 'unstartable' ? {} : { receipt }),
+          ...(seen.session === undefined ? {} : { session: seen.session }),
+        };
+        // A stop while counting kills git: the attempt was stopped, git did not fail.
+        if (!stopped && stopping.signal.aborted) return { end: { ...cancelled(), ...reported } };
+        const facts: AttemptFacts = {
+          environment: environmentOf(seen, exit, ran.stderr),
+          unresumed: seen.unresumed,
+          exit,
+          outDoc: out.kind === 'text' ? out.text : undefined,
+          outDocUnread: out.kind === 'unread' ? out.reason : undefined,
+          streamError: seen.streamError,
+          usageLimit: seen.usageLimit,
+          spendLimit: seen.spendLimit,
+          ...(seen.garbage === undefined ? {} : { garbage: seen.garbage }),
+          denials: seen.denials,
+          deniedTools: seen.deniedTools,
+          turns: seen.turns,
+          sessionStarted: seen.session !== undefined,
+          ...(commits === undefined ? {} : { commits }),
+        };
+        // Its retry can write another way what the push would refuse (ADR 0187), or a plan with
+        // the paths that exist (ADR 0233).
+        const ending = await touchesChecked(
+          deps.touches,
+          await scannedIfDone(deps.scan, facts, limits, plan, stopping.signal),
+          plan.touches,
+          stopping.signal,
+        );
+        // A stop while scanning or reading the plan's paths kills git: the attempt was stopped,
+        // git did not fail.
+        if (!stopped && stopping.signal.aborted) return { end: { ...cancelled(), ...reported } };
+        // The text as read, valid or not, for the state branch (ADR 0103).
+        const outDoc = facts.outDoc === undefined ? {} : { outDoc: facts.outDoc };
+        return { end: { ending, ...reported, ...outDoc }, facts };
       };
-      // A stop while counting kills git: the attempt was stopped, git did not fail.
-      if (!stopped && stopping.signal.aborted) return withReadings({ ...cancelled(), ...reported });
-      const facts: AttemptFacts = {
-        environment: environmentOf(seen, exit, result.stderr),
-        unresumed: seen.unresumed,
-        exit,
-        outDoc: out.kind === 'text' ? out.text : undefined,
-        outDocUnread: out.kind === 'unread' ? out.reason : undefined,
-        streamError: seen.streamError,
-        usageLimit: seen.usageLimit,
-        spendLimit: seen.spendLimit,
-        ...(seen.garbage === undefined ? {} : { garbage: seen.garbage }),
-        denials: seen.denials,
-        deniedTools: seen.deniedTools,
-        turns: seen.turns,
-        sessionStarted: seen.session !== undefined,
-        ...(commits === undefined ? {} : { commits }),
+      /**
+       * The first check before the end that fails, when the brewer has them and its session ended
+       * done with commits (ADR 0381); none when all pass or none run, `stopped` at a stop.
+       */
+      const checkedBeforeEnd = async ({
+        end,
+        facts,
+      }: Awaited<ReturnType<typeof settle>>): Promise<Ran | 'stopped' | undefined> => {
+        const { sendBack, commits } = plan;
+        const since = limits.commitsSince;
+        const made = facts?.commits?.kind === 'counted' && facts.commits.count > 0;
+        if (sendBack === undefined || deps.checks === undefined || commits === undefined) return;
+        if (end.ending.kind !== 'succeeded' || since === undefined || !made) return;
+        checking = true;
+        try {
+          const changed = await deps.changed?.(
+            commits.clone,
+            commits.branch,
+            since,
+            stopping.signal,
+          );
+          const paths = changed?.kind === 'listed' ? changed.paths : undefined;
+          for (const { check, command } of sendBackLines(
+            sendBack.checks,
+            paths,
+            sendBack.redTests,
+          )) {
+            const ran = await runLine(deps.checks, command, {
+              cwd: plan.cwd,
+              env: sendBack.env,
+              deadlineAt: sendBack.deadlineAt,
+              now: deps.now,
+              signal: stopping.signal,
+            });
+            if (stopping.signal.aborted) return 'stopped';
+            const reading = readingOn({ kind: 'run', check, command }, ran, sendBack.unsandboxed);
+            if (reading.result !== 'skipped' && !passed(reading)) return reading;
+          }
+          return stopping.signal.aborted ? 'stopped' : undefined;
+        } finally {
+          checking = false;
+        }
       };
-      // Its retry can write another way what the push would refuse (ADR 0187), or a plan with
-      // the paths that exist (ADR 0233).
-      const ending = await touchesChecked(
-        deps.touches,
-        await scannedIfDone(deps.scan, facts, limits, plan, stopping.signal),
-        plan.touches,
-        stopping.signal,
-      );
-      // A stop while scanning or reading the plan's paths kills git: the attempt was stopped, git did not fail.
-      if (!stopped && stopping.signal.aborted) return withReadings({ ...cancelled(), ...reported });
+      const first = { facts: stream.facts(), receipt: stream.receipt() };
+      let settled = await settle(first.facts, first.receipt, result);
+      // A brewer that writes code is sent back once, in its session, when a check fails on what
+      // it committed (ADR 0381); its second end is the attempt's, and green is still the gate.
+      const failure = await checkedBeforeEnd(settled);
+      const stoppedNow = () => ({ end: { ...settled.end, ending: cancelled().ending } });
+      if (failure === 'stopped') settled = stoppedNow();
+      else if (failure !== undefined) {
+        const resume = claudeArgs({
+          ...plan.call,
+          session: { kind: 'resume', id: first.facts.session?.sessionId ?? session.id },
+          settingsFile: plan.settingsFile,
+          appendSystemPromptFile: plan.systemPrompt?.file,
+        });
+        const again = await once(resume, sendBackMessage(failure), true, deps.now()).catch(
+          () => undefined,
+        );
+        const second = again === undefined ? undefined : again.stream.facts();
+        // A resume that set up no session changed nothing: the first end stands.
+        if (again !== undefined && second?.session !== undefined) {
+          const both = afterSendBack(first, { facts: second, receipt: again.stream.receipt() });
+          settled = await settle(both.facts, both.receipt, again.result);
+        } else if (stopping.signal.aborted) {
+          settled = stoppedNow();
+        }
+      }
+      const { end, facts } = settled;
       // Its retry resumes in a worktree that may have to be recreated without it (ADR 0175).
-      if (ending.kind === 'failed' && ending.overran === 'turns' && facts.outDoc !== undefined) {
+      const { ending } = end;
+      if (ending.kind === 'failed' && ending.overran === 'turns' && facts?.outDoc !== undefined) {
         try {
           deps.files.copyOutDoc(outDocCopyOf(plan.settingsFile), facts.outDoc);
         } catch {
           // The retry resumes without it: a copy is no reason to change how the attempt ended.
         }
       }
-      // The text as read, valid or not, for the state branch (ADR 0103).
-      const outDoc = facts.outDoc === undefined ? {} : { outDoc: facts.outDoc };
-      return withReadings({ ending, ...reported, ...outDoc });
+      return withReadings(end);
     };
 
     // However it ends once it has a plan, the rules the plan gave the brewer go with it (ADR 0169),
@@ -593,7 +696,7 @@ export function claudeBrewerRunnerWith(deps: ClaudeRunnerDeps): BrewerRunner {
 
 /** The runner with the real process runner, files and clock. */
 export function claudeBrewerRunner(
-  options: Pick<ClaudeRunnerDeps, 'claude' | 'plan' | 'setup'>,
+  options: Pick<ClaudeRunnerDeps, 'claude' | 'plan' | 'setup' | 'checks'>,
 ): BrewerRunner {
   return claudeBrewerRunnerWith({
     ...options,
@@ -611,5 +714,6 @@ export function claudeBrewerRunner(
     commits: countCommits(runGit),
     scan: scanAttemptCommits(runGit),
     touches: readPathsAt(runGit),
+    changed: changedPaths(runGit),
   });
 }

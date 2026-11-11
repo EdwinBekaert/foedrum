@@ -58,6 +58,40 @@ export const countCommits =
     return { kind: 'counted', count: Number(count) };
   };
 
+/** The paths an attempt's commits changed and left, or why git could not list them. */
+export type PathsChanged =
+  | { kind: 'listed'; paths: string[] }
+  | { kind: 'unlisted'; reason: string };
+
+/**
+ * Lists the paths the commits on `branch` in `clone` after `since` changed and did not delete
+ * (ADR 0381); never throws, git's failure is `unlisted`.
+ */
+export type ChangedPaths = (
+  clone: string,
+  branch: string,
+  since: string,
+  signal?: AbortSignal,
+) => Promise<PathsChanged>;
+
+export const changedPaths =
+  (shared: Git): ChangedPaths =>
+  async (clone, branch, since, signal) => {
+    // No hook or fsmonitor of the clone's runs in the engine's git (ADR 0137).
+    const git = inClone(shared);
+    const refused = unsafe(since, branch);
+    if (refused !== undefined) return { kind: 'unlisted', reason: refused };
+    // -z: each path whole, never quoted, whatever characters the brewer gave it.
+    const args = ['diff', '--name-only', '-z', '--no-renames', '--diff-filter=d'];
+    const listed = await git(clone, [...args, since, `refs/heads/${branch}`], {
+      ...(signal === undefined ? {} : { signal }),
+    });
+    if (listed.code !== 0) {
+      return { kind: 'unlisted', reason: `git diff failed: ${firstLine(listed)}` };
+    }
+    return { kind: 'listed', paths: listed.stdout.split('\0').filter((path) => path !== '') };
+  };
+
 /**
  * Scans the commits on `branch` in `clone` after `since` as the push does (ADR 0079, ADR 0187);
  * never throws, git's failure is `unscanned`.

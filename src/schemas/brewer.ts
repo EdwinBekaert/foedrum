@@ -123,6 +123,9 @@ const shared = {
   maxAttempts: Count,
   retryMode: z.enum(['resume', 'fresh']).default('fresh'),
   maxDenials: Count.optional(),
+  // Once a session that committed ends done, the runner runs the repository's quick checks and
+  // sends a failure back to the same session once (ADR 0381).
+  checksBeforeEnd: z.literal(true).optional(),
   guards: z
     .array(Guard)
     .default([])

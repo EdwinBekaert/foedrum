@@ -274,6 +274,7 @@ export const brewFromCheckout = async (
           plan,
           opensResumed,
           setup: base.setup,
+          checks: base.exec,
           terminalEnv: terminalEnv(env, process.platform),
           platform: process.platform,
           say: print,
