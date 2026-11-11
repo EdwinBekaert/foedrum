@@ -14,7 +14,7 @@ Foedrum borrows its vocabulary from Belgian brewing. A *foeder* is the large oak
 | **Bottling** | Choosing which sub-orders go into a bottle |
 | **Gate 1** | A person's sign-off of a plan: `foedrum approve <issue>` on a batch Stuck for its plan's review, recorded with the digest of the plan it signs off; a plan written again needs a sign-off of its own ([ADR 0281](adr/0281-foedrum-approve-signs-off-a-plan-by-its-hash-and-puts-the-batch-on-tap.md)) |
 | **Lauter** | At gate 1, the plan corrected with the Brewmaster in an interactive session: `foedrum lauter <issue>` on a batch Stuck for its plan's review runs the recipe's step `chosenBy` lauter, which reads the plan, and the batch waits for a review of the corrected plan; the plan lenses do not run again ([ADR 0286](adr/0286-foedrum-lauter-corrects-a-plan-at-gate-1-in-an-interactive-session.md)) |
-| **Conditioning** ⏳ | A batch waiting for a merge, a release or a sibling batch — visible, with a reminder, never a failure; a sub-order not yet ordered waits for its blockers' merges, and a `release` blocker's release after its merge, without a batch ([ADR 0211](adr/0211-the-intake-starts-ready-sub-orders-at-their-order-s-rank-once-their-blockers-merged.md), [ADR 0216](adr/0216-a-release-blocker-is-done-once-its-repository-is-released-after-its-merge.md)) |
+| **Conditioning** ⏳ | A batch waiting for a merge, a release or a sibling batch — visible, with a reminder, never a failure; a sub-order not yet ordered waits for its blockers' merges, and a `release` blocker's release after its merge, without a batch ([ADR 0211](adr/0211-the-intake-starts-ready-sub-orders-at-their-order-s-rank-once-their-blockers-merged.md), [ADR 0216](adr/0216-a-release-blocker-is-done-once-its-repository-is-released-after-its-merge.md)). A lane, an engine word: a person reads it as Queued ([what a batch is to a person](design/humans/state.md)) |
 | **Release signal** | How Foedrum learns a library version was published (GitHub release or tag first; NuGet, npm and others later) |
 | **Triage source** | Issues in target repositories configured for triage, read by Infection check and turned into Brewery orders |
 | **Rewind** | Continuing a batch from an earlier step; branches reset to that step's commits |
@@ -33,11 +33,11 @@ Foedrum borrows its vocabulary from Belgian brewing. A *foeder* is the large oak
 | **Tasting** | An AI review. Judged, not measured |
 | **Lens** | One focus for a tasting: correctness, security, cross-platform, design conformance, test design, necessity, acceptance, or a Brewery's own |
 | **Mutant** | A plausible bug proposed by Brett; a mutant the engine confirms the tests do not catch is a finding (advisory by default) |
-| **Stuck** 🔔 | A batch that needs a human. Always visible, never silent. Its reason says why: a question, a blocker, attempts or a deadline used, a stall, a driver that could not read it for an hour, its session awaited, no route, a pull request's failing checks, a person's stop, or a finished plan ready for review ([ADR 0275](adr/0275-a-finished-plan-waits-stuck-for-its-review-and-every-comment-links-the-doc-it-sums-up.md)) |
+| **Stuck** 🔔 | A batch that needs a human. Always visible, never silent. Its reason says why: a question, a blocker, attempts or a deadline used, a stall, a driver that could not read it for an hour, its session awaited, no route, a pull request's failing checks, a person's stop, or a finished plan ready for review ([ADR 0275](adr/0275-a-finished-plan-waits-stuck-for-its-review-and-every-comment-links-the-doc-it-sums-up.md)). A lane, an engine word: a person reads it as Waiting for you, and for what ([what a batch is to a person](design/humans/state.md)) |
 | **House yeast** | Rules learned from reviews, carried from batch to batch — in three layers (defaults, Brewery, repository), scoped, budgeted per attempt, promoted to checks when possible, curated over time |
 | **Candidate** | A lesson recorded from a review; proposed as a house-yeast rule when it recurs or a human asks |
 | **Blending** | Combining branches; conflicts go to a bounded brewer step |
-| **On tap** | Pull request opened or merged, or the recipe done without one (a recipe without the openPullRequest action, whose brewers commit nothing, ADR 0059 and ADR 0084; one with it goes on tap only with its pull request, ADR 0071); not a recipe that ends with a plan, which waits Stuck for its review (ADR 0275) until a person approves it, and then goes on tap (gate 1, ADR 0281) |
+| **On tap** | Pull request opened or merged, or the recipe done without one (a recipe without the openPullRequest action, whose brewers commit nothing, ADR 0059 and ADR 0084; one with it goes on tap only with its pull request, ADR 0071); not a recipe that ends with a plan, which waits Stuck for its review (ADR 0275) until a person approves it, and then goes on tap (gate 1, ADR 0281). A lane, an engine word: a person reads it as Waiting for you while a pull request is open, as the state of its sub-orders for an approved plan, and else as Done ([what a batch is to a person](design/humans/state.md)) |
 | **Cellar** | The autonomous driver (`foedrum serve`): brews orders unattended, steered through GitHub comments and later the dashboard |
 | **Driver** | What moves a batch forward: an engineer's Claude Code session or terminal through `foedrum brew` (interactive, ADR 0123) or the Cellar (autonomous); one at a time per batch, held as a batch lease it renews |
 | **Interactive step** | A brewer step with `"interactive": true` and a `prompt`, whose attempt runs as a person's `claude` session in `foedrum brew`'s terminal, with the brewer's guards and out doc (ADR 0222) |
@@ -51,6 +51,19 @@ Foedrum borrows its vocabulary from Belgian brewing. A *foeder* is the large oak
 ## Board lanes
 
 **Ordered → Brewing → Conditioning ⏳ → Stuck 🔔 → On tap**
+
+The lanes are the engine's words: every decision it makes reads them, and what Foedrum writes for a person about a batch names its state instead (below).
+
+## What a person reads
+
+One state per batch, the same on every surface: the status comment, the plan comment, the label, `foedrum status`, `foedrum stuck`, `foedrum brew` and the other commands ([what a batch is to a person](design/humans/state.md), [ADR 0379](adr/0379-what-foedrum-writes-for-a-person-reads-in-plain-words-and-every-surface-shows-one-state.md)).
+
+| State | Meaning |
+|---|---|
+| **Running** 🍺 | A brewer or a check works on the batch now |
+| **Waiting for you** 🔔 | The batch waits for a person, and says for what: approve the plan, answer a question, review and merge the pull request, open its session, choose a recipe, or look at a failure Foedrum could not get past; one `Next:` line says how |
+| **Queued** ⏳ | Waiting for a recipe, a merge, a release or another batch, paused by a person, held by a usage limit, or an approved plan whose sub-orders are not opened yet |
+| **Done** 🍻 | Merged, closed without merging, cancelled, or finished with no pull request |
 
 ## Default brewers
 

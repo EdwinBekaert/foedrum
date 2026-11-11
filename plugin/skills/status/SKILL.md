@@ -1,5 +1,5 @@
 ---
-description: List the Foedrum batches of this Brewery and their lanes, or an order's with its planning and brewing tokens
+description: List the Foedrum batches of this Brewery and what each is now, or an order's with its planning and brewing tokens
 argument-hint: "[<order>]"
 disable-model-invocation: true
 ---

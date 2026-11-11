@@ -12,4 +12,4 @@ Run with the Bash tool, never PowerShell, in this folder (the Brewery's root), t
 
 1. Without an issue in the arguments, ask the engineer which issue to order. Never choose for the engineer, and order only the issue named.
 2. Run `foedrum order '<issue>' --via plugin`.
-3. Show its line as it is: the new batch and its lane, or why it was refused. The batch waits for its recipe: `/foedrum:brew` routes it by the issue's `recipe:<name>` label, and `/foedrum:recipe` chooses one.
+3. Show its line as it is: the new batch and what it is now, or why it was refused. The batch waits for its recipe: `/foedrum:brew` routes it by the issue's `recipe:<name>` label, and `/foedrum:recipe` chooses one.
