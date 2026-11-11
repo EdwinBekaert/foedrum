@@ -62,7 +62,7 @@ From a terminal outside a Claude Code session, `foedrum brew <issue>` drives und
 | Principle | What it means |
 |---|---|
 | **Never silently stuck** | Every step ends in a typed outcome, every wait has a deadline, and anything that needs a human is surfaced loudly. Proven by fault-injection tests, not claimed. |
-| **Recipes, not one pipeline** | A quick fix doesn't need the ceremony of a large feature. Compose your own recipes from your own brewers, with loops. |
+| **Recipes, not one pipeline** | A change that stays inside the code it touches doesn't need the ceremony of one that can reach a lot. Compose your own recipes from your own brewers, with loops. |
 | **Bring your own Claude** | Foedrum drives your installed `claude` CLI — it works with a Claude subscription, an API key, Bedrock or Vertex. Foedrum never touches your credentials. |
 | **Orchestration costs (almost) no tokens** | The engine is plain code. Tokens are spent on the work, not on coordinating it. |
 | **Measured quality** | Deterministic checks first (tests, lint, types), AI review second. When a new Claude model ships, Foedrum evaluates it on your own tasks and proposes the upgrade as a PR. |
@@ -72,7 +72,7 @@ From a terminal outside a Claude Code session, `foedrum brew <issue>` drives und
 
 [![The brewing line: how one issue is brewed into pull requests, step by step](docs/images/foedrum-brewing-line.png)](docs/images/foedrum-brewing-line.png)
 
-The full line as designed. Each recipe picks its own steps: Nip, the quick fix that works today, starts at the Maltster's survey and is tasted through four lenses, correctness, acceptance, security and design conformance.
+The full line as designed. Each recipe picks its own steps: Nip, which builds a change whose effect stays inside the code it changes and works today, starts at the Maltster's survey and is tasted through four lenses, correctness, acceptance, security and design conformance.
 
 ## Documentation
 

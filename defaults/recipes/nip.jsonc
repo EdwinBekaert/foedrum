@@ -1,4 +1,5 @@
-// Nip, the quick fix in one repository, test-first (ADR 0017): the Maltster first proposes the
+// Nip, a change in one repository whose effect stays inside the code it changes, test-first
+// (ADR 0017, ADR 0375): the Maltster first proposes the
 // repository's test map when it has none or a stale one, checked against one run of its tests
 // (ADR 0282, ADR 0298); then the Gauger commits failing tests,
 // the red proof shows they fail for the missing behaviour, Cellarman makes them pass, the Finer
