@@ -372,7 +372,10 @@ describe('the merge brief of a batch mashed to a building recipe (#867)', () => 
         { commit: head },
       ),
     );
-    assert.match(body, /- The test map of acme\/web is new: the Maltster proposed it\./);
+    assert.match(
+      body,
+      /- The test map of acme\/web is new: the Maltster, the brewer that maps where the tests are, proposed it\./,
+    );
   });
 
   it("lists the fix rounds an earlier recipe's Taster sent back (#972)", async () => {
@@ -454,7 +457,7 @@ describe('the merge brief of a batch mashed to a building recipe (#867)', () => 
     );
     porterToOpen();
     const body = await briefBody();
-    assert.match(body, /- No Taster tasted this change\./);
+    assert.match(body, /- No Taster, a model that reviews the change, looked at it\./);
     assert.match(body, /\*\*Risk left\*\*\nNone recorded\./);
   });
 
@@ -492,7 +495,7 @@ describe('the merge brief of a batch mashed to a building recipe (#867)', () => 
     assert.match(body, /- `taste`: not run: its when "recipe\.testFirst" was false\./);
     assert.doesNotMatch(body, /the plan may be too big/);
     assert.doesNotMatch(body, /Tasted at/);
-    assert.match(body, /- No Taster tasted this change\./);
+    assert.match(body, /- No Taster, a model that reviews the change, looked at it\./);
   });
 
   it("never reads a plain step of the current recipe as a Taster because an earlier recipe's step of its id was one (#871)", async () => {
@@ -506,7 +509,7 @@ describe('the merge brief of a batch mashed to a building recipe (#867)', () => 
     opened();
     const body = await briefBody();
     assert.doesNotMatch(body, /Tasted at/);
-    assert.match(body, /- No Taster tasted this change\./);
+    assert.match(body, /- No Taster, a model that reviews the change, looked at it\./);
   });
 
   it("never says a skip left open an earlier recipe's Taster whose id a skipped step of the current recipe shares (#871)", async () => {
@@ -574,7 +577,10 @@ describe('the merge brief of a batch mashed to a building recipe (#867)', () => 
     run('implement', surveyed('fresh'), { commit: head });
     opened();
     const body = await briefBody();
-    assert.match(body, /- The test map of acme\/web is new: the Maltster proposed it\./);
+    assert.match(
+      body,
+      /- The test map of acme\/web is new: the Maltster, the brewer that maps where the tests are, proposed it\./,
+    );
   });
 
   it("lists the dispositions of an earlier recipe's rounds of a step beside the current recipe's (#972)", async () => {
@@ -672,7 +678,10 @@ describe('the merge brief of a batch mashed to a building recipe (#867)', () => 
     opened();
     const body = await briefBody();
     assert.match(body, /- `taste`: fixed at first\.md:3\n- `taste`: fixed at second\.md:3/);
-    assert.match(body, /- The test map of acme\/web is new: the Maltster proposed it\./);
+    assert.match(
+      body,
+      /- The test map of acme\/web is new: the Maltster, the brewer that maps where the tests are, proposed it\./,
+    );
   });
 
   it("lists the current recipe's rounds before an earlier recipe's: regression test", async () => {
@@ -718,7 +727,10 @@ describe('the merge brief of a batch mashed to a building recipe (#867)', () => 
     run('new-taster', tasted('the cut was not run'), { commit: head });
     opened();
     const body = await briefBody();
-    assert.match(body, /- The test map of acme\/web is new: the Maltster proposed it\./);
+    assert.match(
+      body,
+      /- The test map of acme\/web is new: the Maltster, the brewer that maps where the tests are, proposed it\./,
+    );
     assert.doesNotMatch(body, /was stale/);
   });
 
@@ -736,7 +748,7 @@ describe('the merge brief of a batch mashed to a building recipe (#867)', () => 
     opened();
     const body = await briefBody();
     assert.deepStrictEqual(body.match(/The test map of [^\n]*/g), [
-      'The test map of acme/web is new: the Maltster proposed it.',
+      'The test map of acme/web is new: the Maltster, the brewer that maps where the tests are, proposed it.',
     ]);
   });
 

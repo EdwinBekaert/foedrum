@@ -1079,7 +1079,7 @@ describe('pullRequestText', () => {
         '',
         'Brewed by Foedrum from acme/brewery#12.',
         '',
-        'No How it works: the Cellarman wrote none.',
+        'No How it works: the Cellarman, the brewer that writes the code, wrote none.',
         '',
         untasted,
         '',
@@ -1142,7 +1142,7 @@ describe('pullRequestText', () => {
         '',
         '## How this was brewed',
         '',
-        'Brewed by Foedrum from acme/brewery#12 with the recipe nip.',
+        'Brewed by Foedrum from acme/brewery#12 with the recipe nip (the steps it ran).',
         '',
         'Opens as a draft: Foedrum marks it ready for review once its merge brief is posted.',
         '',
@@ -1476,7 +1476,7 @@ describe('pullRequestText', () => {
     assert.equal(text.draft, true);
     assert.ok(
       text.body.includes(
-        '\nNo How it works: the Cellarman wrote none.\n\nOpens as a draft: Foedrum marks it ready for review once its merge brief is posted.\n',
+        '\nNo How it works: the Cellarman, the brewer that writes the code, wrote none.\n\nOpens as a draft: Foedrum marks it ready for review once its merge brief is posted.\n',
       ),
       text.body,
     );
@@ -1508,7 +1508,7 @@ describe('pullRequestText', () => {
     const { body } = pullRequestText({ title: 'T', closes, reports });
     assert.ok(
       body.includes(
-        '\nA Taster asks for changes (correctness); its findings are in the reports below.\n\nOpens as a draft: Foedrum marks it ready for review once its merge brief is posted.\n',
+        '\nA Taster, a model that reviews the change, asks for changes (correctness); its findings are in the reports below.\n\nOpens as a draft: Foedrum marks it ready for review once its merge brief is posted.\n',
       ),
       body,
     );
@@ -1589,7 +1589,7 @@ describe('pullRequestText', () => {
         '',
         'Brewed by Foedrum from acme/brewery#12.',
         '',
-        'No How it works: the Cellarman wrote none.',
+        'No How it works: the Cellarman, the brewer that writes the code, wrote none.',
         '',
         untasted,
         '',

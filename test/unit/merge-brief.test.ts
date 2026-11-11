@@ -862,7 +862,7 @@ describe('the merge brief (ADR 0225)', () => {
       });
       assert.match(
         await brief(),
-        /- Touches sensitive paths: \.foedrum\/test-map\.jsonc\.\n- The test map of acme\/web was stale \(svc\/package\.json \(added\), old\/package\.json \(removed\)\): the Maltster refreshed it\.\n/,
+        /- Touches sensitive paths: \.foedrum\/test-map\.jsonc\.\n- The test map of acme\/web was stale \(svc\/package\.json \(added\), old\/package\.json \(removed\)\): the Maltster, the brewer that maps where the tests are, refreshed it\.\n/,
       );
     });
 
@@ -890,7 +890,10 @@ describe('the merge brief (ADR 0225)', () => {
       nipFromImplement(1, head, {}, { count: 1, files: ['.foedrum/test-map.jsonc'] });
       finished([passed('ci/build')]);
       const body = await brief();
-      assert.match(body, /\n- The test map of acme\/web is new: the Maltster proposed it\.\n/);
+      assert.match(
+        body,
+        /\n- The test map of acme\/web is new: the Maltster, the brewer that maps where the tests are, proposed it\.\n/,
+      );
       assert.doesNotMatch(body, /was stale/);
     });
 
@@ -910,7 +913,7 @@ describe('the merge brief (ADR 0225)', () => {
       surveyed({ status: 'done', summary: 'Proposed the test map', map: 'new' });
       assert.match(
         await brief(),
-        /\n- The test map of acme\/web is new: the Maltster proposed it\.\n/,
+        /\n- The test map of acme\/web is new: the Maltster, the brewer that maps where the tests are, proposed it\.\n/,
       );
     });
 
@@ -1862,7 +1865,7 @@ describe('the merge brief (ADR 0225)', () => {
       open();
       finished([passed('ci/build')]);
       const body = await brief();
-      assert.match(body, /- No Taster tasted this change\./);
+      assert.match(body, /- No Taster, a model that reviews the change, looked at it\./);
       assert.match(body, /\*\*Findings\*\*\nNo finding was recorded\./);
     });
   });

@@ -319,7 +319,7 @@ describe('pullRequestActions: the pull request', () => {
     keysOf(fold([...split, ordered({ issue: 12 }), ...brewed, ...opening]), actions);
     await actions.target.apply(open);
     const body = requests[0]?.request.body ?? '';
-    assert.match(body, /\nBrewed by Foedrum with the recipe ale\.\n/);
+    assert.match(body, /\nBrewed by Foedrum with the recipe ale \(the steps it ran\)\.\n/);
     assert.doesNotMatch(body, /brewery/i);
     assert.doesNotMatch(body, /^Closes /m);
   });
@@ -402,7 +402,7 @@ describe('pullRequestActions: the pull request', () => {
 
   it('says nothing of test-first for a sub-order that skipped no step, as one that ran them before the plan could turn them off (ADR 0371)', async () => {
     const body = await openedAfter(subOrderOff('it only rewords the help'), []);
-    assert.match(body, /\nBrewed by Foedrum with the recipe ale\.\n/);
+    assert.match(body, /\nBrewed by Foedrum with the recipe ale \(the steps it ran\)\.\n/);
     assert.doesNotMatch(body, /Test-first was off/);
   });
 
@@ -447,7 +447,7 @@ describe('pullRequestActions: the pull request', () => {
     keysOf(brewing(), actions);
     await actions.target.apply(open);
     const body = requests[0]?.request.body ?? '';
-    assert.match(body, /\nBrewed by Foedrum with the recipe ale\.\n/);
+    assert.match(body, /\nBrewed by Foedrum with the recipe ale \(the steps it ran\)\.\n/);
     assert.doesNotMatch(body, /brewery/i);
     assert.doesNotMatch(body, /^Closes /m);
   });
@@ -502,7 +502,10 @@ describe('pullRequestActions: the pull request', () => {
     await actions.target.apply(open);
     const request = requests[0]?.request;
     assert.equal(request?.draft, true);
-    assert.match(request?.body ?? '', /\nBrewed by Foedrum with the recipe ale\.\n/);
+    assert.match(
+      request?.body ?? '',
+      /\nBrewed by Foedrum with the recipe ale \(the steps it ran\)\.\n/,
+    );
     assert.match(request?.body ?? '', /\n\| `implement` \| succeeded \|\n/);
   });
 

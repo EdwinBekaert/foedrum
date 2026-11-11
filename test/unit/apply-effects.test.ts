@@ -114,7 +114,7 @@ describe('runApplyEffects (ADR 0355)', () => {
     assert.equal(bodies.length, 1, bodies.join('\n---\n'));
     assert.match(
       bodies[0] ?? '',
-      /^Recipe \*\*porter\*\*, chosen by ann \(terminal\): it needs its tests read$/m,
+      /^Recipe \*\*porter\*\* \(the steps this batch, Foedrum's run on this issue, takes\), chosen by ann from a terminal: it needs its tests read$/m,
     );
     assert.deepStrictEqual(started, []);
     assert.deepStrictEqual(store.batchLeases(t0), [], 'it lets the batch go');

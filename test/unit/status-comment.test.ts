@@ -961,7 +961,7 @@ describe('renderStatus', () => {
     );
     assert.match(
       chosen({ name: 'nip', reason: 'override', source: 'human', by: 'bob', via: 'terminal' }),
-      /chosen by bob \(terminal\)/,
+      /chosen by bob from a terminal/,
     );
   });
 
@@ -975,7 +975,7 @@ describe('renderStatus', () => {
     } as const;
     assert.match(
       renderStatus(batch({ recipe }), steps),
-      /^Recipe \*\*nip\*\*, chosen by bob \(terminal\): a small fix, see `@carol` &lt;b&gt;now&lt;\/b&gt;$/m,
+      /^Recipe \*\*nip\*\* \(the steps this batch, Foedrum's run on this issue, takes\), chosen by bob from a terminal: a small fix, see `@carol` &lt;b&gt;now&lt;\/b&gt;$/m,
     );
   });
 
@@ -3117,7 +3117,7 @@ describe('renderStatus: a plan that waits for its review (#658)', () => {
     const lane = lines.findIndex((line) => line.startsWith('🔔 **Waiting for you'));
     assert.deepEqual(lines.slice(lane, lane + 3), [
       `🔔 **Waiting for you: approve the plan**: the plan from step plan (try 2) is ready for you to read: [plan comment](<${planComment}>)`,
-      'Next: read the plan and its assumptions, then sign it off with `foedrum approve 7`, correct it with the Brewmaster in a session with `foedrum lauter 7`, plan it again with `foedrum retry 7`, or end it with `foedrum cancel 7`.',
+      'Next: read the plan and its assumptions, then sign it off with `foedrum approve 7`, correct it with the Brewmaster, the brewer that plans, in a session with `foedrum lauter 7`, plan it again with `foedrum retry 7`, or end it with `foedrum cancel 7`.',
       '',
     ]);
     assert.doesNotMatch(text, /Queued|Done|No pull request/);
@@ -3293,7 +3293,7 @@ describe('renderStatus: a plan that waits for its review (#658)', () => {
       }),
     );
     assert.equal(stepOf(text, 'green'), '- ✅ `green`');
-    assert.match(stepOf(text, 'plan'), /out doc: \[/);
+    assert.match(stepOf(text, 'plan'), /out doc \(the step's report\): \[/);
   });
 
   it('links no out doc of an action step, which writes none, as openPullRequest (#658)', () => {
@@ -3321,7 +3321,7 @@ describe('renderStatus: a plan that waits for its review (#658)', () => {
     );
     assert.equal(
       stepOf(text, 'plan'),
-      `- ✅ \`plan\`: out doc: [7-1/plan-2.md](<${stateBranchUrl}/batches/7-1/plan-2.md>)`,
+      `- ✅ \`plan\`: out doc (the step's report): [7-1/plan-2.md](<${stateBranchUrl}/batches/7-1/plan-2.md>)`,
     );
     assert.equal(stepOf(text, 'brew'), '- ❌ `brew`: failed, try 3: no');
     assert.equal(
@@ -3523,7 +3523,7 @@ describe('the Next line of a status comment that waits on the person (#777)', ()
     };
     assert.equal(
       nextOf(render(batch({ lane }))),
-      'Next: read the plan and its assumptions, then sign it off with `foedrum approve 7`, correct it with the Brewmaster in a session with `foedrum lauter 7`, plan it again with `foedrum retry 7`, brew the issue with another recipe with `foedrum recipe 7 <recipe> <reason>`, or end it with `foedrum cancel 7`.',
+      'Next: read the plan and its assumptions, then sign it off with `foedrum approve 7`, correct it with the Brewmaster, the brewer that plans, in a session with `foedrum lauter 7`, plan it again with `foedrum retry 7`, brew the issue with another recipe with `foedrum recipe 7 <recipe> <reason>`, or end it with `foedrum cancel 7`.',
     );
   });
 
@@ -3536,7 +3536,7 @@ describe('the Next line of a status comment that waits on the person (#777)', ()
     };
     assert.equal(
       nextOf(render(batch({ lane }))),
-      'Next: read the plan and its assumptions, then sign it off with `foedrum approve 7`, correct it with the Brewmaster in a session with `foedrum lauter 7`, plan it again with `foedrum retry 7`, brew the issue with another recipe with `foedrum recipe 7 <recipe> <reason>`, go past the step with `foedrum skip 7`, or end it with `foedrum cancel 7`.',
+      'Next: read the plan and its assumptions, then sign it off with `foedrum approve 7`, correct it with the Brewmaster, the brewer that plans, in a session with `foedrum lauter 7`, plan it again with `foedrum retry 7`, brew the issue with another recipe with `foedrum recipe 7 <recipe> <reason>`, go past the step with `foedrum skip 7`, or end it with `foedrum cancel 7`.',
     );
   });
 

@@ -73,7 +73,7 @@ describe('renderPlan (ADR 0233)', () => {
   });
 
   const next =
-    'Next: read the plan and its assumptions, then sign it off with `foedrum approve 7-1`, correct it with the Brewmaster in a session with `foedrum lauter 7-1`, plan it again with `foedrum retry 7-1`, or end it with `foedrum cancel 7-1`.';
+    'Next: read the plan and its assumptions, then sign it off with `foedrum approve 7-1`, correct it with the Brewmaster, the brewer that plans, in a session with `foedrum lauter 7-1`, plan it again with `foedrum retry 7-1`, or end it with `foedrum cancel 7-1`.';
   /** A plan waiting for its review, with `next` as its Next line. */
   const waiting = (plan: PlanReport, full?: { place: string; url: string }): string =>
     renderPlan(
@@ -98,7 +98,7 @@ describe('renderPlan (ADR 0233)', () => {
       [
         '### Foedrum · plan of batch `7-1`',
         '',
-        '**Sub-orders**',
+        '**Sub-orders** (each becomes one pull request)',
         '',
         '| Sub-order | Size | Recipe | Depends on | Ready |',
         '| --- | --- | --- | --- | --- |',
@@ -159,7 +159,7 @@ describe('renderPlan (ADR 0233)', () => {
         '',
         'None yet.',
         '',
-        '**Gate**',
+        '**Gate** (your sign-off before anything is built)',
         '',
         'Waiting for `foedrum approve 7-1`.',
         '',
@@ -172,7 +172,7 @@ describe('renderPlan (ADR 0233)', () => {
     const text = renderPlan('7-1', 'plan', three, undefined, fullPlan);
     assert.ok(
       text.startsWith(
-        `### Foedrum · plan of batch \`7-1\`\n\nFull plan: [7-1/plan-2.md](<${outDoc}>)\n\n**Sub-orders**\n`,
+        `### Foedrum · plan of batch \`7-1\`\n\nFull plan: [7-1/plan-2.md](<${outDoc}>)\n\n**Sub-orders** (each becomes one pull request)\n`,
       ),
       text,
     );
@@ -216,7 +216,10 @@ describe('renderPlan (ADR 0233)', () => {
   it('ends with no next step when the plan does not wait for its review (#658)', () => {
     const text = renderPlan('7-1', 'plan', three, undefined, fullPlan);
     assert.doesNotMatch(text, /Next:|foedrum retry/);
-    assert.ok(text.endsWith('**Gate**\n\nNone yet.'), text.slice(-80));
+    assert.ok(
+      text.endsWith('**Gate** (your sign-off before anything is built)\n\nNone yet.'),
+      text.slice(-80),
+    );
   });
 
   /** `renderPlan` of `three`, waiting for its review, with the notes `review` its lenses left. */
@@ -224,7 +227,12 @@ describe('renderPlan (ADR 0233)', () => {
     renderPlan('7-1', 'plan', three, undefined, fullPlan, true, undefined, undefined, [], review);
   /** The Review section of a plan comment. */
   const reviewOf = (text: string) =>
-    text.slice(text.indexOf('**Review**'), text.indexOf('**Gate**')).trim();
+    text
+      .slice(
+        text.indexOf('**Review**'),
+        text.indexOf('**Gate** (your sign-off before anything is built)'),
+      )
+      .trim();
 
   it('says "None yet." in the Review when no plan lens reviewed the plan: regression test (ADR 0318)', () => {
     assert.equal(reviewOf(reviewed()), '**Review**\n\nNone yet.');
@@ -308,7 +316,12 @@ describe('renderPlan (ADR 0233)', () => {
 
   it('says the gate waits for foedrum approve while the plan waits for its review (#588)', () => {
     const text = waiting(three, fullPlan);
-    assert.ok(text.includes('\n\n**Gate**\n\nWaiting for `foedrum approve 7-1`.\n\n'), text);
+    assert.ok(
+      text.includes(
+        '\n\n**Gate** (your sign-off before anything is built)\n\nWaiting for `foedrum approve 7-1`.\n\n',
+      ),
+      text,
+    );
   });
 
   it('says who approved the plan, from where and when, with no next step, once it is approved (#588)', () => {
@@ -323,7 +336,7 @@ describe('renderPlan (ADR 0233)', () => {
     const text = renderPlan('7-1', 'plan', three, undefined, fullPlan, false, approval);
     assert.ok(
       text.endsWith(
-        '**Gate**\n\nApproved by grace (plugin) at 2026-10-28T10:30:00.000Z.\n\nNot ready: `cli`.',
+        '**Gate** (your sign-off before anything is built)\n\nApproved by grace (plugin) at 2026-10-28T10:30:00.000Z.\n\nNot ready: `cli`.',
       ),
       text.slice(-120),
     );
@@ -343,7 +356,7 @@ describe('renderPlan (ADR 0233)', () => {
     const text = renderPlan('7-1', 'plan', four, undefined, fullPlan, false, approval);
     assert.ok(
       text.endsWith(
-        '**Gate**\n\nApproved by grace (plugin) at 2026-10-28T10:30:00.000Z.\n\nNot ready: `cli`, `docs`.',
+        '**Gate** (your sign-off before anything is built)\n\nApproved by grace (plugin) at 2026-10-28T10:30:00.000Z.\n\nNot ready: `cli`, `docs`.',
       ),
       text.slice(-160),
     );
@@ -375,7 +388,7 @@ describe('renderPlan (ADR 0233)', () => {
     );
     assert.ok(
       text.endsWith(
-        '**Gate**\n\nApproved by grace (plugin) at 2026-10-28T10:30:00.000Z.\n\nSub-issues: `api` #8, `ui` #9.\n\nNot ready: `cli`.',
+        '**Gate** (your sign-off before anything is built)\n\nApproved by grace (plugin) at 2026-10-28T10:30:00.000Z.\n\nSub-issues: `api` #8, `ui` #9.\n\nNot ready: `cli`.',
       ),
       text.slice(-200),
     );
@@ -445,7 +458,10 @@ describe('renderPlan (ADR 0233)', () => {
     assert.ok(text.length <= 60_000, `${text.length}`);
     assert.doesNotMatch(text, /```mermaid|rest is cut/);
     assert.match(text, /\*\*Order\*\*\n\nThe graph is left out: GitHub keeps comments shorter\.\n/);
-    assert.match(text, /\*\*Gate\*\*\n\nWaiting for `foedrum approve 7-1`\.\n\nNext: /);
+    assert.match(
+      text,
+      /\*\*Gate\*\* \(your sign-off before anything is built\)\n\nWaiting for `foedrum approve 7-1`\.\n\nNext: /,
+    );
   });
 
   /** 100 sub-orders at the longest the schema takes: past GitHub's length even without the graph. */
@@ -797,7 +813,7 @@ describe('planEffects (ADR 0233)', () => {
     await driver.applyEffects();
     assert.equal(
       only().body,
-      `${renderPlan('7-1', 'plan', three, undefined, undefined, true, undefined, undefined, [], undefined, 'Next: read the plan and its assumptions, then sign it off with `foedrum approve 7`, correct it with the Brewmaster in a session with `foedrum lauter 7`, plan it again with `foedrum retry 7`, brew the issue with another recipe with `foedrum recipe 7 <recipe> <reason>`, or end it with `foedrum cancel 7`.', '7')}\n\n${marker(1)}`,
+      `${renderPlan('7-1', 'plan', three, undefined, undefined, true, undefined, undefined, [], undefined, 'Next: read the plan and its assumptions, then sign it off with `foedrum approve 7`, correct it with the Brewmaster, the brewer that plans, in a session with `foedrum lauter 7`, plan it again with `foedrum retry 7`, brew the issue with another recipe with `foedrum recipe 7 <recipe> <reason>`, or end it with `foedrum cancel 7`.', '7')}\n\n${marker(1)}`,
     );
     assert.match(only().body, /\n\nNext: read the plan/);
   });
@@ -812,7 +828,7 @@ describe('planEffects (ADR 0233)', () => {
     await driver.applyEffects();
     assert.ok(
       only().body.endsWith(
-        `\n\nNext: read the plan and its assumptions, then sign it off with \`foedrum approve 7\`, correct it with the Brewmaster in a session with \`foedrum lauter 7\`, plan it again with \`foedrum retry 7\`, brew the issue with another recipe with \`foedrum recipe 7 <recipe> <reason>\`, or end it with \`foedrum cancel 7\`.\n\n${marker(1)}`,
+        `\n\nNext: read the plan and its assumptions, then sign it off with \`foedrum approve 7\`, correct it with the Brewmaster, the brewer that plans, in a session with \`foedrum lauter 7\`, plan it again with \`foedrum retry 7\`, brew the issue with another recipe with \`foedrum recipe 7 <recipe> <reason>\`, or end it with \`foedrum cancel 7\`.\n\n${marker(1)}`,
       ),
       only().body.slice(-400),
     );
@@ -835,7 +851,7 @@ describe('planEffects (ADR 0233)', () => {
     await driver.applyEffects();
     assert.ok(
       only().body.endsWith(
-        `**Gate**\n\nApproved by grace (terminal) at ${at}.\n\nNot ready: \`cli\`.\n\n${marker(2)}`,
+        `**Gate** (your sign-off before anything is built)\n\nApproved by grace (terminal) at ${at}.\n\nNot ready: \`cli\`.\n\n${marker(2)}`,
       ),
       only().body.slice(-200),
     );

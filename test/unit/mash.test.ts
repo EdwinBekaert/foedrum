@@ -267,7 +267,7 @@ describe('foedrum brew on recipe:mash, with the default Brewmaster (ADR 0234)', 
     const id = comments().find(({ body }) => body.includes('plan of batch'))?.id;
     assert.deepStrictEqual(lines.slice(-2), [
       `foedrum brew: #12 is waiting for you: approve the plan: the plan from step plan is ready for you to read; the plan: https://github.com/${setup.brewery}/issues/12#issuecomment-${id}`,
-      'foedrum brew: Next: read the plan and its assumptions, then sign it off with foedrum approve 12, correct it with the Brewmaster in a session with foedrum lauter 12, plan it again with foedrum retry 12, brew the issue with another recipe with foedrum recipe 12 <recipe> <reason>, or end it with foedrum cancel 12.',
+      'foedrum brew: Next: read the plan and its assumptions, then sign it off with foedrum approve 12, correct it with the Brewmaster, the brewer that plans, in a session with foedrum lauter 12, plan it again with foedrum retry 12, brew the issue with another recipe with foedrum recipe 12 <recipe> <reason>, or end it with foedrum cancel 12.',
     ]);
   });
 
@@ -746,7 +746,12 @@ describe('foedrum brew on recipe:mash, with the default Brewmaster (ADR 0234)', 
         lines.join('\n'),
       );
       const shown = planComment() ?? assert.fail(JSON.stringify(comments()));
-      const review = shown.slice(shown.indexOf('**Review**'), shown.indexOf('**Gate**')).trim();
+      const review = shown
+        .slice(
+          shown.indexOf('**Review**'),
+          shown.indexOf('**Gate** (your sign-off before anything is built)'),
+        )
+        .trim();
       // The dismissed finding with the evidence the plan named; the fixed one is in the plan.
       assert.equal(
         review,
@@ -765,7 +770,12 @@ describe('foedrum brew on recipe:mash, with the default Brewmaster (ADR 0234)', 
       assert.equal(await runBrew(setup, tasting(script), request), 3, lines.join('\n'));
       assert.deepStrictEqual(started, ['plan#1', 'naive#1', 'plan#2', 'naive#2']);
       const shown = planComment() ?? assert.fail(JSON.stringify(comments()));
-      const review = shown.slice(shown.indexOf('**Review**'), shown.indexOf('**Gate**')).trim();
+      const review = shown
+        .slice(
+          shown.indexOf('**Review**'),
+          shown.indexOf('**Gate** (your sign-off before anything is built)'),
+        )
+        .trim();
       assert.equal(review, '**Review**\n\nNone yet.');
     });
 
@@ -780,7 +790,12 @@ describe('foedrum brew on recipe:mash, with the default Brewmaster (ADR 0234)', 
       assert.equal(lane.kind === 'stuck' ? lane.reason.kind : lane.kind, 'blocked');
       const last = started.filter((ref) => ref.startsWith('naive#')).length;
       const shown = planComment() ?? assert.fail(JSON.stringify(comments()));
-      const review = shown.slice(shown.indexOf('**Review**'), shown.indexOf('**Gate**')).trim();
+      const review = shown
+        .slice(
+          shown.indexOf('**Review**'),
+          shown.indexOf('**Gate** (your sign-off before anything is built)'),
+        )
+        .trim();
       // The dismissal of the first round with its evidence, then the last round's finding, open;
       // the middle round's finding the plan fixed leaves none.
       assert.equal(
@@ -819,7 +834,12 @@ describe('foedrum brew on recipe:mash, with the default Brewmaster (ADR 0234)', 
       const script = [planned, three, partly, approves];
       assert.equal(await runBrew(setup, tasting(script), request), 3, lines.join('\n'));
       const shown = planComment() ?? assert.fail(JSON.stringify(comments()));
-      const review = shown.slice(shown.indexOf('**Review**'), shown.indexOf('**Gate**')).trim();
+      const review = shown
+        .slice(
+          shown.indexOf('**Review**'),
+          shown.indexOf('**Gate** (your sign-off before anything is built)'),
+        )
+        .trim();
       assert.equal(
         review,
         [

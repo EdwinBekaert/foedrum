@@ -15,7 +15,7 @@ describe('stuckNext', () => {
     const review: StuckReason = { kind: 'plan_review', stepId: 'plan', attempt: 1 };
     assert.equal(
       stuckNext(review, ['approve', 'lauter', 'retry', 'recipe', 'cancel'], '7', plainCommand),
-      'Next: read the plan and its assumptions, then sign it off with foedrum approve 7, correct it with the Brewmaster in a session with foedrum lauter 7, plan it again with foedrum retry 7, brew the issue with another recipe with foedrum recipe 7 <recipe> <reason>, or end it with foedrum cancel 7.',
+      'Next: read the plan and its assumptions, then sign it off with foedrum approve 7, correct it with the Brewmaster, the brewer that plans, in a session with foedrum lauter 7, plan it again with foedrum retry 7, brew the issue with another recipe with foedrum recipe 7 <recipe> <reason>, or end it with foedrum cancel 7.',
     );
   });
 

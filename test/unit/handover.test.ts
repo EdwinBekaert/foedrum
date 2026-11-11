@@ -563,7 +563,7 @@ describe('the pull request body', () => {
   it('is byte for byte as before with no handover: regression test', () => {
     assert.equal(
       text([]),
-      '## How this was brewed\n\nBrewed by Foedrum.\n\nNo How it works: the Cellarman wrote none.\n\nOpens as a draft: Foedrum marks it ready for review once its merge brief is posted.',
+      '## How this was brewed\n\nBrewed by Foedrum.\n\nNo How it works: the Cellarman, the brewer that writes the code, wrote none.\n\nOpens as a draft: Foedrum marks it ready for review once its merge brief is posted.',
     );
   });
 

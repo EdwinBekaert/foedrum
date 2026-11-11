@@ -248,7 +248,7 @@ describe("a batch's receipts", () => {
   it('shows one receipt line per attempt in the status comment, under Receipts', () => {
     const text = renderStatus(ran, ['plan', 'implement']);
     const lines = text.split('\n');
-    const from = lines.indexOf('**Receipts**');
+    const from = lines.indexOf('**Receipts** (what each try took)');
     assert.ok(from > 0, text);
     assert.deepEqual(lines.slice(from + 1, from + 3), [
       '- `plan` · 20s · 5 turns · 200k tokens',

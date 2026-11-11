@@ -585,7 +585,7 @@ describe('runBrew', () => {
         '',
         '## How this was brewed',
         '',
-        'Brewed by Foedrum with the recipe stout.',
+        'Brewed by Foedrum with the recipe stout (the steps it ran).',
         '',
         'Opens as a draft: Foedrum marks it ready for review once its merge brief is posted.',
         '',

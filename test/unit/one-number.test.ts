@@ -292,7 +292,7 @@ describe('one number per piece of work (ADR 0329)', () => {
     const { stdout } = await run(['stuck']);
     assert.ok(
       stdout.includes(
-        'sign it off with foedrum approve 42, correct it with the Brewmaster in a session with foedrum lauter 42, plan it again with foedrum retry 42, brew the issue with another recipe with foedrum recipe 42 <recipe> <reason>, or end it with foedrum cancel 42.',
+        'sign it off with foedrum approve 42, correct it with the Brewmaster, the brewer that plans, in a session with foedrum lauter 42, plan it again with foedrum retry 42, brew the issue with another recipe with foedrum recipe 42 <recipe> <reason>, or end it with foedrum cancel 42.',
       ),
       stdout,
     );
