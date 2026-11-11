@@ -257,6 +257,8 @@ export const MashCommand = z.strictObject({
   ),
   as: DriverName.optional(),
   take: z.literal(true).optional(),
+  /** `--override`: ask the Innkeeper again for an issue whose batch has a recipe (ADR 0374). */
+  override: z.literal(true).optional(),
 });
 export type MashCommand = z.infer<typeof MashCommand>;
 

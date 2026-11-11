@@ -133,6 +133,19 @@ describe("brew-main's shell, request and new window (ADR 0222)", () => {
     assert.equal('mash' in brewRequestOf(command, 'ann', issued, undefined), false);
   });
 
+  it('asks runBrew to override for foedrum mash --override, and without the flag not (ADR 0374)', () => {
+    const remash: MashCommand = { command: 'mash', issue: { issue: 13 }, override: true };
+    assert.deepStrictEqual(brewRequestOf(remash, 'ann', issued, undefined), {
+      target: { issue: 13 },
+      owner: 'ann',
+      ...issued,
+      mash: true,
+      override: true,
+    });
+    const mash: MashCommand = { command: 'mash', issue: { issue: 13 } };
+    assert.equal('override' in brewRequestOf(mash, 'ann', issued, undefined), false);
+  });
+
   it('asks runBrew to lauter the issue of the batch, taking it over, for foedrum lauter (ADR 0286, #589)', () => {
     const lauter: LauterCommand = { command: 'lauter', issue: '12-1' };
     const found = { batchId: '12-1', target: { issue: 12 } };
