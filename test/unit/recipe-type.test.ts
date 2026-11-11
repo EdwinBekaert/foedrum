@@ -67,10 +67,10 @@ describe('a recipe file and its type (ADR 0365)', () => {
     assert.match(problems.join('\n'), /^recipes\/stout\.jsonc: .*Must be "mash".*or "brew"/m);
   });
 
-  it('loads the default recipes with mash-in, mash and decoction as mash and nip as brew', () => {
+  it('loads the default recipes with mash-in, mash and deep-mash as mash and nip as brew', () => {
     const { recipes } = valid(loadRecipes(defaults()));
     const typeOf = (name: string) => recipes.find(name)?.type;
-    assert.deepEqual(['mash-in', 'mash', 'decoction', 'nip'].map(typeOf), [
+    assert.deepEqual(['mash-in', 'mash', 'deep-mash', 'nip'].map(typeOf), [
       'mash',
       'mash',
       'mash',
@@ -87,8 +87,8 @@ describe('what a step is offered, by type (ADR 0365)', () => {
       ?.choices?.map(({ name, type }) => `${name} ${type}`);
     assert.deepEqual(offered, [
       'wort mash',
-      'decoction mash',
       'deep-brew brew',
+      'deep-mash mash',
       'mash mash',
       'nip brew',
     ]);
@@ -99,7 +99,7 @@ describe('what a step is offered, by type (ADR 0365)', () => {
     const names = (recipe: string, step: string) =>
       loaded.brewers.find(recipe, step)?.choices?.map(({ name }) => name);
     assert.deepEqual(names('wort', 'plan'), ['deep-brew', 'nip']);
-    assert.deepEqual(names('decoction', 'recipe-fit'), ['deep-brew', 'nip']);
+    assert.deepEqual(names('deep-mash', 'recipe-fit'), ['deep-brew', 'nip']);
   });
 
   it('offers a plan brewer without a recipes input the recipes of type brew, which its sub-orders run with', () => {

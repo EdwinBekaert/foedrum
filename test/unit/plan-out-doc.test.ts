@@ -221,10 +221,10 @@ describe('PlanOutDoc (ADR 0233)', () => {
   }
 
   it('refuses a sub-order whose recipe is not of type brew, naming its recipe and the ones it may name (ADR 0285, ADR 0365)', () => {
-    const plan = done([subOrder('api'), subOrder('ui', { recipe: 'decoction' })]);
+    const plan = done([subOrder('api'), subOrder('ui', { recipe: 'deep-mash' })]);
     assert.match(
       refused(plan, planOutDocOf(['tdd', 'nip'])) ?? '',
-      /recipes of type brew, tdd, nip: not decoction[\s\S]*subOrders\[1\]\.recipe/,
+      /recipes of type brew, tdd, nip: not deep-mash[\s\S]*subOrders\[1\]\.recipe/,
     );
   });
 

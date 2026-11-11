@@ -1,4 +1,4 @@
-// The default plan lenses in `mash` and `decoction` (ADR 0321), from Foedrum's own defaults/: which
+// The default plan lenses in `mash` and `deep-mash` (ADR 0321), from Foedrum's own defaults/: which
 // lenses taste a plan side by side, on which model, and what their findings do, with serve's shell
 // over an in-memory store, fake worktrees, a fake GitHub and scripted Tasters. No process starts
 // (ADR 0021).
@@ -73,8 +73,8 @@ describe('the default recipes that plan (ADR 0321)', () => {
     assert.equal(mash?.chosen('lauter'), 'lauter');
   });
 
-  it('decoction tastes its plan through all seven plan lenses', () => {
-    assert.deepStrictEqual(lensesOf('decoction'), [
+  it('deep-mash tastes its plan through all seven plan lenses', () => {
+    assert.deepStrictEqual(lensesOf('deep-mash'), [
       blocks('coverage', 'planner'),
       blocks('sizing', 'builder'),
       blocks('naive-reader', 'builder'),
@@ -83,9 +83,9 @@ describe('the default recipes that plan (ADR 0321)', () => {
       blocks('recipe-fit', 'builder'),
       blocks('security', 'planner'),
     ]);
-    const decoction = defaults().recipes.find('decoction');
-    assert.equal(decoction?.firstStep, 'plan');
-    assert.equal(decoction?.chosen('lauter'), 'lauter');
+    const deepMash = defaults().recipes.find('deep-mash');
+    assert.equal(deepMash?.firstStep, 'plan');
+    assert.equal(deepMash?.chosen('lauter'), 'lauter');
   });
 
   it('each default plan lens loads under plan/ and names its question', () => {
@@ -190,7 +190,7 @@ const alternatives = {
   whyThis: 'each part merges alone',
 };
 
-describe('foedrum brew on recipe:mash and recipe:decoction, through the default plan lenses', () => {
+describe('foedrum brew on recipe:mash and recipe:deep-mash, through the default plan lenses', () => {
   let dir: TempDir;
   let setup: ServeSetup;
   let store: EventStore;
@@ -390,7 +390,7 @@ describe('foedrum brew on recipe:mash and recipe:decoction, through the default 
       /source="[^"]*" name="recipes">\n([^<]*)</.exec(prompts.get(key) ?? '')?.[1] ?? '';
     for (const key of ['coverage#1', 'sizing#1', 'naive-reader#1']) {
       assert.match(recipes(key), /^- nip \(brew\): /m, key);
-      assert.doesNotMatch(recipes(key), /^- decoction /m, key);
+      assert.doesNotMatch(recipes(key), /^- deep-mash /m, key);
     }
   });
 
@@ -604,8 +604,8 @@ describe('foedrum brew on recipe:mash and recipe:decoction, through the default 
     assert.equal(stuckReason().kind, 'blocked');
   });
 
-  it('decoction runs its seven lenses after the plan, and the plan waits for its review', async () => {
-    api = fakeGitHubApi({ login: 'ann', issues: { 'acme/brewery': [issue('decoction')] } });
+  it('deep-mash runs its seven lenses after the plan, and the plan waits for its review', async () => {
+    api = fakeGitHubApi({ login: 'ann', issues: { 'acme/brewery': [issue('deep-mash')] } });
     const lenses = [
       'coverage',
       'sizing',
