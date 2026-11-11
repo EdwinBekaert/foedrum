@@ -56,10 +56,13 @@ import {
 import { type ClaudeCall, claudeArgs } from './claude-command.ts';
 import { cut, readClaudeStream, type StreamFacts, type StreamReader } from './claude-stream.ts';
 import type { BrewerPrompt } from './prompt.ts';
-import { afterSendBack, type SendBackPlan, sendBackLines, sendBackMessage } from './send-back.ts';
-
-/** A reading of a line that ran. */
-type Ran = Exclude<GravityReading, { result: 'skipped' }>;
+import {
+  afterSendBack,
+  type Ran,
+  type SendBackPlan,
+  sendBackLines,
+  sendBackMessage,
+} from './send-back.ts';
 
 /** Everything one attempt needs, prepared by the engine (its worktree, prompt and session). */
 export interface ClaudeAttemptPlan {

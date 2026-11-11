@@ -110,7 +110,7 @@ export function sendBackLines(
 }
 
 /** A reading of a line that ran: the checks before the end never skip one. */
-type Ran = Exclude<GravityReading, { result: 'skipped' }>;
+export type Ran = Exclude<GravityReading, { result: 'skipped' }>;
 
 /** How a reading that did not pass ended, in words. */
 const endedWith = (reading: Ran): string => {
