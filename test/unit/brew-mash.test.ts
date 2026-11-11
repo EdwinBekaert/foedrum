@@ -647,6 +647,94 @@ describe('runBrew', () => {
         assert.equal(log().state().batches.get('12-2')?.recipe?.name, 'mash-in');
       });
 
+      it('foedrum mash --override plans an order again whose sub-order was cancelled: regression test', async () => {
+        planned([30], (tx) => {
+          subOrdered(tx, 30);
+          tx.append({ type: 'batch.cancelled', batchId: '30-1', by: 'ann', via: 'terminal' });
+        });
+        const asks = steps(12, blocked);
+        assert.equal(await runBrew(mashSetup(), asks, override(12)), 4, f.lines.join('\n'));
+        assert.equal(log().state().batches.get('12-2')?.recipe?.name, 'mash-in');
+      });
+
+      it("foedrum mash --override of a Stuck batch another driver holds names the re-mash's takeover: regression test", async () => {
+        const brewing = mashSetup();
+        await stuckOnStout(brewing);
+        const expiresAt = new Date(t0.getTime() + 60_000);
+        f.store.withTransaction((tx) =>
+          tx.putBatchLease({ batchId: '12-1', owner: 'cellar', expiresAt }),
+        );
+        const before = f.started.length;
+        assert.equal(await runBrew(brewing, steps(12, blocked), override(12)), 5);
+        assert.equal(f.started.length, before);
+        assert.equal(
+          f.lines.at(-1),
+          `foedrum mash: #12 is driven by cellar until ${expiresAt.toISOString()}, when its lease ends by itself; foedrum mash 12 --override --take takes it over now`,
+        );
+      });
+
+      it('foedrum mash --override restarts a Conditioning batch on mash-in, ordering no second batch: regression test', async () => {
+        f.store.withTransaction((tx) => {
+          tx.append({ type: 'batch.ordered', batchId: '12-1', order: { issue: 12 }, routeBy });
+          tx.append({
+            type: 'batch.recipe_chosen',
+            batchId: '12-1',
+            recipe: 'stout',
+            reason: 'label',
+            source: 'label',
+          });
+          tx.append({
+            type: 'batch.waiting',
+            batchId: '12-1',
+            on: { kind: 'merge', pullRequest: pull },
+            remindAt: routeBy,
+          });
+        });
+        assert.equal(log().state().batches.get('12-1')?.lane.kind, 'conditioning');
+        const asks = steps(12, blocked);
+        assert.equal(await runBrew(mashSetup(), asks, override(12)), 4, f.lines.join('\n'));
+        assert.deepStrictEqual([...log().state().batches.keys()], ['12-1']);
+        assert.equal(log().state().batches.get('12-1')?.recipe?.name, 'mash-in');
+      });
+
+      it('foedrum mash --override refuses a batch Stuck on a changed order, which offers no recipe: regression test', async () => {
+        f.store.withTransaction((tx) => {
+          tx.append({ type: 'batch.ordered', batchId: '12-1', order: { issue: 12 }, routeBy });
+          tx.append({
+            type: 'batch.recipe_chosen',
+            batchId: '12-1',
+            recipe: 'stout',
+            reason: 'label',
+            source: 'label',
+          });
+          tx.append({
+            type: 'step.scheduled',
+            batchId: '12-1',
+            stepId: 'brew',
+            attempt: 1,
+            deadlineAt: routeBy,
+          });
+          tx.append({ type: 'step.started', batchId: '12-1', stepId: 'brew', attempt: 1 });
+          tx.append({
+            type: 'batch.stuck',
+            batchId: '12-1',
+            reason: {
+              kind: 'order_changed',
+              stepId: 'brew',
+              changes: [{ what: 'title', at: routeBy }],
+              more: 0,
+              upTo: routeBy,
+            },
+            options: ['answer', 'cancel'],
+            remindAt: routeBy,
+          });
+        });
+        assert.equal(await runBrew(mashSetup(), steps(12, blocked), override(12)), 5);
+        assert.deepStrictEqual(f.started, []);
+        assert.equal(log().state().batches.get('12-1')?.recipe?.name, 'stout');
+        assert.equal(f.lines.at(-1), 'foedrum mash: batch 12-1 does not offer recipe');
+      });
+
       it('foedrum mash --override plans an order again whose live sub-order a later plan left out', async () => {
         planned([30, 31], (tx) => {
           subOrdered(tx, 31);
