@@ -122,4 +122,10 @@ export interface Recipe {
 export interface Recipes {
   /** The recipe called `name`, or `undefined` when the Brewery has none. */
   find(name: string): Recipe | undefined;
+  /**
+   * The name a default recipe called `name` before has now, when the Brewery has no recipe of its
+   * own called `name`: `find` takes the old name for a batch that recorded it, a new choice of it is
+   * refused (ADR 0372). `undefined` for any other name.
+   */
+  renamed?(name: string): string | undefined;
 }

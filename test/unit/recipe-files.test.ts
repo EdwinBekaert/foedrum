@@ -2627,3 +2627,24 @@ describe("loadRecipes: a Taster's findings always have a route, onFindings (ADR 
     ]);
   });
 });
+
+describe('loadRecipes: a recipe called by another name now, decoction (ADR 0372)', () => {
+  const plans = (name: string, brewerName: string) =>
+    recipe(name, [{ id: 'plan', brewer: brewerName }], { type: 'mash', testFirst: false });
+  const deepMash = plans('deep-mash', 'brewmaster');
+
+  it("a Brewery's own decoction is its own, renamed nothing: regression test", () => {
+    const own = plans('decoction', 'maltster');
+    const result = loadRecipes(brewery({ recipes: [pale, deepMash, own] }));
+    assert.ok(result.valid, result.valid ? '' : result.problems.join('\n'));
+    assert.equal(result.brewers.find('decoction', 'plan')?.brewer.name, 'maltster');
+    assert.equal(result.recipes.renamed?.('decoction'), undefined);
+  });
+
+  it('a Brewery with no deep-mash finds no decoction: regression test', () => {
+    const result = loadRecipes(brewery());
+    assert.ok(result.valid, result.valid ? '' : result.problems.join('\n'));
+    assert.equal(result.recipes.find('decoction'), undefined);
+    assert.equal(result.recipes.renamed?.('decoction'), undefined);
+  });
+});
