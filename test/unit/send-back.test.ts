@@ -12,7 +12,7 @@ import {
 } from '../../src/brewers/send-back.ts';
 import type { RepositoryChecks } from '../../src/checks/gravity.ts';
 import { jobObjectCommand } from '../../src/platform/job-object.ts';
-import type { Receipt } from '../../src/schemas/events.ts';
+import { MOST_REFUSED, type Receipt } from '../../src/schemas/events.ts';
 
 const all: SendBackCheck[] = [
   { check: 'build', command: 'npm run build', files: false },
@@ -271,6 +271,18 @@ describe('afterSendBack (ADR 0381)', () => {
         { tool: 'WebFetch', count: 2, refused: [] },
       ],
     });
+  });
+
+  it("keeps at most MOST_REFUSED refused prefixes of a tool across both runs' denials", () => {
+    const refused = (words: string[]) => [{ tool: 'Bash', count: words.length, refused: words }];
+    const both = afterSendBack(
+      { facts: facts(1, ['Bash']), receipt: receipt(1, refused(['a', 'b', 'c', 'd'])) },
+      { facts: facts(1, ['Bash']), receipt: receipt(1, refused(['e', 'f', 'g'])) },
+    );
+    assert.equal(MOST_REFUSED, 5);
+    assert.deepEqual(both.receipt.denied, [
+      { tool: 'Bash', count: 7, refused: ['a', 'b', 'c', 'd', 'e'] },
+    ]);
   });
 
   it("keeps one run's usage when the other has none, and no duration when one has none", () => {
