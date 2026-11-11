@@ -343,6 +343,11 @@ export interface Batch {
     | { source: 'label' | 'router' }
     | { source: 'human'; by: string; via: Surface; askedBy?: string }
   );
+  /**
+   * How many times a person chose each recipe in it, by name, so a choice back to an earlier recipe
+   * labels the issue again (ADR 0374); absent while no person chose one.
+   */
+  humanChoices?: ReadonlyMap<string, number>;
   lane: Lane;
   steps: ReadonlyMap<string, Step>;
   /** The steps whose latest record is a skip (ADR 0064); absent while none is. */
@@ -736,6 +741,15 @@ function apply(state: State, event: Event): State {
         ...batch,
         ...(batch.path === undefined ? {} : { runFrom: batch.path.length }),
         runStarts: runStartsOf(batch),
+        ...(event.source === 'human'
+          ? {
+              humanChoices: put(
+                batch.humanChoices ?? new Map(),
+                name,
+                (batch.humanChoices?.get(name) ?? 0) + 1,
+              ),
+            }
+          : {}),
         recipe:
           event.source === 'human'
             ? {
