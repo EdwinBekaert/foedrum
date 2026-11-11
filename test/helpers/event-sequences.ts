@@ -482,6 +482,9 @@ export const generateScenario = (seed: number, length = 40, failing = false): Mo
   let moves = 0;
   let nextIssue = 1;
   let nextSubOrder = 100;
+  // A batch id carries its order's time (ADR 0380): one second apart per order, so each is new.
+  let orders = 0;
+  const orderedAt = (): Date => new Date(Date.UTC(2026, 9, 15) + orders++ * 1000);
 
   const command = (cmd: Command): Move => ({ kind: 'command', command: cmd });
   const record = (event: RecordedEvent): Move => command({ kind: 'record', event });
@@ -502,12 +505,16 @@ export const generateScenario = (seed: number, length = 40, failing = false): Mo
     const parentBatchId = subOrder && state.orders.get(subOrder.order)?.batchIds[0];
     if (subOrder !== undefined && parentBatchId !== undefined) {
       const { issue } = subOrder;
-      const batchId = nextBatchId(state, issue);
+      const batchId = nextBatchId(state, issue, orderedAt());
       return command({ kind: 'order', batchId, order: { issue }, parentBatchId });
     }
     const orders = [...state.orders.keys()];
     const issue = orders.length > 0 && random.chance(0.2) ? random.pick(orders) : nextIssue++;
-    return command({ kind: 'order', batchId: nextBatchId(state, issue), order: { issue } });
+    return command({
+      kind: 'order',
+      batchId: nextBatchId(state, issue, orderedAt()),
+      order: { issue },
+    });
   };
 
   /** A breakdown that keeps some sub-orders of the last one and adds new ones. */

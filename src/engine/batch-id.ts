@@ -12,7 +12,7 @@ const checkIssue = (issue: number): void => {
 };
 
 /** The id of the next batch of `issue`: `<issue>-<n>`, with the first `n` no batch uses yet. */
-export const nextBatchId = (state: State, issue: number): string => {
+export const nextBatchId = (state: State, issue: number, _now: Date): string => {
   checkIssue(issue);
   for (let n = 1; ; n++) {
     const id = `${issue}-${n}`;
@@ -24,7 +24,7 @@ export const nextBatchId = (state: State, issue: number): string => {
  * The id of the next batch of `issue` in the target repository named `alias`: `<alias>-<issue>`,
  * or `<alias>-<issue>-<n>` from 2 when a batch of the issue has that already.
  */
-export const targetBatchId = (state: State, alias: string, issue: number): string => {
+export const targetBatchId = (state: State, alias: string, issue: number, _now: Date): string => {
   if (!RepositoryAlias.safeParse(alias).success) {
     throw new RangeError(
       `The alias must be 1 to 20 lower-case letters and digits, starting with a letter, got ${JSON.stringify(alias)}`,

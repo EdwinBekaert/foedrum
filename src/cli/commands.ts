@@ -610,14 +610,14 @@ export const orderIssue = async (
   const refused = orderRefusal(state(), order);
   if (refused !== undefined) return { refused };
   if (claim === undefined)
-    return { kind: 'order_again', ...issued(nextBatchId(state(), issue)), order };
+    return { kind: 'order_again', ...issued(nextBatchId(state(), issue, now)), order };
   const { repo, brewery } = claim;
   const outcome = await claimIssue(claims(), { repo, issue, brewery, now: now.toISOString() });
   if (outcome.kind === 'taken') {
     const by = outcome.by ?? 'a ref whose record cannot be read';
     return { refused: `${repo}#${issue} is claimed by ${by}` };
   }
-  return { kind: 'order_again', ...issued(targetBatchId(state(), claim.alias, issue)), order };
+  return { kind: 'order_again', ...issued(targetBatchId(state(), claim.alias, issue, now)), order };
 };
 
 /** Why a decision on a Stuck batch is the terminal's (ADR 0125). */

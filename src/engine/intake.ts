@@ -488,7 +488,7 @@ export const createIntake = (options: IntakeOptions): Intake => {
       if (repository === undefined) {
         // A ready sub-order is ordered under its order's batch (ADR 0211).
         const number = subOrder?.issue ?? order.issue;
-        const batchId = nextBatchId(log.state(), number);
+        const batchId = nextBatchId(log.state(), number, clock());
         const parent =
           subOrder === undefined
             ? {}
@@ -523,7 +523,7 @@ export const createIntake = (options: IntakeOptions): Intake => {
         case 'won':
         case 'ours': {
           if (signal.aborted) return ordered;
-          const batchId = targetBatchId(log.state(), alias, order.issue);
+          const batchId = targetBatchId(log.state(), alias, order.issue, clock());
           if (issue({ kind: 'order', batchId, order: { issue: order.issue, repo } })) {
             ordered++;
             tally.start(entry);
