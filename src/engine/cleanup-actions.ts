@@ -5,12 +5,12 @@
 import type { EffectKey } from '../schemas/store.ts';
 import { z } from '../schemas/zod.ts';
 import { type ArchiveFacts, archivable, archivedOf } from './archive.ts';
-import type { AttemptRef } from './attempt-key.ts';
+import { type AttemptRef, attemptKey } from './attempt-key.ts';
 import type { CommandLog } from './command-log.ts';
 import type { Ending } from './decide.ts';
 import type { DriverActions, DriverEffects } from './driver.ts';
-import type { EventStore } from './event-store.ts';
 import { effectKey } from './effect-key.ts';
+import type { EventStore } from './event-store.ts';
 import type { State } from './fold.ts';
 import type { RecipeAction, Recipes } from './recipes.ts';
 import { sweepTemp } from './temp-sweep.ts';
@@ -52,12 +52,27 @@ const keyOf = (ref: AttemptRef, effect: 'archive' | 'sweep'): EffectKey => ({ ..
  */
 export const storeFacts =
   (
-    _effects: Pick<DriverEffects, 'due'>,
-    _store: Pick<EventStore, 'findEffect' | 'batchLeases' | 'currentLeases'>,
-    _clock: () => Date,
+    effects: Pick<DriverEffects, 'due'>,
+    store: Pick<EventStore, 'findEffect' | 'batchLeases' | 'currentLeases'>,
+    clock: () => Date,
   ) =>
-  (_state: State): ArchiveFacts => {
-    throw new Error('not implemented');
+  (state: State): ArchiveFacts => {
+    const now = clock();
+    return {
+      due: (batchId) => {
+        try {
+          return effects.due(state, batchId).some((key) => store.findEffect(key) === undefined);
+        } catch {
+          return true;
+        }
+      },
+      leased: new Set([
+        ...store.batchLeases(now).map(({ batchId }) => batchId),
+        ...store
+          .currentLeases(now)
+          .flatMap(({ attemptKey: key }) => attemptKey.decode(key)?.batchId ?? []),
+      ]),
+    };
   };
 
 export const cleanupActions = (options: CleanupActionsOptions): DriverActions => {
