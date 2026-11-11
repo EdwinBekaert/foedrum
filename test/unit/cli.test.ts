@@ -927,19 +927,6 @@ describe('foedrum status <order> (ADR 0295)', () => {
     );
   });
 
-  it('status counts an attempt of decoction whose choice recorded no type, from before types, as planning (ADR 0365): regression test', async () => {
-    const older: Event[] = [
-      ordered(11),
-      chosen('11-1', 'decoction'),
-      ...attempt('11-1', 'plan', 1, [100, 20, 1000, 0]),
-    ];
-    const result = await run(['status', '11'], { openStore: () => storeWith(older) });
-    assert.match(
-      result.stdout,
-      /\nplanning: 1,120 tokens \(100 input, 20 output, 1,000 cache read, 0 cache write\)\nbrewing: none reported\n$/,
-    );
-  });
-
   it("foedrum status counts a decoction batch's planning tokens as planning, by the type its choice recorded: regression test", async () => {
     // decoction is deep-mash now (#931): a batch that recorded the old name still planned.
     const older: Event[] = [

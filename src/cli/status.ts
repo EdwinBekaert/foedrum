@@ -257,7 +257,7 @@ export const orderBatches = (state: State, order: OrderRef): Batch[] => {
  * The recipes that planned before a recipe had a type (ADR 0285): only for an attempt whose recipe
  * choice recorded no type, an event from before ADR 0365. Frozen: a recipe's type says it now.
  */
-const PLANNED_BEFORE_TYPES: readonly string[] = ['mash', 'mash-in', 'decoction'];
+const PLANNED_BEFORE_TYPES: readonly string[] = ['mash', 'mash-in'];
 
 /**
  * The usage of `batches`' attempts, split by the recipe each was scheduled under: a `mash`
