@@ -1268,11 +1268,11 @@ describe('forgetting a batch (ADR 0380)', () => {
     two();
     // The last event is b2's.
     store.withTransaction((tx) => tx.append(stuck('b2')));
-    store.withTransaction((tx) => tx.markPushed({ eventId: 8, commit: 'c1' }));
+    store.withTransaction((tx) => tx.markPushed({ eventId: 8, commit: 'c'.repeat(40) }));
     store.withTransaction((tx) => tx.forget(['b2']));
     assert.equal(store.lastEventId(), 8);
-    store.withTransaction((tx) => tx.markPushed({ eventId: 8, commit: 'c2' }));
-    assert.deepEqual(store.pushedThrough(), { eventId: 8, commit: 'c2' });
+    store.withTransaction((tx) => tx.markPushed({ eventId: 8, commit: 'd'.repeat(40) }));
+    assert.deepEqual(store.pushedThrough(), { eventId: 8, commit: 'd'.repeat(40) });
   });
 });
 
