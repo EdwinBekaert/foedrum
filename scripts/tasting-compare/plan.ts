@@ -96,6 +96,11 @@ export const planRecipeText = (setup: PlanSetupName): string => {
     name: setup,
     type: 'mash',
     description: `The seeded plan of #804, tasted ${apart ? 'apart' : 'together'}; it builds nothing`,
+    guidance: {
+      chooseWhen: 'The seeded plan of #804, to compare tastings',
+      notWhen: 'Any real order',
+      bestUsed: 'Through node scripts/tasting-compare.ts --plan',
+    },
     testFirst: false,
     steps: [{ id: PLAN_STEP, brewer: 'brewmaster' }, taste],
   };

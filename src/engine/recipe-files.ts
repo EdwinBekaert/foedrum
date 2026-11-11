@@ -13,6 +13,7 @@ import {
   type CheckRef,
   type ChosenBy,
   Recipe as RecipeFile,
+  type RecipeGuidance,
   type RecipeType,
   readExpression,
   type Step,
@@ -50,11 +51,15 @@ export interface BreweryFiles extends FilesByKind {
   };
 }
 
-/** A recipe a step that chooses the recipe may offer: its name, type and description (ADR 0232, ADR 0365). */
+/**
+ * A recipe a step that chooses the recipe may offer: its name, type, description and guidance
+ * (ADR 0232, ADR 0365, ADR 0375).
+ */
 export interface RecipeChoice {
   name: string;
   type: RecipeType;
   description: string;
+  guidance: RecipeGuidance;
 }
 
 /** A lens's text, from the Brewery's `lenses/` or Foedrum's defaults (ADR 0098). */
@@ -94,6 +99,10 @@ export interface StepBrewer {
    */
   choices?: readonly RecipeChoice[];
 }
+
+/** Why a recipe offered as a choice without guidance is refused, and the fix (ADR 0375). */
+const unguidedLine = (name: string): string =>
+  `the recipe ${name} is offered as a choice, so it needs "guidance": add "guidance": { "chooseWhen": "<the orders it is for>", "notWhen": "<the orders it is not for, and what to choose for them>", "bestUsed": "<how it is best used>" }, each one line of at most 300 characters (ADR 0375)`;
 
 /** Every brewer and lens in use, and what names them: what doctor reports on (ADR 0141). */
 export interface Catalog {
@@ -1233,9 +1242,13 @@ export function loadRecipes(breweryFiles: BreweryFiles): LoadedRecipes {
   const stepChecks = new Map<string, ReadonlyMap<string, StepCheck>>();
   const redProofs = new Map<string, { id: string; of: string }>();
   const testFirstRecipes: string[] = [];
-  // Each loaded recipe's type and description, in the order read, and the steps that choose a
-  // recipe, by recipe: what those steps may offer is known once every recipe loaded (ADR 0232).
-  const offered = new Map<string, RecipeChoice>();
+  // Each loaded recipe's type, description and guidance, in the order read, with the file it was
+  // read from, and the steps that choose a recipe, by recipe: what those steps may offer is known
+  // once every recipe loaded (ADR 0232, ADR 0375).
+  const offered = new Map<
+    string,
+    Omit<RecipeChoice, 'guidance'> & { guidance: RecipeGuidance | undefined; path: string }
+  >();
   const choosingSteps = new Map<string, readonly string[]>();
   for (const { path, value } of readAll(
     files.recipes,
@@ -1312,7 +1325,8 @@ export function loadRecipes(breweryFiles: BreweryFiles): LoadedRecipes {
         value.concurrency,
       ),
     );
-    offered.set(value.name, { name: value.name, type: value.type, description: value.description });
+    const { name, type, description, guidance } = value;
+    offered.set(name, { name, type, description, guidance, path });
     const choosing = steps.flatMap(({ line }) => (line.chooses === true ? [line.id] : []));
     if (choosing.length > 0) choosingSteps.set(value.name, choosing);
     stepBrewers.set(
@@ -1326,12 +1340,18 @@ export function loadRecipes(breweryFiles: BreweryFiles): LoadedRecipes {
       new Map(steps.flatMap(({ line, check }) => (check === undefined ? [] : [[line.id, check]]))),
     );
   }
-  if (problems.length > 0) return { valid: false, problems };
   // Every recipe but those that choose a recipe themselves: what a step that chooses offers
   // (ADR 0232). Of those, the `brew` ones: what the recipes input of any other brewer names, such
   // as a plan's for its sub-orders, what a plan's out doc may name, and what a plan lens step
   // judges those by (ADR 0234, ADR 0321, ADR 0365).
-  const choices = [...offered.values()].filter(({ name }) => !choosingSteps.has(name));
+  const choices: RecipeChoice[] = [];
+  for (const { path, guidance, ...choice } of offered.values()) {
+    if (choosingSteps.has(choice.name)) continue;
+    // Every recipe offered says when to choose it: a model choosing it reads that (ADR 0375).
+    if (guidance === undefined) problems.push(`${path}: ${unguidedLine(choice.name)}`);
+    else choices.push({ ...choice, guidance });
+  }
+  if (problems.length > 0) return { valid: false, problems };
   const building = choices.filter(({ type }) => type === 'brew');
   for (const [recipe, steps] of stepBrewers) {
     const chooses = choosingSteps.get(recipe) ?? [];

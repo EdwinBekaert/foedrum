@@ -6,6 +6,7 @@ import { readBreweryFiles } from '../../src/engine/brewery-files.ts';
 import { loadRecipes } from '../../src/engine/recipe-files.ts';
 import { readJsonc } from '../../src/schemas/read.ts';
 import { DefaultRecipe } from '../../src/schemas/recipe.ts';
+import { testGuidance } from '../helpers/brewery-files.ts';
 
 const root = join(import.meta.dirname, '..', '..', 'defaults');
 // Default brewers and lenses are Markdown, so every JSONC file under defaults/ is a recipe
@@ -57,7 +58,7 @@ describe('mash-in and the Innkeeper (ADR 0232)', () => {
 
   it('the Innkeeper offers deep-mash as the deep plan', () => {
     const text = readFileSync(join(root, 'brewers', 'innkeeper.md'), 'utf8');
-    assert.match(text, /"version": 7,/);
+    assert.match(text, /"version": 8,/);
     assert.match(text, /`deep-mash` for a deep one/);
   });
 
@@ -117,6 +118,7 @@ describe('the default plan lens (ADR 0312)', () => {
       name: 'kettle',
       type: 'mash',
       description: 'Plan, then read it.',
+      guidance: testGuidance,
       testFirst: false,
       steps,
     };

@@ -633,6 +633,11 @@ describe('the diff mode beside plan mode', () => {
           name: 'together-nip',
           type: 'brew',
           description: 'The seeded change of #567, tasted together',
+          guidance: {
+            chooseWhen: 'The seeded change of #567, to compare tastings',
+            notWhen: 'Any real order',
+            bestUsed: 'Through node scripts/tasting-compare.ts',
+          },
           testFirst: false,
           steps: [
             { id: 'gauge', brewer: 'gauger', when: 'recipe.testFirst' },

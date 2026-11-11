@@ -12,6 +12,7 @@ import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import type { Event } from '../../src/schemas/events.ts';
 import { TastingOutDoc } from '../../src/schemas/out-doc.ts';
 import type { StepOutcome } from '../../src/schemas/step-outcome.ts';
+import { testGuidance } from '../helpers/brewery-files.ts';
 import { createBrewing, defaultLimits } from '../helpers/brewing.ts';
 import { type Behaviour, behave, fakeBrewerRunner } from '../helpers/fake-brewer-runner.ts';
 
@@ -31,6 +32,7 @@ const kettle = JSON.stringify({
   name: 'kettle',
   type: 'brew',
   description: 'Brews an order, then has a blocking Brett mutate its change.',
+  guidance: testGuidance,
   steps: [
     { id: 'implement', brewer: 'cellarman' },
     {

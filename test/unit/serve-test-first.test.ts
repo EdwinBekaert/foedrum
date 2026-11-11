@@ -12,6 +12,7 @@ import { type BrewerRunner, settleAttempt } from '../../src/engine/brewer-runner
 import { createCommandLog } from '../../src/engine/command-log.ts';
 import type { ExecProcess } from '../../src/platform/processes.ts';
 import type { Git } from '../../src/workspace/git.ts';
+import { testGuidance } from '../helpers/brewery-files.ts';
 import { FAKE_COMMIT } from '../helpers/fake-worktrees.ts';
 import { brewer, clone, config, local, serveInputs } from '../helpers/serve-brewery.ts';
 import { serveFixture, t0 } from '../helpers/serve-fixture.ts';
@@ -26,6 +27,7 @@ describe('runServe', () => {
       name: 'nip',
       type: 'brew',
       description: 'Proves the tests red, then brews.',
+      guidance: testGuidance,
       steps: [
         { id: 'gauge', brewer: 'gauger' },
         { id: 'red', check: 'test', expect: 'fail', of: 'gauge' },
@@ -43,6 +45,7 @@ describe('runServe', () => {
       name: 'nip',
       type: 'brew',
       description: 'Surveys the test map, proves the tests red, then brews.',
+      guidance: testGuidance,
       steps: [
         { id: 'survey', brewer: 'maltster' },
         {
@@ -410,6 +413,7 @@ describe('runServe', () => {
         name: 'nip',
         type: 'brew',
         description: 'Proves the tests red, once more after a failure, then brews.',
+        guidance: testGuidance,
         steps: [
           { id: 'gauge', brewer: 'gauger' },
           {
@@ -554,6 +558,7 @@ describe('runServe', () => {
         name: 'nip',
         type: 'brew',
         description: 'Proves the tests red only when test-first.',
+        guidance: testGuidance,
         steps: [
           { id: 'gauge', brewer: 'gauger', when: 'recipe.testFirst' },
           { id: 'red', check: 'test', expect: 'fail', of: 'gauge', when: 'recipe.testFirst' },
@@ -573,6 +578,7 @@ describe('runServe', () => {
         name: 'nip',
         type: 'brew',
         description: 'Proves the tests red, once more after a failure, then brews.',
+        guidance: testGuidance,
         steps: [
           { id: 'gauge', brewer: 'gauger' },
           {
@@ -610,6 +616,7 @@ describe('runServe', () => {
         name: 'nip',
         type: 'brew',
         description: 'Proves the tests red, once more after a failure, then brews.',
+        guidance: testGuidance,
         steps: [
           { id: 'gauge', brewer: 'gauger' },
           {

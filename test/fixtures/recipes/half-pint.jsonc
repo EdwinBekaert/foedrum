@@ -4,6 +4,11 @@
   "name": "half-pint",
   "type": "brew",
   "description": "Small feature in one repository",
+  "guidance": {
+    "chooseWhen": "An order a test brews",
+    "notWhen": "An order no test brews",
+    "bestUsed": "In a test"
+  },
   "testFirst": true,
   "steps": [
     { "id": "plan", "brewer": "brewmaster" },

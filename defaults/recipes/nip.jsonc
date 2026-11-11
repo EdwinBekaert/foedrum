@@ -1,4 +1,5 @@
-// Nip, the quick fix in one repository, test-first (ADR 0017): the Maltster first proposes the
+// Nip, a change in one repository whose effect stays inside the code it changes, test-first
+// (ADR 0017, ADR 0375): the Maltster first proposes the
 // repository's test map when it has none or a stale one, checked against one run of its tests
 // (ADR 0282, ADR 0298); then the Gauger commits failing tests,
 // the red proof shows they fail for the missing behaviour, Cellarman makes them pass, the Finer
@@ -13,7 +14,12 @@
   "$schema": "../../schemas/recipe.json",
   "name": "nip",
   "type": "brew",
-  "description": "Quick fix in one repository, test-first",
+  "description": "Builds a change in one repository, test-first, through four diff lenses",
+  "guidance": {
+    "chooseWhen": "A fix or a small feature in one repository whose effect stays inside the code it changes: no caller, shared path or other repository depends on what it changes.",
+    "notWhen": "A change that can reach a lot, however small: a loop over every item, a shared path, a public interface, a credential, a migration or what other repositories read. Choose deep-brew for it.",
+    "bestUsed": "With one clear outcome a test can show. Its Tasters read the diff and no mutants run, so a fix whose effect reaches past the diff can pass them."
+  },
   "steps": [
     // Without a session when the base's map is fresh, or the Brewery keeps it (ADR 0298).
     { "id": "survey", "brewer": "maltster", "when": "recipe.testFirst" },
