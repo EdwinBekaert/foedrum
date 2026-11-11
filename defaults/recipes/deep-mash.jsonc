@@ -1,7 +1,7 @@
-// Deep-mash, a careful plan of a large order (ADR 0321), called decoction before ADR 0372: Mash's
-// steps, with all seven plan lenses in its group. Nothing is built: the plan is shown on the order's
-// issue (ADR 0233), and the batch waits Stuck for its review (ADR 0275) until foedrum approve signs
-// it off (ADR 0281). The lauter step runs only when a person chooses foedrum lauter at that review
+// Deep-mash, a careful plan of a large order (ADR 0321, ADR 0372): Mash's steps, with all seven
+// plan lenses in its group. Nothing is built: the plan is shown on the order's issue (ADR 0233),
+// and the batch waits Stuck for its review (ADR 0275) until foedrum approve signs it off
+// (ADR 0281). The lauter step runs only when a person chooses foedrum lauter at that review
 // (ADR 0286).
 {
   "$schema": "../../schemas/recipe.json",
