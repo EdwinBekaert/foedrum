@@ -225,7 +225,7 @@ describe('afterSendBack (ADR 0381)', () => {
     ...(durationMs === undefined ? {} : { durationMs }),
   });
 
-  it("adds both runs' counts, each denied tool once in the order first denied, and keeps the resumed run's session figures", () => {
+  it("judges the resumed run by its own turns and denials, which claude limits per run, and adds both runs' counts in the receipt, each denied tool once in the order first denied", () => {
     const both = afterSendBack(
       {
         facts: facts(3, ['Bash'], 5),
@@ -247,9 +247,10 @@ describe('afterSendBack (ADR 0381)', () => {
         },
       },
     );
-    assert.deepEqual(both.facts.deniedTools, ['Bash', 'WebFetch']);
-    assert.equal(both.facts.denials, 3);
-    assert.equal(both.facts.turns, 5);
+    // Each run has its own --max-turns and maxDenials: the attempt is judged by the run that ended it.
+    assert.deepEqual(both.facts.deniedTools, ['WebFetch', 'Bash']);
+    assert.equal(both.facts.denials, 2);
+    assert.equal(both.facts.turns, 2);
     assert.equal(both.facts.lines, 20);
     assert.deepEqual(both.facts.usage, {
       inputTokens: 2,

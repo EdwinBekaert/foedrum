@@ -225,6 +225,16 @@ describe('claudeBrewerRunner: the checks before the end (ADR 0381)', () => {
     assert.equal(atResume?.getTime(), resumedAt.getTime());
   });
 
+  it('lets a resumed run that ends within its own maxTurns succeed, whatever the first run took', async () => {
+    // Each start of claude gets --max-turns of its own: here one turn each, two in all.
+    const oneTurn: AttemptStart = { ...attempt, limits: { ...limits, maxTurns: 1 } };
+    const { starts, runner } = setup({ failing: () => true });
+    const end = await runner.start(oneTurn).ended;
+    assert.equal(starts.length, 2);
+    assert.equal(end.ending.kind, 'succeeded', JSON.stringify(end.ending));
+    assert.equal(end.receipt?.turns, 2);
+  });
+
   it('a second failure lets the session end', async () => {
     const { starts, checked, runner } = setup({ failing: () => true });
     const end = await runner.start(attempt).ended;
