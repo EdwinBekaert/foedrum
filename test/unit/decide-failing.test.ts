@@ -6,13 +6,15 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { admit } from '../../src/engine/admit.ts';
 import { type Command, decide, type Ending, stuckOptions } from '../../src/engine/decide.ts';
-import { emptyState, fold, type State } from '../../src/engine/fold.ts';
+import { effectKey } from '../../src/engine/effect-key.ts';
+import { batchEnded, emptyState, fold, type State } from '../../src/engine/fold.ts';
 import type { Event } from '../../src/schemas/events.ts';
 import { fakeRecipe, fakeRecipes, hour } from '../helpers/fake-recipes.ts';
 
 const now = new Date('2026-11-06T12:00:00.000Z');
 const since = '2026-11-06T11:00:00.000Z';
 const SHA = '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
+const pullRequest = 'https://github.com/acme/api/pull/7';
 const recipes = fakeRecipes({
   pint: fakeRecipe({ steps: ['plan', 'implement'] }),
   stout: fakeRecipe({ steps: ['draft'] }),
@@ -136,10 +138,66 @@ describe('mark_failing', () => {
     assert.deepStrictEqual(laneOf(after([mark], state)), before);
   });
 
-  it('marks a cancelled batch, whose effects may still wait', () => {
+  it('reopens a cancelled batch whose effects keep failing, Stuck with the end a retry returns to', () => {
     const state = after([{ kind: 'cancel', batchId: 'b1', ...who }], brewing());
-    assert.deepStrictEqual(typesOf(state, mark), ['batch.failing']);
-    assert.equal(laneOf(after([mark], state))?.kind, 'cancelled');
+    assert.deepStrictEqual(typesOf(state, mark), ['batch.failing', 'batch.stuck']);
+    const lane = laneOf(after([mark], state));
+    assert.deepStrictEqual(lane?.kind === 'stuck' ? lane.reason.kind : lane?.kind, 'reopened');
+    assert.deepStrictEqual(lane?.kind === 'stuck' ? lane.reason : undefined, {
+      kind: 'reopened',
+      ended: { kind: 'cancelled', ...who },
+      pass: 'supervisor',
+      summary: 'boom',
+      since,
+    });
+  });
+
+  it('a failure after the close that needs more work reopens the batch with a failing state', () => {
+    const merged = after(
+      [
+        {
+          kind: 'record',
+          event: { type: 'pull_request.ended', batchId: 'b1', pullRequest, state: 'merged' },
+        },
+        {
+          kind: 'record',
+          event: {
+            type: 'effect.applied',
+            key: effectKey.encode({ batchId: 'b1', effect: 'status.1' }),
+            result: { comment: 5, digest: '0123456789abcdef' },
+          },
+        },
+      ],
+      onTap(),
+    );
+    const ended = merged.batches.get('b1');
+    assert.ok(ended !== undefined && batchEnded(ended) && ended.endShown === true);
+
+    const reopened = after([mark], merged);
+    const batch = reopened.batches.get('b1');
+    assert.deepStrictEqual(batch?.lane, {
+      kind: 'stuck',
+      reason: {
+        kind: 'reopened',
+        ended: { kind: 'on_tap', pullRequests: [pullRequest] },
+        pass: 'supervisor',
+        summary: 'boom',
+        since,
+      },
+      options: ['retry', 'cancel'],
+      remindAt: new Date(now.getTime() + context.reminderMs).toISOString(),
+    });
+    assert.deepStrictEqual(batch?.failing, { pass: 'supervisor', summary: 'boom', since });
+    // Its status comment takes revisions again, and nothing counts it ended.
+    assert.equal(batch?.endShown, undefined);
+    assert.equal(batchEnded(batch ?? assert.fail()), false);
+  });
+
+  it('a retry of a reopened batch returns it to how it ended, and its mark goes', () => {
+    const state = after([{ kind: 'cancel', batchId: 'b1', ...who }], brewing());
+    const retried = after([mark, { kind: 'retry', batchId: 'b1', ...who }], state);
+    assert.deepStrictEqual(laneOf(retried), { kind: 'cancelled', ...who });
+    assert.equal(failingOf(retried), undefined);
   });
 
   it('refuses a batch that was never ordered, and throws nothing', () => {

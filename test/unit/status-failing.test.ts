@@ -36,6 +36,16 @@ const stuckFailing = (id: string, issue: number): Batch =>
       remindAt,
     },
   });
+const reopened = (id: string, issue: number): Batch =>
+  batch(id, issue, {
+    failing,
+    lane: {
+      kind: 'stuck',
+      reason: { kind: 'reopened', ended: { kind: 'on_tap', pullRequests: [] }, ...failing },
+      options: ['retry', 'cancel'],
+      remindAt,
+    },
+  });
 /** A batch whose rendering throws: a lane no reader knows. */
 const unreadable = (id: string, issue: number, fields: Partial<Batch> = {}): Batch =>
   batch(id, issue, { lane: { kind: 'unknown' } as unknown as Batch['lane'], ...fields });
@@ -96,6 +106,13 @@ describe('foedrum status', () => {
     assert.deepStrictEqual(describeLane(stuckFailing('1-1', 1), '1'), {
       lane: 'stuck',
       detail: `failing at plan in effects since 2026-11-06T11:00:00.000Z: the plan could not be read; reminder ${remindAt}`,
+    });
+  });
+
+  it('describes the lane of a batch reopened after it ended (ADR 0380)', () => {
+    assert.deepStrictEqual(describeLane(reopened('1-1', 1), '1'), {
+      lane: 'stuck',
+      detail: `reopened after it ended: failing in effects since 2026-11-06T11:00:00.000Z: the plan could not be read; reminder ${remindAt}`,
     });
   });
 });
@@ -225,6 +242,20 @@ describe('the status comment', () => {
       /\*\*Stuck\*\*: `plan` could not go on: the effects pass has failed since 2026-11-06T11:00:00\.000Z: the plan could not be read/,
     );
     assert.doesNotMatch(text, /\*\*Failing\*\*/);
+  });
+
+  it('shows why a batch reopened after it ended, with no second line for its mark (ADR 0380)', () => {
+    const text = renderStatus(reopened('1-1', 1));
+    assert.match(
+      text,
+      /\*\*Stuck\*\*: it had ended, and then the effects pass failed for an hour since 2026-11-06T11:00:00\.000Z: the plan could not be read/,
+    );
+    assert.doesNotMatch(text, /\*\*Failing\*\*/);
+    const token = `ghp_${'a'.repeat(36)}`;
+    const secret = reopened('1-1', 1);
+    const lane = secret.lane.kind === 'stuck' ? secret.lane : assert.fail();
+    const reason = { ...lane.reason, summary: token } as typeof lane.reason;
+    assert.doesNotMatch(renderStatus({ ...secret, lane: { ...lane, reason } }), /ghp_/);
   });
 
   it('shows a summary as plain text: what it quotes cannot render', () => {
