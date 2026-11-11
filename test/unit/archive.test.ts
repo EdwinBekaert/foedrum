@@ -273,6 +273,21 @@ describe('archivable (ADR 0380)', () => {
     assert.deepStrictEqual(idsOf(marked), ['1-1', '2-1']);
   });
 
+  it('takes a later batch of an issue only once every earlier one goes too, so the index keeps the order', () => {
+    const claimed = { issue: 7, repo: 'acme/web' };
+    const state = fold([
+      ordered('web-7', claimed),
+      cancelled('web-7'),
+      ordered('web-7-2', claimed),
+      cancelled('web-7-2'),
+      ordered('8-1', { issue: 8 }),
+      cancelled('8-1'),
+    ]);
+    const facts = { due: (id: string) => id === 'web-7', leased: new Set<string>() };
+    assert.deepStrictEqual(idsOf(state, facts), ['8-1']);
+    assert.deepStrictEqual(idsOf(state), ['web-7', 'web-7-2', '8-1']);
+  });
+
   it('takes a split order only with every batch of its sub-orders, once its issue is closed', () => {
     const parent = fold([
       ordered('6-1', { issue: 6 }),
