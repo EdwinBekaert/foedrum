@@ -32,13 +32,16 @@ The maintainer settled four points on 2026-11-11 (#856, its decisions comments).
 - **One reading of a test line**, `readTestLine` in `src/checks/test-line.ts`, shared by init and doctor: it reads the line's words, quotes taken off, and never runs it.
   It knows four runners: `node … --test`, `vitest`, `pytest` (also as `python -m pytest`) and `dotnet test`, each by its program's name in any case, with a folder or a Windows extension (`Node.exe`, `pytest.exe`).
   A line whose unquoted `;`, `|`, `&` or line break joins it to another command is read as a runner Foedrum does not know: init never edits a line it cannot read whole.
-  A report counts as saved when the line names a JUnit or TAP reporter with a file for it: for node a `--test-reporter=junit` or `tap` and a destination that is not `stdout` or `stderr`, for vitest `--outputFile.junit=`, or a plain `--outputFile` beside `--reporter=junit`.
+  A report counts as saved when the line names a JUnit or TAP reporter with a file for it: for node a `junit` or `tap` reporter whose destination, paired with it by position as node pairs them, is not `stdout` or `stderr`; for vitest `--outputFile.junit`, or a plain `--outputFile` beside a `junit` reporter; each flag read as `--flag=value` or `--flag value`.
+  The words are read with POSIX sh's quotes, `'` and `"`, on every platform; cmd.exe, which runs a Windows line, takes no `'` as a quote, so a Windows line that quotes `;`, `|` or `&` in single quotes is read as one command where cmd runs two. Such a line was already broken on Windows; the reading does not model cmd's quoting.
   For each it says whether the line saves a test report already, the line with the flags that would, where flags alone can, and what needs a package.
 - **Reports at the worktree root**: `junit.xml`, and for node `lcov.info`, since node cannot write into a folder that is not there.
   One test line is one run, so the Maltster names these paths for the module that run covers.
 - **What init writes.**
   - A Node repository whose `test` script is `node --test …`: the script itself as the line, the flags inserted right after `--test`, with node's console output kept. node needs no package for either report.
     A script that already names a `--test-reporter` or a destination of its own is kept as it is, with a note on what to add: node refuses a line whose reporters and destinations do not pair up (`ERR_INVALID_ARG_VALUE`, ran once on Node 24.20.0), so the flags cannot simply be put in front.
+    A repository with a `pretest` or `posttest` script keeps `npm test`, with a note naming the flags to add right after `--test` in its test script: the script's own text would skip what npm runs around it, such as a `tsc` build before `node --test dist/`.
+    The line init writes runs without what `npm test` adds, its `pretest` and `posttest` aside: `node_modules/.bin` is not on its PATH, so a test that starts a locally installed tool by name needs `npm test` kept.
   - One whose `test` script runs vitest: `npm test -- --reporter=default --reporter=junit --outputFile.junit=junit.xml`, and a note naming `@vitest/coverage-v8` and `--coverage --coverage.reporter=lcov`.
   - Any other Node script: `npm test`, as before.
   - A line the person typed (a repository without `package.json`, or a proposal they did not use): with `--junit-xml=junit.xml` after a pytest line, the node or vitest flags after one of those, and a note naming pytest-cov; a `dotnet test` line as it is, with notes naming JunitXml.TestLogger and coverlet.collector and their flags.
