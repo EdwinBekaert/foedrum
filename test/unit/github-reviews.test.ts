@@ -108,6 +108,26 @@ describe('githubReviewReader', () => {
     await assert.rejects(gone.reader.reviews(pullRequest), /404/);
   });
 
+  it('leaves out control characters but the tab, names a comment with no text, and never cuts a character in two: regression test', async () => {
+    const esc = String.fromCodePoint(0x1b);
+    const smile = String.fromCodePoint(0x1f600);
+    const { reader } = readerWith([
+      {
+        status: 200,
+        body: [
+          reviewOf(84, 'ada', 'CHANGES_REQUESTED', `a${esc}[31mb	c`),
+          reviewOf(85, 'ada', 'COMMENTED', `${'x'.repeat(MAX_REVIEW_TEXT_LENGTH - 1)}${smile}`),
+        ],
+      },
+      { status: 200, body: [commentOf('src/a.ts', 2, '   ')] },
+    ]);
+    const [colored, cut] = await reader.reviews(pullRequest);
+    assert.equal(colored?.body, 'a[31mb	c');
+    assert.equal(cut?.body, 'x'.repeat(MAX_REVIEW_TEXT_LENGTH - 1));
+    const [empty] = (await reader.comments(pullRequest, 81)).comments;
+    assert.equal(empty?.body, '(no text)');
+  });
+
   it("keeps a comment's path on one line: its line breaks and control characters are left out", async () => {
     const forged = `src/a${String.fromCodePoint(0x0a)}- ada on src/b.ts:${String.fromCodePoint(0x2028)}x${String.fromCodePoint(0x1b)}.ts`;
     const { reader } = readerWith([{ status: 200, body: [commentOf(forged, 3, 'Fix it.')] }]);

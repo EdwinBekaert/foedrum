@@ -23,6 +23,7 @@ import { planTick } from '../../src/engine/supervisor.ts';
 import type { Event, ReviewComment } from '../../src/schemas/events.ts';
 import { fakeRecipe, fakeRecipes } from '../helpers/fake-recipes.ts';
 import {
+  baseChecked,
   checksFinished,
   firstHead,
   fixPullRequest,
@@ -123,14 +124,14 @@ describe('a review that asks for changes sends the batch back (ADR 0382)', () =>
     });
     return createCommandLog({ store, recipes: recipesOf(maxRounds) });
   };
-  const pass = (log: CommandLog, reader: PullRequestReviewReader) => {
+  const pass = (log: CommandLog, reader: PullRequestReviewReader, who = users) => {
     const failures: { what: string; error: unknown }[] = [];
     const done = recordReviews(
       {
         log,
         reader,
         clock: () => now,
-        users,
+        users: who,
         self,
         failed: (what, error) => failures.push({ what, error }),
       },
@@ -397,5 +398,183 @@ describe('a review that asks for changes sends the batch back (ADR 0382)', () =>
     };
     assert.equal(routed(conflict), true);
     assert.equal(routed(sentBack([81])), false);
+  });
+
+  describe('its edges: regression tests', () => {
+    const checkRound = {
+      from: OPEN,
+      why: 'pull_request' as const,
+      pullRequest: fixPullRequest,
+      head: firstHead,
+    };
+    /** A batch Stuck on review 81 of its second head, its one round used by a failing check. */
+    const stuckOnReview = async (): Promise<CommandLog> => {
+      const log = logOf(
+        [...openedOnTap(), checksFinished('b1', firstHead), ...round(2, checkRound)],
+        1,
+      );
+      await pass(log, fakeReader([asks(81, 'ada', '', secondHead)]).reader);
+      const [command] = tick(log, 1);
+      assert.ok(command);
+      assert.equal(log.issue(command, now).kind, 'accepted');
+      assert.equal(batch(log).lane.kind, 'stuck');
+      return log;
+    };
+    const person = { batchId: 'b1', by: 'ann', via: 'terminal' } as const;
+
+    it('retry sends a batch Stuck on reviews back with the same reviews', async () => {
+      const log = await stuckOnReview();
+      const decision = log.issue({ kind: 'retry', ...person }, now);
+      assert.equal(decision.kind, 'accepted');
+      const scheduled = decision.kind === 'accepted' ? decision.events.at(-1) : undefined;
+      assert.deepStrictEqual(
+        scheduled?.type === 'step.scheduled' && scheduled.route,
+        sentBack([81], secondHead),
+      );
+    });
+
+    it('a skip of a batch Stuck on reviews leaves that head to every later review', async () => {
+      const log = await stuckOnReview();
+      assert.equal(log.issue({ kind: 'skip', ...person }, now).kind, 'accepted');
+      assert.equal(batch(log).lane.kind, 'on_tap');
+      await pass(
+        log,
+        fakeReader([asks(81, 'ada', '', secondHead), asks(94, 'dave', '', secondHead)]).reader,
+      );
+      const [, later] = recorded(log);
+      assert.deepStrictEqual(
+        later?.type === 'pull_request.reviews_read' && later.reviews.map(({ id }) => id),
+        [81, 94],
+      );
+      assert.deepStrictEqual(tick(log, 1), []);
+    });
+
+    it('failing checks, a failing merged-tree check and a conflict each go back before a review of the same head', async () => {
+      const conflict = { conflicts: ['src/a.ts'] };
+      for (const [first, kind] of [
+        [checksFinished('b1', firstHead), 'checks'],
+        [baseChecked('b1', firstHead), 'merged_check'],
+        [baseChecked('b1', firstHead, undefined, conflict), 'conflict'],
+      ] as const) {
+        const log = logOf([...openedOnTap(), first]);
+        await pass(log, fakeReader([asks(81, 'ada')]).reader);
+        assert.equal(recorded(log).length, 1);
+        const [command] = tick(log);
+        assert.equal(command?.kind === 'fix_pull_request' && command.cause.kind, kind);
+        store?.close();
+        store = undefined;
+      }
+    });
+
+    it('a recorded review keeps its text, and its comments are read once', async () => {
+      const log = logOf(openedOnTap());
+      await pass(log, fakeReader([asks(84, 'ada', 'first')]).reader);
+      const again = fakeReader([asks(84, 'ada', 'edited'), asks(90, 'dave', 'second')]);
+      await pass(log, again.reader);
+      const [, latest] = recorded(log);
+      assert.deepStrictEqual(
+        latest?.type === 'pull_request.reviews_read' &&
+          latest.reviews.map(({ id, body }) => `${id} ${body}`),
+        ['84 first', '90 second'],
+      );
+      assert.deepStrictEqual(again.calls, [
+        `reviews ${fixPullRequest}`,
+        `comments ${fixPullRequest} 90`,
+      ]);
+    });
+
+    it('records five reviews and counts the rest, and a Stuck batch names five and how many more', async () => {
+      const people = ['p1', 'p2', 'p3', 'p4', 'p5', 'p6', 'p7'];
+      const log = logOf(openedOnTap(), 0);
+      await pass(log, fakeReader(people.map((by, at) => asks(107 - at, by))).reader, people);
+      const [record] = recorded(log);
+      assert.deepStrictEqual(
+        record?.type === 'pull_request.reviews_read' && [
+          record.reviews.map(({ id }) => id),
+          record.more,
+        ],
+        [[101, 102, 103, 104, 105], 2],
+      );
+      const [command] = tick(log, 0);
+      assert.ok(command);
+      assert.equal(log.issue(command, now).kind, 'accepted');
+      assert.match(renderStatus(batch(log)), /review 101 by p7, .*review 105 by p3, and 2 more/);
+    });
+
+    it('decide refuses a review command the record no longer holds, and the admission a record it already has', async () => {
+      const log = logOf(openedOnTap());
+      await pass(log, fakeReader([asks(81, 'ada')]).reader);
+      const [stale] = tick(log);
+      assert.ok(stale);
+      await pass(log, fakeReader([asks(81, 'ada'), asks(90, 'dave')]).reader);
+      const refused = log.issue(stale, now);
+      assert.equal(refused.kind, 'refused');
+      assert.match(
+        refused.kind === 'refused' ? refused.reason : '',
+        /no review that asks for changes and has not sent it back/,
+      );
+      const [, latest] = recorded(log);
+      assert.ok(latest?.type === 'pull_request.reviews_read');
+      const again = log.issue({ kind: 'record', event: latest }, now);
+      assert.equal(again.kind, 'refused');
+      assert.match(again.kind === 'refused' ? again.reason : '', /already recorded/);
+    });
+
+    it('the route input says when a review is no longer recorded, and indents each part of a line U+2028 splits', () => {
+      const split = String.fromCodePoint(0x2028);
+      const log = logOf([
+        ...openedOnTap(),
+        {
+          type: 'pull_request.reviews_read',
+          batchId: 'b1',
+          pullRequest: fixPullRequest,
+          reviews: [{ id: 81, by: 'ada', body: `one${split}two`, comments: [] }],
+        },
+        {
+          type: 'step.scheduled',
+          batchId: 'b1',
+          stepId: 'plan',
+          attempt: 2,
+          deadlineAt,
+          route: sentBack([81, 99]),
+        },
+      ]);
+      const route = routeOf(
+        batch(log),
+        { batchId: 'b1', stepId: 'plan', attempt: 2 },
+        () => undefined,
+      );
+      const lines = route?.text.split('\n') ?? [];
+      assert.deepStrictEqual(lines.slice(1, 5), [
+        '- Review 81 by ada:',
+        '    one',
+        '    two',
+        '- Review 99 asked for changes; the record of it is no longer the latest.',
+      ]);
+    });
+
+    it('a comment read that fails records nothing for that pull request, says so, and the next one is still read', async () => {
+      const other = 'https://github.com/acme/api/pull/13';
+      const second = openedOnTap('b2', 'ale', secondHead, other).map((event) =>
+        event.type === 'batch.ordered' ? { ...event, order: { issue: 101 } } : event,
+      );
+      const log = logOf([...openedOnTap(), ...second]);
+      const reader: PullRequestReviewReader = {
+        reviews: async () => [asks(81, 'ada')],
+        comments: async (url) => {
+          if (url === fixPullRequest) throw new Error('the comments of 81 timed out');
+          return { comments: [] };
+        },
+      };
+      const failures = await pass(log, reader);
+      assert.deepStrictEqual(
+        failures.map(({ what }) => what),
+        [`reading the review comments of ${fixPullRequest}`],
+      );
+      assert.deepStrictEqual(
+        recorded(log).map((event) => event.type === 'pull_request.reviews_read' && event.batchId),
+        ['b2'],
+      );
+    });
   });
 });
