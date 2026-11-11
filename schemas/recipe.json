@@ -14,7 +14,8 @@
       "type": "string",
       "enum": [
         "mash",
-        "brew"
+        "brew",
+        "tend"
       ],
       "description": "mash: chooses a recipe or makes a plan, and builds nothing; brew: builds. A sub-order runs a brew recipe (ADR 0365)"
     },
@@ -721,7 +722,9 @@
                 "openPullRequest",
                 "comment",
                 "label",
-                "blend"
+                "blend",
+                "archive",
+                "sweep"
               ]
             },
             "when": {

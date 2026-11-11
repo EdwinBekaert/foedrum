@@ -435,14 +435,21 @@ function holds(when: string, settings: Settings): boolean {
   return (String(value) === compare.value) === (compare.op === '==');
 }
 
+/** The actions the engine runs: a pull request's, and a cleanup's (ADR 0071, ADR 0380). */
+const RUN_ACTIONS: ReadonlySet<string> = new Set<RecipeAction>([
+  'openPullRequest',
+  'archive',
+  'sweep',
+]);
+
 /**
- * The step, when the engine runs it (a brewer, a check or the openPullRequest action), else why it
- * does not yet, naming the ADR that says so.
+ * The step, when the engine runs it (a brewer, a check, or the openPullRequest, archive or sweep
+ * action), else why it does not yet, naming the ADR that says so.
  */
 function runnableStep(step: Step): BrewerStep | CheckStep | ActionStep | string {
   const id = stepId(step);
-  const opens = 'action' in step && step.action === 'openPullRequest';
-  if (!('brewer' in step) && !('check' in step) && !opens) {
+  const runs = 'action' in step && RUN_ACTIONS.has(step.action);
+  if (!('brewer' in step) && !('check' in step) && !runs) {
     return `step "${id}" is a ${stepKind(step)} step, which the engine does not brew yet (ADR 0053)`;
   }
   const when = step.when === undefined ? undefined : unfollowedWhen(id, step.when);
@@ -765,11 +772,15 @@ function tooLong(id: string, deadline: string): string | undefined {
     : `step "${id}" has a deadline of ${deadline}, longer than 365 days`;
 }
 
-/** The openPullRequest action's line, when it is the recipe's `last` step (ADR 0071). */
+/**
+ * An action's line: the openPullRequest action's when it is the recipe's `last` step (ADR 0071), a
+ * cleanup's anywhere (ADR 0380).
+ */
 function actionLine(step: ActionStep, last: boolean): StepLoad {
   const id = stepId(step);
+  const action = step.action as RecipeAction;
   // The pull request holds the commits of the steps before it; none may come after it.
-  if (!last) {
+  if (action === 'openPullRequest' && !last) {
     return [
       `step "${id}" opens the pull request, so it must be the last step of the recipe (ADR 0071)`,
     ];
@@ -787,7 +798,7 @@ function actionLine(step: ActionStep, last: boolean): StepLoad {
       step.onPullRequestFail === undefined
         ? undefined
         : { why: 'pull_request', ...step.onPullRequestFail },
-    action: 'openPullRequest',
+    action,
   };
   return { line };
 }
@@ -1331,7 +1342,10 @@ export function loadRecipes(breweryFiles: BreweryFiles): LoadedRecipes {
   // (ADR 0232). Of those, the `brew` ones: what the recipes input of any other brewer names, such
   // as a plan's for its sub-orders, what a plan's out doc may name, and what a plan lens step
   // judges those by (ADR 0234, ADR 0321, ADR 0365).
-  const choices = [...offered.values()].filter(({ name }) => !choosingSteps.has(name));
+  // A `tend` recipe is offered to none: only its label starts it (ADR 0380).
+  const choices = [...offered.values()].filter(
+    ({ name, type }) => !choosingSteps.has(name) && type !== 'tend',
+  );
   const building = choices.filter(({ type }) => type === 'brew');
   for (const [recipe, steps] of stepBrewers) {
     const chooses = choosingSteps.get(recipe) ?? [];

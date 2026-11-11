@@ -12,12 +12,13 @@ import { needsTestMap } from '../checks/red-proof.ts';
 import { surveyed } from '../checks/survey.ts';
 import { addedUnmeasured, refusalCommit, sensitivePathsOf, testMaps } from '../checks/test-map.ts';
 import { guardTests } from '../checks/tests-guard.ts';
-import type { AttemptRef } from '../engine/attempt-key.ts';
+import { type AttemptRef, attemptKey } from '../engine/attempt-key.ts';
 import { baseConflictEffects } from '../engine/base-check.ts';
 import type { BrewerRunner, RunningAttempt } from '../engine/brewer-runner.ts';
 import { breweryCloseEffects } from '../engine/brewery-closes.ts';
 import { claimEffects } from '../engine/claim-effects.ts';
 import { breweryIssueOf } from '../engine/claim-orders.ts';
+import { actionsByKind, cleanupActions } from '../engine/cleanup-actions.ts';
 import { createCommandLog } from '../engine/command-log.ts';
 import {
   type Doing,
@@ -297,12 +298,42 @@ export const wireDriver = async (
       : []),
   );
   // The login was read at the start, for the status comments (ADR 0072).
-  const actions = pullRequestActions({
+  const opens = pullRequestActions({
     brewery: setup.brewery,
     repositories: pushes,
     host: pullRequests,
     orderTitle: githubOrderTitle(reads, setup.brewery),
     visibility: visibilities.of,
+  });
+  // A cleanup's archive takes no batch with an effect due or a lease (ADR 0380).
+  const tends = cleanupActions({
+    recipes: setup.recipes,
+    log: createCommandLog({ store, recipes: setup.recipes }),
+    facts: (state) => {
+      const now = clock();
+      return {
+        due: (batchId) => {
+          try {
+            return effects.due(state, batchId).some((key) => store.findEffect(key) === undefined);
+          } catch {
+            return true;
+          }
+        },
+        leased: new Set([
+          ...store.batchLeases(now).map(({ batchId }) => batchId),
+          ...store
+            .currentLeases(now)
+            .flatMap(({ attemptKey: key }) => attemptKey.decode(key)?.batchId ?? []),
+        ]),
+      };
+    },
+    temp: setup.temp,
+    clock,
+  });
+  const actions = actionsByKind(setup.recipes, {
+    openPullRequest: opens,
+    archive: tends,
+    sweep: tends,
   });
   const tools = new Map(setup.repositories.map(({ repo, tools }) => [repo.toLowerCase(), tools]));
   let driver: Driver | undefined;

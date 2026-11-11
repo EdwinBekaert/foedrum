@@ -142,6 +142,8 @@ export interface ServeSetup {
   workRoot: string;
   /** The event store: `.foedrum/index.db` in the checkout. */
   store: string;
+  /** The Brewery's temporary folder, `.foedrum/tmp/` in the checkout, which a cleanup sweeps (ADR 0380). */
+  temp: string;
   /** The state branch's worktree: `<workRoot>/state`. */
   stateWorktree: string;
   repositories: readonly ServeRepository[];
@@ -431,6 +433,7 @@ export const serveSetup = (inputs: ServeInputs): ServeSetupResult => {
       brewery,
       workRoot,
       store: storePath(root),
+      temp: join(root, '.foedrum', 'tmp'),
       stateWorktree: join(workRoot, 'state'),
       repositories,
       models,

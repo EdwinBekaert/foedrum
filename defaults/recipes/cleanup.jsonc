@@ -1,0 +1,12 @@
+// Cleanup, which tends the Brewery and builds nothing (ADR 0380): it archives every finished batch,
+// whose folder moves from batches/ to archive/ on the state branch, then removes from the Brewery's
+// .foedrum/tmp/ what nothing changed in for 2 days. It leaves alone a batch still at work, Stuck, or
+// with an effect due, and the engine closes its issue once it is on tap. Of type tend, it is offered
+// to no step: a Brewery issue labelled recipe:cleanup starts it.
+{
+  "$schema": "../../schemas/recipe.json",
+  "name": "cleanup",
+  "type": "tend",
+  "description": "Archive finished batches and remove old temporary files",
+  "steps": [{ "action": "archive" }, { "action": "sweep" }]
+}

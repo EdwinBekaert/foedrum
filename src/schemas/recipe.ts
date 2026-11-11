@@ -347,7 +347,7 @@ const RecipeFields = z.strictObject({
       error: (issue) =>
         issue.input === undefined
           ? 'a recipe needs a "type": add "type": "mash" when it chooses a recipe or makes a plan and builds nothing, or "type": "brew" when it builds (ADR 0365)'
-          : 'Must be "mash", for a recipe that chooses a recipe or makes a plan and builds nothing, or "brew", for one that builds (ADR 0365)',
+          : 'Must be "mash", for a recipe that chooses a recipe or makes a plan and builds nothing, "tend", for one that keeps the Brewery and is offered to no step (ADR 0380), or "brew", for one that builds (ADR 0365)',
     })
     .describe(
       'mash: chooses a recipe or makes a plan, and builds nothing; brew: builds. A sub-order runs a brew recipe (ADR 0365)',
