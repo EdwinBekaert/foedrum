@@ -64,6 +64,9 @@ export const cliFromCheckout = async (
       surface: 'terminal',
       now: () => new Date(),
       zone: () => Intl.DateTimeFormat().resolvedOptions().timeZone,
+      version: () => {
+        throw new Error('not implemented');
+      },
       // Through the engine's git, in each repository's clone as serve finds it (ADR 0092).
       readKeptBranches: (state, unpushed) => {
         const files = {

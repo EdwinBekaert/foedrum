@@ -77,6 +77,7 @@ const context = (overrides: Partial<CliContext> = {}): CliContext => ({
   resume: async () => assert.fail('no session to resume'),
   applyEffects: async () => [],
   init: async () => assert.fail('no init here'),
+  version: () => assert.fail('no version here'),
   env: {},
   ...overrides,
 });
@@ -246,6 +247,14 @@ describe('foedrum: the command line', () => {
     assert.deepEqual(await run(['-h']), help);
     // The option every command of the registry takes (ADR 0125).
     assert.match(help.stdout, /^Every command takes --via <plugin\|terminal>/m);
+  });
+
+  it("foedrum --version prints the package's version", async () => {
+    assert.deepEqual(await run(['--version'], { version: () => '1.2.3' }), {
+      exitCode: 0,
+      stdout: '1.2.3\n',
+      stderr: '',
+    });
   });
 
   it('runs foedrum serve through its context, with its exit code (ADR 0063)', async () => {

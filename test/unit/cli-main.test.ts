@@ -6,7 +6,7 @@
 // git, is in test/integration/cli.test.ts.
 
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { userInfo } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -69,6 +69,16 @@ describe('foedrum doctor and serve through cliFromCheckout', () => {
 
   it('asks serve’s gh through the injected runner, before it refuses a folder that is no Brewery', async () => {
     assert.ok((await started(['serve'])).includes(MADE_UP_GH));
+  });
+
+  it("prints the version of Foedrum's own package.json, not the Brewery's, for --version", async () => {
+    writeFileSync(join(dir.path, 'package.json'), '{ "name": "brewery", "version": "9.9.9" }\n');
+    const own = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8'));
+    assert.deepEqual(await foedrumIn(dir.path, ['--version']), {
+      exitCode: 0,
+      stdout: `${own.version}\n`,
+      stderr: '',
+    });
   });
 });
 

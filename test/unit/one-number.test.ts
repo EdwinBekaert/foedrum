@@ -133,6 +133,7 @@ describe('one number per piece of work (ADR 0329)', () => {
     resume: async () => assert.fail('no session to resume'),
     applyEffects: async () => [],
     init: async () => assert.fail('no init here'),
+    version: () => assert.fail('no version here'),
     env: {},
     ...overrides,
   });

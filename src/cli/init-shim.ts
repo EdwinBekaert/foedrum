@@ -3,6 +3,7 @@
 // it. The ports are the platform, its environment and home, the files, and the PATH lookup.
 
 import { posix, win32 } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { messageOf } from '../platform/errors.ts';
 import { pathExtensions, pathFolders } from '../platform/executables.ts';
 import type { Parsed } from './init.ts';
@@ -278,6 +279,14 @@ export const shimChoice = (ports: ShimPorts): ShimChoice => {
 };
 
 /** Offers the `foedrum` command after asking, or says how to write it by hand (ADR 0210). */
+/**
+ * The entry point beside the module at `moduleUrl`, with that module's extension: `main.ts` in
+ * the checkout, `main.js` in the emitted package (ADR 0377).
+ */
+export const mainBeside = (moduleUrl: string): string => {
+  throw new Error(`not implemented: ${fileURLToPath(moduleUrl)}`);
+};
+
 export const offerShim = async (ports: ShimPorts, terminal: ShimTerminal): Promise<void> => {
   const { say } = terminal;
   const { windows } = shimOf(ports);

@@ -10,6 +10,15 @@ import type { SpawnCommand } from './processes.ts';
 /** The exit code of the helper when it could not start the program inside a job. */
 export const JOB_OBJECT_FAILED = 125;
 
+/**
+ * The helper's file for the module at `moduleUrl`: `src/platform/job-object.ps1` of the package,
+ * found from the package's root, so from `src/platform/` and from the emitted `dist/platform/`
+ * alike, since tsc copies no `.ps1` (ADR 0377).
+ */
+export const helperFile = (moduleUrl: string): URL => {
+  throw new Error(`not implemented: ${moduleUrl}`);
+};
+
 // The line the helper writes, alone on stdout, when it could not start the program in a job.
 const REFUSAL = 'foedrum job object: ';
 

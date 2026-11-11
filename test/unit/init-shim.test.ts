@@ -3,8 +3,10 @@
 // existing shim or file, a no, a machine with no folder to offer, and the PATH lookup after it.
 
 import assert from 'node:assert/strict';
+import { join, resolve } from 'node:path';
 import { describe, it } from 'node:test';
-import { offerShim, type ShimPorts } from '../../src/cli/init-shim.ts';
+import { pathToFileURL } from 'node:url';
+import { mainBeside, offerShim, type ShimPorts } from '../../src/cli/init-shim.ts';
 
 interface Machine {
   platform: NodeJS.Platform;
@@ -737,5 +739,19 @@ describe('the foedrum command, on the edges of its machine (ADR 0210)', () => {
     ]);
     const windowsRun = await offer(windows('C:\\Users;C:\\Users\\ada\\tools'), ['n']);
     assert.deepStrictEqual(windowsRun.lines.slice(1, 2), ['  1. C:\\Users\\ada\\tools']);
+  });
+});
+
+describe('the entry point the shim runs (ADR 0377)', () => {
+  const root = resolve('package-root');
+
+  it('is main.js beside init-main.js in the emitted code', () => {
+    const module = pathToFileURL(join(root, 'dist', 'cli', 'init-main.js')).href;
+    assert.equal(mainBeside(module), join(root, 'dist', 'cli', 'main.js'));
+  });
+
+  it('is main.ts beside init-main.ts in the checkout', () => {
+    const module = pathToFileURL(join(root, 'src', 'cli', 'init-main.ts')).href;
+    assert.equal(mainBeside(module), join(root, 'src', 'cli', 'main.ts'));
   });
 });

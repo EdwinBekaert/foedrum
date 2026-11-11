@@ -131,6 +131,8 @@ export interface CliContext {
    * 0212).
    */
   init: (input: InitCommand) => Promise<CliResult>;
+  /** The version of the Foedrum that runs, from its own package.json (ADR 0377). */
+  version: () => string;
 }
 
 export interface CliResult {

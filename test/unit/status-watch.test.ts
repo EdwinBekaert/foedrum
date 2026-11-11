@@ -548,6 +548,7 @@ describe('foedrum status --watch: the command layer', () => {
     resume: async () => assert.fail('no session to resume'),
     applyEffects: async () => [],
     init: async () => assert.fail('no init here'),
+    version: () => assert.fail('no version here'),
     env: {},
     ...overrides,
   });
