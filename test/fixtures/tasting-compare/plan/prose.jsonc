@@ -4,6 +4,11 @@
   "name": "prose",
   "type": "brew",
   "description": "A page of prose and no code: writes it and opens the pull request, with no test and no lens",
+  "guidance": {
+    "chooseWhen": "An order a test brews",
+    "notWhen": "An order no test brews",
+    "bestUsed": "In a test"
+  },
   "testFirst": false,
   "steps": [
     { "id": "gauge", "brewer": "gauger", "when": "recipe.testFirst" },

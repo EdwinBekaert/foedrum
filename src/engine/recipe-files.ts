@@ -13,6 +13,7 @@ import {
   type CheckRef,
   type ChosenBy,
   Recipe as RecipeFile,
+  type RecipeGuidance,
   type RecipeType,
   readExpression,
   type Step,
@@ -50,13 +51,6 @@ export interface BreweryFiles extends FilesByKind {
   };
 }
 
-/** When to choose a recipe, when not, and how it is best used: what a model choosing it reads (ADR 0375). */
-export interface RecipeGuidance {
-  chooseWhen: string;
-  notWhen: string;
-  bestUsed: string;
-}
-
 /**
  * A recipe a step that chooses the recipe may offer: its name, type, description and guidance
  * (ADR 0232, ADR 0365, ADR 0375).
@@ -65,7 +59,7 @@ export interface RecipeChoice {
   name: string;
   type: RecipeType;
   description: string;
-  guidance?: RecipeGuidance;
+  guidance: RecipeGuidance;
 }
 
 /** A lens's text, from the Brewery's `lenses/` or Foedrum's defaults (ADR 0098). */
@@ -105,6 +99,10 @@ export interface StepBrewer {
    */
   choices?: readonly RecipeChoice[];
 }
+
+/** Why a recipe offered as a choice without guidance is refused, and the fix (ADR 0375). */
+const unguidedLine = (name: string): string =>
+  `the recipe ${name} is offered as a choice, so it needs "guidance": add "guidance": { "chooseWhen": "<the orders it is for>", "notWhen": "<the orders it is not for, and what to choose for them>", "bestUsed": "<how it is best used>" }, each one line of at most 300 characters (ADR 0375)`;
 
 /** Every brewer and lens in use, and what names them: what doctor reports on (ADR 0141). */
 export interface Catalog {
@@ -1241,9 +1239,13 @@ export function loadRecipes(breweryFiles: BreweryFiles): LoadedRecipes {
   const stepBrewers = new Map<string, ReadonlyMap<string, StepBrewer>>();
   const stepChecks = new Map<string, ReadonlyMap<string, StepCheck>>();
   const redProofs = new Map<string, { id: string; of: string }>();
-  // Each loaded recipe's type and description, in the order read, and the steps that choose a
-  // recipe, by recipe: what those steps may offer is known once every recipe loaded (ADR 0232).
-  const offered = new Map<string, RecipeChoice>();
+  // Each loaded recipe's type, description and guidance, in the order read, with the file it was
+  // read from, and the steps that choose a recipe, by recipe: what those steps may offer is known
+  // once every recipe loaded (ADR 0232, ADR 0375).
+  const offered = new Map<
+    string,
+    Omit<RecipeChoice, 'guidance'> & { guidance?: RecipeGuidance; path: string }
+  >();
   const choosingSteps = new Map<string, readonly string[]>();
   for (const { path, value } of readAll(
     files.recipes,
@@ -1319,7 +1321,14 @@ export function loadRecipes(breweryFiles: BreweryFiles): LoadedRecipes {
         value.concurrency,
       ),
     );
-    offered.set(value.name, { name: value.name, type: value.type, description: value.description });
+    const { name, type, description, guidance } = value;
+    offered.set(name, {
+      name,
+      type,
+      description,
+      ...(guidance === undefined ? {} : { guidance }),
+      path,
+    });
     const choosing = steps.flatMap(({ line }) => (line.chooses === true ? [line.id] : []));
     if (choosing.length > 0) choosingSteps.set(value.name, choosing);
     stepBrewers.set(
@@ -1338,7 +1347,18 @@ export function loadRecipes(breweryFiles: BreweryFiles): LoadedRecipes {
   // (ADR 0232). Of those, the `brew` ones: what the recipes input of any other brewer names, such
   // as a plan's for its sub-orders, what a plan's out doc may name, and what a plan lens step
   // judges those by (ADR 0234, ADR 0321, ADR 0365).
-  const choices = [...offered.values()].filter(({ name }) => !choosingSteps.has(name));
+  const offerable = [...offered.values()].filter(({ name }) => !choosingSteps.has(name));
+  // Every recipe offered says when to choose it: a model choosing it reads that (ADR 0375).
+  const unguided = offerable.filter(({ guidance }) => guidance === undefined);
+  if (unguided.length > 0) {
+    return {
+      valid: false,
+      problems: unguided.map(({ path, name }) => `${path}: ${unguidedLine(name)}`),
+    };
+  }
+  const choices = offerable.flatMap(({ path: _, guidance, ...choice }): RecipeChoice[] =>
+    guidance === undefined ? [] : [{ ...choice, guidance }],
+  );
   const building = choices.filter(({ type }) => type === 'brew');
   for (const [recipe, steps] of stepBrewers) {
     const chooses = choosingSteps.get(recipe) ?? [];

@@ -11,6 +11,11 @@
   "name": "mash",
   "type": "mash",
   "description": "Plan an order as sub-orders through three lenses, shown on its issue; nothing is built",
+  "guidance": {
+    "chooseWhen": "An order to break into sub-orders before anything is built: broad, unclear or across repositories, whose cut is plain once its repositories are read.",
+    "notWhen": "An order clear enough to build as written: choose a brew recipe. An order whose cut carries a risk a quick plan can miss, such as a credential, a migration or a public interface: choose deep-mash.",
+    "bestUsed": "On an order whose parts each build in one repository. Three Tasters review the plan, and a person approves it before any sub-order brews."
+  },
   // It commits nothing, so there is no test to write first.
   "testFirst": false,
   "steps": [

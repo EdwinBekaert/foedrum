@@ -11,6 +11,7 @@ import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import type { FlushResult } from '../../src/engine/state-branch-git.ts';
 import type { AttemptProgress } from '../../src/engine/supervisor.ts';
 import { brewFixture, idle, request, t0 } from '../helpers/brew-fixture.ts';
+import { testGuidance } from '../helpers/brewery-files.ts';
 import { behave, fakeBrewerRunner } from '../helpers/fake-brewer-runner.ts';
 import { fakeGitHubApi } from '../helpers/fake-github-api.ts';
 import { fakeLock } from '../helpers/fake-lock.ts';
@@ -395,6 +396,7 @@ describe('runBrew', () => {
         name: 'tasting',
         type: 'brew',
         description: 'Two lenses side by side.',
+        guidance: testGuidance,
         testFirst: false,
         steps: [
           { id: 'note', brewer: 'scribe' },

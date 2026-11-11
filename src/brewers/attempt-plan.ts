@@ -335,14 +335,23 @@ const planInput = (
   throw new Error(`the input "${name}" needs the batch's plan, which it has none of yet`);
 };
 
-/** The recipes input `name`: one line per recipe, its name, type and description (ADR 0232, ADR 0365). */
+/**
+ * The recipes input `name`: a line per recipe, its name, type and description, and under it its
+ * guidance, a line each (ADR 0232, ADR 0365, ADR 0375).
+ */
 const recipesInput = (name: string, choices: readonly RecipeChoice[]): PlannedInput => ({
   name,
   source: { kind: 'recipes' },
   read: {
     kind: 'text',
     text: choices
-      .map((choice) => `- ${choice.name} (${choice.type}): ${choice.description}\n`)
+      .map(
+        ({ name: recipe, type, description, guidance }) =>
+          `- ${recipe} (${type}): ${description}\n` +
+          `  Choose when: ${guidance.chooseWhen}\n` +
+          `  Not when: ${guidance.notWhen}\n` +
+          `  Best used: ${guidance.bestUsed}\n`,
+      )
       .join(''),
   },
 });

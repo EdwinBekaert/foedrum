@@ -23,10 +23,17 @@ export const brewerText = (name: string, fields: Record<string, unknown> = {}): 
     2,
   )}\n---\nDo the work of the ${name}.\n`;
 
-/** The text of `recipes/<name>.jsonc`, with a comment, as a Brewery writes it. */
+/** Guidance for a test recipe: every recipe offered as a choice carries some (ADR 0375). */
+export const testGuidance = {
+  chooseWhen: 'An order a test brews',
+  notWhen: 'An order no test brews',
+  bestUsed: 'In a test',
+};
+
+/** The text of `recipes/<name>.jsonc`, with a comment and guidance, as a Brewery writes it. */
 export const recipeText = (
   name: string,
   steps: readonly unknown[],
   fields: Record<string, unknown> = {},
 ): string =>
-  `// The ${name} recipe.\n${JSON.stringify({ name, type: 'brew', description: `The ${name}.`, steps, ...fields }, null, 2)}\n`;
+  `// The ${name} recipe.\n${JSON.stringify({ name, type: 'brew', description: `The ${name}.`, guidance: testGuidance, steps, ...fields }, null, 2)}\n`;

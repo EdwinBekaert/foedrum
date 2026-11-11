@@ -95,6 +95,11 @@ export const recipeText = (setup: SetupName): string => {
     name: setup,
     type: 'brew',
     description: `The seeded change of #567, tasted ${setup.startsWith('apart') ? 'apart' : 'together'}`,
+    guidance: {
+      chooseWhen: 'The seeded change of #567, to compare tastings',
+      notWhen: 'Any real order',
+      bestUsed: 'Through node scripts/tasting-compare.ts',
+    },
     testFirst: false,
     steps: [
       { id: 'gauge', brewer: 'gauger', when: 'recipe.testFirst' },

@@ -4,6 +4,11 @@
   "name": "pint",
   "type": "brew",
   "description": "Medium feature in one repository, with plan approval",
+  "guidance": {
+    "chooseWhen": "An order a test brews",
+    "notWhen": "An order no test brews",
+    "bestUsed": "In a test"
+  },
   "steps": [
     { "id": "context", "brewer": "maltster" },
     { "id": "plan", "brewer": "brewmaster" },

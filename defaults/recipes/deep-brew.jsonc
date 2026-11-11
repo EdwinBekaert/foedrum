@@ -11,6 +11,11 @@
   "name": "deep-brew",
   "type": "brew",
   "description": "A change that can reach a lot, whatever its size, test-first: every diff lens and Brett's mutants",
+  "guidance": {
+    "chooseWhen": "A change that can reach a lot, whatever its size: a loop over every item, a shared path, a public interface, a credential, a migration or what other repositories read.",
+    "notWhen": "A change whose effect stays inside the code it changes: nip builds it for less. An order that needs a plan first, because it is unclear or spans repositories: choose a mash recipe.",
+    "bestUsed": "On an order clear enough to build in one repository. Brett's surviving mutants go back to the Gauger, and one Taster on the planner model reads every diff lens, so it costs more than nip."
+  },
   "steps": [
     // Without a session when the base's map is fresh, or the Brewery keeps it (ADR 0298).
     { "id": "survey", "brewer": "maltster", "when": "recipe.testFirst" },
