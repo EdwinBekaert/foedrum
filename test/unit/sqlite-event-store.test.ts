@@ -789,6 +789,23 @@ describe('SqliteEventStore in memory', () => {
       ]);
     });
 
+    it("ends the Stuck reminder on a resume that schedules nothing, as a reopened batch's retry: regression test (ADR 0380)", () => {
+      store.withTransaction((tx) => tx.append(stuck('b1', '2026-10-15T11:00:00Z')));
+      assert.deepEqual(store.batchesPastDeadline(now), [
+        { batchId: 'b1', deadlineAt: at('2026-10-15T11:00:00Z') },
+      ]);
+      store.withTransaction((tx) =>
+        tx.append({
+          type: 'batch.resumed',
+          batchId: 'b1',
+          by: 'octocat',
+          via: 'plugin',
+          action: 'retry',
+        }),
+      );
+      assert.deepEqual(store.batchesPastDeadline(now), []);
+    });
+
     it('ends the Stuck reminder when a step is scheduled', () => {
       store.withTransaction((tx) => {
         tx.append(stuck('b1', '2026-10-15T11:00:00Z'));

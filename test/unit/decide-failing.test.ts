@@ -200,6 +200,33 @@ describe('mark_failing', () => {
     assert.equal(failingOf(retried), undefined);
   });
 
+  it('admits a reopened Stuck only of an ended batch, or again as its reminder: regression test (ADR 0380)', () => {
+    const reopened: Event = {
+      type: 'batch.stuck',
+      batchId: 'b1',
+      reason: {
+        kind: 'reopened',
+        ended: { kind: 'cancelled', ...who },
+        pass: 'supervisor',
+        summary: 'boom',
+        since,
+      },
+      options: ['retry', 'cancel'],
+      remindAt: since,
+    };
+    assert.equal(admit(brewing(), [reopened]).kind, 'refused');
+    const cancelled = after([{ kind: 'cancel', batchId: 'b1', ...who }], brewing());
+    assert.equal(admit(cancelled, [reopened]).kind, 'accepted');
+    assert.equal(admit(after([mark], cancelled), [reopened]).kind, 'accepted');
+    assert.equal(admit(emptyState, [reopened]).kind, 'refused');
+  });
+
+  it('refuses a skip of a reopened batch, which has no step to skip: regression test (ADR 0380)', () => {
+    const reopened = after([mark], after([{ kind: 'cancel', batchId: 'b1', ...who }], brewing()));
+    const skip = decide(reopened, { kind: 'skip', batchId: 'b1', ...who }, context);
+    assert.equal(skip.kind, 'refused');
+  });
+
   it('refuses a batch that was never ordered, and throws nothing', () => {
     assert.equal(decide(emptyState, mark, context).kind, 'refused');
   });
