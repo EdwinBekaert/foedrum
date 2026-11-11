@@ -22,7 +22,7 @@ const optionText = (
   option: Exclude<StuckOption, 'answer'>,
   reason: StuckReason,
   called: string,
-  command: Command,
+  command: Command = (text) => text,
 ): string => {
   const run = (rest = '') => command(`foedrum ${option} ${called}${rest}`);
   switch (option) {
@@ -56,7 +56,7 @@ export const stuckNext = (
   reason: StuckReason,
   options: readonly StuckOption[],
   called: string,
-  command: Command,
+  command: Command = (text) => text,
 ): string => {
   const others = options.flatMap((option) =>
     option === 'answer' ? [] : [optionText(option, reason, called, command)],

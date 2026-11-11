@@ -76,9 +76,7 @@ export const formatStuck = (state: State): string => {
           return [
             batch.id,
             orderName(state, batch),
-            [`${shown}:`, [detail, ...failingParts(batch)].filter((part) => part !== '').join('; ')]
-              .filter((part) => part !== ':')
-              .join(' '),
+            `${shown}: ${[detail, ...failingParts(batch)].filter((part) => part !== '').join('; ')}`,
           ];
         },
         (error) => [batch.id, issueOf(batch), stateLine(now), unreadable(batch, error)],
@@ -86,7 +84,6 @@ export const formatStuck = (state: State): string => {
     ),
     '',
   );
-  const plainCommand = (text: string): string => text;
   const lines = waiting.flatMap(({ batch }, i) => {
     const { lane } = batch;
     const head = heads[i] ?? '';
@@ -118,7 +115,7 @@ export const formatStuck = (state: State): string => {
         () => openLines(state, batch, lane.reason),
         () => [],
       ),
-      `  ${stuckNext(lane.reason, lane.options, called, plainCommand)}`,
+      `  ${stuckNext(lane.reason, lane.options, called)}`,
     ];
   });
   const count = `${waiting.length} ${waiting.length === 1 ? 'batch waits' : 'batches wait'} for you`;

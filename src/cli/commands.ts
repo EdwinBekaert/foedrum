@@ -1143,7 +1143,7 @@ export const commands: readonly RegisteredCommand[] = [
           const batch = foldedBatch(state, event.batchId);
           return [
             `${saidAs(state, batch)} waits for you at step ${event.reason.stepId}`,
-            `  ${stuckNext(event.reason, event.options, calledAs(state, batch), (text) => text)}`,
+            `  ${stuckNext(event.reason, event.options, calledAs(state, batch))}`,
           ];
         });
         return done(`${givenName(target)} stopped.\n${stopped.join('\n')}\n`);

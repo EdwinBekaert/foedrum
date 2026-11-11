@@ -103,7 +103,7 @@ const questionLines = (state: State, stepId: string, batch: Batch): string[] => 
       `  ${n + 1}. ${q} (${options.join(', ')}; recommended: ${recommended})`,
       `     why it blocks: ${whyBlocking}`,
     ]),
-    stuckNext(lane.reason, lane.options, called, (text) => text),
+    stuckNext(lane.reason, lane.options, called),
     `Once it is answered, foedrum brew ${called} goes on.`,
   ];
 };
@@ -999,7 +999,7 @@ export const runBrew = async (
           const shown =
             plan === undefined || shownOn === undefined ? '' : `; the plan: ${commentUrl(plan)}`;
           say(`${said} is ${clause}: ${detail}${shown}`);
-          say(stuckNext(reason, options, calledAs(driver.state(), now), (text) => text));
+          say(stuckNext(reason, options, calledAs(driver.state(), now)));
           if (reason.kind === 'waiting_for_session') {
             say(sessionLine(request.noSessions, driver.state()));
           }
