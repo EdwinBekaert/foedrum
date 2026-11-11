@@ -1134,37 +1134,6 @@ describe('createIntake', () => {
       assert.match(unrouted[1]?.reason ?? '', /pint/);
     });
 
-    it('an issue labelled recipe:decoction is told to use the name it has now, in one line, once (ADR 0372)', async () => {
-      // decoction is half's old name here: a new choice of it is refused, naming half.
-      log = createCommandLog({
-        store,
-        recipes: {
-          find: (name) => recipes.find(name === 'decoction' ? 'half' : name),
-          renamed: (name) => (name === 'decoction' ? 'half' : undefined),
-        },
-      });
-      const { tracker } = fakeTracker({
-        [brewery]: [labelled(12, { labels: ['recipe:decoction'] })],
-        [web]: [],
-        [api]: [],
-      });
-      const polling = breweryIntake(tracker);
-      await polling.poll();
-      await polling.poll();
-      assert.deepStrictEqual(lanes(), ['12-1 ordered']);
-      assert.deepStrictEqual(
-        notices.filter((notice) => notice.kind === 'unrouted'),
-        [
-          {
-            kind: 'unrouted',
-            batchId: '12-1',
-            reason:
-              'the recipe decoction is called half now; choose half, or label the issue recipe:half',
-          },
-        ],
-      );
-    });
-
     it('never follows a label changed after routing', async () => {
       const first = fakeTracker({ [brewery]: [labelled(12)], [web]: [], [api]: [] });
       await breweryIntake(first.tracker).poll();

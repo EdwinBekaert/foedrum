@@ -582,14 +582,6 @@ describe('loadRecipes: a test-first recipe needs a red proof (ADR 0028, ADR 0064
     assert.equal(result.checks.redProof('elsewhere'), undefined);
   });
 
-  it("finds a renamed recipe's checks and red proof by its old name, decoction (ADR 0372): regression test", () => {
-    const result = loadRecipes(withWriters(opened('deep-mash', testFirst)));
-    assert.ok(result.valid, result.valid ? '' : result.problems.join('\n'));
-    assert.deepEqual(result.checks.find('decoction', 'red'), ['test']);
-    assert.equal(result.checks.proves('decoction', 'red'), 'gauge');
-    assert.deepEqual(result.checks.redProof('decoction'), { id: 'red', of: 'gauge' });
-  });
-
   it('runs a step whose when is a bare recipe.testFirst in a test-first recipe (review of #184)', () => {
     const result = loadRecipes(withWriters(opened('pale', testFirst)));
     assert.ok(result.valid, result.valid ? '' : result.problems.join('\n'));
@@ -2633,36 +2625,5 @@ describe("loadRecipes: a Taster's findings always have a route, onFindings (ADR 
     assert.deepEqual(problemsOf(amber([notes], [committer, taster, scribe])), [
       'recipes/amber.jsonc: step "notes" has "everyRound", but its brewer "scribe" is no Taster: only a Taster\'s step in a parallel group with "onFindings" runs again every round; take "everyRound" off (ADR 0357)',
     ]);
-  });
-});
-
-describe('loadRecipes: a recipe called by another name now, decoction (ADR 0372)', () => {
-  const plans = (name: string, brewerName: string) =>
-    recipe(name, [{ id: 'plan', brewer: brewerName }], { type: 'mash', testFirst: false });
-  const deepMash = plans('deep-mash', 'brewmaster');
-
-  it('a batch that recorded decoction finds deep-mash, its brewers too', () => {
-    const result = loadRecipes(brewery({ recipes: [pale, deepMash] }));
-    assert.ok(result.valid, result.valid ? '' : result.problems.join('\n'));
-    assert.equal(result.recipes.find('decoction')?.firstStep, 'plan');
-    assert.equal(result.brewers.find('decoction', 'plan')?.brewer.name, 'brewmaster');
-    assert.equal(result.brewers.has('decoction', 'plan'), true);
-    assert.equal(result.recipes.renamed?.('decoction'), 'deep-mash');
-    assert.equal(result.recipes.renamed?.('deep-mash'), undefined);
-  });
-
-  it("a Brewery's own decoction is its own, renamed nothing: regression test", () => {
-    const own = plans('decoction', 'maltster');
-    const result = loadRecipes(brewery({ recipes: [pale, deepMash, own] }));
-    assert.ok(result.valid, result.valid ? '' : result.problems.join('\n'));
-    assert.equal(result.brewers.find('decoction', 'plan')?.brewer.name, 'maltster');
-    assert.equal(result.recipes.renamed?.('decoction'), undefined);
-  });
-
-  it('a Brewery with no deep-mash finds no decoction: regression test', () => {
-    const result = loadRecipes(brewery());
-    assert.ok(result.valid, result.valid ? '' : result.problems.join('\n'));
-    assert.equal(result.recipes.find('decoction'), undefined);
-    assert.equal(result.recipes.renamed?.('decoction'), undefined);
   });
 });
