@@ -1336,7 +1336,6 @@ export function loadRecipes(breweryFiles: BreweryFiles): LoadedRecipes {
       new Map(steps.flatMap(({ line, check }) => (check === undefined ? [] : [[line.id, check]]))),
     );
   }
-  if (problems.length > 0) return { valid: false, problems };
   // Every recipe but those that choose a recipe themselves: what a step that chooses offers
   // (ADR 0232). Of those, the `brew` ones: what the recipes input of any other brewer names, such
   // as a plan's for its sub-orders, what a plan's out doc may name, and what a plan lens step
