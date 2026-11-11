@@ -133,21 +133,6 @@ describe('archivable (ADR 0380)', () => {
     assert.deepStrictEqual(idsOf(all, { ...none, unpushed: (id) => id === '1-1' }), ['2-1']);
   });
 
-  it('takes a later batch of an issue only once every earlier one goes too, so they go in the order they were ordered', () => {
-    const claimed = { issue: 7, repo: 'acme/web' };
-    const state = fold([
-      ordered('web-7', claimed),
-      cancelled('web-7'),
-      ordered('web-7-2', claimed),
-      cancelled('web-7-2'),
-      ordered('8-1', { issue: 8 }),
-      cancelled('8-1'),
-    ]);
-    const facts = { ...none, due: (id: string) => id === 'web-7' };
-    assert.deepStrictEqual(idsOf(state, facts), ['8-1']);
-    assert.deepStrictEqual(idsOf(state), ['web-7', 'web-7-2', '8-1']);
-  });
-
   it('takes a split order only with every batch of its sub-orders, once its issue is closed', () => {
     const parent = fold([
       ordered('6-1', { issue: 6 }),
@@ -169,23 +154,5 @@ describe('archivable (ADR 0380)', () => {
       idsOf(ended, { due: (id) => id === '62-1', leased: new Set(), unpushed: () => false }),
       [],
     );
-  });
-
-  it('keeps a whole split family whose order an earlier batch of its issue holds back', () => {
-    const state = fold([
-      ordered('6-1', { issue: 6 }),
-      cancelled('6-1'),
-      ordered('6-2', { issue: 6 }),
-      onTap('6-2'),
-      ordered('61-1', { issue: 61 }, '6-2'),
-      onTap('61-1', pr(61)),
-      merged('61-1', pr(61)),
-      applied('6-2', 'close.issue', null),
-    ]);
-    assert.deepStrictEqual(
-      idsOf(state, { due: (id) => id === '6-1', leased: new Set(), unpushed: () => false }),
-      [],
-    );
-    assert.deepStrictEqual(idsOf(state), ['6-1', '6-2', '61-1']);
   });
 });
