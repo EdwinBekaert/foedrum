@@ -15,7 +15,6 @@ import {
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { createInterface } from 'node:readline';
-import { fileURLToPath } from 'node:url';
 import {
   createLabel,
   createRepository,
@@ -32,7 +31,7 @@ import { diagnose, formatDiagnosis } from './doctor.ts';
 import type { DoctorShell } from './doctor-facts.ts';
 import { doctorFromCheckout } from './doctor-main.ts';
 import { type InitAnswers, runInit } from './init.ts';
-import type { ShimPorts } from './init-shim.ts';
+import { mainBeside, type ShimPorts } from './init-shim.ts';
 import { type CliResult, printable } from './run.ts';
 
 /** How long init's clone, commit and push may each take. */
@@ -145,7 +144,7 @@ const machineShim = (given: Partial<Pick<ShimPorts, 'env' | 'home'>> | undefined
     env,
     home: given?.home ?? homedir(),
     // The checkout of the Foedrum that runs, never the working directory, which is the Brewery's.
-    entry: fileURLToPath(new URL('./main.ts', import.meta.url)),
+    entry: mainBeside(import.meta.url),
     writable: (folder) => {
       try {
         if (!statSync(folder).isDirectory()) return false;

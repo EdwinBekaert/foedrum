@@ -2,7 +2,8 @@
 // that runs this checkout's entry point with the node on the PATH, until `npx foedrum` replaces
 // it. The ports are the platform, its environment and home, the files, and the PATH lookup.
 
-import { posix, win32 } from 'node:path';
+import { extname, join, posix, win32 } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { messageOf } from '../platform/errors.ts';
 import { pathExtensions, pathFolders } from '../platform/executables.ts';
 import type { Parsed } from './init.ts';
@@ -275,6 +276,15 @@ export const shimChoice = (ports: ShimPorts): ShimChoice => {
     },
     first: filesIn(folders[0] as string),
   };
+};
+
+/**
+ * The entry point beside the module at `moduleUrl`, with that module's extension: `main.ts` in
+ * the checkout, `main.js` in the emitted package (ADR 0377).
+ */
+export const mainBeside = (moduleUrl: string): string => {
+  const module = fileURLToPath(moduleUrl);
+  return join(module, '..', `main${extname(module)}`);
 };
 
 /** Offers the `foedrum` command after asking, or says how to write it by hand (ADR 0210). */

@@ -125,6 +125,7 @@ describe('foedrum: commands that change state', () => {
     resume: async () => assert.fail('no session to resume'),
     applyEffects: async () => [],
     init: async () => assert.fail('no init here'),
+    version: () => assert.fail('no version here'),
     env: {},
     ...overrides,
   });
@@ -1400,6 +1401,7 @@ describe('foedrum stuck', () => {
       resume: async () => assert.fail('no session to resume'),
       applyEffects: async () => [],
       init: async () => assert.fail('no init here'),
+      version: () => assert.fail('no version here'),
       env: {},
     });
   const append = (...events: Event[]) =>
@@ -1656,6 +1658,7 @@ describe('foedrum brewers', () => {
       resume: async () => assert.fail('no session to resume'),
       applyEffects: async () => [],
       init: async () => assert.fail('no init here'),
+      version: () => assert.fail('no version here'),
       env: {},
       ...overrides,
     });
@@ -1771,6 +1774,7 @@ describe('foedrum lenses (ADR 0221)', () => {
       resume: async () => assert.fail('no session to resume'),
       applyEffects: async () => [],
       init: async () => assert.fail('no init here'),
+      version: () => assert.fail('no version here'),
       env: {},
       ...overrides,
     });
@@ -1938,6 +1942,7 @@ describe('foedrum order: order an issue again (ADR 0105)', () => {
     resume: async () => assert.fail('no session to resume'),
     applyEffects: async () => [],
     init: async () => assert.fail('no init here'),
+    version: () => assert.fail('no version here'),
     env: {},
     ...overrides,
   });
