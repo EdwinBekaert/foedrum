@@ -553,6 +553,90 @@ describe('a review that asks for changes sends the batch back (ADR 0382)', () =>
       ]);
     });
 
+    it('a tick before the next pass sends nothing back for a review a round already answered', () => {
+      const log = logOf([
+        ...openedOnTap(),
+        {
+          type: 'pull_request.reviews_read',
+          batchId: 'b1',
+          pullRequest: fixPullRequest,
+          reviews: [{ id: 81, by: 'ada', body: '', comments: [] }],
+        },
+        ...round(2, sentBack([81])),
+      ]);
+      // The record still names review 81: no pass ran since the round went back for it.
+      assert.deepStrictEqual(
+        batch(log).pullRequestReviews?.[fixPullRequest]?.reviews.map(({ id }) => id),
+        [81],
+      );
+      assert.deepStrictEqual(tick(log), []);
+    });
+
+    it('reviews a round already answered take no place in the record, so a new one past five goes back', async () => {
+      const people = ['p1', 'p2', 'p3', 'p4', 'p5', 'ada'];
+      const answered = [101, 102, 103, 104, 105];
+      const log = logOf([
+        ...openedOnTap(),
+        {
+          type: 'pull_request.reviews_read',
+          batchId: 'b1',
+          pullRequest: fixPullRequest,
+          reviews: answered.map((id, at) => ({ id, by: `p${at + 1}`, body: '', comments: [] })),
+        },
+        ...round(2, sentBack(answered)),
+      ]);
+      // GitHub still lists the five a round answered, beside a new request.
+      const still = answered.map((id, at) => asks(id, `p${at + 1}`, '', secondHead));
+      await pass(log, fakeReader([...still, asks(106, 'ada', '', secondHead)]).reader, people);
+      const [, latest] = recorded(log);
+      assert.deepStrictEqual(
+        latest?.type === 'pull_request.reviews_read' && [
+          latest.reviews.map(({ id }) => id),
+          latest.more,
+        ],
+        [[106], undefined],
+      );
+      const [command] = tick(log);
+      assert.deepStrictEqual(command?.kind === 'fix_pull_request' && command.cause, {
+        kind: 'review',
+        reviews: [106],
+      });
+    });
+
+    it('records again when only how many more changes', async () => {
+      const people = ['p1', 'p2', 'p3', 'p4', 'p5', 'p6', 'p7', 'p8'];
+      const log = logOf(openedOnTap());
+      const seven = people.slice(0, 7).map((by, at) => asks(101 + at, by));
+      await pass(log, fakeReader(seven).reader, people);
+      await pass(log, fakeReader([...seven, asks(108, 'p8')]).reader, people);
+      assert.deepStrictEqual(
+        recorded(log).map(
+          (event) =>
+            event.type === 'pull_request.reviews_read' && [
+              event.reviews.map(({ id }) => id),
+              event.more,
+            ],
+        ),
+        [
+          [[101, 102, 103, 104, 105], 2],
+          [[101, 102, 103, 104, 105], 3],
+        ],
+      );
+    });
+
+    it("a deleted account's request for changes is never recorded", async () => {
+      const log = logOf(openedOnTap());
+      const deleted: ReadReview = { id: 82, state: 'CHANGES_REQUESTED', body: 'Gone.' };
+      const { reader, calls } = fakeReader([deleted, asks(83, 'ada')]);
+      assert.deepStrictEqual(await pass(log, reader), []);
+      assert.deepStrictEqual(calls, [`reviews ${fixPullRequest}`, `comments ${fixPullRequest} 83`]);
+      const [record] = recorded(log);
+      assert.deepStrictEqual(
+        record?.type === 'pull_request.reviews_read' && record.reviews.map(({ id }) => id),
+        [83],
+      );
+    });
+
     it('a comment read that fails records nothing for that pull request, says so, and the next one is still read', async () => {
       const other = 'https://github.com/acme/api/pull/13';
       const second = openedOnTap('b2', 'ale', secondHead, other).map((event) =>
