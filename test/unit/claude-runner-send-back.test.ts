@@ -95,6 +95,10 @@ const setup = (
     resumed?: string[];
     /** Runs while a check runs, before it answers. */
     whileChecking?: () => void;
+    /** The clock the runner reads; default a fixed time. */
+    clock?: { now: Date };
+    /** Runs as claude starts, before it writes a line, with how many starts there were. */
+    onStart?: (starts: number) => void;
   } = {},
 ) => {
   const starts: { args: readonly string[]; options: StreamOptions }[] = [];
@@ -106,6 +110,7 @@ const setup = (
     plan: async () => options.plan ?? plan(),
     stream: async (_file, args, streamOptions) => {
       starts.push({ args, options: streamOptions });
+      options.onStart?.(starts.length);
       const played = [plays[0], options.resumed ?? plays[1]];
       for (const line of played[Math.min(starts.length, played.length) - 1] ?? []) {
         streamOptions.onLine(line);
@@ -123,7 +128,7 @@ const setup = (
       restoreOutDoc: () => {},
       copyOutDoc: () => {},
     },
-    now: () => new Date('2026-10-16T12:00:00.000Z'),
+    now: () => options.clock?.now ?? new Date('2026-10-16T12:00:00.000Z'),
     wait: async () => {},
     commits: async () => ({ kind: 'counted', count: 1 }),
     scan: async () => ({ kind: 'scanned', findings: [] }),
@@ -179,7 +184,8 @@ describe('claudeBrewerRunner: the checks before the end (ADR 0381)', () => {
       }),
     );
     const message = String(starts[1]?.options.stdin);
-    assert.match(message, /lint \(`biome lint "src\/a\.ts"`\) exited with 1/);
+    assert.match(message, /lint exited with 1/);
+    assert.match(message, /biome lint "src\/a\.ts"/);
     assert.match(message, /found a problem/);
     // It stopped at the first failure: typecheck, then lint, and not the test line.
     assert.deepEqual(
@@ -190,6 +196,26 @@ describe('claudeBrewerRunner: the checks before the end (ADR 0381)', () => {
       kind: 'succeeded',
       output: { status: 'done', summary: 'Fixed the lint', assumptions: [] },
     });
+  });
+
+  it("starts the resumed run's stall clock when the resume starts, not when the first run did", async () => {
+    const clock = { now: new Date('2026-10-16T12:00:00.000Z') };
+    const resumedAt = new Date('2026-10-16T12:40:00.000Z');
+    let atResume: Date | undefined;
+    const made = setup({
+      failing: () => true,
+      clock,
+      // The first session and its checks took 40 minutes, past any brewer's stall minutes.
+      whileChecking: () => {
+        clock.now = resumedAt;
+      },
+      onStart: (count) => {
+        if (count === 2) atResume = made.runner.progress(attempt.ref)?.lastProgressAt;
+      },
+    });
+    await made.runner.start(attempt).ended;
+    assert.equal(made.starts.length, 2);
+    assert.equal(atResume?.getTime(), resumedAt.getTime());
   });
 
   it('a second failure lets the session end', async () => {
