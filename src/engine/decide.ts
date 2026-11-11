@@ -56,6 +56,7 @@ import {
 import {
   type Attempt,
   type Batch,
+  batchEnded,
   blockedBy,
   type Lane,
   latestAttempt,
@@ -329,8 +330,9 @@ export function stuckOptions(reason: StuckReason): StuckOption[] {
     // The one question: continue with the issue as it is, or stop (ADR 0368).
     case 'order_changed':
       return ['answer', 'cancel'];
+    // A batch that had ended: its effects again, or cancel it (ADR 0380).
     case 'reopened':
-      throw new Error('not implemented');
+      return ['retry', 'cancel'];
     default: {
       const unhandled: never = reason;
       throw new Error(`Unhandled stuck reason ${JSON.stringify(unhandled)}`);
@@ -521,6 +523,17 @@ function run(draft: Draft, command: Command): Event[] {
     case 'mark_failing': {
       const { batchId, pass, summary, since, reading } = command;
       const batch = draft.batch(batchId);
+      // Its passes failed for an hour after it ended: reopened, for a person to act on (ADR 0380).
+      if (batchEnded(batch) && (batch.lane.kind === 'on_tap' || batch.lane.kind === 'cancelled')) {
+        if (batch.failing === undefined) {
+          draft.push({ type: 'batch.failing', batchId, pass, summary, since });
+        }
+        const { lane } = batch;
+        const ended =
+          lane.kind === 'on_tap' ? { ...lane, pullRequests: [...lane.pullRequests] } : lane;
+        stick(draft, batchId, { kind: 'reopened', ended, pass, summary, since });
+        break;
+      }
       const stepId = reading ? failingStep(batch) : undefined;
       if (batch.failing !== undefined && stepId === undefined) {
         throw new Refusal(`batch ${batchId} is already marked failing`);
@@ -567,7 +580,8 @@ function run(draft: Draft, command: Command): Event[] {
         schedule(draft, batchId, planStep(draft, batchId, reason.stepId));
         break;
       }
-      if (reason.kind === 'reopened') throw new Error('not implemented');
+      // A reopened batch goes back to how it ended, whose effects run again (ADR 0380).
+      if (reason.kind === 'reopened') break;
       schedule(draft, batchId, reason.stepId, { retry: true });
       resumeGroup(draft, batchId, reason.stepId);
       break;
@@ -576,7 +590,7 @@ function run(draft: Draft, command: Command): Event[] {
       const { batchId, by, via } = command;
       const { reason } = stuckLane(draft.batch(batchId), 'skip');
       if (reason.kind === 'routing') throw new Refusal(`batch ${batchId} has no step to skip`);
-      if (reason.kind === 'reopened') throw new Error('not implemented');
+      if (reason.kind === 'reopened') throw new Refusal(`batch ${batchId} has no step to skip`);
       draft.push({ type: 'batch.resumed', batchId, by, via, action: 'skip' });
       // A skip of a child skips the rest of its group (ADR 0168).
       const group = recipeOf(draft, draft.batch(batchId)).group(reason.stepId);

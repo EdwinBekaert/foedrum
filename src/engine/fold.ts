@@ -287,9 +287,12 @@ export interface Failing {
   since: string;
 }
 
-/** Whether a lane is Stuck on failing, whose reason says the batch's mark itself (ADR 0335). */
+/**
+ * Whether a lane is Stuck on failing, or reopened after it ended, whose reason says the batch's
+ * mark itself (ADR 0335, ADR 0380).
+ */
 export const stuckOnFailing = (lane: Lane | undefined): boolean =>
-  lane?.kind === 'stuck' && lane.reason.kind === 'failing';
+  lane?.kind === 'stuck' && (lane.reason.kind === 'failing' || lane.reason.kind === 'reopened');
 
 /** A person's handover of a batch from the driver `from` to `to` (ADR 0124). */
 export interface Takeover {
@@ -894,12 +897,14 @@ function apply(state: State, event: Event): State {
     }
     case 'batch.stuck': {
       const { reason, options, remindAt } = event;
-      return updateBatch(state, event.batchId, (batch) => {
+      return updateBatch(state, event.batchId, ({ endShown, ...batch }) => {
         // A reminder makes the batch Stuck again for the same stop, which keeps what it abandoned.
         const earlier = batch.lane.kind === 'stuck' ? (batch.lane.stopped ?? []) : [];
         const stopped = reason.kind === 'stopped' ? [...earlier, ...unfinished(batch.steps)] : [];
         return {
           ...batch,
+          // A reopened batch's status comment takes revisions again (ADR 0380).
+          ...(endShown === undefined || reason.kind === 'reopened' ? {} : { endShown }),
           lane: {
             kind: 'stuck',
             reason,
@@ -912,13 +917,19 @@ function apply(state: State, event: Event): State {
       });
     }
     case 'batch.resumed': {
-      // A retry of a batch Stuck on routing waits to be routed again (ADR 0032).
+      // A retry of a batch Stuck on routing waits to be routed again (ADR 0032), and of one
+      // reopened goes back to how it ended, whose effects run again (ADR 0380).
+      const stuck = state.batches.get(event.batchId)?.lane;
+      const reopened =
+        stuck?.kind === 'stuck' && stuck.reason.kind === 'reopened' ? stuck.reason : undefined;
       const resumed = setLane(
         withoutItsFailingMark(state, event.batchId),
         event.batchId,
-        event.routeBy === undefined
-          ? { kind: 'brewing' }
-          : { kind: 'ordered', routeBy: event.routeBy },
+        reopened !== undefined
+          ? reopened.ended
+          : event.routeBy === undefined
+            ? { kind: 'brewing' }
+            : { kind: 'ordered', routeBy: event.routeBy },
       );
       // A lauter's attempt is scheduled next, and carries who chose it (ADR 0286).
       if (event.action === 'lauter') {

@@ -284,7 +284,11 @@ export const openSqliteEventStore = (
         // A retry of a batch Stuck on routing: Ordered again, with a new routing deadline (ADR 0032).
         if (event.routeBy !== undefined) {
           setDeadline.run(event.batchId, BATCH, 0, Date.parse(event.routeBy));
+          return;
         }
+        // The Stuck reminder ends: a step scheduled next sets its own deadline, and a reopened
+        // batch goes back to how it ended, which has none (ADR 0380).
+        clearDeadline.run(event.batchId, BATCH, 0);
         return;
       // The on tap that follows it clears the batch's deadlines (ADR 0281).
       case 'batch.approved':

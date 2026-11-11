@@ -123,6 +123,16 @@ function rule(state: State, event: Event): string | undefined {
         : `batch ${event.batchId} is not waiting for answers to step ${event.stepId}`;
     }
     case 'batch.stuck': {
+      // Reopened only once it ended, or again by its reminder (ADR 0380).
+      if (event.reason.kind === 'reopened') {
+        const batch = state.batches.get(event.batchId);
+        if (batch === undefined) return `batch ${event.batchId} was never ordered`;
+        const { lane } = batch;
+        const reminded = lane.kind === 'stuck' && lane.reason.kind === 'reopened';
+        return batchEnded(batch) || reminded
+          ? undefined
+          : `batch ${event.batchId} has not ended to reopen`;
+      }
       // Stuck on routing only before a recipe, and on a step only after one (ADR 0032).
       const routing = event.reason.kind === 'routing';
       // Stuck from on tap only on the checks of its pull request (ADR 0219).

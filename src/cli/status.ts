@@ -73,7 +73,7 @@ const stuckOn = (reason: StuckReason, called: string, { repo, issue }: Batch): s
     case 'stopped':
       return `stopped at ${reason.stepId} by ${reason.by} via ${reason.via}${reason.why === undefined ? '' : `: ${reason.why}`}`;
     case 'reopened':
-      throw new Error('not implemented');
+      return `reopened after it ended: failing in ${reason.pass} since ${reason.since}: ${reason.summary}`;
     case 'order_changed':
       return `the order changed at ${reason.stepId}: ${repo ?? ''}#${issue} changed after its approval: ${changesText(reason)}`;
     default: {

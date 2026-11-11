@@ -325,8 +325,9 @@ const stuckText = (
       const answer = (word: string) => code(`foedrum answer ${called} ${word}`);
       return `${code(reason.stepId)} waits for you: ${where} changed after its approval: ${changesText(reason, plain)}. Run ${answer('continue')} to brew it as it is now, or ${answer('stop')} to end the batch`;
     }
+    // What failed after its end, never blaming the batch (ADR 0335, ADR 0380).
     case 'reopened':
-      throw new Error('not implemented');
+      return `it had ended, and then the ${reason.pass} pass failed for an hour since ${reason.since}: ${told(reason.summary, '')}`;
     default:
       return reason satisfies never;
   }
