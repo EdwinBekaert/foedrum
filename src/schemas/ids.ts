@@ -30,9 +30,10 @@ export const LensName = z
 
 /**
  * The short name of a target repository in the Brewery's config, the start of the batch ids of its
- * claimed issues (`<alias>-<issue>`, ADR 0050): a lower-case letter, then letters and digits, at
- * most 20 in all. It starts with a letter, so it never begins a Brewery issue's `<issue>-<n>`, and
- * has no hyphen, so the issue that follows it is never ambiguous.
+ * claimed issues (`<alias>-<issue>-<yyyymmddhhmmss>`, ADR 0050, ADR 0380): a lower-case letter,
+ * then letters and digits, at most 20 in all. It starts with a letter, so it never begins a Brewery
+ * issue's `<issue>-<yyyymmddhhmmss>`, and has no hyphen, so the issue that follows it is never
+ * ambiguous.
  */
 export const RepositoryAlias = z
   .string()

@@ -7,8 +7,9 @@
 // - records the latest release of each repository a merged `release` blocker waits on, once it
 //   holds a merge of every blocker waiting on it (ADR 0223);
 // - walks one queue, in rank order (ADR 0208) and only up to the Brewery's free capacity: the
-//   Brewery's own issues that carry a `recipe:<name>` label, which it orders as `<issue>-1`, the
-//   ready sub-orders of its orders, which it orders as `<issue>-1` under their order's batch
+//   Brewery's own issues that carry a `recipe:<name>` label, which it orders as
+//   `<issue>-<yyyymmddhhmmss>` (ADR 0380), the ready sub-orders of its orders, which it orders the
+//   same way under their order's batch
 //   (ADR 0211), and the candidates of each repository with an intake filter, whose filter labels
 //   someone in `users` added last, read from the events of each issue that passes every other
 //   check (ADR 0359), which it claims and orders as `<alias>-<issue>`, each Ordered until it is
