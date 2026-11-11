@@ -12,6 +12,7 @@ import {
   type ClaudeRunnerDeps,
   claudeBrewerRunnerWith,
 } from '../../src/brewers/claude-runner.ts';
+import { readClaudeStream } from '../../src/brewers/claude-stream.ts';
 import { assembleBrewerPrompt } from '../../src/brewers/prompt.ts';
 import type { SendBackPlan } from '../../src/brewers/send-back.ts';
 import type { AttemptLimits, AttemptStart, CommitsSeen } from '../../src/engine/brewer-runner.ts';
@@ -259,12 +260,23 @@ describe('claudeBrewerRunner: the checks before the end (ADR 0381)', () => {
   it('adds the usage of both runs and keeps the resumed session', async () => {
     const once = await setup().runner.start(attempt).ended;
     const twice = await setup({ failing: () => true }).runner.start(attempt).ended;
-    const first = once.usage;
-    assert.ok(first !== undefined && twice.usage !== undefined);
-    assert.ok(twice.usage.outputTokens > first.outputTokens);
+    // What the resumed run alone reported, read as the runner reads it.
+    const resumed = readClaudeStream(
+      { sessionId, tools: ['Read'], resumes: true },
+      new Date('2026-10-16T12:00:00.000Z'),
+    );
+    for (const line of plays[1] ?? []) resumed.read(line, new Date('2026-10-16T12:00:00.000Z'));
+    const [first, second] = [once.usage, resumed.facts().usage];
+    assert.ok(first !== undefined && second !== undefined);
+    assert.deepEqual(twice.usage, {
+      inputTokens: first.inputTokens + second.inputTokens,
+      outputTokens: first.outputTokens + second.outputTokens,
+      cacheReadTokens: first.cacheReadTokens + second.cacheReadTokens,
+      cacheWriteTokens: first.cacheWriteTokens + second.cacheWriteTokens,
+    });
     assert.equal(twice.session?.sessionId, sessionId);
     assert.equal(twice.receipt?.resumed, true);
-    assert.ok((twice.receipt?.turns ?? 0) > (once.receipt?.turns ?? 0));
+    assert.equal(twice.receipt?.turns, (once.receipt?.turns ?? 0) + resumed.receipt().turns);
   });
   it('runs no checks for a plan without them, nor without a process runner for them', async () => {
     const { sendBack: _, ...withoutChecks } = plan();
