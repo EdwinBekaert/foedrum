@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
+import { lstat, readdir, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import type { AttemptRef } from '../../src/engine/attempt-key.ts';
@@ -7,7 +8,12 @@ import { effectKey } from '../../src/engine/effect-key.ts';
 import type { EventStore } from '../../src/engine/event-store.ts';
 import { fold } from '../../src/engine/fold.ts';
 import { claimEffectsDue } from '../../src/engine/issue-claims.ts';
-import { type ArchiveShelf, rackActions, withRack } from '../../src/engine/rack.ts';
+import {
+  type ArchiveShelf,
+  rackActions,
+  type TemporaryFilesIo,
+  withRack,
+} from '../../src/engine/rack.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import { batchOf } from '../../src/engine/state-branch.ts';
 import type { Event } from '../../src/schemas/events.ts';
@@ -125,6 +131,8 @@ const run = async (
   options: {
     dates?: readonly string[];
     temporary?: string;
+    /** The file system calls the delete of temporary files makes. */
+    files?: TemporaryFilesIo;
     /** An issue's state by `<repo>#<n>`, over what `closed` says. */
     states?: Readonly<Record<string, 'open' | 'closed' | 'gone'>>;
     /** What happens while issue `issue` is read: a write to the store, or a failed read. */
@@ -167,6 +175,7 @@ const run = async (
       return options.states?.[`${repo}#${issue}`] ?? (closed.includes(issue) ? 'closed' : 'open');
     },
     temporary: options.temporary ?? join('nowhere', '.foedrum', 'tmp'),
+    ...(options.files === undefined ? {} : { files: options.files }),
     clock: () => new Date(now.getTime() + elapsed),
   });
   const ref: AttemptRef = { batchId: '20-1', stepId, attempt: 1 };
@@ -395,23 +404,45 @@ describe('rack (ADR 0383)', () => {
     });
     afterEach(() => dir.remove());
 
-    it('rack deletes temporary files older than 2 days', async () => {
-      const file = (path: string, ageMs: number) => {
-        const full = join(dir.path, path);
-        mkdirSync(join(full, '..'), { recursive: true });
-        writeFileSync(full, 'x');
-        const time = new Date(now.getTime() - ageMs);
-        utimesSync(full, time, time);
-        return full;
+    const file = (path: string, ageMs: number) => {
+      const full = join(dir.path, path);
+      mkdirSync(join(full, '..'), { recursive: true });
+      writeFileSync(full, 'x');
+      const time = new Date(now.getTime() - ageMs);
+      utimesSync(full, time, time);
+      return full;
+    };
+    /** Node's file system calls, each after what `before` runs for its call and path. */
+    const io = (
+      before: Partial<Record<keyof TemporaryFilesIo, Record<string, () => Promise<void>>>>,
+    ) => {
+      const after = async <T>(
+        call: keyof TemporaryFilesIo,
+        path: string,
+        real: () => Promise<T>,
+      ) => {
+        await before[call]?.[path]?.();
+        return real();
       };
+      const files: TemporaryFilesIo = {
+        readdir: (path) => after('readdir', path, () => readdir(path, { withFileTypes: true })),
+        lstat: (path) => after('lstat', path, () => lstat(path)),
+        remove: (path) => after('remove', path, () => rm(path)),
+      };
+      return files;
+    };
+    const coded = (code: string) => () =>
+      Promise.reject(Object.assign(new Error(`${code}: refused`), { code }));
+
+    it('rack deletes temporary files older than 2 days', async () => {
       const old = file('old.txt', 3 * day);
       const recent = file('recent.txt', day);
       const nested = file(join('921', 'run.log'), 3 * day);
       const empty = join(dir.path, 'empty');
       mkdirSync(empty);
       const ran = await run('delete-temporary', [], [], { temporary: dir.path });
-      // Its out doc says how many it deleted.
-      assert.deepStrictEqual(ran.ending, { kind: 'succeeded', output: { deleted: 2 } });
+      // Its attempt's output says how many it deleted and how many it left.
+      assert.deepStrictEqual(ran.ending, { kind: 'succeeded', output: { deleted: 2, left: 0 } });
       assert.equal(existsSync(old), false);
       assert.equal(existsSync(nested), false);
       assert.equal(existsSync(join(dir.path, '921')), false, 'a folder it emptied goes');
@@ -421,7 +452,61 @@ describe('rack (ADR 0383)', () => {
 
     it('deletes nothing, and ends, when the Brewery has no .foedrum/tmp yet (ADR 0383): regression test', async () => {
       const ran = await run('delete-temporary', [], [], { temporary: join(dir.path, 'none') });
-      assert.deepStrictEqual(ran.ending, { kind: 'succeeded', output: { deleted: 0 } });
+      assert.deepStrictEqual(ran.ending, { kind: 'succeeded', output: { deleted: 0, left: 0 } });
+    });
+
+    it('deleteTemporary skips a file that vanished and deletes the rest', async () => {
+      const vanished = file('vanished.txt', 3 * day);
+      const old = file('old.txt', 3 * day);
+      const files = io({
+        // Gone between the listing and its lstat, as another process deletes it.
+        lstat: { [vanished]: () => rm(vanished) },
+      });
+      const ran = await run('delete-temporary', [], [], { temporary: dir.path, files });
+      assert.equal(ran.failed, undefined);
+      assert.deepStrictEqual(ran.ending, { kind: 'succeeded', output: { deleted: 1, left: 0 } });
+      assert.equal(existsSync(old), false);
+    });
+
+    it('deleteTemporary skips a file that vanished before its delete', async () => {
+      const vanished = file('vanished.txt', 3 * day);
+      const old = file('old.txt', 3 * day);
+      const files = io({
+        // Gone between its lstat and its delete, as another process deletes it.
+        remove: { [vanished]: () => rm(vanished) },
+      });
+      const ran = await run('delete-temporary', [], [], { temporary: dir.path, files });
+      assert.deepStrictEqual(ran.ending, { kind: 'succeeded', output: { deleted: 1, left: 0 } });
+      assert.equal(existsSync(old), false);
+    });
+
+    it('deleteTemporary skips a folder it cannot read and says how many it left', async () => {
+      const locked = join(dir.path, 'locked');
+      const inLocked = file(join('locked', 'old.txt'), 3 * day);
+      const stale = file('stale.txt', 3 * day);
+      const held = file('held.txt', 3 * day);
+      const old = file('old.txt', 3 * day);
+      const files = io({
+        readdir: { [locked]: coded('EACCES') },
+        lstat: { [stale]: coded('EACCES') },
+        remove: { [held]: coded('EBUSY') },
+      });
+      const ran = await run('delete-temporary', [], [], { temporary: dir.path, files });
+      assert.equal(ran.failed, undefined);
+      assert.deepStrictEqual(ran.ending, { kind: 'succeeded', output: { deleted: 1, left: 3 } });
+      assert.equal(existsSync(old), false);
+      assert.equal(existsSync(inLocked), true);
+      assert.equal(existsSync(stale), true);
+      assert.equal(existsSync(held), true);
+    });
+
+    it('deleteTemporary deletes a read-only file: regression test', async () => {
+      // A git object in a scratch clone is read-only; node's rm deletes it on every platform.
+      const readOnly = file(join('clone', 'object'), 3 * day);
+      chmodSync(readOnly, 0o444);
+      const ran = await run('delete-temporary', [], [], { temporary: dir.path });
+      assert.equal(ran.failed, undefined);
+      assert.equal(existsSync(readOnly), false);
     });
 
     it('never follows a link out of the temporary folder (ADR 0383): regression test', async () => {

@@ -56,6 +56,7 @@ sequenceDiagram
   A branch is pushed to a target repository as `foedrum/<brewery>/<rest>` for the local `foedrum/<rest>`, the Brewery as `<owner>.<name>` in lower case (`remoteBranch`, `src/workspace/attempt-worktrees.ts`), so two Breweries with the same batch ids never push the same branch; the lookup uses that name ([ADR 0043](../../adr/0043-target-repository-issues-as-a-work-queue-claimed-by-a-ref.md)).
 
 - **The archive** is the folder `archive/<date>/<batch>/` of the branch: rack moves a finished batch's `batches/<batch>/` there as it is, after deleting the batch's rows from the store, and the flush of the rack step commits the move with its events.
+  The move retries a rename Windows refuses while a file in the folder is held (`replaceFile`, `src/platform/replace-file.ts`).
   A batch goes with every batch of its issue, a split order with its sub-orders', once each has ended (its status comment showing it, or on tap with no pull request), no close or release is still due, and its issues are closed on GitHub.
   Foedrum never reads a file of the archive: a rebuild reads only `batches/`, and a new batch's id skips the archive's folder names.
   Rack deletes an `archive/<date>/` older than its `olderThan` in an ordinary commit; nothing is deleted from history ([ADR 0383](../../adr/0383-rack-archives-finished-batches-and-deletes-old-archive-folders-and-temporary-files.md)).
