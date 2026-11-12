@@ -395,12 +395,19 @@ describe('rack (ADR 0383)', () => {
       const nested = file(join('921', 'run.log'), 3 * day);
       const empty = join(dir.path, 'empty');
       mkdirSync(empty);
-      await run('delete-temporary', [], [], { temporary: dir.path });
+      const ran = await run('delete-temporary', [], [], { temporary: dir.path });
+      // Its out doc says how many it deleted.
+      assert.deepStrictEqual(ran.ending, { kind: 'succeeded', output: { deleted: 2 } });
       assert.equal(existsSync(old), false);
       assert.equal(existsSync(nested), false);
       assert.equal(existsSync(join(dir.path, '921')), false, 'a folder it emptied goes');
       assert.equal(existsSync(recent), true);
       assert.equal(existsSync(empty), true, 'a folder it did not empty stays');
+    });
+
+    it('deletes nothing, and ends, when the Brewery has no .foedrum/tmp yet (ADR 0383): regression test', async () => {
+      const ran = await run('delete-temporary', [], [], { temporary: join(dir.path, 'none') });
+      assert.deepStrictEqual(ran.ending, { kind: 'succeeded', output: { deleted: 0 } });
     });
 
     it('never follows a link out of the temporary folder (ADR 0383): regression test', async () => {
