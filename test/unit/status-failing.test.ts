@@ -59,7 +59,10 @@ describe('foedrum status', () => {
   });
 
   it('adds it to the row of the lane it stays in, and nothing to a batch with no mark', () => {
-    assert.match(formatStatus(stateOf(batch('1-1', 1, { failing }))), /on tap +failing in effects/);
+    assert.match(
+      formatStatus(stateOf(batch('1-1', 1, { failing }))),
+      /done +no pull request; failing in effects/,
+    );
     assert.doesNotMatch(formatStatus(stateOf(batch('1-1', 1))), /failing/);
   });
 
@@ -196,7 +199,7 @@ describe('foedrum stuck', () => {
 describe('the status comment', () => {
   it('shows the mark of a batch on tap, not blaming it', () => {
     const text = renderStatus(batch('1-1', 1, { failing }));
-    assert.match(text, /On tap/);
+    assert.match(text, /Done\*\*: no pull request/);
     assert.match(
       text,
       /\*\*Failing\*\*: the effects pass has failed since 2026-11-06T11:00:00\.000Z: the plan could not be read/,
@@ -222,7 +225,7 @@ describe('the status comment', () => {
     const text = renderStatus(stuckFailing('1-1', 1));
     assert.match(
       text,
-      /\*\*Stuck\*\*: `plan` could not go on: the effects pass has failed since 2026-11-06T11:00:00\.000Z: the plan could not be read/,
+      /\*\*Waiting for you\*\*: look at a failure: `plan` could not go on: the effects pass has failed since 2026-11-06T11:00:00\.000Z: the plan could not be read/,
     );
     assert.doesNotMatch(text, /\*\*Failing\*\*/);
   });

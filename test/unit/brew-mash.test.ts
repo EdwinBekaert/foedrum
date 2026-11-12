@@ -257,11 +257,14 @@ describe('runBrew', () => {
       );
       const url = `https://github.localhost/${claimed.brewery}/issues/40#issuecomment-${plan?.id}`;
       assert.ok(
-        bodies.some((body) => body.includes(`is ready for your review: [plan comment](<${url}>)`)),
+        bodies.some((body) => body.includes(`approve the plan: [plan comment](<${url}>)`)),
         bodies.join('\n---\n'),
       );
       // Its commands use the Brewery issue's number, never the target issue's or the batch's.
-      assert.ok(plan?.body.includes('Waiting for `foedrum approve 40`.'), plan?.body);
+      assert.ok(
+        plan?.body.includes('Waiting for you: approve the plan with `foedrum approve 40`.'),
+        plan?.body,
+      );
       assert.ok(plan?.body.includes('or end it with `foedrum cancel 40`.'), plan?.body);
     });
 

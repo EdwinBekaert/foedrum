@@ -715,7 +715,7 @@ describe('foedrum: commands that change state', () => {
       await run(['pause', '21']);
       assert.match(
         (await run(['status'])).stdout,
-        /23-1 +#23 +brewing +plan #1 started; paused by ada: lunch/,
+        /23-1 +#23 +running +plan #1 started; paused by ada: lunch/,
       );
       const replay = (await run(['replay', '23-1'])).stdout;
       assert.match(
@@ -974,10 +974,14 @@ describe('foedrum: commands that change state', () => {
     it('shows a stopped batch in stuck, status and replay, with who and why', async () => {
       await run(['stop', '23', '--why', 'lunch'], { surface: 'plugin' });
       const said = /stopped at plan by ada via plugin: lunch/;
+      const shown = /stopped by ada \(retry or cancel\): at plan via plugin: lunch/;
       const { stdout: stuck } = await run(['stuck']);
-      assert.match(stuck, new RegExp(`23-1 +#23 +${said.source}; reminder `));
+      assert.match(stuck, new RegExp(`23-1 +#23 +waiting for you: ${shown.source}; reminder `));
       assert.match(stuck, /23-1[^\n]*\n {2}options: retry, skip, recipe, rewind, cancel\n/);
-      assert.match((await run(['status'])).stdout, new RegExp(`23-1 +#23 +stuck +${said.source}`));
+      assert.match(
+        (await run(['status'])).stdout,
+        new RegExp(`23-1 +#23 +waiting for you +${shown.source}`),
+      );
       assert.match((await run(['replay', '23-1'])).stdout, said);
     });
 
@@ -1011,7 +1015,7 @@ describe('foedrum: commands that change state', () => {
       );
       assert.match(
         (await run(['stuck'])).stdout,
-        /23-1 +#23 +stopped at plan by ada via terminal; reminder /,
+        /23-1 +#23 +waiting for you: stopped by ada \(retry or cancel\): at plan via terminal; reminder /,
       );
     });
   });
@@ -1449,11 +1453,11 @@ describe('foedrum stuck', () => {
       stdout: [
         '2 Stuck batches',
         '',
-        `21-1  #21  needs input at plan; reminder ${iso(2880)}`,
+        `21-1  #21  waiting for you: answer a question: needs input at plan; reminder ${iso(2880)}`,
         '  options: answer, retry, skip, recipe, rewind, cancel',
         '  1. Which database should the cache use? (sqlite, redis; recommended: sqlite)',
         '  2. Keep the old endpoint? (yes, no; recommended: yes)',
-        `25-1  #25  not routed by ${iso(60)}; reminder ${iso(2880)}`,
+        `25-1  #25  waiting for you: look at a failure: not routed by ${iso(60)}; reminder ${iso(2880)}`,
         '  options: retry, recipe, cancel',
         '',
       ].join('\n'),
@@ -1474,7 +1478,7 @@ describe('foedrum stuck', () => {
       stdout: [
         '1 Stuck batch',
         '',
-        `12-1  #12  the plan of plan #2 is ready for your review; reminder ${iso(2880)}`,
+        '12-1  #12  waiting for you: approve the plan',
         '  options: retry, recipe, cancel',
         '  next: read the plan and its assumptions; sign it off with foedrum approve 12, correct it in a session with foedrum lauter 12, plan it again with foedrum retry 12, or end it with foedrum cancel 12.',
         '',
@@ -1578,7 +1582,7 @@ describe('foedrum stuck', () => {
       stdout: [
         '1 Stuck batch',
         '',
-        `11-1  #11  blocked at correctness (findings): the Taster asks for changes: no deadline; reminder ${iso(2880)}`,
+        `11-1  #11  waiting for you: look at a failure: blocked at correctness (findings): the Taster asks for changes: no deadline; reminder ${iso(2880)}`,
         '  options: retry, skip, recipe, rewind, cancel',
         '  still open after 2 rounds:',
         '    major in src/poll.ts:3: no deadline',
@@ -1611,7 +1615,7 @@ describe('foedrum stuck', () => {
       stdout: [
         '1 Stuck batch',
         '',
-        `11-1  #11  blocked at correctness (findings): the Taster asks for changes: no deadline; reminder ${iso(2880)}`,
+        `11-1  #11  waiting for you: look at a failure: blocked at correctness (findings): the Taster asks for changes: no deadline; reminder ${iso(2880)}`,
         '  options: retry, skip, recipe, rewind, cancel',
         '',
       ].join('\n'),

@@ -545,7 +545,7 @@ describe('foedrum status', () => {
     });
     assert.equal(
       result.stdout,
-      '1 batch\n\n  11-1  #11  ordered  to be routed by 2026-12-31T00:00:00.000Z\n',
+      '1 batch\n\n  11-1  #11  queued  to be routed by 2026-12-31T00:00:00.000Z\n',
     );
   });
 
@@ -564,12 +564,12 @@ describe('foedrum status', () => {
       routeBy: '2026-12-31T00:00:00.000Z',
     };
     const result = await run(['status'], { openStore: () => storeWith([ordered(11), target]) });
-    assert.match(result.stdout, /^ +11-1 +#11 +ordered/m);
-    assert.match(result.stdout, /^ +app-11 +app#11 +ordered/m);
+    assert.match(result.stdout, /^ +11-1 +#11 +queued/m);
+    assert.match(result.stdout, /^ +app-11 +app#11 +queued/m);
     const after = await run(['status'], {
       openStore: () => storeWith([ordered(11), target, opened]),
     });
-    assert.match(after.stdout, /^ +app-11 +#200 \(app#11\) +ordered/m);
+    assert.match(after.stdout, /^ +app-11 +#200 \(app#11\) +queued/m);
   });
 
   it('names both issues of a claimed issue in stuck, and its repository in replay (ADR 0144)', async () => {
@@ -679,8 +679,8 @@ describe('foedrum status', () => {
         stdout: [
           '2 batches',
           '',
-          '  11-1  #11  cancelled  by ann via terminal',
-          '  12-1  #12  ordered    to be routed by 2026-12-31T00:00:00.000Z',
+          '  11-1  #11  done    cancelled by ann via terminal',
+          '  12-1  #12  queued  to be routed by 2026-12-31T00:00:00.000Z',
           '',
           '1 kept branch: commits of ended batches that no push recorded (ADR 0084); take them, then drop the branch',
           '',
@@ -730,7 +730,7 @@ describe('foedrum status', () => {
       tx.putBatchLease({ batchId: '13-1', owner: 'ann', expiresAt: new Date(D1) });
     });
     const result = await run(['status'], { openStore: () => store });
-    assert.match(result.stdout, /^ +11-1 +#11 +ordered +.*; brewed interactively by session-abc$/m);
+    assert.match(result.stdout, /^ +11-1 +#11 +queued +.*; brewed interactively by session-abc$/m);
     assert.equal(result.stdout.match(/interactively/g)?.length, 1, result.stdout);
   });
 });
@@ -1105,7 +1105,7 @@ describe('foedrum status <order> (ADR 0295)', () => {
       tx.putBatchLease({ batchId: '11-1', owner: 'session-abc', expiresAt });
     });
     const result = await run(['status', '11'], { openStore: () => store, config: roomy });
-    assert.match(result.stdout, /^ +11-1 +#11 +ordered +.*; brewed interactively by session-abc$/m);
+    assert.match(result.stdout, /^ +11-1 +#11 +queued +.*; brewed interactively by session-abc$/m);
   });
 
   it('status of an order in a Brewery without an event store is refused, exit 1', async () => {

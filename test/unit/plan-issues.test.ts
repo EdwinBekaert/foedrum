@@ -514,7 +514,7 @@ describe('planIssueEffects (ADR 0285)', () => {
       const driver = await open(api.fetch, comments, () => true);
       await driver.tick();
       assert.ok(planOf(texts()).startsWith(PLAN_HEADING), 'the plan comment is written');
-      assert.match(statusOf(texts()), /On tap/);
+      assert.match(statusOf(texts()), /Running\*\*: the sub-orders brew/);
       assert.doesNotMatch(planOf(texts()), /Sub-issues:/);
       assert.deepStrictEqual(opened(), []);
       assert.deepStrictEqual(decomposed(), []);
@@ -529,7 +529,7 @@ describe('planIssueEffects (ADR 0285)', () => {
       const driver = await open(api.fetch, comments, () => unreadable);
       await driver.tick();
       assert.doesNotMatch(statusOf(texts()), /sub-issues/);
-      assert.match(statusOf(texts()), /On tap/);
+      assert.match(statusOf(texts()), /Running\*\*: the sub-orders brew/);
       unreadable = false;
       await driver.tick();
       assert.deepStrictEqual(opened(), created);
@@ -538,7 +538,7 @@ describe('planIssueEffects (ADR 0285)', () => {
         planOf(texts()).includes('Sub-issues: `api` #8, `ui` #9, `cli` #10.'),
         planOf(texts()),
       );
-      assert.ok(statusOf(texts()).includes('sub-issues #8, #9, #10'), statusOf(texts()));
+      assert.ok(statusOf(texts()).includes('- #8 in acme/api: not ordered yet'), statusOf(texts()));
     });
   });
 
@@ -570,7 +570,8 @@ describe('planIssueEffects (ADR 0285)', () => {
     const plan = texts.find((body) => body.startsWith(PLAN_HEADING)) ?? '';
     assert.ok(plan.includes('\n\nSub-issues: `api` #8, `ui` #9, `cli` #10.\n'), plan);
     const status = texts.find((body) => !body.startsWith(PLAN_HEADING)) ?? '';
-    const onTap = '🍻 **On tap**: plan approved by grace (terminal); sub-issues #8, #9, #10';
+    const onTap =
+      '🍺 **Running**: the sub-orders brew (#8, #9, #10); plan approved by grace (terminal)';
     assert.ok(status.split('\n').includes(onTap), status);
   });
 });

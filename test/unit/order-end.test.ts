@@ -194,7 +194,7 @@ describe('the end of a split order (ADR 0293)', () => {
 
   it('rolls up a sub-order with no pull request by its lane', async () => {
     const lines = await statusLines(fold([...split(), ...libReleased]));
-    assert.ok(lines.includes('- #3 in acme/web: brewing, no pull request yet'), lines.join('\n'));
+    assert.ok(lines.includes('- #3 in acme/web: running, no pull request yet'), lines.join('\n'));
     assert.ok(!lines.some((line) => line.startsWith('🍻 **Done**')), lines.join('\n'));
     assert.ok(!lines.some((line) => line.startsWith('Keeps the order open')), lines.join('\n'));
   });
@@ -225,7 +225,7 @@ describe('the end of a split order (ADR 0293)', () => {
       { type: 'batch.cancelled', batchId: '4-1', by: 'ann', via: 'terminal' },
     ]);
     const lines = await statusLines(state);
-    assert.ok(lines.includes('- #4 in acme/cli: cancelled, no pull request yet'), lines.join('\n'));
+    assert.ok(lines.includes('- #4 in acme/cli: done, no pull request yet'), lines.join('\n'));
     assert.ok(lines.includes('Keeps the order open: #4 (cancelled)'), lines.join('\n'));
     assert.ok(!lines.some((line) => line.startsWith('🍻 **Done**')), lines.join('\n'));
     const github = fakeGitHub();
@@ -369,7 +369,7 @@ describe('the end of a split order (ADR 0293)', () => {
       brewing('4-2'),
     ]);
     const lines = await statusLines(state);
-    assert.ok(lines.includes('- #4 in acme/cli: brewing, no pull request yet'), lines.join('\n'));
+    assert.ok(lines.includes('- #4 in acme/cli: running, no pull request yet'), lines.join('\n'));
     assert.ok(!lines.some((line) => line.startsWith('Keeps the order open')), lines.join('\n'));
   });
 

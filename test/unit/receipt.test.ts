@@ -300,7 +300,7 @@ describe("a batch's receipts", () => {
       .find((line) => line.trimStart().startsWith('7-1'));
     assert.match(
       row ?? '',
-      /brewing\s+implement #3 started; 2 attempts \/ 2m 58s \/ 36 turns \/ 1\.54M tokens \/ 2 denied$/,
+      /running\s+implement #3 started; 2 attempts \/ 2m 58s \/ 36 turns \/ 1\.54M tokens \/ 2 denied$/,
     );
     assert.match(row ?? '', /^[\x20-\x7e]*$/);
   });

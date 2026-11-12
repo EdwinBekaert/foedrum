@@ -61,7 +61,7 @@ describe('an order that changed after its approval, as people see it (ADR 0368)'
     const text = renderStatus(changed);
     assert.ok(
       text.includes(
-        `${'`plan`'} waits for you: [acme/app\\#7](<https://github.com/acme/app/issues/7>) changed after its approval: ${what}. Run ${'`foedrum answer 7 continue`'} to brew it as it is now, or ${'`foedrum answer 7 stop`'} to end the batch`,
+        `${'`plan`'}: [acme/app\\#7](<https://github.com/acme/app/issues/7>) changed after its approval: ${what}. Run ${'`foedrum answer 7 continue`'} to brew it as it is now, or ${'`foedrum answer 7 stop`'} to end the batch`,
       ),
       text,
     );

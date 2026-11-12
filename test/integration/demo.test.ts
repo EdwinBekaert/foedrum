@@ -137,7 +137,7 @@ describe('npm run demo', () => {
       /^demo: pull request #\d+ on demo\/web: /,
       statusComment,
     );
-    assert.match(statusComment, /On tap/);
+    assert.match(statusComment, /Waiting for you\*\*: merge a pull request/);
     assert.match(
       statusComment,
       /^ +Path: `survey #1` ✅ → `survey-check #1` ✅ → `gauge #1`.*\n +→ `implement #2`.*\n +→ `implement #3`/m,
@@ -150,10 +150,10 @@ describe('npm run demo', () => {
     // A cleanup counts the worktrees and branches it removed (#662).
     assert.match(result.stdout, /cleaned batch 1-1: removed \d+ worktrees; deleted \d+ branches; /);
     assert.doesNotMatch(result.stdout, /removed worktree /);
-    // On tap: foedrum status shows the batch there, with its pull request.
+    // On tap: foedrum status shows the batch waiting for its merge, with its pull request.
     assert.match(
       part('on-tap'),
-      /\$ foedrum status\n.*on tap +https:\/\/github\.com\/demo\/web\/pull\/\d+/s,
+      /\$ foedrum status\n.*waiting for you +merge a pull request: https:\/\/github\.com\/demo\/web\/pull\/\d+/s,
     );
     // foedrum lenses, through the real loader: correctness's finding the round it blocked
     // recorded, fixed; a lens of Nip's the demo's recipe never runs, with no rounds (ADR 0221).
@@ -204,8 +204,8 @@ describe('npm run demo', () => {
     for (const order of [ORDER, BREW_ORDER]) {
       const comments = host.comments(BREWERY, order.number);
       assert.equal(comments.length, 1, JSON.stringify(comments));
-      // Its last revision shows the batch on tap, with the pull request.
-      assert.match(comments[0]?.body ?? '', /On tap/);
+      // Its last revision shows the batch waiting for its merge, with the pull request.
+      assert.match(comments[0]?.body ?? '', /Waiting for you\*\*: merge a pull request/);
     }
     assert.ok(
       host.comments(BREWERY, ORDER.number)[0]?.body.includes(`/demo/web/pull/${pulls[0]?.number}>`),
@@ -384,7 +384,7 @@ describe('npm run demo', () => {
     );
     const stuck = mash.slice(mash.indexOf('$ foedrum stuck\n'));
     assert.ok(stuck.startsWith('$ foedrum stuck\n'), mash);
-    assert.match(stuck, /^ +3-1 +[^\n]*the plan of plan #2 is ready for your review(?:;|$)/m);
+    assert.match(stuck, /^ +3-1 +[^\n]*waiting for you: approve the plan$/m);
     assert.match(stuck, /^ {4}next: \S/m);
   });
 
@@ -407,9 +407,7 @@ describe('npm run demo', () => {
     const statusUrl = /status comment: (\S+)$/m.exec(mash)?.[1] ?? assert.fail(mash);
     assert.notEqual(planUrl, statusUrl);
     assert.ok(
-      mash.includes(
-        `🔔 **Stuck**: the plan of \`plan\` #2 is ready for your review: [plan comment](<${planUrl}>)`,
-      ),
+      mash.includes(`🔔 **Waiting for you**: approve the plan: [plan comment](<${planUrl}>)`),
       mash,
     );
   });
