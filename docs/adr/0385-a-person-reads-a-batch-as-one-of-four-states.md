@@ -1,6 +1,6 @@
 # 0385. A person reads a batch as one of four states
 
-Date: 2026-11-12 · Status: Accepted · Amends [0205](0205-stop-makes-an-order-s-brewing-batches-stuck-at-once-and-retry-continues-them.md) (a stop's words in `foedrum status`, `foedrum stuck` and the status comment), [0275](0275-a-finished-plan-waits-stuck-for-its-review-and-every-comment-links-the-doc-it-sums-up.md) (the status comment's line for a plan waiting for its review), [0281](0281-foedrum-approve-signs-off-a-plan-by-its-hash-and-puts-the-batch-on-tap.md) (the plan comment's Gate while it waits, and the status comment's line of an approved plan), [0293](0293-a-split-order-ends-once-every-sub-order-merged-and-the-engine-closes-it.md) (a done order's one line, and a sub-order's row without a pull request) and the on-tap words of `foedrum status` that #905 chose
+Date: 2026-11-12 · Status: Accepted · Amends [0205](0205-stop-makes-an-order-s-brewing-batches-stuck-at-once-and-retry-continues-them.md) (a stop's words in `foedrum status`, `foedrum stuck` and the status comment), [0316](0316-a-brewery-issue-s-label-and-status-comment-name-the-person-s-next-action.md) (a split order's `Next:` line), [0275](0275-a-finished-plan-waits-stuck-for-its-review-and-every-comment-links-the-doc-it-sums-up.md) (the status comment's line for a plan waiting for its review), [0281](0281-foedrum-approve-signs-off-a-plan-by-its-hash-and-puts-the-batch-on-tap.md) (the plan comment's Gate while it waits, and the status comment's line of an approved plan), [0293](0293-a-split-order-ends-once-every-sub-order-merged-and-the-engine-closes-it.md) (a done order's one line, and a sub-order's row without a pull request) and the on-tap words of `foedrum status` that #905 chose
 
 ## Context
 Each surface named a batch by its engine lane: `stuck`, `on tap`, `conditioning`, `ordered`, `brewing`, `cancelled`.
@@ -25,7 +25,7 @@ Labels, command names, batch ids, the lanes, events and schemas stay as they are
   - `foedrum status` (and its `--watch` board) shows the state in its column: `1-1  #1  waiting for you  approve the plan`, `3-1  #3  done  merged: <url>`; an on-tap batch with an open pull request names it after `merge a pull request:` and how each other one ended.
   - `foedrum stuck` starts each batch's line with `waiting for you:` and what for; its count line keeps the command's word.
 - **A pause is no state.** A paused batch shows the state underneath and who paused it, since a pause may stop what runs or only hold new work.
-- **What stays.** The labels ([ADR 0316](0316-the-lane-label-names-the-person-s-action-and-on-tap-ends-in-awaiting-merge.md)), `foedrum brew`, `replay` and `resume` keep the lane's words; every `Next:` line stays, but for a split order's, which says each pull request `comes to you to merge` instead of `on tap`.
+- **What stays.** The labels ([ADR 0316](0316-a-brewery-issue-s-label-and-status-comment-name-the-person-s-next-action.md)), `foedrum brew`, `replay` and `resume` keep the lane's words; every `Next:` line stays, but for a split order's, which says each pull request `comes to you to merge` instead of `on tap`.
 
 ## Consequences
 - A person reads the same word for a batch in the comment and on the terminal, and a finished order reads as done.

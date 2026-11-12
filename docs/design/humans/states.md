@@ -22,4 +22,4 @@ A pause changes no state: the surface shows the state underneath and who paused 
 - **`foedrum status`** and its `--watch` board: the state column, then the few words, for example `1-1  #1  waiting for you  approve the plan` and `3-1  #3  done  merged: <url>`.
 - **`foedrum stuck`**: each Stuck batch's line starts with `waiting for you:` and what for; its count line keeps the command's word.
 
-`foedrum brew`, `replay` and `resume` still name the lane, and every `Next:` line is as it was.
+`foedrum brew`, `replay` and `resume` still name the lane, and every `Next:` line is as it was, but for a split order's, which says each pull request comes to you to merge.

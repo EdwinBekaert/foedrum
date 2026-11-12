@@ -52,6 +52,8 @@ Foedrum borrows its vocabulary from Belgian brewing. A *foeder* is the large oak
 
 **Ordered → Brewing → Conditioning ⏳ → Stuck 🔔 → On tap**
 
+The lanes are the engine's. A person reads a batch as one of four states, on every surface that shows one: **Running**, **Waiting for you** (and what for), **Queued** or **Done** (and how) ([what a person reads a batch as](design/humans/states.md), [ADR 0385](adr/0385-a-person-reads-a-batch-as-one-of-four-states.md)).
+
 ## Default brewers
 
 | Brewer | Role |
