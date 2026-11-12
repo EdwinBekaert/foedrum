@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { rename } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import type { EventStore } from '../../src/engine/event-store.ts';
@@ -685,6 +686,33 @@ describe('openStateBranch with a fake git', () => {
       // Shelved twice, as a crash before the push leaves it: nothing more moves.
       await state.shelve(['b1'], '2026-11-12', (id) => id === 'b2');
       assert.deepEqual(readdirSync(join(worktree, 'archive', '2026-11-12')).sort(), ['b1', 'b3']);
+    });
+
+    it('the archive move retries a rename that Windows refused once', async () => {
+      fake.remote = sha(5);
+      fake.files = { 'batches/b1/events.jsonl': line(1, ordered('b1')) };
+      const moves: string[] = [];
+      const state = openStateBranch({
+        store,
+        git: fake.git,
+        clone,
+        worktree,
+        sleep: async () => {},
+        // Refused once, as Windows does while a scan holds a file in the folder.
+        rename: async (from, to) => {
+          moves.push(from);
+          if (moves.length === 1) {
+            throw Object.assign(new Error('EPERM: operation not permitted, rename'), {
+              code: 'EPERM',
+            });
+          }
+          await rename(from, to);
+        },
+      });
+      await state.start();
+      await state.shelve(['b1'], '2026-11-12', () => false);
+      assert.equal(moves.length, 2);
+      assert.equal(read('archive/2026-11-12/b1/events.jsonl'), line(1, ordered('b1')));
     });
   });
 
