@@ -3,8 +3,8 @@
 // starts (ADR 0021).
 
 import assert from 'node:assert/strict';
-import { mkdirSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, mkdirSync, readFileSync, utimesSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { beforeEach, describe, it } from 'node:test';
 import { runServe } from '../../src/cli/serve.ts';
 import { serveSetup } from '../../src/cli/serve-config.ts';
@@ -81,7 +81,7 @@ describe('runServe', () => {
       progress: () => undefined,
     };
 
-    it("runs rack's archive on the state branch serve opens, and orders past the archive's ids (ADR 0383)", async () => {
+    it("runs rack's archive on the state branch serve opens, orders past the archive's ids, and deletes old files in .foedrum/tmp only (ADR 0383)", async () => {
       f.store = empty();
       const files = serveInputs().files;
       // The Brewery's own rack.jsonc: Foedrum's default, as it ships.
@@ -94,6 +94,8 @@ describe('runServe', () => {
       };
       const result = serveSetup(
         serveInputs({
+          // The Brewery's checkout in the test's folder: rack deletes old files under it.
+          root: f.dir.path,
           files: {
             ...files,
             config: config({ concurrency: 1 }, {}),
@@ -103,6 +105,16 @@ describe('runServe', () => {
         }),
       );
       f.setup = result.kind === 'ready' ? result.setup : assert.fail(JSON.stringify(result));
+      // Two old files: one in the Brewery's .foedrum/tmp, which goes, one beside it, which stays.
+      const old = (path: string) => {
+        mkdirSync(dirname(path), { recursive: true });
+        writeFileSync(path, 'x');
+        const time = new Date(t0.getTime() - 3 * 86_400_000);
+        utimesSync(path, time, time);
+        return path;
+      };
+      const scratch = old(join(f.dir.path, '.foedrum', 'tmp', '921', 'run.log'));
+      const kept = old(join(f.dir.path, '.foedrum', 'local.log'));
       // Batch 12-1 is in the archive: issue 12 is ordered as 12-2.
       mkdirSync(join(f.setup.stateWorktree, 'archive', '2026-11-01', '12-1'), { recursive: true });
       // Rack's batch 13-1, approved at its gate, waits to archive.
@@ -136,7 +148,7 @@ describe('runServe', () => {
         dates: async () => [],
         drop: async () => {},
       });
-      const done = () => shelved.length > 0 && lane('12-2') !== undefined;
+      const done = () => shelved.length > 0 && lane('12-2') !== undefined && !existsSync(scratch);
       const ran = await runServe(
         f.setup,
         shell({ fetch: github.fetch, runner: () => hanging, stateBranch, ...ticking(done) }),
@@ -144,6 +156,7 @@ describe('runServe', () => {
       assert.equal(ran, 0);
       assert.ok(done(), f.lines.join('\n'));
       assert.equal(lane('12-1'), undefined);
+      assert.equal(existsSync(kept), true);
     });
 
     it("the ordered label is applied before the batch's first attempt starts", async () => {
