@@ -45,6 +45,7 @@ Not part of it: a new batch id format, recipe type, role, label, command or even
 
 ## Consequences
 - **What an existing Brewery must do: nothing.** Foedrum has no release. The store migrates itself to version 5, and `rack` comes from the defaults.
+- An archived id is skipped only while its folder exists. An issue ordered again more than 180 days after its archive folder was deleted can be given the same batch number, and the lookups of its pull request (by branch, open or not) and of its status comment (by marker) can then find the old ones. The maintainer accepted this; nothing is built against it.
 - A second process beside serve, such as `foedrum brew`, keeps its fold of an archived batch until it restarts: its connection did not forget. Nothing is built for that.
 - An archived batch is gone from `foedrum status`, `resume`, `replay` and `<n>`; its issue's number names an older batch, or none.
 - A cancelled batch is archived only once a person closes its issue; cancel closes neither the issue nor a pull request.
