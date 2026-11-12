@@ -165,6 +165,7 @@ export const serveFixture = (): ServeFixture => {
       },
       secretScan: async () => [],
       touchedFiles: async () => [],
+      fileAt: async () => undefined,
     }),
     runner: (claude, plan) => {
       f.calls.push(`runner ${claude}`);

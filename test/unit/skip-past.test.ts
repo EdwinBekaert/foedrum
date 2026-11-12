@@ -68,6 +68,7 @@ const brewed = async (scripts: Record<string, Behaviour[]>) => {
           },
           secretScan: async () => [],
           touchedFiles: async () => [],
+          fileAt: async () => undefined,
         },
       },
     ],

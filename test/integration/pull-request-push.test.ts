@@ -229,6 +229,27 @@ describe('the openPullRequest push with real git', () => {
     });
   });
 
+  it('records what to look at before merging, reading a manifest at both ends of the change (ADR 0384)', async () => {
+    const { state } = await brew((path) => {
+      mkdirSync(join(path, 'web'));
+      writeFileSync(join(path, 'web', 'package.json'), '{"dependencies":{"zod":"3.24.0"}}\n');
+      mkdirSync(join(path, 'db', 'migrations'), { recursive: true });
+      writeFileSync(join(path, 'db', 'migrations', '1.sql'), 'select 1;\n');
+      git(path, ['add', 'web', 'db']);
+      git(path, ['commit', '-q', '-m', 'Add web']);
+    });
+    assert.deepEqual(state.batches.get('12-1')?.lane, { kind: 'on_tap', pullRequests: [url] });
+    const pushed = store.findEffect({ batchId: '12-1', effect: 'push' });
+    // The manifest is not in the start's tree, so all its dependencies are new.
+    assert.deepEqual(PushResult.parse(pushed?.result).look, {
+      dependencies: {
+        count: 1,
+        changes: [{ manifest: 'web/package.json', kind: 'added', name: 'zod', to: '3.24.0' }],
+      },
+      migrations: { count: 1, files: ['db/migrations/1.sql'] },
+    });
+  });
+
   it('never forces: a bottle branch the origin has at another commit stops the push', async () => {
     // Someone pushed an unrelated commit to the bottle branch's name first.
     const other = join(dir.path, `other-${runs}`);

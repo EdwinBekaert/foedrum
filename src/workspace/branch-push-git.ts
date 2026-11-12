@@ -310,5 +310,8 @@ export const openBranchPush = (options: BranchPushOptions): BranchPush => {
       const listed = await gitOutput(local, clone, args, { ...aborts(signal), ...AS_COMMITTED });
       return listed.split('\0').filter((path) => path !== '');
     },
+    fileAt: async () => {
+      throw new Error('not implemented');
+    },
   };
 };

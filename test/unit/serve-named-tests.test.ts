@@ -193,6 +193,7 @@ describe('runServe: the tests a Gauger named (ADR 0342)', () => {
         push: async () => {},
         secretScan: async () => [],
         touchedFiles: async () => [],
+        fileAt: async () => undefined,
       }),
       runner: () => runner,
       exec,

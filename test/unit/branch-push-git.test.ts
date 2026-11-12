@@ -907,3 +907,60 @@ describe('openBranchPush: touchedFiles (ADR 0201)', () => {
     assert.equal(calls[0]?.options?.signal, signal);
   });
 });
+
+describe('openBranchPush: fileAt (ADR 0384)', () => {
+  const BLOB = 'e'.repeat(40);
+  const entry = (type: string, size: string, path: string) =>
+    ok(`100644 ${type} ${BLOB} ${size}\t${path}\0`);
+
+  it('reads the file at exactly that path in the commit, as committed', async () => {
+    const { git, calls } = recordingGit((args) =>
+      args[0] === 'ls-tree'
+        ? ok(`100644 blob ${BLOB}     120\tweb/package.json\0`)
+        : ok('{"name":"web"}'),
+    );
+    const push = openBranchPush({ git, clone });
+    assert.deepEqual(await push.fileAt(TIP, 'web/package.json'), { text: '{"name":"web"}' });
+    assert.deepEqual(
+      calls.map(({ cwd, args }) => [cwd, ...args]),
+      [
+        [clone, 'ls-tree', '-z', '--long', '--full-tree', TIP, '--', 'web/package.json'],
+        [clone, 'cat-file', 'blob', BLOB],
+      ],
+    );
+    for (const call of calls) assert.equal(call.options?.env?.GIT_NO_REPLACE_OBJECTS, '1');
+  });
+
+  it('gives nothing for a file the commit does not have, and only the entry of that path', async () => {
+    for (const listed of [ok(''), entry('blob', '3', 'web/package.json.bak')]) {
+      const { git, calls } = recordingGit(() => listed);
+      assert.equal(await openBranchPush({ git, clone }).fileAt(TIP, 'web/package.json'), undefined);
+      assert.equal(calls.length, 1);
+    }
+  });
+
+  it('gives why it does not read a file over 1 MiB or an entry that is no file', async () => {
+    const large = recordingGit(() => entry('blob', String(1024 * 1024 + 1), 'package.json'));
+    assert.deepEqual(await openBranchPush({ git: large.git, clone }).fileAt(TIP, 'package.json'), {
+      unread: 'it is larger than 1 MiB',
+    });
+    assert.equal(large.calls.length, 1);
+    const module = recordingGit(() => entry('commit', '-', 'package.json'));
+    assert.deepEqual(await openBranchPush({ git: module.git, clone }).fileAt(TIP, 'package.json'), {
+      unread: 'it is a commit in git',
+    });
+  });
+
+  it("fails with git's reason when git does, and refuses a commit that is no full sha before git runs", async () => {
+    const broken = recordingGit(() => ({ code: 128, stdout: '', stderr: 'fatal: bad object\n' }));
+    await assert.rejects(openBranchPush({ git: broken.git, clone }).fileAt(TIP, 'a.json'), {
+      message: 'git ls-tree failed: fatal: bad object',
+    });
+    const { git, calls } = recordingGit();
+    await assert.rejects(
+      openBranchPush({ git, clone }).fileAt('HEAD', 'a.json'),
+      /HEAD is no full/,
+    );
+    assert.deepEqual(calls, []);
+  });
+});

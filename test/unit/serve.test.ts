@@ -197,6 +197,7 @@ describe('runServe', () => {
       },
       secretScan: async () => [],
       touchedFiles: async () => ['README.md', 'src/auth/login.ts'],
+      fileAt: async () => undefined,
     });
     assert.equal(await runServe(f.setup, shell({ fetch: github.fetch, push })), 0);
     const pushed =
@@ -267,6 +268,7 @@ describe('runServe', () => {
       push: async () => {},
       secretScan: async () => [],
       touchedFiles: async () => ['README.md', '.foedrum/test-map.jsonc'],
+      fileAt: async () => undefined,
     });
     assert.equal(await runServe(f.setup, shell({ fetch: github.fetch, push, git })), 0);
     const pushed =
@@ -453,6 +455,7 @@ describe('runServe', () => {
           },
           secretScan: async () => [],
           touchedFiles: async () => [],
+          fileAt: async () => undefined,
         }),
         mergeTree: () => async (head, tip) => {
           merged.push(`${head} ${tip}`);
@@ -608,6 +611,7 @@ describe('runServe', () => {
           },
           secretScan: async () => [],
           touchedFiles: async () => [],
+          fileAt: async () => undefined,
         }),
         mergeTree: () => async () => ({ kind: 'clean' }),
       }),

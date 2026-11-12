@@ -45,11 +45,13 @@ const fakePush = (
   fetched = main,
   touched: string[] = [],
   commits: Record<string, string> = {},
+  files: Record<string, string | { unread: string }> = {},
 ) => {
   const asked: string[] = [];
   const pushes: string[] = [];
   const scans: string[] = [];
   const diffs: string[] = [];
+  const reads: string[] = [];
   const target: BranchPush = {
     commit: async (revision) => {
       asked.push(revision);
@@ -74,8 +76,13 @@ const fakePush = (
       diffs.push(`${since}..${to}`);
       return touched;
     },
+    fileAt: async (commit, path) => {
+      reads.push(`${commit}:${path}`);
+      const file = files[`${commit}:${path}`];
+      return typeof file === 'string' ? { text: file } : file;
+    },
   };
-  return { target, asked, pushes, remote, scans, diffs };
+  return { target, asked, pushes, remote, scans, diffs, reads };
 };
 
 /** A code host with the pull requests the Brewery opened, by head branch, and their bodies by URL. */
@@ -166,6 +173,7 @@ const actionsWith = (
     sensitivePaths?: string[];
     unmeasured?: PullRequestRepository['unmeasured'];
     commits?: Record<string, string>;
+    files?: Record<string, string | { unread: string }>;
     bodies?: Record<string, string>;
     visibility?: VisibilityOf;
   } = {},
@@ -178,6 +186,7 @@ const actionsWith = (
     options.fetched,
     options.touched,
     options.commits,
+    options.files,
   );
   const code = fakeHost(options.opened, options.answer, options.bodies);
   const titles: unknown[] = [];
@@ -917,15 +926,210 @@ describe('pullRequestActions: the secret scan before the push (ADR 0079)', () =>
   });
 });
 
+describe('pullRequestActions: what to look at before merging (ADR 0384)', () => {
+  const at = (commit: string, files: Record<string, string>) =>
+    Object.fromEntries(Object.entries(files).map(([path, text]) => [`${commit}:${path}`, text]));
+  const npm = (dependencies: Record<string, string>, extra: object = {}) =>
+    JSON.stringify({ name: 'api', dependencies, ...extra });
+
+  it('records a dependency the change adds, removes or changes, in a manifest a reader reads', async () => {
+    const { actions, reads } = actionsWith({
+      touched: ['README.md', 'package.json', 'svc/package.json', 'old/package.json'],
+      files: {
+        ...at(other, {
+          'package.json': npm({ zod: '3.23.0', 'left-pad': '1.0.0' }),
+          'old/package.json': npm({ lib: 'file:../lib' }),
+        }),
+        ...at(tip, {
+          'package.json': npm({ zod: '3.24.0', undici: '6.0.0' }),
+          'svc/package.json': npm({ lib: 'github:acme/lib#v2' }),
+        }),
+      },
+    });
+    keysOf(brewing(), actions);
+    assert.deepEqual(await actions.target.apply(push), {
+      branch,
+      commit: tip,
+      from,
+      look: {
+        dependencies: {
+          count: 5,
+          changes: [
+            {
+              manifest: 'package.json',
+              kind: 'changed',
+              name: 'zod',
+              from: '3.23.0',
+              to: '3.24.0',
+            },
+            { manifest: 'package.json', kind: 'added', name: 'undici', to: '6.0.0' },
+            { manifest: 'package.json', kind: 'removed', name: 'left-pad', from: '1.0.0' },
+            { manifest: 'svc/package.json', kind: 'added', name: 'lib', to: 'github:acme/lib#v2' },
+            { manifest: 'old/package.json', kind: 'removed', name: 'lib', from: 'lib' },
+          ],
+        },
+      },
+    });
+    // Only the manifests a reader matches are read, at both ends of the change.
+    assert.deepEqual(reads.sort(), [
+      `${tip}:old/package.json`,
+      `${tip}:package.json`,
+      `${tip}:svc/package.json`,
+      `${other}:old/package.json`,
+      `${other}:package.json`,
+      `${other}:svc/package.json`,
+    ]);
+  });
+
+  it('records nothing of a manifest whose dependencies stay as they were', async () => {
+    const { actions, reads } = actionsWith({
+      touched: ['package.json'],
+      files: {
+        ...at(other, { 'package.json': npm({ zod: '3.23.0' }, { scripts: { test: 'a' } }) }),
+        ...at(tip, { 'package.json': npm({ zod: '3.23.0' }, { scripts: { test: 'b' } }) }),
+      },
+    });
+    keysOf(brewing(), actions);
+    assert.deepEqual(await actions.target.apply(push), { branch, commit: tip, from });
+    assert.equal(reads.length, 2);
+  });
+
+  it('records each manifest it cannot read with the commit, and nothing else of it', async () => {
+    const { actions } = actionsWith({
+      touched: ['package.json', 'App/App.csproj'],
+      files: {
+        ...at(other, {
+          'package.json': npm({ zod: '3.23.0' }),
+          'App/App.csproj': '<Project></Project>',
+        }),
+        ...at(tip, { 'package.json': '[]' }),
+        [`${tip}:App/App.csproj`]: { unread: 'it is larger than 1 MiB' },
+      },
+    });
+    keysOf(brewing(), actions);
+    assert.deepEqual(await actions.target.apply(push), {
+      branch,
+      commit: tip,
+      from,
+      look: {
+        dependencies: {
+          count: 2,
+          changes: [
+            { manifest: 'package.json', kind: 'unread', at: tip, why: 'it is not a JSON object' },
+            { manifest: 'App/App.csproj', kind: 'unread', at: tip, why: 'it is larger than 1 MiB' },
+          ],
+        },
+      },
+    });
+  });
+
+  it('records a changed lock file by its name, at any depth, without reading it', async () => {
+    const locks = [
+      'package-lock.json',
+      'web/npm-shrinkwrap.json',
+      'yarn.lock',
+      'pnpm-lock.yaml',
+      'Cargo.lock',
+      'go.sum',
+      'App/packages.lock.json',
+      'bun.lock',
+    ];
+    const { actions, reads } = actionsWith({
+      touched: [...locks, 'package-lock.json.md', 'docs/yarn.lock.txt', 'go.mod.sum'],
+    });
+    keysOf(brewing(), actions);
+    assert.deepEqual(await actions.target.apply(push), {
+      branch,
+      commit: tip,
+      from,
+      look: { locks: { count: locks.length, files: locks } },
+    });
+    assert.deepEqual(reads, []);
+  });
+
+  it('records a changed CI file of the fixed list', async () => {
+    const ci = [
+      '.github/workflows/ci.yml',
+      '.github/actions/setup/action.yml',
+      'azure-pipelines.yml',
+      '.circleci/config.yml',
+      'Jenkinsfile',
+    ];
+    const { actions } = actionsWith({
+      touched: [...ci, 'github/workflows/ci.yml', 'web/azure-pipelines.yml', 'docs/Jenkinsfile'],
+    });
+    keysOf(brewing(), actions);
+    assert.deepEqual(await actions.target.apply(push), {
+      branch,
+      commit: tip,
+      from,
+      look: { ci: { count: ci.length, files: ci } },
+    });
+  });
+
+  it('records a changed file in a folder named migrations, in any case', async () => {
+    const migrations = ['db/migrations/0003.sql', 'src/Data/Migrations/Init.cs', 'migrations/a.py'];
+    const { actions } = actionsWith({
+      touched: [...migrations, 'migrations.md', 'db/migrate/x.rb', 'db/migrationsx/a.sql'],
+    });
+    keysOf(brewing(), actions);
+    assert.deepEqual(await actions.target.apply(push), {
+      branch,
+      commit: tip,
+      from,
+      look: { migrations: { count: migrations.length, files: migrations } },
+    });
+  });
+
+  it('keeps the first 50 of each kind and counts them all', async () => {
+    const many = Array.from({ length: 60 }, (_, n) => `db/migrations/${n}.sql`);
+    const { actions } = actionsWith({ touched: many });
+    keysOf(brewing(), actions);
+    assert.deepEqual(await actions.target.apply(push), {
+      branch,
+      commit: tip,
+      from,
+      look: { migrations: { count: 60, files: many.slice(0, 50) } },
+    });
+  });
+
+  it('reads the first 64 changed manifests and counts the rest as not read', async () => {
+    const manifests = Array.from({ length: 66 }, (_, n) => `m${n}/package.json`);
+    const { actions, reads } = actionsWith({
+      touched: manifests,
+      files: Object.fromEntries(manifests.map((path) => [`${tip}:${path}`, npm({ zod: '4.0.0' })])),
+    });
+    keysOf(brewing(), actions);
+    const added = (manifest: string) => ({ manifest, kind: 'added', name: 'zod', to: '4.0.0' });
+    assert.deepEqual(await actions.target.apply(push), {
+      branch,
+      commit: tip,
+      from,
+      look: {
+        dependencies: { count: 64, changes: manifests.slice(0, 50).map(added), left: 2 },
+      },
+    });
+    assert.equal(reads.length, 128);
+  });
+});
+
 describe('pullRequestActions: the sensitive paths the change touches (ADR 0201)', () => {
   const sensitivePaths = ['.github/workflows/**', 'src/auth/**'];
   const touched = ['src/auth/login.ts', 'README.md', '.github/workflows/ci.yml'];
   const sensitive = { count: 2, files: ['src/auth/login.ts', '.github/workflows/ci.yml'] };
+  // The CI file is also one to look at before merging (ADR 0384).
+  const look = { ci: { count: 1, files: ['.github/workflows/ci.yml'] } };
 
   it('records the files that match, as git named them, from where the change starts to the commit pushed', async () => {
     const { actions, diffs, pushes } = actionsWith({ sensitivePaths, touched });
     keysOf(brewing(), actions);
-    assert.deepEqual(await actions.target.apply(push), { branch, commit: tip, from, sensitive });
+    assert.deepEqual(await actions.target.apply(push), {
+      branch,
+      commit: tip,
+      from,
+      sensitive,
+      look,
+    });
     // The batch started at its first attempt's commit.
     assert.deepEqual(diffs, [`${other}..${tip}`]);
     assert.deepEqual(pushes, [`${tip} ${branch}`]);
@@ -951,6 +1155,7 @@ describe('pullRequestActions: the sensitive paths the change touches (ADR 0201)'
         count: 3,
         files: ['src/auth/.env', '.github/workflows/ci.yml', 'config/.npmrc'],
       },
+      look,
     });
   });
 
@@ -976,6 +1181,7 @@ describe('pullRequestActions: the sensitive paths the change touches (ADR 0201)'
         count: 4,
         files: ['.env', '.npmrc', '.secrets', '.github/workflows/ci.yml'],
       },
+      look,
     });
   });
 
@@ -983,7 +1189,7 @@ describe('pullRequestActions: the sensitive paths the change touches (ADR 0201)'
     const { actions } = actionsWith({ sensitivePaths, touched, remote: { [branch]: tip } });
     keysOf(brewing(), actions);
     assert.deepEqual(await actions.target.find(push), {
-      result: { branch, commit: tip, from, sensitive },
+      result: { branch, commit: tip, from, sensitive, look },
     });
   });
 
@@ -994,15 +1200,15 @@ describe('pullRequestActions: the sensitive paths the change touches (ADR 0201)'
     assert.equal(diffs.length, 1);
   });
 
-  it('reads no diff when the repository names no sensitive paths', async () => {
+  it('reads the diff for what to look at before merging when the repository names no sensitive paths (ADR 0384)', async () => {
     for (const paths of [undefined, []]) {
       const { actions, diffs } = actionsWith({
         touched,
         ...(paths === undefined ? {} : { sensitivePaths: paths }),
       });
       keysOf(brewing(), actions);
-      assert.deepEqual(await actions.target.apply(push), { branch, commit: tip, from });
-      assert.deepEqual(diffs, []);
+      assert.deepEqual(await actions.target.apply(push), { branch, commit: tip, from, look });
+      assert.deepEqual(diffs, [`${other}..${tip}`]);
     }
   });
 

@@ -21,6 +21,7 @@ import { effectKey } from './effect-key.ts';
 import type { EffectTarget } from './effects.ts';
 import type { State } from './fold.ts';
 import { type Handover, handoversOf } from './handover.ts';
+import type { FileAt } from './look-before-merging.ts';
 import { matchesWithDots } from './path-globs.ts';
 import {
   type AttemptRow,
@@ -93,6 +94,11 @@ export interface BranchPush {
    * and a rename at both paths (ADR 0201).
    */
   touchedFiles(since: string, commit: string, signal?: AbortSignal): Promise<string[]>;
+  /**
+   * The text of the file at `path` in `commit` (a full sha), as committed: `undefined` when the
+   * commit has no such file, or why it cannot be read, such as one too large (ADR 0384).
+   */
+  fileAt(commit: string, path: string, signal?: AbortSignal): Promise<FileAt>;
 }
 
 /** A repository a batch writes in: its base branch, and the pushes of its clone. */
