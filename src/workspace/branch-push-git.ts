@@ -67,6 +67,8 @@ const AS_COMMITTED: GitOptions = {
     'protocol.allow': 'never',
   },
 };
+/** The largest file `fileAt` reads, as the system map reads a manifest (ADR 0317, ADR 0384). */
+const MAX_FILE_BYTES = 1024 * 1024;
 const SHOWN = ['--no-notes', '--no-show-signature'];
 const MESSAGES = ['log', ...SHOWN, '--encoding=UTF-8', '--format=%x00%H%n%B'];
 // Every header as stored, which %B leaves out: the author, the committer, a signature, an encoding.
@@ -310,8 +312,21 @@ export const openBranchPush = (options: BranchPushOptions): BranchPush => {
       const listed = await gitOutput(local, clone, args, { ...aborts(signal), ...AS_COMMITTED });
       return listed.split('\0').filter((path) => path !== '');
     },
-    fileAt: async () => {
-      throw new Error('not implemented');
+    fileAt: async (commit, path, signal) => {
+      fullSha(commit);
+      // The entry at exactly that path, with its object and size: none when the commit has no file.
+      const args = ['ls-tree', '-z', '--long', '--full-tree', commit, '--', path];
+      const listed = await gitOutput(local, clone, args, { ...aborts(signal), ...AS_COMMITTED });
+      const entry = listed.split('\0').find((line) => line.slice(line.indexOf('\t') + 1) === path);
+      if (entry === undefined) return undefined;
+      const [, type, object, size] = entry.slice(0, entry.indexOf('\t')).split(/ +/);
+      if (type !== 'blob' || object === undefined) return { unread: `it is a ${type} in git` };
+      if (Number(size) > MAX_FILE_BYTES) return { unread: 'it is larger than 1 MiB' };
+      const text = await gitOutput(local, clone, ['cat-file', 'blob', object], {
+        ...aborts(signal),
+        ...AS_COMMITTED,
+      });
+      return { text };
     },
   };
 };

@@ -21,7 +21,7 @@ import { effectKey } from './effect-key.ts';
 import type { EffectTarget } from './effects.ts';
 import type { State } from './fold.ts';
 import { type Handover, handoversOf } from './handover.ts';
-import type { FileAt } from './look-before-merging.ts';
+import { type FileAt, lookOf } from './look-before-merging.ts';
 import { matchesWithDots } from './path-globs.ts';
 import {
   type AttemptRow,
@@ -152,8 +152,11 @@ type ActionEffect =
       revision: string;
       base: string;
       branch: string;
-      /** Where the batch's change starts, and the globs its files are matched against (ADR 0201). */
-      sensitive?: {
+      /**
+       * Where the batch's change starts, and the globs its files are matched against (ADR 0201);
+       * its files are also checked for what to look at before merging (ADR 0384).
+       */
+      change?: {
         since: string;
         paths: readonly string[];
         unmeasured?: PullRequestRepository['unmeasured'];
@@ -312,26 +315,33 @@ export const pullRequestActions = (options: PullRequestActionsOptions): DriverAc
   const targetOf = (effect: ActionEffect): EffectTarget => {
     switch (effect.kind) {
       case 'push': {
-        const { push, revision, base, branch, sensitive, previous } = effect;
-        // The files of the change that match a sensitive path, read once for commits that go.
+        const { push, revision, base, branch, change, previous } = effect;
+        // The files of the change that match a sensitive path, and what to look at before merging
+        // (ADR 0384), read once for commits that go.
         const touched = async (commit: string, signal?: AbortSignal) => {
-          if (sensitive === undefined) return {};
-          const { since, paths, unmeasured } = sensitive;
-          const files = (await push.touchedFiles(since, commit, signal)).filter((file) =>
-            paths.some((glob) => matchesWithDots(file, glob)),
+          if (change === undefined) return {};
+          const { since, paths, unmeasured } = change;
+          const changed = await push.touchedFiles(since, commit, signal);
+          const look = await lookOf(changed, since, commit, (at, path) =>
+            push.fileAt(at, path, signal),
           );
-          if (files.length === 0) return {};
+          const files = changed.filter((file) => paths.some((glob) => matchesWithDots(file, glob)));
           // A change to the test map names the modules it adds that no coverage tool measures.
           const added =
             unmeasured !== undefined && files.includes(TEST_MAP_PATH)
               ? (await unmeasured(since, commit, signal)).slice(0, MAX_SENSITIVE)
               : [];
           return {
-            sensitive: {
-              count: files.length,
-              files: files.slice(0, MAX_SENSITIVE),
-              ...(added.length === 0 ? {} : { unmeasured: added }),
-            },
+            ...(files.length === 0
+              ? {}
+              : {
+                  sensitive: {
+                    count: files.length,
+                    files: files.slice(0, MAX_SENSITIVE),
+                    ...(added.length === 0 ? {} : { unmeasured: added }),
+                  },
+                }),
+            ...(look === undefined ? {} : { look }),
           };
         };
         // The commit to push, and whether the base holds all of it: a pull request with no commits,
@@ -448,10 +458,10 @@ export const pullRequestActions = (options: PullRequestActionsOptions): DriverAc
         revision,
         base: repository.base,
         branch,
-        ...(since === undefined || paths.length === 0
+        ...(since === undefined
           ? {}
           : {
-              sensitive: {
+              change: {
                 since,
                 paths,
                 ...(repository.unmeasured === undefined
