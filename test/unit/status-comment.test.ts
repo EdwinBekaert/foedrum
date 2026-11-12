@@ -3344,7 +3344,7 @@ describe('renderStatus: a plan that waits for its review (#658)', () => {
     const lane = stuck({ kind: 'plan_review', stepId: 'approval', attempt: 1 });
     const lines = rendered(batch({ lane, steps: new Map([step('approval', gate)]) })).split('\n');
     assert.ok(
-      lines.includes('🔔 **Stuck**: `approval` waits for your go: run `foedrum approve 7`'),
+      lines.includes('🔔 **Waiting for you**: give your go: run `foedrum approve 7`'),
       lines.join('\n'),
     );
   });
@@ -3598,8 +3598,8 @@ describe('the Next line of a status comment that waits on the person (#777)', ()
     const text = render(
       batch({ lane: { kind: 'on_tap', pullRequests: [] }, approval: gate, steps }),
     );
-    assert.ok(text.split('\n').includes('🍻 **On tap**'), text);
-    assert.doesNotMatch(text, /plan approved|Next:/);
+    assert.ok(text.split('\n').includes('🍻 **Done**: no pull request'), text);
+    assert.doesNotMatch(text, /plan approved|sub-orders|Next:/);
   });
 
   it('a batch on tap with no pull request and no approved plan has no Next line: regression test', () => {

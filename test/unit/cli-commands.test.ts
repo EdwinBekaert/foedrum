@@ -1485,7 +1485,7 @@ describe('foedrum stuck', () => {
       stdout: [
         '1 Stuck batch',
         '',
-        `13-1  #13  approval waits for your go; reminder ${iso(2880)}`,
+        '13-1  #13  waiting for you: give your go',
         '  options: approve, retry, recipe, cancel',
         '  next: go on with foedrum approve 13, or end it with foedrum cancel 13.',
         '',
