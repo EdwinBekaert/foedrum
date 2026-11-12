@@ -51,10 +51,15 @@ const at = (batchId: string, stepId: string): Event[] => [
   { type: 'step.scheduled', batchId, stepId, attempt: 1, deadlineAt: '2026-11-12T13:00:00.000Z' },
   { type: 'step.started', batchId, stepId, attempt: 1 },
 ];
-/** A batch on tap with no pull request: a rack batch, finished once its issue is closed. */
+/**
+ * A batch on tap with no pull request: a rack batch, finished once its issue is closed, whose close
+ * the driver applied when it ran (ADR 0387).
+ */
 const onTap = (batchId: string, issue: number, parentBatchId?: string): Event[] => [
   ...ordered(batchId, issue, parentBatchId),
   { type: 'batch.on_tap', batchId, pullRequests: [] },
+  { type: 'effect.applied', key: JSON.stringify([batchId, 'close.comment']), result: 1 },
+  { type: 'effect.applied', key: JSON.stringify([batchId, 'close.issue']), result: null },
 ];
 const brewing = (batchId: string, issue: number, parentBatchId?: string): Event[] => [
   ...ordered(batchId, issue, parentBatchId),

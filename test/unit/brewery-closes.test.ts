@@ -26,6 +26,7 @@ const recipes = fakeRecipes({
   one: fakeRecipe({ steps: ['plan'], pullRequests: [web] }),
   two: fakeRecipe({ steps: ['plan'], pullRequests: [web, lib] }),
   none: fakeRecipe({ steps: ['plan'], pullRequests: [] }),
+  rack: fakeRecipe({ steps: ['plan'], pullRequests: [] }),
 });
 const succeeded: Ending = {
   kind: 'succeeded',
@@ -72,7 +73,7 @@ describe('breweryCloseEffects', () => {
   };
   /** Orders the Brewery issue #12 as batch 12-1 and brews it on tap with `recipe`. */
   const onTap = (
-    recipe: 'one' | 'two' | 'none',
+    recipe: 'one' | 'two' | 'none' | 'rack',
     batchId = '12-1',
     ordered: { issue: number; repo?: string } = { issue: 12 },
   ): void => {
@@ -178,6 +179,22 @@ describe('breweryCloseEffects', () => {
     assert.equal(ledger('close.issue'), undefined);
   });
 
+  it("leaves the issue to its newer batch when a finished rack batch's issue was ordered again", async () => {
+    onTap('rack');
+    issue({
+      kind: 'order_again',
+      batchId: '12-2',
+      order: { issue: 12 },
+      by: 'ann',
+      via: 'terminal',
+    });
+    const driver = await open();
+    await driver.tick();
+    assert.equal(order().state, undefined);
+    assert.equal(order().comments.length, 0);
+    assert.equal(ledger('close.issue'), undefined);
+  });
+
   it('ends the close as gone when a person deleted the Brewery issue', async () => {
     onTap('one');
     ended(web, 'merged');
@@ -218,6 +235,17 @@ describe('breweryCloseEffects', () => {
     assert.equal(ledger('close.comment'), undefined);
     assert.equal(order().state, undefined);
     assert.equal(order().comments.length, 0);
+  });
+
+  it("a finished rack batch's issue is closed, with a comment saying rack ran (ADR 0387)", async () => {
+    onTap('rack');
+    const driver = await open();
+    await driver.tick();
+    assert.equal(order().state, 'closed');
+    assert.equal(order().comments.length, 1);
+    assert.match(order().comments[0]?.body ?? '', /^Rack ran; Foedrum closes this cleanup\./);
+    assert.deepStrictEqual(ledger('close.issue'), { result: null });
+    assert.deepStrictEqual(notices, []);
   });
 
   it('closes a split order’s sub-issue once its batch’s pull request merged (ADR 0285)', async () => {

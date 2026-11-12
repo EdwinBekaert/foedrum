@@ -3,7 +3,8 @@
 // ledger, once every pull request of the issue's batch merged. What is due comes from the recorded
 // events alone (`pull_request.ended`); each effect is found by its key before it is applied
 // (ADR 0033). A claimed batch's Brewery issue closes with its claim's release (ADR 0144). A split
-// order's issue closes once every sub-order its latest breakdown keeps merged (ADR 0293).
+// order's issue closes once every sub-order its latest breakdown keeps merged (ADR 0293). A rack
+// batch's issue closes once rack ran to its end, with no pull request (ADR 0387).
 
 import { pullRequestOf } from '../schemas/events.ts';
 import type { BatchEffectKey } from '../schemas/store.ts';
@@ -59,6 +60,11 @@ const dueClose = (state: State, batch: Batch): DueClose | undefined => {
     if (batch.lane.kind !== 'on_tap' || end?.kind !== 'done') return undefined;
     const names = namesOf(end.pullRequests).join(', ');
     return { issue, body: `Every sub-order merged: ${names}. Foedrum closes this order.` };
+  }
+  // Rack ran to its end, with no pull request: its issue is closed, so the next opens (ADR 0387).
+  const { lane } = batch;
+  if (batch.recipe?.name === 'rack' && lane.kind === 'on_tap' && lane.pullRequests.length === 0) {
+    return { issue, body: 'Rack ran; Foedrum closes this cleanup.' };
   }
   const merged = mergedWork(batch);
   if (merged.length === 0) return undefined;
