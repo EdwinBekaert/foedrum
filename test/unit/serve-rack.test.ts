@@ -170,6 +170,22 @@ describe('runServe', () => {
       );
     });
 
+    it('serve says no rack check failed when it stops during the read', async () => {
+      // The read answers only once serve's stop aborts it.
+      const { reads, opened } = await serve([], {
+        waits: 2,
+        instead: (method, url) =>
+          rackRead(`${method} ${url.pathname}${url.search}`) ? 'hang' : undefined,
+      });
+      assert.ok(reads > 0, 'serve read the rack issues');
+      assert.deepStrictEqual(opened, []);
+      assert.ok(f.lines.includes('foedrum serve: stopped'), f.lines.join('\n'));
+      assert.deepStrictEqual(
+        f.lines.filter((line) => line.includes('rack check failed')),
+        [],
+      );
+    });
+
     it('serve reads the rack issues at its start and then at most once an hour', async () => {
       // 20 minutes a wait, 7 waits: the reads come at 0, 60 and 120 minutes.
       const { reads, opened } = await serve([rackIssue(5, 1, 'closed')], {
