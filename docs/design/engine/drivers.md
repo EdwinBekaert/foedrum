@@ -28,7 +28,7 @@ flowchart TD
 
 - **Autonomous:** the Cellar (`foedrum serve`) picks up orders and commands from GitHub, and later from the Brewhouse dashboard.
   Where the Brewery has a `rack` recipe, it opens a Brewery issue labelled `recipe:rack` every 4 weeks, so the Brewery is cleaned without anyone remembering to ([ADR 0387](../../adr/0387-serve-opens-a-rack-issue-every-4-weeks.md)).
-  It keeps no date: at its start and then at most once an hour, beside the ticks and never awaited by one, it reads the Brewery's issues labelled `recipe:rack`, open or closed, and opens one when there is none, or every one is closed and the newest was opened 28 days ago or more (`createRackSchedule`, `src/engine/rack-schedule.ts`; `githubRackIssues`, `src/github/rack-issues.ts`).
+  It keeps no date: at its start and then at most once an hour, beside the ticks and never awaited by one, it reads the Brewery's issues labelled `recipe:rack`, open or closed, and opens one when every one is closed and the newest was opened 28 days ago or more, or, while there is none, once the oldest batch in the store was ordered 28 days ago or more (`createRackSchedule`, `src/engine/rack-schedule.ts`; `githubRackIssues`, `src/github/rack-issues.ts`).
   The issue names what the Brewery's own rack steps do, with their ages, and that nothing runs until `foedrum approve <n>`; a person skips a cleanup by closing the issue, and the next one opens 4 weeks after that one was opened.
   A read or an open that fails opens nothing and says so in one line, and the next read an hour later tries again.
   Once rack ran to its end, the engine closes its issue with the comment `Rack ran; Foedrum closes this cleanup.`, so the next one can open (`dueClose`, `src/engine/brewery-closes.ts`).

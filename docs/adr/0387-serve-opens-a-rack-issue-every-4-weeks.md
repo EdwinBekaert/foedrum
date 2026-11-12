@@ -9,7 +9,8 @@ ADR 0383 left a schedule out.
 The maintainer decided on 2026-11-12: `foedrum serve` opens one every 4 weeks, with no stored date, no setting, and no new event, store record, command, label or recipe.
 
 ## Decision
-- Where the Brewery has a recipe named `rack`, `foedrum serve` opens a Brewery issue labelled `recipe:rack` when there is none, or when every one is closed and the newest was opened 28 days ago or more (`rackDue`, `src/engine/rack-schedule.ts`).
+- Where the Brewery has a recipe named `rack`, `foedrum serve` opens a Brewery issue labelled `recipe:rack` when every one is closed and the newest was opened 28 days ago or more (`rackDue`, `src/engine/rack-schedule.ts`).
+- While there is none yet, it opens the first only once the oldest batch in the store was ordered 28 days ago or more (its `orderedAt`); with no batch at all, none. A new Brewery's first cleanup so comes 4 weeks after its first order, when there is something to clean, never at serve's first start (decided by the maintainer on 2026-11-12, after CI showed the ladder demo's issue numbers shift).
   A Brewery without a rack recipe gets none: there is nothing for the issue to start.
 - Serve keeps no date.
   At its start, and then at most once an hour, it reads the Brewery's issues labelled `recipe:rack`, open or closed, every page, through the conditional reads (ADR 0052), so an unchanged read costs no rate limit (`githubRackIssues`, `src/github/rack-issues.ts`).
@@ -33,7 +34,7 @@ The maintainer decided on 2026-11-12: `foedrum serve` opens one every 4 weeks, w
   Two serves on two machines for one Brewery are guarded for nothing else either, and nothing is built for them here.
 
 ## Consequences
-- **What an existing Brewery must do: nothing.** Foedrum has no release. A Brewery with the default `rack` gets its first rack issue at serve's next start, unless one opened in the last 28 days.
+- **What an existing Brewery must do: nothing.** Foedrum has no release. A Brewery with the default `rack` gets its first rack issue once its oldest batch in the store is 4 weeks old.
 - The intake orders a Brewery issue only when its author is in `users` (ADR 0068). Serve opens it as gh's login, which `foedrum init` puts in `users`; a Brewery that took that login out gets an issue every 4 weeks that the intake never orders. The design page says so; nothing is built against it.
 - A rack batch already on tap when this ships gets the close at the driver's first tick after it: an open issue gets the comment and is closed, and one a person closed is only recorded. Foedrum has no release, so no Brewery has such a batch from before.
 - Rack's archive waits for that close as for any close still due (ADR 0383), and takes the rack batch once its issue is closed, at the next rack run.
@@ -43,4 +44,5 @@ The maintainer decided on 2026-11-12: `foedrum serve` opens one every 4 weeks, w
 ## Alternatives considered
 - **A date in the store or a file.** The issue's own creation time says the same, and survives a store rebuilt from the state branch.
 - **Through the ledger, keyed by the date.** See above: a new key or event for nothing GitHub does not already hold.
+- **The first rack issue at serve's first start.** A new Brewery would get a cleanup with nothing to clean, and every demo and walkthrough an issue it does not show.
 - **A read on every tick.** Every 5 s for a 4-week period; once an hour is enough.

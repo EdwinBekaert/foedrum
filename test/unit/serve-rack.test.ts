@@ -1,6 +1,7 @@
 // Serve opens a Brewery issue labelled recipe:rack every 4 weeks (ADR 0387): it reads the newest
 // one, open or closed, at its start and then at most once an hour, and opens one when there is
-// none, or the newest was opened 28 days ago or more and none is open. An in-memory store, fake
+// none and the oldest batch is 28 days old, or the newest was opened 28 days ago or more and none
+// is open. An in-memory store, fake
 // worktrees and a fake GitHub; no process starts (ADR 0021).
 
 import assert from 'node:assert/strict';

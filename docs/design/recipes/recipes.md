@@ -66,7 +66,7 @@ A batch whose step left its recipe file goes Stuck on a divergence when that ste
 
 A step has exactly one of these kind fields.
 The default recipe `rack` is the Brewery's cleanup: a gate, then the archive of the finished batches, the deletion of archive folders older than `180d` and of files in the Brewery's `.foedrum/tmp/` older than `2d`; a Brewery changes the ages with a `rack.jsonc` of its own, and a recipe with no brewer, as rack, is never offered to a model as a choice ([ADR 0383](../../adr/0383-rack-archives-finished-batches-and-deletes-old-archive-folders-and-temporary-files.md)).
-`foedrum serve` opens a Brewery issue labelled `recipe:rack` every 4 weeks, unless one is open; a person skips a cleanup by closing it ([drivers](../engine/drivers.md), [ADR 0387](../../adr/0387-serve-opens-a-rack-issue-every-4-weeks.md)).
+`foedrum serve` opens a Brewery issue labelled `recipe:rack` every 4 weeks, unless one is open, the first once the Brewery's oldest batch is 4 weeks old; a person skips a cleanup by closing it ([drivers](../engine/drivers.md), [ADR 0387](../../adr/0387-serve-opens-a-rack-issue-every-4-weeks.md)).
 The deletion of temporary files skips an entry gone meanwhile, and one it cannot read or delete, which it leaves for the next run; its attempt ends succeeded with how many it deleted and how many it left (`{ "deleted": 12, "left": 1 }`) ([ADR 0383](../../adr/0383-rack-archives-finished-batches-and-deletes-old-archive-folders-and-temporary-files.md)).
 ADR 0019's `session` step is gone: the schema refuses it with a line that names `"interactive": true` on a brewer step ([ADR 0222](../../adr/0222-a-recipe-s-brewer-step-may-be-interactive.md)).
 
