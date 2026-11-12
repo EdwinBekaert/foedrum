@@ -9,17 +9,22 @@ import { effectKey } from './effect-key.ts';
 import type { Batch, State } from './fold.ts';
 import { GATE_OUTPUT } from './recipes.ts';
 
-/** `batch`'s approval when it signed off a plan; none for a human gate's go (ADR 0383). */
-export const planApproval = (batch: Batch): Batch['approval'] => {
-  const { approval } = batch;
-  if (approval === undefined) return undefined;
-  const ran = batch.steps.get(approval.stepId)?.attempts.get(approval.attempt);
-  const gate =
+/** Whether attempt `attempt` of `stepId` is a human gate's, which waits for a go, not a plan (ADR 0383). */
+export const atGate = (
+  batch: Batch,
+  { stepId, attempt }: { stepId: string; attempt: number },
+): boolean => {
+  const ran = batch.steps.get(stepId)?.attempts.get(attempt);
+  return (
     ran?.phase === 'finished' &&
     ran.outcome.kind === 'succeeded' &&
-    isDeepStrictEqual(ran.outcome.output, GATE_OUTPUT);
-  return gate ? undefined : approval;
+    isDeepStrictEqual(ran.outcome.output, GATE_OUTPUT)
+  );
 };
+
+/** `batch`'s approval when it signed off a plan; none for a human gate's go (ADR 0383). */
+export const planApproval = (batch: Batch): Batch['approval'] =>
+  batch.approval === undefined || atGate(batch, batch.approval) ? undefined : batch.approval;
 
 /** A sub-issue the ledger has for an approved plan's entry `id`. */
 export interface OpenedSubIssue {

@@ -2,7 +2,6 @@
 // from the folded state alone, and its edits as revisions in the ledger, `[batchId, "status.<n>"]`,
 // each found by its marker on the Brewery's own comment before it is applied (ADR 0033).
 
-import { isDeepStrictEqual } from 'node:util';
 import { passed, settleReadings, shortCommand, testsFailing } from '../checks/gravity.ts';
 import type { IsCommit } from '../formats/secrets.ts';
 import type {
@@ -41,7 +40,7 @@ import { changesText, issueUrl } from './order-changes.ts';
 import { orderEnd, type SubOrderRow, subOrderRows } from './order-end.ts';
 import { withoutSecrets } from './out-doc-text.ts';
 import { pauseOf, stopAtText } from './pauses.ts';
-import { allSubIssues, planApproval } from './plan-applied.ts';
+import { allSubIssues, atGate, planApproval } from './plan-applied.ts';
 import { checkPassed } from './pr-checks.ts';
 import { type FiledIssue, filedIssues } from './pre-existing-issues.ts';
 import {
@@ -58,7 +57,7 @@ import {
 } from './pull-request.ts';
 import { type PairConflict, pairsOf } from './pull-request-pairs.ts';
 import { receiptParts, receiptsOf } from './receipt.ts';
-import { GATE_OUTPUT, type Recipe, type Recipes } from './recipes.ts';
+import type { Recipe, Recipes } from './recipes.ts';
 import { resumedAfterOverrun } from './session-resume.ts';
 import { stateText } from './sibling-pull-requests.ts';
 import { pastBySkip, pastLine } from './skip-past.ts';
@@ -155,6 +154,10 @@ export const STEP_BACK = 'Another round is unlikely to help: plan the order agai
  */
 export const planNextStep = (called: string, command: (text: string) => string): string =>
   `read the plan and its assumptions; sign it off with ${command(`foedrum approve ${called}`)}, correct it in a session with ${command(`foedrum lauter ${called}`)}, plan it again with ${command(`foedrum retry ${called}`)}, or end it with ${command(`foedrum cancel ${called}`)}.`;
+
+/** What a person does with a batch that waits at a human gate (ADR 0383). */
+export const gateNextStep = (called: string, command: (text: string) => string): string =>
+  `go on with ${command(`foedrum approve ${called}`)}, or end it with ${command(`foedrum cancel ${called}`)}.`;
 
 /**
  * An option as a line offers it: its name, under a comment that says its number, or the whole command
@@ -270,9 +273,10 @@ const stuckText = (
   reason: StuckReason,
   told: Told,
   called: string,
-  { repo, issue, steps }: Batch,
+  batch: Batch,
   planComment?: string,
 ): string => {
+  const { repo, issue } = batch;
   switch (reason.kind) {
     case 'needs_input':
       return `${code(reason.stepId)} needs input`;
@@ -319,13 +323,8 @@ const stuckText = (
       return `${code(reason.stepId)}: ${link(reason.pullRequest)} failed its checks on ${code(reason.head)} ${after}: ${[...checks, ...more].join(', ')}`;
     }
     case 'plan_review': {
-      const ran = steps.get(reason.stepId)?.attempts.get(reason.attempt);
       // A human gate waits for a go, with no plan (ADR 0383).
-      if (
-        ran?.phase === 'finished' &&
-        ran.outcome.kind === 'succeeded' &&
-        isDeepStrictEqual(ran.outcome.output, GATE_OUTPUT)
-      ) {
+      if (atGate(batch, reason)) {
         return `${code(reason.stepId)} waits for your go: run ${code(`foedrum approve ${called}`)}`;
       }
       const at = planComment === undefined ? '' : `: ${labelled('plan comment', planComment)}`;
@@ -674,7 +673,9 @@ const nextLines = (
     switch (reason.kind) {
       // What to do with a plan that waits for its review (ADR 0275, ADR 0281).
       case 'plan_review':
-        return [planNextLine(called, options, batch.id)];
+        return atGate(batch, reason)
+          ? [`Next: ${gateNextStep(called, code)}`]
+          : [planNextLine(called, options, batch.id)];
       case 'needs_input': {
         const answers = reason.questions.map((_, n) => `<answer ${n + 1}>`).join(' ');
         const others = options.filter((option) => option !== 'answer');
