@@ -644,6 +644,16 @@ describe('openStateBranch with a fake git', () => {
   });
 
   describe('the archive (ADR 0383)', () => {
+    it('a rebuild reads no file of the archive: regression test', async () => {
+      fake.remote = sha(5);
+      fake.files = {
+        'batches/b2/events.jsonl': line(2, ordered('b2')),
+        'archive/2026-11-12/b1/events.jsonl': line(1, ordered('b1')),
+      };
+      assert.deepEqual(await branch().start(), { decision: 'restore' });
+      assert.deepEqual(store.eventsAfter(0), [{ id: 2, event: ordered('b2') }]);
+    });
+
     it('moves the folders of the batches it names, and of those the store forgot, and drops a date', async () => {
       fake.remote = sha(5);
       fake.files = {
