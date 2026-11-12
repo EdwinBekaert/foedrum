@@ -119,7 +119,7 @@ describe('rack (ADR 0383)', () => {
   it('rack leaves a batch that has not finished', async () => {
     // 7's issue is still open; 8 brews; 9 is archived beside them.
     const events = [...onTap('7-1', 7), ...brewing('8-1', 8), ...onTap('9-1', 9)];
-    const ran = await run('archive', events, [7, 8, 9]);
+    const ran = await run('archive', events, [8, 9]);
     assert.deepStrictEqual(ran.batches, ['7-1', '8-1', '20-1']);
     assert.deepStrictEqual(ran.shelved, [
       { batchIds: ['9-1'], date: '2026-11-12', known: ['20-1', '7-1', '8-1'] },
