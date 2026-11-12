@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import type { AttemptRef } from '../../src/engine/attempt-key.ts';
 import { effectKey } from '../../src/engine/effect-key.ts';
+import type { EventStore } from '../../src/engine/event-store.ts';
 import { fold } from '../../src/engine/fold.ts';
 import { claimEffectsDue } from '../../src/engine/issue-claims.ts';
 import { type ArchiveShelf, rackActions, withRack } from '../../src/engine/rack.ts';
@@ -119,6 +120,8 @@ const run = async (
     temporary?: string;
     /** An issue's state by `<repo>#<n>`, over what `closed` says. */
     states?: Readonly<Record<string, 'open' | 'closed' | 'gone'>>;
+    /** What happens while issue `issue` is read: a write to the store, or a failed read. */
+    reading?: (store: EventStore, issue: number) => void;
   } = {},
 ) => {
   const store = openSqliteEventStore(':memory:');
@@ -136,20 +139,26 @@ const run = async (
     shelf,
     issueState: async (repo, issue) => {
       reads.push(`${repo}#${issue}`);
+      options.reading?.(store, issue);
       return options.states?.[`${repo}#${issue}`] ?? (closed.includes(issue) ? 'closed' : 'open');
     },
     temporary: options.temporary ?? join('nowhere', '.foedrum', 'tmp'),
     clock: () => now,
   });
   const ref: AttemptRef = { batchId: '20-1', stepId, attempt: 1 };
+  let failed: unknown;
   for (const key of actions.due(state(), ref)) {
-    const result = await actions.target.apply(effectKey.encode(key));
-    store.withTransaction((tx) => tx.recordEffect(key, result));
+    try {
+      const result = await actions.target.apply(effectKey.encode(key));
+      store.withTransaction((tx) => tx.recordEffect(key, result));
+    } catch (error) {
+      failed = error;
+    }
   }
   const ending = actions.ending(state(), ref);
   const batches = [...new Set(store.eventsAfter(0).map(({ event }) => batchOf(event)))];
   store.close();
-  return { batches, shelved, dropped, reads, ending };
+  return { batches, shelved, dropped, reads, ending, failed };
 };
 
 describe('rack (ADR 0383)', () => {
@@ -287,6 +296,26 @@ describe('rack (ADR 0383)', () => {
     );
     assert.equal(await actions.target.apply(JSON.stringify(['2-1', 'rack.archive'])), 'rack');
     assert.equal(await actions.target.apply(JSON.stringify(['1-1', 'push'])), 'open');
+  });
+
+  it('keeps the groups it archived before an issue could not be read, so each run gets further', async () => {
+    const reading = (_store: EventStore, issue: number) => {
+      if (issue === 7) throw new Error('GitHub did not answer');
+    };
+    const ran = await run('archive', [...onTap('6-1', 6), ...onTap('7-1', 7)], [6, 7], { reading });
+    assert.match(String(ran.failed), /GitHub did not answer/);
+    assert.deepStrictEqual(ran.batches, ['7-1', '20-1']);
+  });
+
+  it('leaves a group a batch joined while its issues were read', async () => {
+    // Issue 7 is ordered again while rack reads it: 7-1 no longer goes alone.
+    const reading = (store: EventStore, issue: number) => {
+      if (issue === 7)
+        store.withTransaction((tx) => brewing('7-2', 7).forEach((e) => tx.append(e)));
+    };
+    const ran = await run('archive', [...onTap('6-1', 6), ...onTap('7-1', 7)], [6, 7], { reading });
+    assert.deepStrictEqual(ran.batches, ['7-1', '20-1', '7-2']);
+    assert.deepStrictEqual(ran.shelved[0]?.batchIds, ['6-1']);
   });
 
   it('rack deletes archive folders older than 180 days', async () => {
