@@ -374,7 +374,7 @@ describe('createCheckRunner: the uncovered-line check (ADR 0274)', () => {
     };
     const batch = fold([...events, finished]).batches.get('12-1') ?? assert.fail();
     const text = renderStatus(batch, ['implement', 'green']);
-    assert.match(text, /- ✅ `green`\n {2}- not measured, coverage none: legacy(\n|$)/);
+    assert.match(text, /- ✅ `green`: done\n {2}- not measured, coverage none: legacy(\n|$)/);
   });
 
   it('names ten uncovered lines and counts the rest', async () => {
@@ -578,7 +578,7 @@ describe('createCheckRunner: the uncovered-line check (ADR 0274)', () => {
     const text = renderStatus(batch, ['implement', 'green']);
     assert.match(
       text,
-      /- ✅ `green`\n {2}- not loaded by any test: src\/types\.ts and 2 more\n {2}- outside every code area: fixtures\/rates\.json(\n|$)/,
+      /- ✅ `green`: done\n {2}- not loaded by any test: src\/types\.ts and 2 more\n {2}- outside every code area: fixtures\/rates\.json(\n|$)/,
     );
   });
 
@@ -720,7 +720,7 @@ describe('createCheckRunner: the uncovered-line check (ADR 0274)', () => {
     const text = renderStatus(batch, ['implement', 'green']);
     assert.match(
       text,
-      /- ✅ `green`\n {2}- no executable lines in any report: src\/Calc\/IShape\.cs(\n|$)/,
+      /- ✅ `green`: done\n {2}- no executable lines in any report: src\/Calc\/IShape\.cs(\n|$)/,
     );
   });
 

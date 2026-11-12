@@ -26,7 +26,7 @@ describe('describeLane: a batch waiting for a session (ADR 0222)', () => {
   it('names foedrum brew with --take, to run in a terminal', () => {
     assert.deepStrictEqual(describeLane(waiting(), '7'), {
       lane: 'stuck',
-      detail: `waiting for a session at refine: foedrum brew 7 --take opens it in a terminal; reminder ${remindAt}`,
+      detail: `waiting for a session at refine: foedrum brew 7 --take opens it in a terminal; reminder 2026-10-18 09:00 UTC`,
     });
   });
 

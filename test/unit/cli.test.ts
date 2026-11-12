@@ -545,7 +545,7 @@ describe('foedrum status', () => {
     });
     assert.equal(
       result.stdout,
-      '1 batch\n\n  11-1  #11  queued  to be routed by 2026-12-31T00:00:00.000Z\n',
+      '1 batch\n\n  11-1  #11  queued  to be routed by 2026-12-31 00:00 UTC\n',
     );
   });
 
@@ -680,7 +680,7 @@ describe('foedrum status', () => {
           '2 batches',
           '',
           '  11-1  #11  done    cancelled by ann via terminal',
-          '  12-1  #12  queued  to be routed by 2026-12-31T00:00:00.000Z',
+          '  12-1  #12  queued  to be routed by 2026-12-31 00:00 UTC',
           '',
           '1 kept branch: commits of ended batches that no push recorded (ADR 0084); take them, then drop the branch',
           '',
@@ -702,7 +702,7 @@ describe('foedrum status', () => {
       });
       assert.equal(reads, 1);
       assert.doesNotMatch(gone.stdout, /kept/);
-      assert.equal(gone.stdout.endsWith('2026-12-31T00:00:00.000Z\n'), true);
+      assert.equal(gone.stdout.endsWith('2026-12-31 00:00 UTC\n'), true);
       // The default context fails any read of the kept branches.
       const none = await run(['status'], { openStore: () => storeWith([ordered(11)]) });
       assert.equal(none.exitCode, 0, none.stderr);

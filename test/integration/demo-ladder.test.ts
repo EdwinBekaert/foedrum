@@ -152,7 +152,7 @@ describe('npm run demo -- ladder', () => {
     const lines: Record<string, RegExp[]> = {
       plan: [
         /demo: #1 waits Stuck for the review of its plan/,
-        /Recipe \*\*mash\*\*, chosen by its label/,
+        /Recipe \*\*mash\*\*, chosen by the issue's `recipe:mash` label/,
         /`plan #1` ✅ → `coverage #1` ✅ → `sizing #1` ✅ → `naive-reader #1` ✅/,
         /\| `bump`:\s.* \| `ladder` \| `greet` \(release\) \| yes \|/,
       ],

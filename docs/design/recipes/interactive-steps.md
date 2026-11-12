@@ -30,7 +30,7 @@ flowchart LR
   An attempt a Stuck abandoned before it started counts against no retry, for every step.
 - The step's deadline, its own or its brewer's, holds until its session opens ([ADR 0222](../../adr/0222-a-recipe-s-brewer-step-may-be-interactive.md)).
   An open session has no deadline and no stall limit: the supervisor does not expire a started attempt of an interactive step, and its lease, renewed while foedrum runs, ends it when foedrum dies.
-  `step.started` records `interactiveSince`, and the status comment says `session open since <time>` on the step's line.
+  `step.started` records `interactiveSince`, and the status comment says `session open since <time>` on the step's line, the time to the minute in UTC ([ADR 0386](../../adr/0386-findings-times-and-step-lines-read-in-plain-words.md)).
   A `stop` or `cancel` still ends the wait; what the session writes after that is not read.
   A stop that comes before the session opens, while its attempt is planned or set up, ends the attempt `cancelled` and opens no session; so it does for a session `foedrum resume` opens ([ADR 0251](../../adr/0251-foedrum-resume-s-runner-keeps-an-overrun-s-out-doc-and-opens-no-session-after-a-stop.md)).
 - `foedrum resume` of an open interactive attempt is refused at once and takes nothing over: the session cannot be stopped from outside, and it must close with its out doc before the batch goes on ([ADR 0231](../../adr/0231-foedrum-resume-refuses-an-interactive-step-whose-session-is-open.md)).
