@@ -3722,3 +3722,58 @@ describe('decide: lauter corrects a plan in a session at gate 1 (ADR 0286, #589)
     assert.equal(batch?.choosing, undefined);
   });
 });
+
+describe('rack (ADR 0383)', () => {
+  const rack: Context = {
+    ...context,
+    recipes: fakeRecipes({
+      rack: fakeRecipe({
+        steps: ['approval', 'archive'],
+        actions: { approval: 'gate', archive: 'archive' },
+        pullRequests: [],
+      }),
+    }),
+  };
+  const gateEnded = {
+    kind: 'finish',
+    batchId: 'b1',
+    stepId: 'approval',
+    attempt: 1,
+    ending: { kind: 'succeeded', output: {} },
+  } as const;
+  const passed: Event = {
+    type: 'step.finished',
+    batchId: 'b1',
+    stepId: 'approval',
+    attempt: 1,
+    outcome: { kind: 'succeeded', output: {} },
+  };
+  const review: StuckReason = { kind: 'plan_review', stepId: 'approval', attempt: 1 };
+
+  it('a rack batch waits for approval before its first step', () => {
+    const waiting = decide(fold(brewing('approval', 1, 'rack')), gateEnded, rack);
+    assert.deepStrictEqual(waiting, {
+      kind: 'accepted',
+      events: [passed, stuckOn(review, ['approve', 'lauter', 'retry', 'recipe', 'cancel'])],
+    });
+    const log = [
+      ...brewing('approval', 1, 'rack'),
+      ...(waiting.kind === 'accepted' ? waiting.events : []),
+    ];
+    assert.deepStrictEqual(decide(fold(log), { kind: 'approve', batchId: 'b1', ...by }, rack), {
+      kind: 'accepted',
+      events: [
+        {
+          type: 'batch.approved',
+          batchId: 'b1',
+          stepId: 'approval',
+          attempt: 1,
+          plan: createHash('sha256').update('{}').digest('hex').slice(0, 16),
+          ...by,
+          at: atNow,
+        },
+        next('archive'),
+      ],
+    });
+  });
+});

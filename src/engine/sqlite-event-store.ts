@@ -517,6 +517,14 @@ export const openSqliteEventStore = (
         }),
       ),
 
+    forget: () => {
+      throw new Error('not implemented');
+    },
+
+    forgotten: () => {
+      throw new Error('not implemented');
+    },
+
     restore: (log, commit) =>
       withTransaction(() => {
         let previous = lastEventId();

@@ -643,6 +643,33 @@ describe('openStateBranch with a fake git', () => {
     });
   });
 
+  describe('the archive (ADR 0383)', () => {
+    it('moves the folders of the batches it names, and of those the store forgot, and drops a date', async () => {
+      fake.remote = sha(5);
+      fake.files = {
+        'batches/b1/events.jsonl': line(1, ordered('b1')),
+        'batches/b1/plan-1.md': '# Plan\n',
+        'batches/b2/events.jsonl': line(2, ordered('b2')),
+        'batches/b3/events.jsonl': line(3, ordered('b3')),
+        'archive/2026-05-01/b0/events.jsonl': line(1, ordered('b0')),
+      };
+      const state = branch();
+      await state.start();
+      await state.shelve(['b1'], '2026-11-12', new Set(['b2']));
+      assert.equal(read('archive/2026-11-12/b1/plan-1.md'), '# Plan\n');
+      assert.equal(read('archive/2026-11-12/b3/events.jsonl'), line(3, ordered('b3')));
+      assert.equal(read('batches/b2/events.jsonl'), line(2, ordered('b2')));
+      assert.equal(existsSync(join(worktree, 'batches', 'b1')), false);
+      assert.deepEqual([...state.archived()].sort(), ['b0', 'b1', 'b3']);
+      assert.deepEqual((await state.dates()).sort(), ['2026-05-01', '2026-11-12']);
+      await state.drop(['2026-05-01']);
+      assert.deepEqual(await state.dates(), ['2026-11-12']);
+      // Shelved twice, as a crash before the push leaves it: nothing more moves.
+      await state.shelve(['b1'], '2026-11-12', new Set(['b2']));
+      assert.deepEqual(readdirSync(join(worktree, 'archive', '2026-11-12')).sort(), ['b1', 'b3']);
+    });
+  });
+
   describe('flush', () => {
     const started = async () => {
       const state = branch();

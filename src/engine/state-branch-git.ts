@@ -12,6 +12,7 @@ import { removeTree } from '../platform/remove.ts';
 import { replaceFile } from '../platform/replace-file.ts';
 import type { Git, GitOptions } from '../workspace/git.ts';
 import type { EventStore } from './event-store.ts';
+import type { ArchiveShelf } from './rack.ts';
 import {
   classifyPush,
   commitMessage,
@@ -63,7 +64,9 @@ export interface StartResult {
   flush?: FlushResult;
 }
 
-export interface StateBranch {
+export interface StateBranch extends ArchiveShelf {
+  /** The batch ids the archive's folders hold, by folder name only (ADR 0383). */
+  archived(): ReadonlySet<string>;
   /**
    * Opens the state worktree, checks that a commit can be made (and signed, when the clone
    * signs), and brings the store and the branch in line. Throws `StateBranchStopError` when the
@@ -511,5 +514,18 @@ export const openStateBranch = (options: StateBranchOptions): StateBranch => {
           return flushNow(false);
         });
       }),
+
+    shelve: () => {
+      throw new Error('not implemented');
+    },
+    dates: () => {
+      throw new Error('not implemented');
+    },
+    drop: () => {
+      throw new Error('not implemented');
+    },
+    archived: () => {
+      throw new Error('not implemented');
+    },
   };
 };

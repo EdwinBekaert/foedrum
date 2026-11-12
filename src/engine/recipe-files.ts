@@ -687,6 +687,9 @@ function lineRecipe(
     choosesRecipe: (id) => byId.get(id)?.chooses === true,
     chosen: (option) => steps.find((entry) => entry.chosenBy === option)?.id,
     action: (id) => at(id).action,
+    olderThan: () => {
+      throw new Error('not implemented');
+    },
     mergesBase: (id) => id === merges,
     proven: (id) => id === proves,
     deadlineMs: (id) => durationMs(at(id).deadline),

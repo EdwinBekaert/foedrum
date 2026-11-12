@@ -1174,6 +1174,43 @@ describe('SqliteEventStore in memory', () => {
   });
 });
 
+describe('forget (ADR 0383)', () => {
+  afterEach(closeAll);
+
+  it('deletes every row of the batches it names, and nothing of the others', () => {
+    const store = open(':memory:');
+    const ids = store.withTransaction((tx) => {
+      const first = tx.append(ordered('b1'));
+      tx.append(ordered('b2'));
+      tx.append(scheduled('b1', '2026-10-15T10:00:00Z'));
+      tx.append(scheduled('b2', '2026-10-15T10:00:00Z'));
+      tx.recordEffect(key, 'r');
+      tx.putLease(lease);
+      tx.putBatchLease({ batchId: 'b1', owner: 'cellar', expiresAt: at('2026-10-15T10:01:00Z') });
+      tx.keepOutDoc(keptDoc());
+      return { first, last: tx.append(ordered('b3')) };
+    });
+    assert.equal(store.forgotten(), 0);
+    store.forget(['b1']);
+    assert.equal(store.forgotten(), 1);
+    assert.deepEqual(
+      store.eventsAfter(0).map(({ event }) => 'batchId' in event && event.batchId),
+      ['b2', 'b2', 'b3'],
+    );
+    assert.equal(store.findEffect(key), undefined);
+    assert.deepEqual(store.currentLeases(at('2026-10-15T10:00:00Z')), []);
+    assert.deepEqual(store.batchLeases(at('2026-10-15T10:00:00Z')), []);
+    assert.deepEqual(store.keptOutDocs(), []);
+    assert.deepEqual(
+      store.batchesPastDeadline(at('2026-10-16T00:00:00Z')).map(({ batchId }) => batchId),
+      ['b2'],
+    );
+    // Its ids are never given out again.
+    assert.equal(store.lastEventId(), ids.last);
+    assert.ok(store.withTransaction((tx) => tx.append(ordered('b4'))) > ids.last);
+  });
+});
+
 describe('SqliteEventStore on a file', () => {
   let dir: TempDir;
   let path: string;
@@ -1186,11 +1223,11 @@ describe('SqliteEventStore on a file', () => {
     dir.remove();
   });
 
-  it('uses WAL mode and records schema version 4', () => {
+  it('uses WAL mode and records schema version 5', () => {
     open(path);
     const db = raw(path);
     assert.deepEqual({ ...db.prepare('PRAGMA journal_mode').get() }, { journal_mode: 'wal' });
-    assert.deepEqual({ ...db.prepare('PRAGMA user_version').get() }, { user_version: 4 });
+    assert.deepEqual({ ...db.prepare('PRAGMA user_version').get() }, { user_version: 5 });
   });
 
   it('keeps events, leases and effects across a reopen', () => {
@@ -1285,9 +1322,9 @@ describe('SqliteEventStore on a file', () => {
 
   it('refuses a database written by a newer schema version', () => {
     const db = raw(path);
-    db.exec('PRAGMA user_version = 5');
+    db.exec('PRAGMA user_version = 6');
     db.close();
-    assert.throws(() => open(path), /schema version 5/);
+    assert.throws(() => open(path), /schema version 6/);
     // The refused connection is closed: on Windows an open file could not be removed.
     rmSync(path);
   });
