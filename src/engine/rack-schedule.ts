@@ -111,7 +111,10 @@ export const createRackSchedule = (options: RackScheduleOptions): RackSchedule =
       if (underway !== undefined || at < next) return;
       next = at + RACK_READ_EVERY_MS;
       underway = check()
-        .catch(options.failed)
+        // A read or an open the stop ended is no failure.
+        .catch((error: unknown) => {
+          if (!signal.aborted) options.failed(error);
+        })
         .finally(() => {
           underway = undefined;
         });
