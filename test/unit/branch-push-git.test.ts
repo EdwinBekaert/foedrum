@@ -931,6 +931,18 @@ describe('openBranchPush: fileAt (ADR 0384)', () => {
     for (const call of calls) assert.equal(call.options?.env?.GIT_NO_REPLACE_OBJECTS, '1');
   });
 
+  it('passes the signal to both git calls: regression test', async () => {
+    const { git, calls } = recordingGit((args) =>
+      args[0] === 'ls-tree' ? entry('blob', '2', 'package.json') : ok('{}'),
+    );
+    const { signal } = new AbortController();
+    await openBranchPush({ git, clone }).fileAt(TIP, 'package.json', signal);
+    assert.deepEqual(
+      calls.map(({ options }) => options?.signal === signal),
+      [true, true],
+    );
+  });
+
   it('reads a file of exactly 1 MiB: regression test', async () => {
     const { git, calls } = recordingGit((args) =>
       args[0] === 'ls-tree' ? entry('blob', String(1024 * 1024), 'package.json') : ok('{}'),

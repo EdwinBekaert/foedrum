@@ -1160,6 +1160,60 @@ describe('pullRequestActions: what to look at before merging (ADR 0384)', () => 
     });
   });
 
+  it('names a side its manifest gives twice once, and skips a dependency with no name: regression test', async () => {
+    const { actions } = actionsWith({
+      touched: ['package.json'],
+      files: at(tip, {
+        'package.json': npm({ zod: '3.24.0', '': '1.0.0' }, { devDependencies: { zod: '3.24.0' } }),
+      }),
+    });
+    keysOf(brewing(), actions);
+    assert.deepEqual(await actions.target.apply(push), {
+      branch,
+      commit: tip,
+      from,
+      look: {
+        dependencies: {
+          count: 1,
+          changes: [{ manifest: 'package.json', kind: 'added', name: 'zod', to: '3.24.0' }],
+        },
+      },
+    });
+  });
+
+  it("passes the push effect's signal to every file read: regression test", async () => {
+    const signals: (AbortSignal | undefined)[] = [];
+    const pushed = fakePush(undefined, undefined, undefined, undefined, undefined, [
+      'package.json',
+    ]);
+    const actions = pullRequestActions({
+      brewery: 'acme/brewery',
+      repositories: [
+        {
+          repo: 'acme/api',
+          base: 'main',
+          push: {
+            ...pushed.target,
+            fileAt: async (_commit, _path, signal) => {
+              signals.push(signal);
+              return undefined;
+            },
+          },
+        },
+      ],
+      host: fakeHost().host,
+      orderTitle: async () => 'Add a --json flag',
+      visibility: () => 'public',
+    });
+    keysOf(brewing(), actions);
+    const { signal } = new AbortController();
+    await actions.target.apply(push, signal);
+    assert.deepEqual(
+      signals.map((each) => each === signal),
+      [true, true],
+    );
+  });
+
   it('fails the push effect, pushing nothing, when git cannot give a manifest: regression test', async () => {
     const pushed = fakePush(undefined, undefined, undefined, undefined, undefined, [
       'package.json',
