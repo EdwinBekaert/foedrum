@@ -10,6 +10,9 @@ import { beforeEach, describe, it } from 'node:test';
 import { runServe } from '../../src/cli/serve.ts';
 import { serveSetup } from '../../src/cli/serve-config.ts';
 import type { BrewerRunner } from '../../src/engine/brewer-runner.ts';
+import { createCommandLog } from '../../src/engine/command-log.ts';
+import type { EventStore } from '../../src/engine/event-store.ts';
+import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import { type FakeApiIssue, fakeGitHubApi, type Instead } from '../helpers/fake-github-api.ts';
 import { config, local, serveInputs } from '../helpers/serve-brewery.ts';
 import { serveFixture, t0 } from '../helpers/serve-fixture.ts';
@@ -45,7 +48,15 @@ describe('runServe', () => {
         }),
       );
       f.setup = result.kind === 'ready' ? result.setup : assert.fail(JSON.stringify(result));
+      // The Brewery's oldest batch, ordered 30 days ago: a first rack issue is due (ADR 0387).
+      ordered(f.store, '9-1', 9, 30);
     });
+    /** Orders the Brewery issue `issue` as `batchId`, `daysAgo` days before t0. */
+    const ordered = (store: EventStore, batchId: string, issue: number, daysAgo: number) => {
+      const log = createCommandLog({ store, recipes: f.setup.recipes });
+      const at = new Date(t0.getTime() - daysAgo * DAY);
+      assert.equal(log.issue({ kind: 'order', batchId, order: { issue } }, at).kind, 'accepted');
+    };
     const hanging: BrewerRunner = {
       start: () => ({ ended: new Promise(() => {}), stop: () => {} }),
       progress: () => undefined,
@@ -146,6 +157,15 @@ describe('runServe', () => {
         f.lines.includes('foedrum serve: opened the rack issue Acme/Brewery#8'),
         f.lines.join('\n'),
       );
+    });
+
+    it("serve opens no first rack issue before the Brewery's oldest batch is 28 days old", async () => {
+      // Its only batch was ordered 27 days ago.
+      f.store = openSqliteEventStore(':memory:');
+      ordered(f.store, '9-1', 9, 27);
+      const { reads, opened } = await serve([]);
+      assert.ok(reads > 0, 'serve read the rack issues');
+      assert.deepStrictEqual(opened, []);
     });
 
     it('serve opens a rack issue when the newest is 28 days old and closed', async () => {
