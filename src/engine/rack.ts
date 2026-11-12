@@ -87,10 +87,10 @@ const finished = (state: State, batch: Batch): boolean => {
 /** The issues of a batch that must be closed before it goes: its Brewery issue, and a claimed one. */
 const issuesOf = (state: State, batch: Batch, brewery: string): [string, number][] => {
   const order = breweryIssueOf(state, batch);
-  return [
-    ...(order === undefined ? [] : [[brewery, order] as [string, number]]),
-    ...(batch.repo === undefined ? [] : [[batch.repo, batch.issue] as [string, number]]),
-  ];
+  const issues: [string, number][] = [];
+  if (order !== undefined) issues.push([brewery, order]);
+  if (batch.repo !== undefined) issues.push([batch.repo, batch.issue]);
+  return issues;
 };
 
 /**
