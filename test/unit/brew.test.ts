@@ -926,6 +926,7 @@ describe('runBrew', () => {
             return [{ commit: 'c'.repeat(40), place: 'src/a.ts:1', kind: 'token' }];
           },
           touchedFiles: async () => [],
+          fileAt: async () => undefined,
         }),
       });
       assert.equal(await runBrew(f.setup, refused, request), 3);
@@ -1005,6 +1006,7 @@ describe('runBrew', () => {
           push: async () => assert.fail('a refused push pushes nothing'),
           secretScan: async () => [{ commit: 'c'.repeat(40), place: 'src/a.ts:1', kind: 'token' }],
           touchedFiles: async () => [],
+          fileAt: async () => undefined,
         }),
       });
       assert.equal(await runBrew(f.setup, again, request), 3);

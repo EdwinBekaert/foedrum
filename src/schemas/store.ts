@@ -123,12 +123,59 @@ export const SensitiveFiles = z.strictObject({
 });
 export type SensitiveFiles = z.infer<typeof SensitiveFiles>;
 
+/** Files of one kind a person should look at before merging (ADR 0384): how many, the first 50. */
+const LookFiles = z.strictObject({
+  count: z.int().min(1),
+  files: z.array(Filled).min(1).max(MAX_SENSITIVE),
+});
+
+/**
+ * A dependency a manifest's change adds, removes or changes, each side as its reader names it (a
+ * version, a git URL with its ref, a project path); or a manifest its reader could not read at
+ * `at`, of which nothing else is said (ADR 0384).
+ */
+export const DependencyChange = z.discriminatedUnion('kind', [
+  z.strictObject({ manifest: Filled, kind: z.literal('added'), name: Filled, to: Filled }),
+  z.strictObject({ manifest: Filled, kind: z.literal('removed'), name: Filled, from: Filled }),
+  z.strictObject({
+    manifest: Filled,
+    kind: z.literal('changed'),
+    name: Filled,
+    from: Filled,
+    to: Filled,
+  }),
+  z.strictObject({ manifest: Filled, kind: z.literal('unread'), at: CommitSha, why: Filled }),
+]);
+export type DependencyChange = z.infer<typeof DependencyChange>;
+
+/**
+ * What a batch's change holds that a person should always look at before merging (ADR 0384),
+ * found by fixed checks on its files and manifests: never a model's say, never a block.
+ */
+export const LookBeforeMerging = z.strictObject({
+  dependencies: z
+    .strictObject({
+      count: z.int().min(0),
+      changes: z.array(DependencyChange).max(MAX_SENSITIVE),
+      /** How many changed manifests were left unread past the limit. */
+      left: z.int().positive().optional(),
+    })
+    // Recorded for a change, or for manifests left unread, which may hold one.
+    .refine(({ changes, left }) => changes.length > 0 || left !== undefined)
+    .optional(),
+  locks: LookFiles.optional(),
+  ci: LookFiles.optional(),
+  migrations: LookFiles.optional(),
+});
+export type LookBeforeMerging = z.infer<typeof LookBeforeMerging>;
+
 /**
  * The result the ledger keeps for the push of the openPullRequest action (ADR 0071): the branch,
  * the commit pushed, the revision it was resolved from, and whether the base already holds every
  * commit of it, so nothing was pushed; or what the secret scan found, so nothing was pushed either
  * (ADR 0079): each commit, place and kind, never the text. A push that went keeps the sensitive
- * files its change touches, when there are any (ADR 0201). A later round's push that found the
+ * files its change touches, when there are any (ADR 0201), and what a person should look at before
+ * merging, when there is any (ADR 0384). A later round's push that found the
  * branch at another commit than the round before pushed (`moved`), or gone (`gone`), pushed nothing
  * (ADR 0219).
  */
@@ -139,6 +186,7 @@ export const PushResult = z.strictObject({
   empty: z.literal(true).optional(),
   refused: z.array(ScanFinding).min(1).max(MAX_REFUSED).optional(),
   sensitive: SensitiveFiles.optional(),
+  look: LookBeforeMerging.optional(),
   moved: CommitSha.optional(),
   gone: z.literal(true).optional(),
 });

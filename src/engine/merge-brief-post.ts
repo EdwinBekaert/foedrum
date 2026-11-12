@@ -32,6 +32,7 @@ import {
   type Step,
 } from './fold.ts';
 import { lensRounds, roundFindings } from './lens-rounds.ts';
+import { lookLine } from './look-before-merging.ts';
 import {
   briefKey,
   currentBrief,
@@ -55,16 +56,7 @@ import {
 import { pairsOf } from './pull-request-pairs.ts';
 import type { Recipe, Recipes } from './recipes.ts';
 import { endedText } from './skip-past.ts';
-import {
-  capped,
-  checkOf,
-  code,
-  link,
-  plain,
-  readingText,
-  sensitiveLine,
-  shortSha,
-} from './status-comment.ts';
+import { capped, checkOf, code, link, plain, readingText, shortSha } from './status-comment.ts';
 import { survivorsOf, survivorText } from './survivors.ts';
 
 /** The pull request's comments and title on the code host, as the Brewery's own identity has them. */
@@ -491,7 +483,9 @@ const briefRest = (
   };
   const proof = name === undefined ? undefined : redProof(name);
   const head = code(shortSha(ready.head));
-  const sensitive = latestPush(state, batch.id)?.sensitive;
+  // What the latest push recorded to look at before merging, sensitive paths included (ADR 0384).
+  const pushed = latestPush(state, batch.id);
+  const look = pushed === undefined ? undefined : lookLine(pushed);
   const findings = [
     ...dispositionLines(onHead, told),
     ...openLines(steps, told),
@@ -507,6 +501,7 @@ const briefRest = (
     [
       `**Ready to merge.** Every check on ${head} finished and passed, and nothing else is open on it. Foedrum does not merge it: it waits for whoever merges this pull request.`,
     ],
+    ...(look === undefined ? [] : [[look]]),
     ['**What changed since it opened**', ...changedLines(state, batch)],
     [
       `**Evidence on ${head}**`,
@@ -517,7 +512,6 @@ const briefRest = (
       ...checkStepLines(steps, proof),
       ...notRunLines(steps, proof, told),
       tastedLine(steps, ready),
-      ...(sensitive === undefined ? [] : [`- ${sensitiveLine(sensitive)}.`]),
       ...surveyLines(onHead),
     ],
     ['**Findings**', ...(findings.length === 0 ? ['No finding was recorded.'] : findings)],

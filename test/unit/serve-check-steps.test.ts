@@ -215,6 +215,7 @@ describe('runServe', () => {
             },
             secretScan: async () => [],
             touchedFiles: async () => [],
+            fileAt: async () => undefined,
           }),
           mergeTree: () => async () => ({ kind: 'clean' }),
           mergedTree: () => async (head, tip, use) => {
@@ -292,6 +293,7 @@ describe('runServe', () => {
             },
             secretScan: async () => [],
             touchedFiles: async () => [],
+            fileAt: async () => undefined,
           }),
           mergeTree: () => async () => ({ kind: 'clean' }),
           mergedTree: () => async (_head, _tip, _use, signal) => {
@@ -380,6 +382,7 @@ describe('runServe', () => {
             },
             secretScan: async () => [],
             touchedFiles: async () => [],
+            fileAt: async () => undefined,
           }),
           mergeTree: () => async () => ({ kind: 'clean' }),
           mergedTree: () => async (_head, _tip, _use, signal) => {

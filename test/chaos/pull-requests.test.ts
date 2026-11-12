@@ -118,6 +118,7 @@ const codeHost = (kills: readonly AnyPoint[]) => {
     },
     secretScan: async () => [],
     touchedFiles: async () => [],
+    fileAt: async () => undefined,
   };
   const host: PullRequestHost = {
     find: async (_repo, head) => opened.get(head),
