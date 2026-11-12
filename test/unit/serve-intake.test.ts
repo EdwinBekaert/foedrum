@@ -3,6 +3,8 @@
 // starts (ADR 0021).
 
 import assert from 'node:assert/strict';
+import { mkdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { beforeEach, describe, it } from 'node:test';
 import { runServe } from '../../src/cli/serve.ts';
 import { serveSetup } from '../../src/cli/serve-config.ts';
@@ -10,6 +12,7 @@ import type { BrewerRunner } from '../../src/engine/brewer-runner.ts';
 import { createCommandLog } from '../../src/engine/command-log.ts';
 import type { EventStore } from '../../src/engine/event-store.ts';
 import { pullRequestText } from '../../src/engine/pull-request.ts';
+import { GATE_OUTPUT } from '../../src/engine/recipes.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import { StateBranchStopError } from '../../src/engine/state-branch.ts';
 import type { Event } from '../../src/schemas/events.ts';
@@ -77,6 +80,71 @@ describe('runServe', () => {
       start: () => ({ ended: new Promise(() => {}), stop: () => {} }),
       progress: () => undefined,
     };
+
+    it("runs rack's archive on the state branch serve opens, and orders past the archive's ids (ADR 0383)", async () => {
+      f.store = empty();
+      const files = serveInputs().files;
+      // The Brewery's own rack.jsonc: Foedrum's default, as it ships.
+      const rack = {
+        path: 'recipes/rack.jsonc',
+        text: readFileSync(
+          join(import.meta.dirname, '..', '..', 'defaults', 'recipes', 'rack.jsonc'),
+          'utf8',
+        ),
+      };
+      const result = serveSetup(
+        serveInputs({
+          files: {
+            ...files,
+            config: config({ concurrency: 1 }, {}),
+            local: local({ workRoot: f.dir.path }),
+            brewery: { ...files.brewery, recipes: [...files.brewery.recipes, rack] },
+          },
+        }),
+      );
+      f.setup = result.kind === 'ready' ? result.setup : assert.fail(JSON.stringify(result));
+      // Batch 12-1 is in the archive: issue 12 is ordered as 12-2.
+      mkdirSync(join(f.setup.stateWorktree, 'archive', '2026-11-01', '12-1'), { recursive: true });
+      // Rack's batch 13-1, approved at its gate, waits to archive.
+      const log = createCommandLog({ store: f.store, recipes: f.setup.recipes });
+      const at = { batchId: '13-1', stepId: 'approval', attempt: 1 };
+      const issued = (command: Parameters<typeof log.issue>[0]) =>
+        assert.equal(log.issue(command, t0).kind, 'accepted', JSON.stringify(command));
+      issued({ kind: 'order', batchId: '13-1', order: { issue: 13 } });
+      issued({ kind: 'route', batchId: '13-1', recipe: 'rack', reason: 'l', source: 'label' });
+      f.store.withTransaction((tx) => tx.append({ type: 'step.started', ...at }));
+      const ending = { kind: 'succeeded', output: { ...GATE_OUTPUT } } as const;
+      log.issue({ kind: 'finish', ...at, ending }, t0);
+      log.issue({ kind: 'approve', batchId: '13-1', by: 'ann', via: 'terminal' }, t0);
+      const shelved: string[] = [];
+      const github = fakeGitHubApi({
+        login: 'ann',
+        issues: {
+          'acme/brewery': [
+            { number: 12, labels: ['recipe:stout'], author: 'ann', body: 'It.' },
+            // Rack's own issue, which the intake does not order again.
+            { number: 13, labels: [], author: 'ann', body: 'Rack the Brewery.' },
+          ],
+        },
+      });
+      const stateBranch = () => ({
+        start: async () => ({ decision: 'ready' }) as const,
+        flush: async () => ({ kind: 'unchanged' }) as const,
+        shelve: async (_ids: readonly string[], date: string) => {
+          shelved.push(date);
+        },
+        dates: async () => [],
+        drop: async () => {},
+      });
+      const done = () => shelved.length > 0 && lane('12-2') !== undefined;
+      const ran = await runServe(
+        f.setup,
+        shell({ fetch: github.fetch, runner: () => hanging, stateBranch, ...ticking(done) }),
+      );
+      assert.equal(ran, 0);
+      assert.ok(done(), f.lines.join('\n'));
+      assert.equal(lane('12-1'), undefined);
+    });
 
     it("the ordered label is applied before the batch's first attempt starts", async () => {
       f.store = empty();
