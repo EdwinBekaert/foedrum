@@ -22,7 +22,7 @@ Not part of it: a new batch id format, recipe type, role, label, command or even
 - A recipe with no brewer, as rack, is never offered to a model as a choice: a person starts it.
 
 ### What is archived
-- A batch is finished when it ended with its status comment showing it (`batchEnded` and `endShown`), or is on tap with no pull request, with no Brewery issue close still due and, for a claimed batch, its claim released.
+- A batch is finished when it ended with its status comment showing it (`batchEnded` and `endShown`), or is on tap with no pull request, with no Brewery issue close still due and, for a claimed batch, its claim released. These are the effects that act on what stays: the close and the release change an issue a person may order again. A batch on tap with no pull request is archived only once a person closed its issue, so a status comment or label revision still due there would change a closed issue's text only, and is let go.
 - Batches go together: every batch of an issue, and a split order with every sub-order's batch, once all of them are finished. A parent without its sub-orders would stop the fold, and an older batch without the later one would lose its claimed order.
 - And only once every issue of the group is closed on GitHub, read through the code host, once per issue in each run: the Brewery issue, and a claimed batch's target issue too. An open issue with no batch is a new order to the intake, so a batch whose issue is open stays. A rack batch counts as finished once its issue is closed. To drop work, a person cancels the batch and closes its issue.
 
