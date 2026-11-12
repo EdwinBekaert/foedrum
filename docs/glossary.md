@@ -12,7 +12,7 @@ Foedrum borrows its vocabulary from Belgian brewing. A *foeder* is the large oak
 | **Sub-order** | A sub-issue of an order, targeting exactly one repository; an approved plan's sub-orders are opened as Brewery issues under the order's issue (ADR 0285) |
 | **Bottle** | A pull request: one or more finished sub-orders of one repository |
 | **Bottling** | Choosing which sub-orders go into a bottle |
-| **Gate 1** | A person's sign-off of a plan: `foedrum approve <issue>` on a batch Stuck for its plan's review, recorded with the digest of the plan it signs off; a plan written again needs a sign-off of its own ([ADR 0281](adr/0281-foedrum-approve-signs-off-a-plan-by-its-hash-and-puts-the-batch-on-tap.md)) |
+| **Gate 1** | A person's sign-off of a plan: `foedrum approve <issue>` on a batch Stuck for its plan's review, recorded with the digest of the plan it signs off; a plan written again needs a sign-off of its own ([ADR 0281](adr/0281-foedrum-approve-signs-off-a-plan-by-its-hash-and-puts-the-batch-on-tap.md)); the same command lets a recipe's human gate go on ([ADR 0383](adr/0383-rack-archives-finished-batches-and-deletes-old-archive-folders-and-temporary-files.md)) |
 | **Lauter** | At gate 1, the plan corrected with the Brewmaster in an interactive session: `foedrum lauter <issue>` on a batch Stuck for its plan's review runs the recipe's step `chosenBy` lauter, which reads the plan, and the batch waits for a review of the corrected plan; the plan lenses do not run again ([ADR 0286](adr/0286-foedrum-lauter-corrects-a-plan-at-gate-1-in-an-interactive-session.md)) |
 | **Conditioning** ⏳ | A batch waiting for a merge, a release or a sibling batch — visible, with a reminder, never a failure; a sub-order not yet ordered waits for its blockers' merges, and a `release` blocker's release after its merge, without a batch ([ADR 0211](adr/0211-the-intake-starts-ready-sub-orders-at-their-order-s-rank-once-their-blockers-merged.md), [ADR 0216](adr/0216-a-release-blocker-is-done-once-its-repository-is-released-after-its-merge.md)) |
 | **Release signal** | How Foedrum learns a library version was published (GitHub release or tag first; NuGet, npm and others later) |
@@ -33,7 +33,7 @@ Foedrum borrows its vocabulary from Belgian brewing. A *foeder* is the large oak
 | **Tasting** | An AI review. Judged, not measured |
 | **Lens** | One focus for a tasting: correctness, security, cross-platform, design conformance, test design, necessity, acceptance, or a Brewery's own |
 | **Mutant** | A plausible bug proposed by Brett; a mutant the engine confirms the tests do not catch is a finding (advisory by default) |
-| **Stuck** 🔔 | A batch that needs a human. Always visible, never silent. Its reason says why: a question, a blocker, attempts or a deadline used, a stall, a driver that could not read it for an hour, its session awaited, no route, a pull request's failing checks, a person's stop, or a finished plan ready for review ([ADR 0275](adr/0275-a-finished-plan-waits-stuck-for-its-review-and-every-comment-links-the-doc-it-sums-up.md)) |
+| **Stuck** 🔔 | A batch that needs a human. Always visible, never silent. Its reason says why: a question, a blocker, attempts or a deadline used, a stall, a driver that could not read it for an hour, its session awaited, no route, a pull request's failing checks, a person's stop, a finished plan ready for review, or a human gate waiting for a go ([ADR 0383](adr/0383-rack-archives-finished-batches-and-deletes-old-archive-folders-and-temporary-files.md)) ([ADR 0275](adr/0275-a-finished-plan-waits-stuck-for-its-review-and-every-comment-links-the-doc-it-sums-up.md)) |
 | **House yeast** | Rules learned from reviews, carried from batch to batch — in three layers (defaults, Brewery, repository), scoped, budgeted per attempt, promoted to checks when possible, curated over time |
 | **Candidate** | A lesson recorded from a review; proposed as a house-yeast rule when it recurs or a human asks |
 | **Blending** | Combining branches; conflicts go to a bounded brewer step |
@@ -82,6 +82,7 @@ Choose a recipe by what the work is and what it can reach, not by its size ([ADR
 | Mash | A plan of sub-orders for an order, reviewed through three plan lenses, shown on its issue, corrected in a lauter session if the engineer chooses; nothing built |
 | Deep-mash | A careful plan of an order whose cut carries a risk: Mash through all seven plan lenses |
 | Deep-brew | A change that can reach a lot, whatever its size: every diff lens and Brett's mutants |
+| Rack | The Brewery's cleanup: archive finished batches, delete old archive folders and old temporary files |
 | Keg | Multi-repository change with release dependencies |
 | Pilot batch | Spike or research |
 | Infection check | Bug triage |

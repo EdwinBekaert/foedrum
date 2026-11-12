@@ -81,7 +81,7 @@ flowchart LR
 ## 4. The parts
 
 **[The engine](design/engine/README.md).**
-State is an append-only event log; every change is a command decided against the folded state, and state is a pure fold over the events.
+State is an append-only event log, but for rack's archive, which deletes a finished batch's events ([ADR 0383](adr/0383-rack-archives-finished-batches-and-deletes-old-archive-folders-and-temporary-files.md)); every change is a command decided against the folded state, and state is a pure fold over the events.
 The pages cover the [events](design/engine/events.md), [leases](design/engine/leases.md), the [event store](design/engine/event-store.md), the [fold and the guard](design/engine/fold.md), the [step outcome](design/engine/step-outcome.md), the [batch lifecycle](design/engine/lifecycle.md), the [invariants](design/engine/invariants.md), the [failure modes designed out](design/engine/failure-modes.md), the [state branch](design/engine/state-branch.md), [worktrees](design/engine/worktrees.md), [drivers](design/engine/drivers.md) and the [usage window](design/engine/usage-window.md).
 
 **[Intake](design/intake/README.md).**
