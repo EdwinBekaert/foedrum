@@ -7,6 +7,7 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import { breweryRecipes, loadBrewery } from '../engine/brewery-files.ts';
 import { emptyState, fold } from '../engine/fold.ts';
 import { openSqliteEventStore } from '../engine/sqlite-event-store.ts';
+import { archivedIds } from '../engine/state-branch-git.ts';
 import { githubClaimHost } from '../github/claims.ts';
 import { createGitHubClient } from '../github/client.ts';
 import { githubLogin } from '../github/login.ts';
@@ -24,7 +25,13 @@ import { readKeptBranches } from './kept-branches-git.ts';
 import { lensSource } from './lens-report.ts';
 import { boardTerminal, type TerminalStream } from './live-terminal.ts';
 import { type CliResult, runCli } from './run.ts';
-import { attemptClone, githubHostname, readBreweryConfig, storePath } from './serve-config.ts';
+import {
+  attemptClone,
+  githubHostname,
+  readBreweryConfig,
+  stateWorktreeOf,
+  storePath,
+} from './serve-config.ts';
 
 /**
  * Runs one command (`argv`) of the command layer in the Brewery checkout `cwd`. doctor's and
@@ -82,6 +89,14 @@ export const cliFromCheckout = async (
         return readKeptBranches(state, unpushed, { git: runGit, cloneOf });
       },
       config: () => readBreweryConfig(readText('foedrum.jsonc'), cwd),
+      archived: () => {
+        const files = {
+          config: readText('foedrum.jsonc'),
+          local: readText('.foedrum', 'local.jsonc'),
+        };
+        const worktree = stateWorktreeOf(files, homedir());
+        return worktree === undefined ? new Set() : archivedIds(worktree);
+      },
       // gh's own login, never a token (ADR 0073), through the runner a test gives.
       claims: (config) =>
         githubClaimHost(

@@ -103,6 +103,8 @@ export type IntakeNotice =
 
 export interface IntakeOptions {
   log: CommandLog;
+  /** The batch ids the state branch's archive holds, which no new batch takes (ADR 0383). */
+  archived?: () => ReadonlySet<string>;
   /**
    * The Brewery's owner/name: when given, a pass orders its labelled issues and routes the
    * Ordered batches by their labels (ADR 0068), a claimed batch by its Brewery issue's (ADR 0156).
@@ -383,6 +385,7 @@ export const createIntake = (options: IntakeOptions): Intake => {
     options;
   const most = defaultLeaseMs / 2;
   const { deadlineMs = most, bases = [], checks, reviews, releases, limits = NO_LIMITS } = options;
+  const { archived = () => new Set<string>() } = options;
   if (!Number.isSafeInteger(deadlineMs) || deadlineMs < 1 || deadlineMs > most) {
     throw new RangeError(
       `The deadline of an intake pass must be a whole number of milliseconds up to ${most}, got ${deadlineMs}`,
@@ -488,7 +491,7 @@ export const createIntake = (options: IntakeOptions): Intake => {
       if (repository === undefined) {
         // A ready sub-order is ordered under its order's batch (ADR 0211).
         const number = subOrder?.issue ?? order.issue;
-        const batchId = nextBatchId(log.state(), number);
+        const batchId = nextBatchId(log.state(), number, archived());
         const parent =
           subOrder === undefined
             ? {}
@@ -523,7 +526,7 @@ export const createIntake = (options: IntakeOptions): Intake => {
         case 'won':
         case 'ours': {
           if (signal.aborted) return ordered;
-          const batchId = targetBatchId(log.state(), alias, order.issue);
+          const batchId = targetBatchId(log.state(), alias, order.issue, archived());
           if (issue({ kind: 'order', batchId, order: { issue: order.issue, repo } })) {
             ordered++;
             tally.start(entry);

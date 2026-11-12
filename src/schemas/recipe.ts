@@ -186,7 +186,18 @@ const GateStep = z.strictObject({ id: StepId, gate: z.literal('human'), when, de
 
 const ActionStep = z.strictObject({
   id: StepId.optional().describe('Defaults to the action name in kebab case'),
-  action: z.enum(['openPullRequest', 'comment', 'label', 'blend']),
+  action: z.enum([
+    'openPullRequest',
+    'comment',
+    'label',
+    'blend',
+    'archive',
+    'deleteArchives',
+    'deleteTemporary',
+  ]),
+  olderThan: Duration.optional().describe(
+    'deleteArchives and deleteTemporary only: how old what the step deletes is (ADR 0383)',
+  ),
   when,
   onPullRequestFail: Route.optional().describe(
     'openPullRequest only: where a failing check on the open pull request sends the batch, and how often (ADR 0219)',

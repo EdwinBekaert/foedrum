@@ -23,6 +23,9 @@ export type RecipeAction =
   | 'deleteArchives'
   | 'deleteTemporary';
 
+/** What a human gate's attempt ends with: no plan, a go to wait for (ADR 0383). */
+export const GATE_OUTPUT = { gate: 'human' } as const;
+
 /** What follows a step that succeeded or was skipped. */
 export type Continuation =
   | { kind: 'step'; stepId: string }

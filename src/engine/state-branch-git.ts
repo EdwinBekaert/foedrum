@@ -1,8 +1,8 @@
 // The state branch's shell (ADR 0011, ADR 0024): gathers facts from git and the store, and
 // carries out what state-branch.ts decides. Git runs only through the injected `Git`.
 
-import { existsSync } from 'node:fs';
-import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
+import { existsSync, readdirSync } from 'node:fs';
+import { mkdir, readdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { errorCode } from '../platform/errors.ts';
@@ -10,13 +10,16 @@ import { type FileLock, takeFileLock } from '../platform/file-lock.ts';
 import { removeStaleLock } from '../platform/index-lock.ts';
 import { removeTree } from '../platform/remove.ts';
 import { replaceFile } from '../platform/replace-file.ts';
+import { PathSafeId } from '../schemas/ids.ts';
 import type { Git, GitOptions } from '../workspace/git.ts';
 import type { EventStore } from './event-store.ts';
 import type { ArchiveShelf } from './rack.ts';
 import {
+  archivePath,
   classifyPush,
   commitMessage,
   decideStart,
+  isArchiveDate,
   isLogPath,
   logPathOf,
   mergeLogs,
@@ -85,6 +88,29 @@ export interface StateBranch extends ArchiveShelf {
 
 /** The branch the events are pushed to, unless the options name another. */
 export const STATE_BRANCH = 'foedrum/state';
+
+/** The names of the folders in `folder`; none when it is missing. */
+const foldersIn = (folder: string): string[] => {
+  try {
+    return readdirSync(folder, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name);
+  } catch (error) {
+    if (errorCode(error) === 'ENOENT') return [];
+    throw error;
+  }
+};
+
+/**
+ * The batch ids the archive of the state worktree `worktree` holds, by its folder names only: a
+ * new batch takes none of them while its folder is there (ADR 0383).
+ */
+export const archivedIds = (worktree: string): Set<string> =>
+  new Set(
+    foldersIn(join(worktree, 'archive'))
+      .filter(isArchiveDate)
+      .flatMap((date) => foldersIn(join(worktree, 'archive', date))),
+  );
 /** The ref of the signing check's test commit; deleted again right away. */
 const PROBE_REF = 'refs/foedrum/signing-check';
 // Taken by every ref's delete, the signing check's at each start included (#941).
@@ -218,6 +244,16 @@ export const openStateBranch = (options: StateBranchOptions): StateBranch => {
       if (errorCode(error) === 'ENOENT') return undefined;
       throw error;
     });
+  /** The names of the folders in `path` of the worktree; none when it is missing. */
+  const folders = async (path: string): Promise<string[]> =>
+    (
+      await readdir(onDisk(path), { withFileTypes: true }).catch((error: unknown) => {
+        if (errorCode(error) === 'ENOENT') return [];
+        throw error;
+      })
+    )
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name);
   /** The log files in the worktree. */
   const logFiles = async (): Promise<string[]> => {
     // No batches folder yet is no batches; any other failure must not look like none.
@@ -486,6 +522,13 @@ export const openStateBranch = (options: StateBranchOptions): StateBranch => {
       lock.release();
     }
   };
+  // A change of the worktree outside a flush waits for none: the effect that asks it is retried.
+  const asTheWriter = (run: () => Promise<void>): Promise<void> =>
+    serialized(async () => {
+      const lock = await takeWriter();
+      if (lock === undefined) throw new Error(otherWriter);
+      return asWriter(lock, run);
+    });
 
   return {
     start: () =>
@@ -515,17 +558,24 @@ export const openStateBranch = (options: StateBranchOptions): StateBranch => {
         });
       }),
 
-    shelve: () => {
-      throw new Error('not implemented');
-    },
-    dates: () => {
-      throw new Error('not implemented');
-    },
-    drop: () => {
-      throw new Error('not implemented');
-    },
-    archived: () => {
-      throw new Error('not implemented');
-    },
+    // The next flush commits what these change, with the rack attempt's events (ADR 0383).
+    shelve: (batchIds, date, known) =>
+      asTheWriter(async () => {
+        const named = new Set(batchIds);
+        for (const name of await folders('batches')) {
+          if (!PathSafeId.safeParse(name).success || (!named.has(name) && known.has(name)))
+            continue;
+          const to = onDisk(archivePath(date, name));
+          if (existsSync(to)) continue;
+          await mkdir(dirname(to), { recursive: true });
+          await rename(onDisk(`batches/${name}`), to);
+        }
+      }),
+    dates: async () => (await folders('archive')).filter(isArchiveDate),
+    drop: (dates) =>
+      asTheWriter(async () => {
+        for (const date of dates) await removeTree(onDisk(archivePath(date)));
+      }),
+    archived: () => archivedIds(worktree),
   };
 };

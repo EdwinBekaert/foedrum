@@ -18,7 +18,7 @@ import { createIntake, type IntakeNotice } from '../engine/intake.ts';
 import { limitsOf } from '../engine/limits.ts';
 import { createMergedChecks, type MergedChecks, mergedCheckStep } from '../engine/merged-checks.ts';
 import type { BranchPush, PullRequestRepository } from '../engine/pull-request-actions.ts';
-import type { StateBranch } from '../engine/state-branch-git.ts';
+import { archivedIds, type StateBranch } from '../engine/state-branch-git.ts';
 import { githubCheckReader } from '../github/checks.ts';
 import { GitHubRateLimited } from '../github/client.ts';
 import { githubReleaseReader } from '../github/releases.ts';
@@ -62,7 +62,11 @@ export interface ServeShell {
   lock: (workRoot: string, options: { brewery: string; owner: string }) => DriverLock;
   /** Opens the event store at `path`, making it when missing. */
   openStore: (path: string) => EventStore;
-  stateBranch: (store: EventStore) => Pick<StateBranch, 'start' | 'flush'>;
+  /** The state branch; one without the archive's moves runs no rack action (ADR 0383). */
+  stateBranch: (
+    store: EventStore,
+  ) => Pick<StateBranch, 'start' | 'flush'> &
+    Partial<Pick<StateBranch, 'shelve' | 'dates' | 'drop'>>;
   /**
    * The attempt worktrees of a repository, making its managed clone first; `recreate` gives a
    * resumed attempt the worktree its session ran in back (ADR 0117).
@@ -335,6 +339,7 @@ export const runServe = async (setup: ServeSetup, shell: ServeShell): Promise<nu
     let pausedUntil = 0;
     const intake = createIntake({
       log,
+      archived: () => archivedIds(setup.stateWorktree),
       brewery: setup.brewery,
       tracker: githubTargetTracker(reads),
       claims,

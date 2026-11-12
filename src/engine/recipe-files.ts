@@ -317,6 +317,7 @@ function readAll<T extends { name: string }>(
 type BrewerStep = Extract<Step, { brewer: string }>;
 type CheckStep = Extract<Step, { check: unknown }>;
 type ActionStep = Extract<Step, { action: string }>;
+type GateStep = Extract<Step, { gate: string }>;
 /** A route back: where to, and how often (ADR 0064). */
 type Route = NonNullable<Extract<Step, { parallel: unknown }>['onFindings']>;
 
@@ -338,6 +339,8 @@ interface LineStep {
   route: { why: RouteWhy; goto: string; maxRounds: number } | undefined;
   /** The action it is, which the engine runs itself (ADR 0071); none for a brewer or a check. */
   action?: RecipeAction;
+  /** How old what a delete action removes is, in milliseconds (ADR 0383). */
+  olderThan?: number;
   /** A check step that expects its checks to pass: not a red proof (ADR 0164). */
   passes?: true;
   /** A red proof's: the step whose tests it proves red (ADR 0078). */
@@ -444,19 +447,34 @@ function holds(when: string, settings: Settings): boolean {
   return (String(value) === compare.value) === (compare.op === '==');
 }
 
+/** The actions the engine runs: the openPullRequest action (ADR 0071) and rack's (ADR 0383). */
+const RUN_ACTIONS: ReadonlySet<string> = new Set([
+  'openPullRequest',
+  'archive',
+  'deleteArchives',
+  'deleteTemporary',
+]);
+/** Rack's actions that delete what is older than their `olderThan` (ADR 0383). */
+const DELETES: ReadonlySet<string> = new Set(['deleteArchives', 'deleteTemporary']);
+
 /**
- * The step, when the engine runs it (a brewer, a check or the openPullRequest action), else why it
- * does not yet, naming the ADR that says so.
+ * The step, when the engine runs it (a brewer, a check, a human gate or an action it runs), else
+ * why it does not yet, naming the ADR that says so.
  */
-function runnableStep(step: Step): BrewerStep | CheckStep | ActionStep | string {
+function runnableStep(step: Step): BrewerStep | CheckStep | ActionStep | GateStep | string {
   const id = stepId(step);
-  const opens = 'action' in step && step.action === 'openPullRequest';
-  if (!('brewer' in step) && !('check' in step) && !opens) {
+  const runs =
+    'brewer' in step || 'check' in step || 'gate' in step
+      ? step
+      : 'action' in step && RUN_ACTIONS.has(step.action)
+        ? step
+        : undefined;
+  if (runs === undefined) {
     return `step "${id}" is a ${stepKind(step)} step, which the engine does not brew yet (ADR 0053)`;
   }
-  const when = step.when === undefined ? undefined : unfollowedWhen(id, step.when);
+  const when = runs.when === undefined ? undefined : unfollowedWhen(id, runs.when);
   if (when !== undefined) return when;
-  return step;
+  return runs;
 }
 
 /** Whether `brewer` is a Taster: it answers with findings and a verdict (ADR 0161). */
@@ -687,9 +705,7 @@ function lineRecipe(
     choosesRecipe: (id) => byId.get(id)?.chooses === true,
     chosen: (option) => steps.find((entry) => entry.chosenBy === option)?.id,
     action: (id) => at(id).action,
-    olderThan: () => {
-      throw new Error('not implemented');
-    },
+    olderThan: (id) => at(id).olderThan,
     mergesBase: (id) => id === merges,
     proven: (id) => id === proves,
     deadlineMs: (id) => durationMs(at(id).deadline),
@@ -777,9 +793,62 @@ function tooLong(id: string, deadline: string): string | undefined {
     : `step "${id}" has a deadline of ${deadline}, longer than 365 days`;
 }
 
+/**
+ * The line of one of rack's actions (ADR 0383): a delete needs its `olderThan`, and no other
+ * action takes one.
+ */
+function rackLine(step: ActionStep): StepLoad {
+  const id = stepId(step);
+  const deletes = DELETES.has(step.action);
+  if (deletes !== (step.olderThan !== undefined)) {
+    return [
+      deletes
+        ? `step "${id}" is a ${step.action} action with no "olderThan": say how old what it deletes is (ADR 0383)`
+        : `step "${id}" has "olderThan", which only deleteArchives and deleteTemporary read (ADR 0383)`,
+    ];
+  }
+  const line: LineStep = {
+    id,
+    when: step.when,
+    deadline: ACTION_DEADLINE,
+    stall: undefined,
+    round: deliveryRound,
+    mayRetry: (attempts) => deliveryRound(attempts).length < ACTION_ATTEMPTS,
+    route: undefined,
+    action: step.action as RecipeAction,
+    ...(step.olderThan === undefined ? {} : { olderThan: durationMs(step.olderThan) }),
+  };
+  return { line };
+}
+
+/**
+ * A human gate's line (ADR 0383): an attempt the driver ends at once, within the gate's deadline,
+ * after which the batch waits Stuck for a person's approve.
+ */
+function gateLine(step: GateStep): StepLoad {
+  const long = tooLong(step.id, step.deadline);
+  if (long !== undefined) return [long];
+  const line: LineStep = {
+    id: step.id,
+    when: step.when,
+    deadline: step.deadline,
+    stall: undefined,
+    round: deliveryRound,
+    mayRetry: (attempts) => deliveryRound(attempts).length < ACTION_ATTEMPTS,
+    route: undefined,
+    action: 'gate',
+  };
+  return { line };
+}
+
 /** The openPullRequest action's line, when it is the recipe's `last` step (ADR 0071). */
 function actionLine(step: ActionStep, last: boolean): StepLoad {
   const id = stepId(step);
+  if (step.olderThan !== undefined) {
+    return [
+      `step "${id}" has "olderThan", which only deleteArchives and deleteTemporary read (ADR 0383)`,
+    ];
+  }
   // The pull request holds the commits of the steps before it; none may come after it.
   if (!last) {
     return [
@@ -980,7 +1049,10 @@ function loadStep({ step, group, groupRoute }: ListedStep, last: boolean, shelf:
   }
   const runnable = runnableStep(step);
   if (typeof runnable === 'string') return [runnable];
-  if ('action' in runnable) return actionLine(runnable, last);
+  if ('gate' in runnable) return gateLine(runnable);
+  if ('action' in runnable) {
+    return runnable.action === 'openPullRequest' ? actionLine(runnable, last) : rackLine(runnable);
+  }
   if ('check' in runnable) return checkLine(runnable);
   return brewerLine(runnable, group, groupRoute, shelf);
 }
@@ -1350,6 +1422,8 @@ export function loadRecipes(breweryFiles: BreweryFiles): LoadedRecipes {
   const choices: RecipeChoice[] = [];
   for (const { path, guidance, ...choice } of offered.values()) {
     if (choosingSteps.has(choice.name)) continue;
+    // A recipe with no brewer, as rack, is a person's to start, never a model's choice (ADR 0383).
+    if ((stepBrewers.get(choice.name)?.size ?? 0) === 0) continue;
     // Every recipe offered says when to choose it: a model choosing it reads that (ADR 0375).
     if (guidance === undefined) problems.push(`${path}: ${unguidedLine(choice.name)}`);
     else choices.push({ ...choice, guidance });

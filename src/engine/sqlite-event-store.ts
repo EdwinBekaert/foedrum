@@ -10,6 +10,7 @@ import { parseJson } from '../formats/json.ts';
 import { sqliteErrorCode } from '../platform/errors.ts';
 import { Event } from '../schemas/events.ts';
 import { BatchLease, KeptOutDoc, Lease, PushedThrough } from '../schemas/store.ts';
+import { attemptKey } from './attempt-key.ts';
 import { effectKey } from './effect-key.ts';
 import {
   DuplicateEffectError,
@@ -18,6 +19,7 @@ import {
   type EventStoreTransaction,
   ReplayError,
 } from './event-store.ts';
+import { batchOf } from './state-branch.ts';
 
 export interface SqliteEventStoreOptions {
   /** How long a write waits for another connection's lock before failing; default 5000 ms. */
@@ -102,6 +104,19 @@ const migrations = [
     text TEXT NOT NULL,
     PRIMARY KEY (batch_id, step_id, attempt)
   ) STRICT;
+  `,
+  `
+  -- Rack's archive deletes a batch's rows (ADR 0383): the triggers still refuse every delete but
+  -- one made while this table has its row, which forget writes and takes away in its transaction.
+  CREATE TABLE forgetting (singleton INTEGER PRIMARY KEY CHECK (singleton = 1)) STRICT;
+  DROP TRIGGER events_no_delete;
+  CREATE TRIGGER events_no_delete BEFORE DELETE ON events
+    WHEN NOT EXISTS (SELECT 1 FROM forgetting)
+    BEGIN SELECT RAISE(ABORT, 'events are append-only'); END;
+  DROP TRIGGER effects_no_delete;
+  CREATE TRIGGER effects_no_delete BEFORE DELETE ON effects
+    WHEN NOT EXISTS (SELECT 1 FROM forgetting)
+    BEGIN SELECT RAISE(ABORT, 'effects are append-only'); END;
   `,
 ];
 
@@ -221,6 +236,13 @@ export const openSqliteEventStore = (
   );
   const selectEvents = db.prepare('SELECT id, body FROM events WHERE id > ? ORDER BY id LIMIT ?');
   const selectAnyEvent = db.prepare('SELECT 1 FROM events LIMIT 1');
+  const selectAllEvents = db.prepare('SELECT id, body FROM events ORDER BY id');
+  const selectLeaseKeys = db.prepare('SELECT attempt_key FROM leases');
+  const deleteEvent = db.prepare('DELETE FROM events WHERE id = ?');
+  const deleteEffectOf = db.prepare('DELETE FROM effects WHERE event_id = ?');
+  const deleteOutDocsOf = db.prepare('DELETE FROM out_docs WHERE batch_id = ?');
+  // How many forgets this connection made, which a fold of its events reads (ADR 0383).
+  let forgets = 0;
   // The earliest due deadline of a batch is its earliest pending deadline.
   const selectDue = db.prepare(
     'SELECT batch_id, MIN(deadline_at) AS deadline_at FROM deadlines WHERE deadline_at <= ? ' +
@@ -517,13 +539,30 @@ export const openSqliteEventStore = (
         }),
       ),
 
-    forget: () => {
-      throw new Error('not implemented');
-    },
+    forget: (batchIds) =>
+      withTransaction(() => {
+        const gone = new Set(batchIds);
+        db.exec('INSERT INTO forgetting (singleton) VALUES (1)');
+        for (const { id, body } of rows<{ id: number; body: string }>(selectAllEvents)) {
+          const batchId = batchOf(parseStored(id, body));
+          if (batchId === undefined || !gone.has(batchId)) continue;
+          deleteEffectOf.run(id);
+          deleteEvent.run(id);
+        }
+        for (const { attempt_key } of rows<{ attempt_key: string }>(selectLeaseKeys)) {
+          const ref = attemptKey.decode(attempt_key);
+          if (ref !== undefined && gone.has(ref.batchId)) releaseLease.run(attempt_key);
+        }
+        for (const batchId of gone) {
+          clearDeadlines.run(batchId);
+          releaseBatchLease.run(batchId);
+          deleteOutDocsOf.run(batchId);
+        }
+        db.exec('DELETE FROM forgetting');
+        forgets += 1;
+      }),
 
-    forgotten: () => {
-      throw new Error('not implemented');
-    },
+    forgotten: () => forgets,
 
     restore: (log, commit) =>
       withTransaction(() => {

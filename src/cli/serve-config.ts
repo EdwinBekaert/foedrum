@@ -294,6 +294,21 @@ export const attemptClone = (
   return managedClonePath(workRootOf(local, home, config.brewery), repo);
 };
 
+/**
+ * The state branch's worktree, `<workRoot>/state`, from the text of foedrum.jsonc and
+ * .foedrum/local.jsonc; undefined when they do not read (ADR 0383).
+ */
+export const stateWorktreeOf = (
+  files: { config: string | undefined; local: string | undefined },
+  home: string,
+): string | undefined => {
+  const problems: string[] = [];
+  const config = read('foedrum.jsonc', files.config, BreweryConfig, undefined, problems);
+  const local = read('.foedrum/local.jsonc', files.local ?? '{}', LocalConfig, undefined, problems);
+  if (config?.brewery === undefined || local === undefined) return undefined;
+  return join(workRootOf(local, home, config.brewery), 'state');
+};
+
 /** Everything serve sets up, or one line per problem, all of them at once. */
 export const serveSetup = (inputs: ServeInputs): ServeSetupResult => {
   const { root, home, platform, env, files, diagnosis } = inputs;

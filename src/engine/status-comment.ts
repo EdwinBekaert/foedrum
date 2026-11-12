@@ -2,6 +2,7 @@
 // from the folded state alone, and its edits as revisions in the ledger, `[batchId, "status.<n>"]`,
 // each found by its marker on the Brewery's own comment before it is applied (ADR 0033).
 
+import { isDeepStrictEqual } from 'node:util';
 import { passed, settleReadings, shortCommand, testsFailing } from '../checks/gravity.ts';
 import type { IsCommit } from '../formats/secrets.ts';
 import type {
@@ -58,6 +59,7 @@ import {
 import { type PairConflict, pairsOf } from './pull-request-pairs.ts';
 import { receiptParts, receiptsOf } from './receipt.ts';
 import type { Recipe, Recipes } from './recipes.ts';
+import { GATE_OUTPUT } from './recipes.ts';
 import { resumedAfterOverrun } from './session-resume.ts';
 import { stateText } from './sibling-pull-requests.ts';
 import { pastBySkip, pastLine } from './skip-past.ts';
@@ -269,7 +271,7 @@ const stuckText = (
   reason: StuckReason,
   told: Told,
   called: string,
-  { repo, issue }: Batch,
+  { repo, issue, steps }: Batch,
   planComment?: string,
 ): string => {
   switch (reason.kind) {
@@ -318,6 +320,15 @@ const stuckText = (
       return `${code(reason.stepId)}: ${link(reason.pullRequest)} failed its checks on ${code(reason.head)} ${after}: ${[...checks, ...more].join(', ')}`;
     }
     case 'plan_review': {
+      const ran = steps.get(reason.stepId)?.attempts.get(reason.attempt);
+      // A human gate waits for a go, with no plan (ADR 0383).
+      if (
+        ran?.phase === 'finished' &&
+        ran.outcome.kind === 'succeeded' &&
+        isDeepStrictEqual(ran.outcome.output, GATE_OUTPUT)
+      ) {
+        return `${code(reason.stepId)} waits for your go: run ${code(`foedrum approve ${called}`)}`;
+      }
       const at = planComment === undefined ? '' : `: ${labelled('plan comment', planComment)}`;
       return `the plan of ${code(reason.stepId)} #${reason.attempt} is ready for your review${at}`;
     }

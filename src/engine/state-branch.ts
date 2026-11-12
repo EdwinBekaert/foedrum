@@ -143,6 +143,27 @@ export const outDocLink = (
  */
 export const MAX_BRANCH_OUT_DOC_BYTES = 256 * 1024;
 
+/**
+ * Whether `name` is a folder of the archive, `archive/<date>/`, which holds the batches rack
+ * archived that day (ADR 0383): a date as `YYYY-MM-DD`. Foedrum reads only these folder names.
+ */
+export const isArchiveDate = (name: string): boolean => {
+  const time = Date.parse(`${name}T00:00:00Z`);
+  return (
+    /^\d{4}-\d{2}-\d{2}$/.test(name) &&
+    !Number.isNaN(time) &&
+    new Date(time).toISOString().startsWith(name)
+  );
+};
+
+/** A batch's folder in the archive, or the folder of `date`. */
+export const archivePath = (date: string, batchId?: string): string => {
+  if (!isArchiveDate(date)) throw new Error(`Invalid archive date ${JSON.stringify(date)}`);
+  return batchId === undefined
+    ? `archive/${date}`
+    : `archive/${date}/${segment(batchId, 'batch id')}`;
+};
+
 /** Whether `path` is a log file: `events.jsonl` or `batches/<batchId>/events.jsonl`. */
 export const isLogPath = (path: string): boolean => {
   if (path === TOP_LEVEL_LOG) return true;
