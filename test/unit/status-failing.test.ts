@@ -52,10 +52,7 @@ const stuckUnreadable = (id: string, issue: number): Batch =>
 describe('foedrum status', () => {
   it("shows a marked batch's pass, since when and summary", () => {
     const text = formatStatus(stateOf(batch('1-1', 1, { failing })));
-    assert.match(
-      text,
-      /failing in effects since 2026-11-06T11:00:00\.000Z: the plan could not be read/,
-    );
+    assert.match(text, /failing in effects since 2026-11-06 11:00 UTC: the plan could not be read/);
   });
 
   it('adds it to the row of the lane it stays in, and nothing to a batch with no mark', () => {
@@ -70,7 +67,7 @@ describe('foedrum status', () => {
     const text = formatStatus(stateOf(unreadable('1-1', 1, { failing })));
     assert.match(text, /1-1/);
     assert.match(text, /cannot be read/);
-    assert.match(text, /failing in effects since 2026-11-06T11:00:00\.000Z/);
+    assert.match(text, /failing in effects since 2026-11-06 11:00 UTC/);
   });
 
   it('does not fail for the other batches when one batch’s rendering throws', () => {
@@ -98,7 +95,7 @@ describe('foedrum status', () => {
   it('describes the lane of a batch Stuck on failing', () => {
     assert.deepStrictEqual(describeLane(stuckFailing('1-1', 1), '1'), {
       lane: 'stuck',
-      detail: `failing at plan in effects since 2026-11-06T11:00:00.000Z: the plan could not be read; reminder ${remindAt}`,
+      detail: `failing at plan in effects since 2026-11-06 11:00 UTC: the plan could not be read; reminder 2026-11-08 12:00 UTC`,
     });
   });
 });
@@ -109,7 +106,7 @@ describe('a batch whose rendering throws', () => {
     const broken: State = { ...stateOf(stuckFailing('1-1', 1)), pauses: null as never };
     const text = formatStatus(broken);
     assert.match(text, /cannot be read/);
-    assert.match(text, /failing in effects since 2026-11-06T11:00:00\.000Z/);
+    assert.match(text, /failing in effects since 2026-11-06 11:00 UTC/);
   });
 
   it('shows the lane and the mark in foedrum stuck', () => {
@@ -177,7 +174,7 @@ describe('foedrum stuck', () => {
   it('lists a marked batch that is not Stuck apart, so an on-tap mark shows here too', () => {
     const text = formatStuck(stateOf(batch('1-1', 1, { failing })));
     assert.match(text, /No Stuck batches\./);
-    assert.match(text, /1-1.*failing in effects since 2026-11-06T11:00:00\.000Z/);
+    assert.match(text, /1-1.*failing in effects since 2026-11-06 11:00 UTC/);
   });
 
   it('prints only the line it always did with no Stuck batch and no mark, while a mark adds its own', () => {

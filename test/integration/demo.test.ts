@@ -140,7 +140,7 @@ describe('npm run demo', () => {
     assert.match(statusComment, /Waiting for you\*\*: merge a pull request/);
     assert.match(
       statusComment,
-      /^ +Path: `survey #1` ✅ → `survey-check #1` ✅ → `gauge #1`.*\n +→ `implement #2`.*\n +→ `implement #3`/m,
+      /^ +Steps run, in order \(#n is the nth try of a step\): `survey #1` ✅ → `survey-check #1` ✅ → `gauge #1`.*\n +→ `implement #2`.*\n +→ `implement #3`/m,
     );
     assert.equal(
       statusComment.match(/^ +- <https:\/\/github\.com\/demo\/web\/pull\/\d+>/gm)?.length,
