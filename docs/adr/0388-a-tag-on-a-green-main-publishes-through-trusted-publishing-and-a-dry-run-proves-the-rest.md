@@ -1,6 +1,6 @@
 # 0388. A tag on a green `main` publishes through trusted publishing, and a dry run proves the rest
 
-Date: 2026-11-12 · Status: Accepted · Amends [0377](0377-the-package-ships-the-javascript-tsc-emits-and-ci-starts-the-installed-tarball.md) (the package job becomes a workflow CI and the release both run, and `package.json` is no longer private) and [0016](0016-delivery-npm-cli-and-companion-plugin.md) (how the package reaches npm)
+Date: 2026-11-12 · Status: Accepted · Amends [0377](0377-the-package-ships-the-javascript-tsc-emits-and-ci-starts-the-installed-tarball.md) (the package job becomes a workflow CI and the release both run, and `package.json` is no longer private) [0016](0016-delivery-npm-cli-and-companion-plugin.md) (how the package reaches npm) and [0113](0113-github-s-security-features-on-the-foedrum-repository.md) (the `npm` environment and its tag rule, and npm's publishing access, are settings of the maintainer's too)
 
 ## Context
 [ADR 0377](0377-the-package-ships-the-javascript-tsc-emits-and-ci-starts-the-installed-tarball.md) made the packed tarball start once installed, and CI's `package` job proves it on three platforms.
@@ -24,6 +24,7 @@ What npm's documentation and source say, read on 2026-11-12:
   Only a merge commit on `main` has such a run, so the tag goes on one.
   It also gives the dist-tag: `next` for a version with a prerelease part (a `-` after its core, before any `+` build metadata), else `latest`.
 - `smoke` runs the package job.
+  CI's run of the same commit passed it already; this run installs the tarball when it is published, on that day's runner images and newest Node 24, with the dependency the registry serves then, as a user's first install will.
 - `publish` (`id-token: write`, `contents: read`) runs `npm ci`, `npm run build` and `npm publish --tag <dist-tag>` on `ubuntu-latest` in a fresh checkout, without the npm cache.
   It stays in `release.yml`, the file the trusted publisher names, and runs in the GitHub environment `npm`, whose deployment rule lets only `v*` tags in; the trusted publisher names that environment too, so npm takes no token from a run outside it.
   Its condition, a pushed tag, keeps a mistake in the file from publishing; the environment is what keeps a branch that changes the file from publishing.
@@ -49,12 +50,13 @@ It does not show the OIDC exchange, the environment's rule, the trusted publishe
 ### The first version
 Since a trusted publisher needs a package on the registry, the environment is created first, and the first version is created once with the maintainer's own npm login, staged and approved with 2FA, without provenance; then the trusted publisher is added and token publishing is disallowed, and the next tag publishes through the workflow.
 `docs/design/delivery.md` lists the steps for #1022.
+Whether `foedrum init` from the installed package still offers the shim [ADR 0210](0210-foedrum-init-writes-the-foedrum-command-into-a-user-folder-on-the-path.md) describes, which [ADR 0377](0377-the-package-ships-the-javascript-tsc-emits-and-ci-starts-the-installed-tarball.md) left to this issue, is not decided here: #1030 owns it.
 
 ## Consequences
 - Publishing needs a tag on a merge commit of `main` with a green CI run, and no npm token exists in the repository or its secrets.
 - The first version on npm has no provenance badge; every version the workflow publishes has one.
 - A branch that changes `release.yml` cannot publish: its runs are outside the environment's tag rule, and npm checks the environment.
-  A `v*` tag on a commit outside `main` still runs that commit's `release.yml`, so whoever may push such a tag may publish; today that is the maintainer alone.
+  A `v*` tag on a commit outside `main` still runs that commit's `release.yml`, so whoever may push such a tag may publish: the maintainer, and every Claude Code session on the maintainer's machine, which pushes with the same credentials and whose local gate reads no tags.
 - The environment and the trusted publisher are settings outside the repository's files; nothing in CI checks them.
 - The Flight before tagging (M4) is a job of its own here when it comes.
 - **Brewery migration:** none: Foedrum has no release yet.

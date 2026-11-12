@@ -52,6 +52,6 @@ npm adds a trusted publisher only to a package already on the registry, so the f
 6. Merge the next version (`0.0.1-alpha.2`), then tag its merge commit on `main` and push the tag: `git tag v0.0.1-alpha.2 <sha>` and `git push origin v0.0.1-alpha.2`.
 7. When the run is green, check the provenance badge on the package's npm page and the `next` dist-tag (`npm view foedrum dist-tags`).
 
-A `v*` tag on a commit outside `main` runs that commit's `release.yml`, so whoever may push such a tag may publish; today that is the maintainer alone.
+A `v*` tag on a commit outside `main` runs that commit's `release.yml`, so whoever may push such a tag may publish: the maintainer, and every Claude Code session on the maintainer's machine, which pushes with the same credentials.
 
 The engine runs in a terminal or as a service the user sets up (documented for systemd, launchd and Task Scheduler); it never depends on an open Claude Code session.
