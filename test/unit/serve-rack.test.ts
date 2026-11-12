@@ -170,6 +170,50 @@ describe('runServe', () => {
       );
     });
 
+    it('serve says the rack check failed when GitHub refuses the open, and goes on', async () => {
+      const { opened } = await serve([], {
+        instead: (method, url) =>
+          method === 'POST' && url.pathname.toLowerCase() === '/repos/acme/brewery/issues'
+            ? { status: 403, body: { message: 'Resource not accessible by integration' } }
+            : undefined,
+      });
+      assert.equal(opened.length, 1);
+      assert.ok(
+        f.lines.some((line) =>
+          line.startsWith(
+            'foedrum serve: the rack check failed: GitHub answered 403 to opening the rack issue in Acme/Brewery',
+          ),
+        ),
+        f.lines.join('\n'),
+      );
+      assert.ok(f.lines.includes('foedrum serve: stopped'), f.lines.join('\n'));
+    });
+
+    it('serve opens a rack issue beside a pull request labelled recipe:rack', async () => {
+      const { opened } = await serve([{ ...rackIssue(5, 1, 'open'), pullRequest: true }]);
+      assert.equal(opened.length, 1, f.lines.join('\n'));
+    });
+
+    it('serve neither reads nor opens a rack issue in a Brewery without a rack recipe', async () => {
+      const files = serveInputs().files;
+      const result = serveSetup(
+        serveInputs({
+          files: {
+            ...files,
+            config: config({ concurrency: 1 }, {}),
+            local: local({ workRoot: f.dir.path }),
+          },
+        }),
+      );
+      f.setup = result.kind === 'ready' ? result.setup : assert.fail(JSON.stringify(result));
+      const { github, reads, opened } = await serve([]);
+      // Serve ran: it read its login and stopped.
+      assert.ok(github.requests.includes('GET /user'), github.requests.join('\n'));
+      assert.ok(f.lines.includes('foedrum serve: stopped'), f.lines.join('\n'));
+      assert.equal(reads, 0);
+      assert.deepStrictEqual(opened, []);
+    });
+
     it('serve says no rack check failed when it stops during the read', async () => {
       // The read answers only once serve's stop aborts it.
       const { reads, opened } = await serve([], {

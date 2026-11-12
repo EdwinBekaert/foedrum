@@ -21,6 +21,8 @@ export interface FakeApiIssue {
   blockedBy?: number[];
   /** Each edit of its body, which GraphQL's `userContentEdits` lists, newest first (ADR 0368). */
   edited?: { by: string; at: string }[];
+  /** Whether it is a pull request, which GitHub lists among the issues. */
+  pullRequest?: boolean;
 }
 
 /** The REST id the fake gives an issue that names none: never its number, as on GitHub. */
@@ -212,6 +214,7 @@ export const fakeGitHubApi = (options: FakeGitHubApiOptions): FakeGitHubApi => {
     body: found.body ?? null,
     created_at: found.created ?? createdOf(found.number),
     ...(found.title === undefined ? {} : { title: found.title }),
+    ...(found.pullRequest === true ? { pull_request: { url: `pulls/${found.number}` } } : {}),
   });
   const labelsOf = (found: FakeApiIssue) => found.labels.map((name) => ({ name }));
 
