@@ -179,6 +179,22 @@ describe('breweryCloseEffects', () => {
     assert.equal(ledger('close.issue'), undefined);
   });
 
+  it("leaves the issue to its newer batch when a finished rack batch's issue was ordered again", async () => {
+    onTap('rack');
+    issue({
+      kind: 'order_again',
+      batchId: '12-2',
+      order: { issue: 12 },
+      by: 'ann',
+      via: 'terminal',
+    });
+    const driver = await open();
+    await driver.tick();
+    assert.equal(order().state, undefined);
+    assert.equal(order().comments.length, 0);
+    assert.equal(ledger('close.issue'), undefined);
+  });
+
   it('ends the close as gone when a person deleted the Brewery issue', async () => {
     onTap('one');
     ended(web, 'merged');
