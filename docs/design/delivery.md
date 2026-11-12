@@ -4,7 +4,7 @@ Foedrum ships as an npm command-line program with a companion Claude Code plugin
 
 | Part | What it is | How users get it |
 |---|---|---|
-| `foedrum` CLI | The engine (`foedrum serve`), `init`, `doctor`, `status`, `stuck`, `replay`, and the default brewers, recipes and lenses | `npm install --global foedrum` or `npx foedrum`, published with provenance |
+| `foedrum` CLI | The engine (`foedrum serve`), `init`, `doctor`, `status`, `stuck`, `replay`, and the default brewers, recipes and lenses | `npm install --global foedrum` or `npx foedrum`, published with provenance from the second version on |
 | Claude Code plugin | One skill, `/foedrum:<command>`, per command of the registry that is not terminal-only ([the plugin](humans/plugin.md)), in `plugin/`; Markdown only, each runs the CLI with `--via plugin` ([ADR 0125](../adr/0125-the-foedrum-plugin-is-markdown-skills-that-run-the-terminal-with-via-plugin.md)) | `claude plugin marketplace add EdwinBekaert/foedrum`, then `claude plugin install foedrum@foedrum --scope project`, in the Brewery's clone |
 | Brewery | The user's control repository | `foedrum init` |
 | Brewhouse (M6) | Dashboard served by the engine | `foedrum serve` prints its local address |
@@ -25,16 +25,17 @@ A tag `v<version>` pushed on a commit of `main` runs `.github/workflows/release.
 1. `guard` checks that the tag is `v` and `package.json`'s `version`, that the commit is on `main`, and that CI's run of its push to `main` succeeded; it reads both through the GitHub API with the workflow's own token.
    Only a merge commit has such a run, so the tag goes on one.
 2. `smoke` runs the package job on Linux, Windows and macOS.
-3. `publish` builds in a fresh checkout and runs `npm publish` through trusted publishing: npm trades the job's OIDC token for a publish right, so no npm token is stored anywhere, and adds the provenance statement by itself.
+3. `build` builds and packs the tarball in a fresh checkout, in a job without `id-token`, and hands it on as an artifact.
+   `publish` runs only `npm publish` on that tarball, through trusted publishing: npm trades the job's OIDC token for a publish right, so no npm token is stored anywhere, and adds the provenance statement by itself.
    A prerelease version (`0.0.1-alpha.1`) goes to the dist-tag `next`, any other to `latest`.
    It runs only for a pushed tag, in the GitHub environment `npm`, whose deployment rule lets only `v*` tags in, and the trusted publisher names that environment: a branch that changes `release.yml` gets no token npm takes, whatever its file says.
    The environment has the maintainer as its required reviewer, so every publish waits for one approval on GitHub.
 4. `release` creates the GitHub release for the tag with notes generated from the merged pull requests, marked as a prerelease for `next`.
 
-Each job has only the permissions it needs: `publish` has `id-token: write` and `contents: read`, `release` `contents: write`.
+Each job has only the permissions it needs: `publish` has `id-token: write` and `contents: read`, `release` `contents: write`, and no job that runs dependency code holds `id-token`.
 The version changes in a pull request of its own, like any change to `package.json`.
 
-The dry run is the same workflow run by hand (`gh workflow run release.yml`) or by a pull request that changes `release.yml` or `package.yml`: the guards print what they find as warnings, a job of its own, `publish-dry-run`, runs `npm publish --dry-run` outside the environment and without `id-token`, and no release is made.
+The dry run is the same workflow run by hand (`gh workflow run release.yml`) or by a pull request that changes `release.yml` or `package.yml`: the guards print what they find as warnings, a job of its own, `publish-dry-run`, runs `npm publish --dry-run` on the same tarball outside the environment and without `id-token`, and no release is made.
 It shows that the guards' API calls work, that the package installs and starts on the three platforms, and that npm takes the package.
 It cannot show the OIDC exchange with npm, the environment's rule, the trusted publisher entry, the provenance badge or the release notes: only a real publish does.
 

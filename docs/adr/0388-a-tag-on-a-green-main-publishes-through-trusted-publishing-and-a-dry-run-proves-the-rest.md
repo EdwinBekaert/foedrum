@@ -1,6 +1,6 @@
 # 0388. A tag on a green `main` publishes through trusted publishing, and a dry run proves the rest
 
-Date: 2026-11-12 · Status: Accepted · Amends [0377](0377-the-package-ships-the-javascript-tsc-emits-and-ci-starts-the-installed-tarball.md) (the package job becomes a workflow CI and the release both run, and `package.json` is no longer private) [0016](0016-delivery-npm-cli-and-companion-plugin.md) (how the package reaches npm) and [0113](0113-github-s-security-features-on-the-foedrum-repository.md) (the `npm` environment and its tag rule, and npm's publishing access, are settings of the maintainer's too)
+Date: 2026-11-12 · Status: Accepted · Amends [0004](0004-built-in-first-dependency-policy.md) (the first version is published once by hand, without trusted publishing or provenance), [0377](0377-the-package-ships-the-javascript-tsc-emits-and-ci-starts-the-installed-tarball.md) (the package job becomes a workflow CI and the release both run, and `package.json` is no longer private) [0016](0016-delivery-npm-cli-and-companion-plugin.md) (how the package reaches npm) and [0113](0113-github-s-security-features-on-the-foedrum-repository.md) (the `npm` environment and its tag rule, and npm's publishing access, are settings of the maintainer's too)
 
 ## Context
 [ADR 0377](0377-the-package-ships-the-javascript-tsc-emits-and-ci-starts-the-installed-tarball.md) made the packed tarball start once installed, and CI's `package` job proves it on three platforms.
@@ -19,20 +19,23 @@ What npm's documentation and source say, read on 2026-11-12:
 ## Decision
 
 ### The workflow
-`.github/workflows/release.yml` runs on a pushed tag `v*`, with no permissions at the workflow's level and five jobs:
+`.github/workflows/release.yml` runs on a pushed tag `v*`, with no permissions at the workflow's level and six jobs:
 - `guard` (`contents: read`, `actions: read`) fails unless the tag is `v` and `package.json`'s `version`, the commit is on `main` (`GET repos/<repo>/compare/<sha>...main` answers `ahead` or `identical`), and CI has a successful run of a push of that commit (`GET repos/<repo>/actions/workflows/ci.yml/runs?head_sha=<sha>&event=push&status=success`), both with the workflow's own `GITHUB_TOKEN` through `gh api`.
   Only a merge commit on `main` has such a run, so the tag goes on one.
   It also gives the dist-tag: `next` for a version with a prerelease part (a `-` after its core, before any `+` build metadata), else `latest`.
 - `smoke` runs the package job.
   CI's run of the same commit passed it already; this run installs the tarball when it is published, on that day's runner images and newest Node 24, with the dependency the registry serves then, as a user's first install will.
-- `publish` (`id-token: write`, `contents: read`) runs `npm ci`, `npm run build` and `npm publish --tag <dist-tag>` on `ubuntu-latest` in a fresh checkout, without the npm cache.
+- `build` (`contents: read`) runs `npm ci`, `npm run build` and `npm pack` on `ubuntu-latest` in a fresh checkout, without the npm cache, and uploads the tarball as an artifact kept one day.
+  It holds no `id-token`, so `tsc`, the one dependency code a build runs (`npm ci` runs no install script under `ignore-scripts`), never runs where the publish token can be asked for.
+- `publish` (`id-token: write`, `contents: read`) downloads that tarball and runs only `npm publish <tarball> --tag <dist-tag>`: no checkout, no `npm ci`, no build.
   It stays in `release.yml`, the file the trusted publisher names, and runs in the GitHub environment `npm`, whose deployment rule lets only `v*` tags in; the trusted publisher names that environment too, so npm takes no token from a run outside it.
   The environment has the maintainer as its required reviewer, so every publish waits for one approval on GitHub.
   Its condition, a pushed tag, keeps a mistake in the file from publishing; the environment is what keeps a branch that changes the file from publishing.
-- `publish-dry-run` (`contents: read`) runs the same build and `npm publish --tag <dist-tag> --dry-run` for every other event, outside the environment and without `id-token`, and prints whether GitHub gave it an OIDC token request URL.
+- `publish-dry-run` (`contents: read`) runs `npm publish <tarball> --tag <dist-tag> --dry-run` on the same tarball for every other event, outside the environment and without `id-token`, and prints whether GitHub gave it an OIDC token request URL.
 - `release` (`contents: write`) runs `gh release create <tag> --verify-tag --generate-notes`, with `--prerelease` for `next`.
 
-Actions are pinned to the commit SHAs CI already uses; there is no new action and no new dependency.
+Actions are pinned to commit SHAs: checkout and setup-node to the ones CI uses, and `actions/upload-artifact` and `actions/download-artifact`, new here, since they are how one job hands a file to another; there is no new dependency.
+  That `npm publish` of a tarball goes through trusted publishing is read in npm's documentation, not tried: only #1022's first publish shows it.
 The version changes in a pull request of its own; there is no bump tool.
 
 ### One package job
@@ -70,4 +73,5 @@ Whether `foedrum init` from the installed package still offers the shim [ADR 021
 - **Set the version from the tag in the workflow:** the published `package.json` would differ from the tagged commit's.
 - **One publish job whose dry run passes `--dry-run`:** the dry run would need the environment's tag rule, which a pull request cannot meet, or the job would need `id-token` outside it.
 - **Guard the publish by its event and ref in the file only:** a branch that changes the file removes the guard with it.
-- **Publish the tarball the smoke test installed:** an artifact upload and download, two more actions, for a build `npm ci` and `tsc` repeat from the same commit.
+- **Build and publish in one job:** `tsc`, and any dependency a later build runs, would run where the publish token can be asked for, so a dependency compromised upstream could publish a tampered package with valid provenance; the environment's approval comes before the job starts and does not see what runs in it.
+- **Publish a tarball the smoke test installed:** each smoke leg builds its own on its platform, and the reusable package job would need an output only the release reads.

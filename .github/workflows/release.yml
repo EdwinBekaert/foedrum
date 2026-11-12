@@ -87,18 +87,14 @@ jobs:
       contents: read
     uses: ./.github/workflows/package.yml
 
-  # npm checks the trusted publisher against this file's name, release.yml, and the environment npm,
-  # whose deployment rule lets only v* tags in, so a branch that changes this file cannot publish.
-  # The event and tag condition only keeps a mistake here from publishing. No npm cache in this job:
-  # what it publishes is built from npm ci alone.
-  publish:
-    needs: [guard, smoke]
-    if: ${{ github.event_name == 'push' && github.ref_type == 'tag' }}
+  # Builds and packs the tarball the publish jobs publish, in a job without id-token: the dependency
+  # code npm run build runs (tsc) never runs where the publish token can be asked for. No npm cache:
+  # the tarball is built from npm ci alone.
+  build:
+    needs: guard
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    environment: npm
     permissions:
-      id-token: write
       contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -110,35 +106,71 @@ jobs:
           node-version: "24"
           check-latest: true
 
-      # Trusted publishing needs npm 11.5.1 or later; package.json's devEngines asks for more.
+      - run: npm ci
+
+      - run: npm run build
+
+      - name: Pack
+        run: |
+          mkdir "$RUNNER_TEMP/tarball"
+          npm pack --pack-destination "$RUNNER_TEMP/tarball"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: tarball
+          path: ${{ runner.temp }}/tarball/*.tgz
+          if-no-files-found: error
+          retention-days: 1
+
+  # npm checks the trusted publisher against this file's name, release.yml, and the environment npm,
+  # whose deployment rule lets only v* tags in, so a branch that changes this file cannot publish.
+  # The event and tag condition only keeps a mistake here from publishing. It runs no checkout, no
+  # npm ci and no build: only npm, on the tarball build packed.
+  publish:
+    needs: [guard, smoke, build]
+    if: ${{ github.event_name == 'push' && github.ref_type == 'tag' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: npm
+    permissions:
+      id-token: write
+      contents: read
+    env:
+      npm_config_ignore_scripts: "true"
+    steps:
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24"
+          check-latest: true
+
+      # Trusted publishing needs npm 11.5.1 or later.
       - name: Versions
         run: |
           node --version
           npm --version
 
-      - run: npm ci
-
-      - run: npm run build
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: tarball
+          path: ${{ runner.temp }}/tarball
 
       - name: npm publish
         env:
           DIST_TAG: ${{ needs.guard.outputs.dist-tag }}
-        run: npm publish --tag "$DIST_TAG"
+        run: npm publish "$RUNNER_TEMP"/tarball/*.tgz --tag "$DIST_TAG"
 
-  # The dry run's publish: the same build and npm publish --dry-run, outside the environment and
+  # The dry run's publish: npm publish --dry-run of the same tarball, outside the environment and
   # without id-token, so it can never publish.
   publish-dry-run:
-    needs: [guard, smoke]
+    needs: [guard, smoke, build]
     if: ${{ github.event_name != 'push' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
       contents: read
+    env:
+      npm_config_ignore_scripts: "true"
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "24"
@@ -149,16 +181,17 @@ jobs:
         run: |
           node --version
           npm --version
-          echo "OIDC token request URL: ${ACTIONS_ID_TOKEN_REQUEST_URL:+set}${ACTIONS_ID_TOKEN_REQUEST_URL:-not set}"
+          if [ -n "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ]; then echo "OIDC token request URL: set"; else echo "OIDC token request URL: not set"; fi
 
-      - run: npm ci
-
-      - run: npm run build
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: tarball
+          path: ${{ runner.temp }}/tarball
 
       - name: npm publish --dry-run
         env:
           DIST_TAG: ${{ needs.guard.outputs.dist-tag }}
-        run: npm publish --tag "$DIST_TAG" --dry-run
+        run: npm publish "$RUNNER_TEMP"/tarball/*.tgz --tag "$DIST_TAG" --dry-run
 
   release:
     needs: [guard, publish]
