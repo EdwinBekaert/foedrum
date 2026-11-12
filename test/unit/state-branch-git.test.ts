@@ -692,12 +692,15 @@ describe('openStateBranch with a fake git', () => {
       fake.remote = sha(5);
       fake.files = { 'batches/b1/events.jsonl': line(1, ordered('b1')) };
       const moves: string[] = [];
+      const waits: number[] = [];
       const state = openStateBranch({
         store,
         git: fake.git,
         clone,
         worktree,
-        sleep: async () => {},
+        sleep: async (ms) => {
+          waits.push(ms);
+        },
         // Refused once, as Windows does while a scan holds a file in the folder.
         rename: async (from, to) => {
           moves.push(from);
@@ -712,6 +715,8 @@ describe('openStateBranch with a fake git', () => {
       await state.start();
       await state.shelve(['b1'], '2026-11-12', () => false);
       assert.equal(moves.length, 2);
+      // Waited once, on the branch's own sleep, before the second try.
+      assert.equal(waits.length, 1);
       assert.equal(read('archive/2026-11-12/b1/events.jsonl'), line(1, ordered('b1')));
     });
   });
