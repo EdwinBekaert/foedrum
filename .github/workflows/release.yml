@@ -1,0 +1,213 @@
+# The release (ADR 0388): a tag v<version> on a commit of main whose CI is green runs the package
+# smoke test on three platforms, publishes to npm through trusted publishing (OIDC, no npm token;
+# provenance comes with it), and creates a GitHub release with notes from the merged pull requests.
+# Run by hand (workflow_dispatch), or by a pull request that changes it or the package job, it is the
+# dry run: the guards report instead of failing, the smoke test runs, a job of its own runs npm
+# publish --dry-run without the npm environment or id-token, and no release is created. GitHub
+# dispatches only a workflow main already has, so the pull request that adds or changes this file
+# proves it there.
+# The maintainer's steps before the first tag are in docs/design/delivery.md.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  pull_request:
+    paths: [.github/workflows/release.yml, .github/workflows/package.yml]
+  workflow_dispatch:
+
+# Each job asks for what it needs and nothing else.
+permissions: {}
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # The tag names package.json's version, and the tagged commit is on main with a successful CI run
+  # of its push to main. A commit of main that is not a merge has no such run, so tag a merge commit.
+  guard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      dist-tag: ${{ steps.guard.outputs.dist-tag }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Check the tag, main and CI
+        id: guard
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DRY_RUN: ${{ github.event_name != 'push' }}
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          sha=$(git rev-parse HEAD)
+          version=$(node -p "require('./package.json').version")
+          problems=()
+          if [ "$REF_TYPE" != tag ]; then
+            problems+=("$REF_NAME is not a tag")
+          elif [ "$REF_NAME" != "v$version" ]; then
+            problems+=("the tag $REF_NAME is not v$version, package.json's version")
+          fi
+          # main is ahead of the commit, or is the commit: the commit is on main.
+          status=$(gh api "repos/$REPO/compare/$sha...main" --jq .status)
+          case "$status" in
+            ahead | identical) ;;
+            *) problems+=("$sha is not on main (main is $status)") ;;
+          esac
+          runs=$(gh api "repos/$REPO/actions/workflows/ci.yml/runs?head_sha=$sha&event=push&status=success" --jq .total_count)
+          if [ "$runs" -lt 1 ]; then
+            problems+=("$sha has no successful CI run of a push to main")
+          fi
+          # A prerelease (a '-' after the version's core, before any build metadata) goes to next,
+          # never latest; npm refuses to publish one without a --tag.
+          case "${version%%+*}" in
+            *-*) dist_tag=next ;;
+            *) dist_tag=latest ;;
+          esac
+          echo "dist-tag=$dist_tag" >> "$GITHUB_OUTPUT"
+          echo "foedrum $version at $sha, npm dist-tag $dist_tag"
+          level=error
+          if [ "$DRY_RUN" = true ]; then level=warning; fi
+          for problem in "${problems[@]}"; do echo "::$level::$problem"; done
+          test "${#problems[@]}" -eq 0 || test "$DRY_RUN" = true
+
+  # The same package job CI runs: build, pack, install the tarball into an empty folder and start it,
+  # on Linux, Windows and macOS.
+  smoke:
+    needs: guard
+    permissions:
+      contents: read
+    uses: ./.github/workflows/package.yml
+
+  # Builds and packs the tarball the publish jobs publish, in a job without id-token: the dependency
+  # code npm run build runs (tsc) never runs where the publish token can be asked for. No npm cache:
+  # the tarball is built from npm ci alone.
+  build:
+    needs: guard
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24"
+          check-latest: true
+
+      - run: npm ci
+
+      - run: npm run build
+
+      - name: Pack
+        run: |
+          mkdir "$RUNNER_TEMP/tarball"
+          npm pack --pack-destination "$RUNNER_TEMP/tarball"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: tarball
+          path: ${{ runner.temp }}/tarball/*.tgz
+          if-no-files-found: error
+          retention-days: 1
+
+  # npm checks the trusted publisher against this file's name, release.yml, and the environment npm,
+  # whose deployment rule lets only v* tags in, so a branch that changes this file cannot publish.
+  # The event and tag condition only keeps a mistake here from publishing. It runs no checkout, no
+  # npm ci and no build: only npm, on the tarball build packed.
+  publish:
+    needs: [guard, smoke, build]
+    if: ${{ github.event_name == 'push' && github.ref_type == 'tag' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: npm
+    permissions:
+      id-token: write
+      contents: read
+    env:
+      npm_config_ignore_scripts: "true"
+    steps:
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24"
+          check-latest: true
+
+      # Trusted publishing needs npm 11.5.1 or later.
+      - name: Versions
+        run: |
+          node --version
+          npm --version
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: tarball
+          path: ${{ runner.temp }}/tarball
+
+      - name: npm publish
+        env:
+          DIST_TAG: ${{ needs.guard.outputs.dist-tag }}
+        run: npm publish "$RUNNER_TEMP"/tarball/*.tgz --tag "$DIST_TAG"
+
+  # The dry run's publish: npm publish --dry-run of the same tarball, outside the environment and
+  # without id-token, so it can never publish.
+  publish-dry-run:
+    needs: [guard, smoke, build]
+    if: ${{ github.event_name != 'push' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    env:
+      npm_config_ignore_scripts: "true"
+    steps:
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24"
+          check-latest: true
+
+      # GitHub sets ACTIONS_ID_TOKEN_REQUEST_URL only in a job given id-token: write.
+      - name: Versions and OIDC
+        run: |
+          node --version
+          npm --version
+          if [ -n "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ]; then echo "OIDC token request URL: set"; else echo "OIDC token request URL: not set"; fi
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: tarball
+          path: ${{ runner.temp }}/tarball
+
+      - name: npm publish --dry-run
+        env:
+          DIST_TAG: ${{ needs.guard.outputs.dist-tag }}
+        run: npm publish "$RUNNER_TEMP"/tarball/*.tgz --tag "$DIST_TAG" --dry-run
+
+  release:
+    needs: [guard, publish]
+    if: ${{ github.event_name == 'push' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - name: GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DIST_TAG: ${{ needs.guard.outputs.dist-tag }}
+          REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          prerelease=()
+          if [ "$DIST_TAG" = next ]; then prerelease=(--prerelease); fi
+          gh release create "$TAG" --repo "$REPO" --verify-tag --generate-notes "${prerelease[@]}"

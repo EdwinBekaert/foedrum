@@ -9,7 +9,7 @@ import { errorCode } from '../platform/errors.ts';
 import { type FileLock, takeFileLock } from '../platform/file-lock.ts';
 import { removeStaleLock } from '../platform/index-lock.ts';
 import { removeTree } from '../platform/remove.ts';
-import { replaceFile } from '../platform/replace-file.ts';
+import { type Rename, replaceFile } from '../platform/replace-file.ts';
 import { PathSafeId } from '../schemas/ids.ts';
 import type { Git, GitOptions } from '../workspace/git.ts';
 import type { EventStore } from './event-store.ts';
@@ -45,8 +45,10 @@ export interface StateBranchOptions {
   branch?: string;
   /** Where a stale lock file's removal is said; default nowhere. */
   out?: (line: string) => void;
-  /** Waits between tries for the writer lock at a start; default a timer. */
+  /** Waits between tries for the writer lock at a start, and for a refused move; default a timer. */
   sleep?: (ms: number) => Promise<void>;
+  /** Moves a batch's folder into the archive; default node's rename. */
+  rename?: Rename;
   /**
    * Whether a local target repository's attempt worktrees use the clone too: their fetches and
    * branch deletes take its packed-refs.lock outside the writer lock, so it is never removed
@@ -148,6 +150,7 @@ export const openStateBranch = (options: StateBranchOptions): StateBranch => {
     out = () => {},
     sleep = (ms) => delay(ms),
     sharedWithTarget = false,
+    rename: move = rename,
   } = options;
   const ref = `refs/heads/${branch}`;
   const remoteBranch = `${remote}/${branch}`;
@@ -561,7 +564,7 @@ export const openStateBranch = (options: StateBranchOptions): StateBranch => {
           const to = onDisk(archivePath(date, name));
           if (existsSync(to)) continue;
           await mkdir(dirname(to), { recursive: true });
-          await rename(onDisk(`batches/${name}`), to);
+          await replaceFile(onDisk(`batches/${name}`), to, { rename: move, sleep });
         }
       }),
     dates: async () => (await folders('archive')).filter(isArchiveDate),

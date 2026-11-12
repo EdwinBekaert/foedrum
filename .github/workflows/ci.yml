@@ -159,90 +159,10 @@ jobs:
       # needs no package.
       - run: npm run audit:advisories
 
-  # The package as a user gets it (ADR 0377): the JavaScript tsc emits, packed, installed into an
-  # empty folder outside the checkout, so no module or dependency of the checkout can stand in for
-  # one the package lacks, and started there on every platform.
+  # The package as a user gets it, in its own workflow, which the release workflow also runs before it
+  # publishes (ADR 0377, ADR 0388).
   package:
-    name: package (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 10
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-    defaults:
-      run:
-        shell: bash
-    env:
-      # The install folder has a package.json of its own, so the checkout's .npmrc does not reach
-      # it: no dependency's install script runs there either.
-      npm_config_ignore_scripts: "true"
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: "24"
-          check-latest: true
-          cache: npm
-
-      - run: npm ci
-
-      # No prepack script: npm runs none under ignore-scripts, and package.json has no pre or post
-      # scripts (ADR 0004).
-      - run: npm run build
-
-      - name: Pack
-        run: |
-          name=$(npm pack --pack-destination "$RUNNER_TEMP" | tail -n 1)
-          echo "TARBALL=$RUNNER_TEMP/$name" >> "$GITHUB_ENV"
-          mkdir "$RUNNER_TEMP/install" "$RUNNER_TEMP/npx"
-          echo '{}' > "$RUNNER_TEMP/install/package.json"
-
-      - name: Install the tarball into an empty folder
-        working-directory: ${{ runner.temp }}/install
-        run: npm install --no-audit --no-fund "$TARBALL"
-
-      # --version, --help and doctor start the installed bin. Doctor exits 1 on a runner without a
-      # gh login, and its findings depend on the runner, so only its start is held: exit 0 or 1,
-      # and nothing on stderr, where a crash would print its stack.
-      - name: Run the installed foedrum
-        working-directory: ${{ runner.temp }}/install
-        run: |
-          foedrum=node_modules/.bin/foedrum
-          version=$("$foedrum" --version)
-          test "$version" = "$(node -p "require('./node_modules/foedrum/package.json').version")"
-          "$foedrum" --help > /dev/null
-          status=0
-          "$foedrum" doctor > doctor.out 2> doctor.err || status=$?
-          cat doctor.out doctor.err
-          echo "foedrum doctor exited $status"
-          test "$status" -le 1 && test ! -s doctor.err
-
-      # --help and doctor load only some modules; the rest are imported when a command needs them.
-      # Every emitted module but the entry point is imported here, without the checkout's
-      # devDependencies, so a module that imports one, or reads a file the package does not ship
-      # when it loads, fails here and not on a user's first serve or brew.
-      - name: Import every installed module
-        working-directory: ${{ runner.temp }}/install
-        run: |
-          node --input-type=module -e "
-          import { globSync } from 'node:fs';
-          import { join } from 'node:path';
-          import { pathToFileURL } from 'node:url';
-          const main = join('node_modules', 'foedrum', 'dist', 'cli', 'main.js');
-          const files = globSync('node_modules/foedrum/dist/**/*.js').filter((file) => join(file) !== main);
-          for (const file of files) await import(pathToFileURL(file).href);
-          console.log('imported ' + files.length + ' modules');
-          if (files.length === 0) process.exitCode = 1;
-          "
-
-      # M3's exit test runs foedrum through npx.
-      - name: npx --package=<tarball> foedrum --version
-        working-directory: ${{ runner.temp }}/npx
-        run: npx --yes --package="$TARBALL" foedrum --version
+    uses: ./.github/workflows/package.yml
 
   # The single required status check: green only when every platform, the package and the audit
   # passed.
