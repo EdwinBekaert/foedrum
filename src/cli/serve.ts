@@ -379,6 +379,12 @@ export const runServe = async (setup: ServeSetup, shell: ServeShell): Promise<nu
         ? undefined
         : createRackSchedule({
             issues: githubRackIssues(reads, client, setup.brewery),
+            oldest: () => {
+              const times = [...log.state().batches.values()].flatMap(({ orderedAt }) =>
+                orderedAt === undefined ? [] : [orderedAt],
+              );
+              return times.sort()[0];
+            },
             rack,
             clock,
             signal,

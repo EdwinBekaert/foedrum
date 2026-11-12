@@ -1,7 +1,8 @@
 // The rack issue every 4 weeks (ADR 0387): serve reads the Brewery's issues labelled recipe:rack,
-// open or closed, at its start and then at most once an hour, and opens one when there is none, or
-// the newest was opened 28 days ago or more and none is open. Serve keeps no date: the issue it
-// opened is its own record, found open by the next read, so a crash after the open opens no second.
+// open or closed, at its start and then at most once an hour, and opens one when there is none and
+// the Brewery's oldest batch was ordered 28 days ago or more, or the newest was opened 28 days ago
+// or more and none is open. Serve keeps no date: the issue it opened is its own record, found open
+// by the next read, so a crash after the open opens no second.
 
 import type { Recipe } from './recipes.ts';
 
@@ -29,12 +30,19 @@ export interface RackIssues {
   open(title: string, body: string, signal?: AbortSignal): Promise<number>;
 }
 
-/** Whether serve opens a rack issue now, given every one there is. */
-const rackDue = (issues: readonly RackIssue[], now: Date): boolean =>
-  issues.every(
-    (issue) =>
-      issue.state === 'closed' && now.getTime() - Date.parse(issue.created) >= RACK_EVERY_MS,
-  );
+/** Whether `at` was 28 days or more before `now`. */
+const fourWeeksBefore = (at: string, now: Date): boolean =>
+  now.getTime() - Date.parse(at) >= RACK_EVERY_MS;
+
+/**
+ * Whether serve opens a rack issue now, given every one there is and when the Brewery's oldest
+ * batch was ordered: the first waits until that batch is 4 weeks old, and none comes before a batch
+ * (ADR 0387).
+ */
+const rackDue = (issues: readonly RackIssue[], oldest: string | undefined, now: Date): boolean =>
+  issues.length === 0
+    ? oldest !== undefined && fourWeeksBefore(oldest, now)
+    : issues.every((issue) => issue.state === 'closed' && fourWeeksBefore(issue.created, now));
 
 const UNITS = [
   [86_400_000, 'day'],
@@ -86,6 +94,8 @@ const rackIssueText = (rack: Recipe): { title: string; body: string } => {
 
 export interface RackScheduleOptions {
   issues: RackIssues;
+  /** When the Brewery's oldest batch in the store was ordered, ISO 8601; undefined with none. */
+  oldest: () => string | undefined;
   /** The Brewery's rack recipe, whose steps the issue names. */
   rack: Recipe;
   clock: () => Date;
@@ -109,7 +119,7 @@ export const createRackSchedule = (options: RackScheduleOptions): RackSchedule =
   let underway: Promise<void> | undefined;
   let next = Number.NEGATIVE_INFINITY;
   const check = async (): Promise<void> => {
-    if (!rackDue(await issues.list(signal), clock())) return;
+    if (!rackDue(await issues.list(signal), options.oldest(), clock())) return;
     const { title, body } = rackIssueText(rack);
     options.opened(await issues.open(title, body, signal));
   };
