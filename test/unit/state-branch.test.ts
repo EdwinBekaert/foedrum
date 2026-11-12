@@ -6,6 +6,7 @@ import {
   classifyPush,
   commitMessage,
   decideStart,
+  isArchiveDate,
   isLogPath,
   isStepBoundary,
   logPathOf,
@@ -349,6 +350,15 @@ describe('outDocPath', () => {
   for (const [what, attempt, message] of invalid) {
     it(`refuses ${what}`, () => assert.throws(() => outDocPath(attempt), message));
   }
+});
+
+describe('isArchiveDate (ADR 0383)', () => {
+  it('reads only a real date, YYYY-MM-DD, as a folder of the archive: regression test', () => {
+    assert.equal(isArchiveDate('2026-11-12'), true);
+    for (const name of ['notes', '2026-2-01', '2026-02-30', '2026-11-12x', '2026-13-01']) {
+      assert.equal(isArchiveDate(name), false, name);
+    }
+  });
 });
 
 describe('isLogPath', () => {

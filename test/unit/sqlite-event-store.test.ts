@@ -1359,6 +1359,19 @@ describe('SqliteEventStore on a file', () => {
     assert.throws(() => db.exec('DELETE FROM effects'), /append-only/);
   });
 
+  it('refuses a delete again once a forget is done (ADR 0383): regression test', () => {
+    const store = open(path);
+    store.withTransaction((tx) => {
+      tx.append(ordered('b1'));
+      tx.append(ordered('b2'));
+      tx.recordEffect({ ...key, batchId: 'b2' }, 'r');
+    });
+    store.forget(['b1']);
+    const db = raw(path);
+    assert.throws(() => db.exec('DELETE FROM events'), /append-only/);
+    assert.throws(() => db.exec('DELETE FROM effects'), /append-only/);
+  });
+
   it('lets the database refuse a second effect.applied event for a key', () => {
     open(path).withTransaction((tx) => tx.recordEffect(key, 'r'));
     const body = JSON.stringify(applied('again'));
