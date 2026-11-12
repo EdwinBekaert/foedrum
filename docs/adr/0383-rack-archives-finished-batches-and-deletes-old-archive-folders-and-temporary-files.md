@@ -41,7 +41,7 @@ Not part of it: a new batch id format, recipe type, role, label, command or even
 - `deleteTemporary` deletes the files under the Brewery's `.foedrum/tmp/` changed more than its `olderThan` ago, by modification time, and the folders that leaves empty. It never follows a link, and leaves a file it cannot delete for the next run. No product code writes there: what is there is sessions' and tests' scratch, and a running one's files are newer than two days. Attempt worktrees keep their own cleanup (ADR 0029).
 
 ### Batch ids
-- `nextBatchId` and `targetBatchId` skip an id that is a folder name under `archive/<date>/`, read from the state worktree by folder name only, in the intake, `foedrum brew`, `order` and `recipe`. An archived id is not given out again while its folder exists.
+- `nextBatchId` and `targetBatchId` skip an id that is a folder name under `archive/<date>/`, or under `batches/`, where a forget leaves a folder until its move, read from the state worktree by folder name only, in the intake, `foedrum brew`, `order` and `recipe`. An archived id is not given out again while its folder exists.
 
 ## Consequences
 - **What an existing Brewery must do: nothing.** Foedrum has no release. The store migrates itself to version 5, and `rack` comes from the defaults.

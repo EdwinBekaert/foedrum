@@ -102,15 +102,17 @@ const foldersIn = (folder: string): string[] => {
 };
 
 /**
- * The batch ids the archive of the state worktree `worktree` holds, by its folder names only: a
- * new batch takes none of them while its folder is there (ADR 0383).
+ * The batch ids the folders of the state worktree `worktree` hold, by their names only: the
+ * archive's, and those in `batches/`, where a forget leaves one until its move. A new batch takes
+ * none of them while its folder is there (ADR 0383).
  */
 export const archivedIds = (worktree: string): Set<string> =>
-  new Set(
-    foldersIn(join(worktree, 'archive'))
+  new Set([
+    ...foldersIn(join(worktree, 'archive'))
       .filter(isArchiveDate)
       .flatMap((date) => foldersIn(join(worktree, 'archive', date))),
-  );
+    ...foldersIn(join(worktree, 'batches')),
+  ]);
 /** The ref of the signing check's test commit; deleted again right away. */
 const PROBE_REF = 'refs/foedrum/signing-check';
 // Taken by every ref's delete, the signing check's at each start included (#941).
