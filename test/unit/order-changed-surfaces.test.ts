@@ -38,7 +38,7 @@ const stateOf = (batch: Batch): State => ({
   batches: new Map([[batch.id, batch]]),
 });
 const what =
-  'the title by stranger at 2026-11-10T11:00:00Z, comment 501 by a deleted account at 2026-11-10T11:30:00Z and 2 more';
+  'the title by stranger at 2026-11-10 11:00 UTC, comment 501 by a deleted account at 2026-11-10 11:30 UTC and 2 more';
 
 describe('an order that changed after its approval, as people see it (ADR 0368)', () => {
   it('foedrum stuck says what changed, links the issue and asks continue or stop', () => {
@@ -47,6 +47,23 @@ describe('an order that changed after its approval, as people see it (ADR 0368)'
     assert.ok(text.includes('https://github.com/acme/app/issues/7'), text);
     assert.ok(text.includes(`  1. ${ORDER_CHANGED_QUESTION} (continue, stop)`), text);
     assert.ok(text.includes('  options: answer, cancel'), text);
+  });
+
+  it('foedrum status shows when the order changed without seconds or a T (ADR 0386)', () => {
+    const reason = { ...(changed.lane as Extract<Batch['lane'], { kind: 'stuck' }>).reason };
+    const lane = {
+      ...(changed.lane as Extract<Batch['lane'], { kind: 'stuck' }>),
+      reason: {
+        ...reason,
+        changes: [{ what: 'title', by: 'stranger', at: '2026-11-10T11:04:42.517Z' }],
+        more: 0,
+      },
+    } as Batch['lane'];
+    const { detail } = describeLane({ ...changed, lane }, 'app-7');
+    assert.ok(
+      detail.includes('changed after its approval: the title by stranger at 2026-11-10 11:04 UTC;'),
+      detail,
+    );
   });
 
   it('foedrum status says it on the batch line', () => {
