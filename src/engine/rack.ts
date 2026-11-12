@@ -5,6 +5,7 @@
 import type { Dirent } from 'node:fs';
 import { lstat, readdir, rm, rmdir } from 'node:fs/promises';
 import { join } from 'node:path';
+import { errorCode } from '../platform/errors.ts';
 import { AttemptEffectKey } from '../schemas/store.ts';
 import { z } from '../schemas/zod.ts';
 import type { AttemptRef } from './attempt-key.ts';
@@ -144,32 +145,43 @@ export const finishedGroups = (state: State): Batch[][] => {
 
 /**
  * Deletes the files under `folder` last changed before `before`, never following a link, and the
- * folders that leaves empty; a file it cannot delete is left for the next run. How many went.
+ * folders that leaves empty. An entry gone meanwhile is skipped; one it cannot read or delete is
+ * skipped and counted as left, for the next run. How many went, and how many were left.
  */
 const deleteOldFiles = async (
   files: TemporaryFilesIo,
   folder: string,
   before: number,
-): Promise<number> => {
-  const entries = await files.readdir(folder).catch((error: unknown) => {
-    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') return [];
-    throw error;
-  });
-  let deleted = 0;
-  for (const entry of entries) {
-    const path = join(folder, entry.name);
-    if (entry.isDirectory()) {
-      const inside = await deleteOldFiles(files, path, before);
-      deleted += inside;
-      if (inside > 0 && (await files.readdir(path)).length === 0) await rmdir(path).catch(() => {});
-    } else if (entry.isFile() && (await files.lstat(path)).mtimeMs < before) {
-      deleted += await files.remove(path).then(
-        () => 1,
-        () => 0,
-      );
+): Promise<{ deleted: number; left: number }> => {
+  const done = { deleted: 0, left: 0 };
+  const tried = async <T>(call: () => Promise<T>): Promise<T | undefined> => {
+    try {
+      return await call();
+    } catch (error) {
+      if (errorCode(error) !== 'ENOENT') done.left += 1;
+      return undefined;
     }
-  }
-  return deleted;
+  };
+  const walk = async (inside: string): Promise<void> => {
+    for (const entry of (await tried(() => files.readdir(inside))) ?? []) {
+      const path = join(inside, entry.name);
+      if (entry.isDirectory()) {
+        const deleted = done.deleted;
+        await walk(path);
+        const emptied = done.deleted > deleted;
+        if (emptied && (await files.readdir(path).catch(() => undefined))?.length === 0) {
+          await rmdir(path).catch(() => {});
+        }
+      } else if (
+        entry.isFile() &&
+        ((await tried(() => files.lstat(path)))?.mtimeMs ?? before) < before
+      ) {
+        if (await tried(() => files.remove(path).then(() => true))) done.deleted += 1;
+      }
+    }
+  };
+  await walk(folder);
+  return done;
 };
 
 /** Rack's actions, for the driver: one effect per attempt, which does the step's work. */
@@ -259,9 +271,7 @@ export const rackActions = (options: RackActionsOptions): DriverActions => {
           case EFFECTS.deleteArchives:
             return { deleted: await deleteArchives(ref) };
           case EFFECTS.deleteTemporary:
-            return {
-              deleted: await deleteOldFiles(files, temporary, clock().getTime() - olderThanOf(ref)),
-            };
+            return deleteOldFiles(files, temporary, clock().getTime() - olderThanOf(ref));
           default:
             throw new Error(`No rack effect ${key}`);
         }

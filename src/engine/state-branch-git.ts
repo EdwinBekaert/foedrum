@@ -564,7 +564,7 @@ export const openStateBranch = (options: StateBranchOptions): StateBranch => {
           const to = onDisk(archivePath(date, name));
           if (existsSync(to)) continue;
           await mkdir(dirname(to), { recursive: true });
-          await move(onDisk(`batches/${name}`), to);
+          await replaceFile(onDisk(`batches/${name}`), to, { rename: move, sleep });
         }
       }),
     dates: async () => (await folders('archive')).filter(isArchiveDate),
