@@ -2,9 +2,10 @@
 # smoke test on three platforms, publishes to npm through trusted publishing (OIDC, no npm token;
 # provenance comes with it), and creates a GitHub release with notes from the merged pull requests.
 # Run by hand (workflow_dispatch), or by a pull request that changes it or the package job, it is the
-# dry run: every step runs, the publish with --dry-run, the guards report instead of failing, and no
-# release is created. GitHub dispatches only a workflow main already has, so the pull request that
-# adds or changes this file proves it there.
+# dry run: the guards report instead of failing, the smoke test runs, a job of its own runs npm
+# publish --dry-run without the npm environment or id-token, and no release is created. GitHub
+# dispatches only a workflow main already has, so the pull request that adds or changes this file
+# proves it there.
 # The maintainer's steps before the first tag are in docs/design/delivery.md.
 name: Release
 
@@ -86,12 +87,16 @@ jobs:
       contents: read
     uses: ./.github/workflows/package.yml
 
-  # npm checks the trusted publisher against this file's name, release.yml, so the publish stays in
-  # this workflow. No npm cache in this job: what it publishes is built from npm ci alone.
+  # npm checks the trusted publisher against this file's name, release.yml, and the environment npm,
+  # whose deployment rule lets only v* tags in, so a branch that changes this file cannot publish.
+  # The event and tag condition only keeps a mistake here from publishing. No npm cache in this job:
+  # what it publishes is built from npm ci alone.
   publish:
     needs: [guard, smoke]
+    if: ${{ github.event_name == 'push' && github.ref_type == 'tag' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    environment: npm
     permissions:
       id-token: write
       contents: read
@@ -118,13 +123,42 @@ jobs:
       - name: npm publish
         env:
           DIST_TAG: ${{ needs.guard.outputs.dist-tag }}
-          DRY_RUN: ${{ github.event_name != 'push' }}
+        run: npm publish --tag "$DIST_TAG"
+
+  # The dry run's publish: the same build and npm publish --dry-run, outside the environment and
+  # without id-token, so it can never publish.
+  publish-dry-run:
+    needs: [guard, smoke]
+    if: ${{ github.event_name != 'push' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24"
+          check-latest: true
+
+      # GitHub sets ACTIONS_ID_TOKEN_REQUEST_URL only in a job given id-token: write.
+      - name: Versions and OIDC
         run: |
-          if [ "$DRY_RUN" = true ]; then
-            npm publish --tag "$DIST_TAG" --dry-run
-          else
-            npm publish --tag "$DIST_TAG"
-          fi
+          node --version
+          npm --version
+          echo "OIDC token request URL: ${ACTIONS_ID_TOKEN_REQUEST_URL:+set}${ACTIONS_ID_TOKEN_REQUEST_URL:-not set}"
+
+      - run: npm ci
+
+      - run: npm run build
+
+      - name: npm publish --dry-run
+        env:
+          DIST_TAG: ${{ needs.guard.outputs.dist-tag }}
+        run: npm publish --tag "$DIST_TAG" --dry-run
 
   release:
     needs: [guard, publish]

@@ -19,13 +19,15 @@ What npm's documentation and source say, read on 2026-11-12:
 ## Decision
 
 ### The workflow
-`.github/workflows/release.yml` runs on a pushed tag `v*`, with no permissions at the workflow's level and four jobs:
+`.github/workflows/release.yml` runs on a pushed tag `v*`, with no permissions at the workflow's level and five jobs:
 - `guard` (`contents: read`, `actions: read`) fails unless the tag is `v` and `package.json`'s `version`, the commit is on `main` (`GET repos/<repo>/compare/<sha>...main` answers `ahead` or `identical`), and CI has a successful run of a push of that commit (`GET repos/<repo>/actions/workflows/ci.yml/runs?head_sha=<sha>&event=push&status=success`), both with the workflow's own `GITHUB_TOKEN` through `gh api`.
   Only a merge commit on `main` has such a run, so the tag goes on one.
   It also gives the dist-tag: `next` for a version with a prerelease part (a `-` after its core, before any `+` build metadata), else `latest`.
 - `smoke` runs the package job.
 - `publish` (`id-token: write`, `contents: read`) runs `npm ci`, `npm run build` and `npm publish --tag <dist-tag>` on `ubuntu-latest` in a fresh checkout, without the npm cache.
-  It stays in `release.yml`, the file the trusted publisher names.
+  It stays in `release.yml`, the file the trusted publisher names, and runs in the GitHub environment `npm`, whose deployment rule lets only `v*` tags in; the trusted publisher names that environment too, so npm takes no token from a run outside it.
+  Its condition, a pushed tag, keeps a mistake in the file from publishing; the environment is what keeps a branch that changes the file from publishing.
+- `publish-dry-run` (`contents: read`) runs the same build and `npm publish --tag <dist-tag> --dry-run` for every other event, outside the environment and without `id-token`, and prints whether GitHub gave it an OIDC token request URL.
 - `release` (`contents: write`) runs `gh release create <tag> --verify-tag --generate-notes`, with `--prerelease` for `next`.
 
 Actions are pinned to the commit SHAs CI already uses; there is no new action and no new dependency.
@@ -39,20 +41,21 @@ CI's check names become `package / package (<os>)`; `ci-ok`, the required check,
 `package.json` drops `"private": true` and gains `repository` (`git+https://github.com/EdwinBekaert/foedrum.git`).
 
 ### The dry run
-The same workflow, run by hand or by a pull request that changes `release.yml` or `package.yml`, is the dry run: the guards print what they find as warnings instead of failing, `npm publish` runs with `--dry-run`, and `release` is skipped.
+The same workflow, run by hand or by a pull request that changes `release.yml` or `package.yml`, is the dry run: the guards print what they find as warnings instead of failing, `publish-dry-run` runs instead of `publish`, and `release` is skipped.
 GitHub dispatches only a workflow the default branch has, so the pull request trigger is what runs it before it merges.
-It shows that the guards' API calls work with their permissions, that the package installs and starts on three platforms, and that npm accepts the package for publishing with the publish job's permissions.
-It does not show the OIDC exchange, the trusted publisher entry, provenance or the release notes; #1022's first publish does.
+It shows that the guards' API calls work with their permissions, that the package installs and starts on three platforms, and that npm accepts the package for publishing.
+It does not show the OIDC exchange, the environment's rule, the trusted publisher entry, provenance or the release notes; #1022's first publish does.
 
 ### The first version
-Since a trusted publisher needs a package on the registry, the first version is created once with the maintainer's own npm login, staged and approved with 2FA, without provenance; then the trusted publisher is added and token publishing is disallowed, and the next tag publishes through the workflow.
+Since a trusted publisher needs a package on the registry, the environment is created first, and the first version is created once with the maintainer's own npm login, staged and approved with 2FA, without provenance; then the trusted publisher is added and token publishing is disallowed, and the next tag publishes through the workflow.
 `docs/design/delivery.md` lists the steps for #1022.
 
 ## Consequences
 - Publishing needs a tag on a merge commit of `main` with a green CI run, and no npm token exists in the repository or its secrets.
 - The first version on npm has no provenance badge; every version the workflow publishes has one.
-- Anyone who can push a branch that changes `release.yml` can make it publish, since npm checks the file name and not the ref; today only the maintainer can push.
-  A GitHub environment with a `v*` tag rule, named on `publish` and in the trusted publisher, would close that; there is none.
+- A branch that changes `release.yml` cannot publish: its runs are outside the environment's tag rule, and npm checks the environment.
+  A `v*` tag on a commit outside `main` still runs that commit's `release.yml`, so whoever may push such a tag may publish; today that is the maintainer alone.
+- The environment and the trusted publisher are settings outside the repository's files; nothing in CI checks them.
 - The Flight before tagging (M4) is a job of its own here when it comes.
 - **Brewery migration:** none: Foedrum has no release yet.
 
@@ -61,4 +64,6 @@ Since a trusted publisher needs a package on the registry, the first version is 
 - **Publish from a reusable workflow:** npm would check the caller's name, and both would need `id-token: write`.
 - **An npm token in a secret:** a long-lived credential the issue rules out.
 - **Set the version from the tag in the workflow:** the published `package.json` would differ from the tagged commit's.
+- **One publish job whose dry run passes `--dry-run`:** the dry run would need the environment's tag rule, which a pull request cannot meet, or the job would need `id-token` outside it.
+- **Guard the publish by its event and ref in the file only:** a branch that changes the file removes the guard with it.
 - **Publish the tarball the smoke test installed:** an artifact upload and download, two more actions, for a build `npm ci` and `tsc` repeat from the same commit.
