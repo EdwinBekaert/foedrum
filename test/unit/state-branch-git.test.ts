@@ -644,6 +644,14 @@ describe('openStateBranch with a fake git', () => {
   });
 
   describe('the archive (ADR 0383)', () => {
+    it('takes the id of a folder a forget left in batches/ before its move, as the archive takes its own', async () => {
+      fake.files = { 'batches/b4/events.jsonl': line(1, ordered('b4')) };
+      fake.remote = sha(5);
+      const state = branch();
+      await state.start();
+      assert.deepEqual([...state.archived()], ['b4']);
+    });
+
     it('a rebuild reads no file of the archive: regression test', async () => {
       fake.remote = sha(5);
       fake.files = {
@@ -670,7 +678,7 @@ describe('openStateBranch with a fake git', () => {
       assert.equal(read('archive/2026-11-12/b3/events.jsonl'), line(3, ordered('b3')));
       assert.equal(read('batches/b2/events.jsonl'), line(2, ordered('b2')));
       assert.equal(existsSync(join(worktree, 'batches', 'b1')), false);
-      assert.deepEqual([...state.archived()].sort(), ['b0', 'b1', 'b3']);
+      assert.deepEqual([...state.archived()].sort(), ['b0', 'b1', 'b2', 'b3']);
       assert.deepEqual((await state.dates()).sort(), ['2026-05-01', '2026-11-12']);
       await state.drop(['2026-05-01']);
       assert.deepEqual(await state.dates(), ['2026-11-12']);
