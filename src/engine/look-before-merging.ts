@@ -131,8 +131,9 @@ export const lookOf = async (
     changes.push(...(await manifestChanges(reader, path, since, commit, fileAt)));
   }
   const left = manifests.length - MAX_MANIFESTS;
+  // Manifests left unread may hold a change, so they are counted even when the rest hold none.
   const dependencies =
-    changes.length === 0
+    changes.length === 0 && left <= 0
       ? undefined
       : {
           count: changes.length,
@@ -215,8 +216,13 @@ export const lookLine = ({
     parts.push(`${label}: ${listed(found.files.map(plain), found.count)}`);
   };
   if (look?.dependencies !== undefined) {
-    for (const { manifest } of look.dependencies.changes.slice(0, MOST_NAMED)) shown.add(manifest);
-    parts.push(`a dependency changed: ${dependencyText(look.dependencies)}`);
+    const { changes, left } = look.dependencies;
+    for (const { manifest } of changes.slice(0, MOST_NAMED)) shown.add(manifest);
+    parts.push(
+      changes.length === 0
+        ? `${left} changed manifests not read`
+        : `a dependency changed: ${dependencyText(look.dependencies)}`,
+    );
   }
   files('a lock file changed', look?.locks);
   files('a CI file changed', look?.ci);

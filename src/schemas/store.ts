@@ -155,11 +155,13 @@ export type DependencyChange = z.infer<typeof DependencyChange>;
 export const LookBeforeMerging = z.strictObject({
   dependencies: z
     .strictObject({
-      count: z.int().min(1),
-      changes: z.array(DependencyChange).min(1).max(MAX_SENSITIVE),
+      count: z.int().min(0),
+      changes: z.array(DependencyChange).max(MAX_SENSITIVE),
       /** How many changed manifests were left unread past the limit. */
       left: z.int().positive().optional(),
     })
+    // Recorded for a change, or for manifests left unread, which may hold one.
+    .refine(({ changes, left }) => changes.length > 0 || left !== undefined)
     .optional(),
   locks: LookFiles.optional(),
   ci: LookFiles.optional(),
