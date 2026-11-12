@@ -16,5 +16,40 @@ Its `files` are `dist/`, `defaults/`, `schemas/` and the Job Object helper `src/
 A module finds a file of the package from the package root, which lies as far above `dist/<area>/` as above `src/<area>/`: the defaults, `package.json` and the helper.
 No lifecycle script builds it: CI runs `npm run build` before `npm pack`.
 CI's `package` job builds, packs and installs the tarball into an empty folder outside the checkout on Linux, Windows and macOS for every pull request, then starts the installed `foedrum` (`--version`, `--help`, `doctor`), imports every emitted module and runs it once more through `npx` with the tarball as the package; `ci-ok` needs it.
+The job is the reusable workflow `.github/workflows/package.yml`, which CI and the release both run ([ADR 0388](../adr/0388-a-tag-on-a-green-main-publishes-through-trusted-publishing-and-a-dry-run-proves-the-rest.md)).
+
+## Releases
+
+A tag `v<version>` pushed on a commit of `main` runs `.github/workflows/release.yml` ([ADR 0388](../adr/0388-a-tag-on-a-green-main-publishes-through-trusted-publishing-and-a-dry-run-proves-the-rest.md)):
+
+1. `guard` checks that the tag is `v` and `package.json`'s `version`, that the commit is on `main`, and that CI's run of its push to `main` succeeded; it reads both through the GitHub API with the workflow's own token.
+   Only a merge commit has such a run, so the tag goes on one.
+2. `smoke` runs the package job on Linux, Windows and macOS.
+3. `publish` builds in a fresh checkout and runs `npm publish` through trusted publishing: npm trades the job's OIDC token for a publish right, so no npm token is stored anywhere, and adds the provenance statement by itself.
+   A prerelease version (`0.0.1-alpha.1`) goes to the dist-tag `next`, any other to `latest`.
+4. `release` creates the GitHub release for the tag with notes generated from the merged pull requests, marked as a prerelease for `next`.
+
+Each job has only the permissions it needs: `publish` has `id-token: write` and `contents: read`, `release` `contents: write`.
+The version changes in a pull request of its own, like any change to `package.json`.
+
+The dry run is the same workflow run by hand (`gh workflow run release.yml`) or by a pull request that changes `release.yml` or `package.yml`: the guards print what they find as warnings, `npm publish` runs with `--dry-run`, and no release is made.
+It shows that the guards' API calls work, that the package installs and starts on the three platforms, and that npm takes the package with the publish job's permissions.
+It cannot show the OIDC exchange with npm, the trusted publisher entry, the provenance badge or the release notes: only a real publish does.
+
+### Before the first tag
+
+npm adds a trusted publisher only to a package already on the registry, so the first version is created by the maintainer's own npm login, once (#1022):
+
+1. Merge a pull request that sets `package.json`'s `version`, such as `0.0.1-alpha.1`, and wait for its CI on `main`.
+2. Create the package on npm from that commit with the maintainer's login and 2FA: `npm run build`, then `npm stage publish --tag next`, then approve the staged version on npmjs.com.
+   Staging a name that does not exist yet publishes a placeholder `0.0.0-stage` first; the version is public only once it is approved.
+   This version carries no provenance.
+3. On npmjs.com, in the package's settings, add a trusted publisher: GitHub Actions, organization or user `EdwinBekaert`, repository `foedrum`, workflow filename `release.yml` (the file name only), no environment, and allow `npm publish`.
+   It must publish once within two days, or it is dropped.
+4. Under Publishing access, choose "Require two-factor authentication and disallow tokens"; the trusted publisher keeps working.
+5. Merge the next version (`0.0.1-alpha.2`), then tag its merge commit on `main` and push the tag: `git tag v0.0.1-alpha.2 <sha>` and `git push origin v0.0.1-alpha.2`.
+6. When the run is green, check the provenance badge on the package's npm page and the `next` dist-tag (`npm view foedrum dist-tags`).
+
+To keep a pushed branch from publishing with a changed `release.yml`, a GitHub environment with a deployment rule for `v*` tags can be named on the `publish` job and in the trusted publisher entry; there is none today.
 
 The engine runs in a terminal or as a service the user sets up (documented for systemd, launchd and Task Scheduler); it never depends on an open Claude Code session.
