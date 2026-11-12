@@ -3318,6 +3318,21 @@ describe('renderStatus: a plan that waits for its review (#658)', () => {
     );
   });
 
+  it("a human gate's Stuck line asks for a go, not a plan's review (ADR 0383)", () => {
+    const gate: Attempt = {
+      phase: 'finished',
+      attempt: 1,
+      deadlineAt: at,
+      outcome: { kind: 'succeeded', output: { gate: 'human' } },
+    };
+    const lane = stuck({ kind: 'plan_review', stepId: 'approval', attempt: 1 });
+    const lines = rendered(batch({ lane, steps: new Map([step('approval', gate)]) })).split('\n');
+    assert.ok(
+      lines.includes('🔔 **Stuck**: `approval` waits for your go: run `foedrum approve 7`'),
+      lines.join('\n'),
+    );
+  });
+
   it('the plan_review Stuck line links the plan comment by name', () => {
     const text = rendered(
       batch({ lane: review, steps: new Map([step('plan', planned(2, ['Kept the flag.']))]) }),
