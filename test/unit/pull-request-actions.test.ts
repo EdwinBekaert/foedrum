@@ -1112,6 +1112,27 @@ describe('pullRequestActions: what to look at before merging (ADR 0384)', () => 
     assert.equal(reads.length, 128);
   });
 
+  it('counts the manifests not read when the ones it read change no dependency (review of #1015)', async () => {
+    const manifests = Array.from({ length: 66 }, (_, n) => `m${n}/package.json`);
+    const same = npm({ zod: '4.0.0' });
+    const { actions } = actionsWith({
+      touched: manifests,
+      files: Object.fromEntries(
+        manifests.flatMap((path) => [
+          [`${other}:${path}`, same],
+          [`${tip}:${path}`, same],
+        ]),
+      ),
+    });
+    keysOf(brewing(), actions);
+    assert.deepEqual(await actions.target.apply(push), {
+      branch,
+      commit: tip,
+      from,
+      look: { dependencies: { count: 0, changes: [], left: 2 } },
+    });
+  });
+
   it("records a manifest it cannot read at the change's start with that commit: regression test", async () => {
     const { actions } = actionsWith({
       touched: ['package.json'],

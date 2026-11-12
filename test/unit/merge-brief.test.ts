@@ -950,6 +950,11 @@ describe('the merge brief (ADR 0225)', () => {
       );
     });
 
+    it('names the manifests not read when no dependency change is recorded (review of #1015)', async () => {
+      const body = await looked({ dependencies: { count: 0, changes: [], left: 2 } });
+      assert.equal(lookAt(body), '**Look at before merging:** 2 changed manifests not read.');
+    });
+
     it('counts the dependency changes past the first ten and the manifests not read: regression test', async () => {
       const changes = Array.from({ length: 12 }, (_, n) => ({
         manifest: 'package.json',
