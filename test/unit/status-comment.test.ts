@@ -3534,6 +3534,35 @@ describe('the Next line of a status comment that waits on the person (#777)', ()
     );
   });
 
+  it("a rack batch on tap after its gate's approval says no plan was approved and has no Next line (ADR 0383)", () => {
+    const gate = { ...approval, stepId: 'approval' };
+    const steps: Batch['steps'] = new Map([
+      [
+        'approval',
+        {
+          id: 'approval',
+          inputs: [],
+          attempts: new Map([
+            [
+              1,
+              {
+                phase: 'finished',
+                attempt: 1,
+                deadlineAt: at,
+                outcome: { kind: 'succeeded', output: { gate: 'human' } },
+              },
+            ],
+          ]),
+        },
+      ],
+    ]);
+    const text = render(
+      batch({ lane: { kind: 'on_tap', pullRequests: [] }, approval: gate, steps }),
+    );
+    assert.ok(text.split('\n').includes('🍻 **On tap**'), text);
+    assert.doesNotMatch(text, /plan approved|Next:/);
+  });
+
   it('a batch on tap with no pull request and no approved plan has no Next line: regression test', () => {
     assert.doesNotMatch(render(batch({ lane: { kind: 'on_tap', pullRequests: [] } })), /Next:/);
   });
