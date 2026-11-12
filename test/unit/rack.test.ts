@@ -310,8 +310,10 @@ describe('rack (ADR 0383)', () => {
   it('leaves a group a batch joined while its issues were read', async () => {
     // Issue 7 is ordered again while rack reads it: 7-1 no longer goes alone.
     const reading = (store: EventStore, issue: number) => {
-      if (issue === 7)
-        store.withTransaction((tx) => brewing('7-2', 7).forEach((e) => tx.append(e)));
+      if (issue !== 7) return;
+      store.withTransaction((tx) => {
+        for (const event of brewing('7-2', 7)) tx.append(event);
+      });
     };
     const ran = await run('archive', [...onTap('6-1', 6), ...onTap('7-1', 7)], [6, 7], { reading });
     assert.deepStrictEqual(ran.batches, ['7-1', '20-1', '7-2']);
