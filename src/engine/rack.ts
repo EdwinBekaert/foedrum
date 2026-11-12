@@ -203,8 +203,8 @@ export const rackActions = (options: RackActionsOptions): DriverActions => {
       forgetRead();
     }
     const date = clock().toISOString().slice(0, 10);
-    const batches = new Set(state().batches.keys());
-    await shelf.shelve(ids, date, (batchId) => batches.has(batchId));
+    // Asked under the state branch's writer lock: a batch ordered meanwhile is known, and stays.
+    await shelf.shelve(ids, date, (batchId) => state().batches.has(batchId));
     return ids;
   };
 
