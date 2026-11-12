@@ -13,7 +13,7 @@ A brewer's assumption that reads as a product decision is left out: only a model
   A failed read fails the push effect as any of its git calls does, and the driver tries it again.
 - **A dependency** is a name a manifest's dependencies add, remove or give another version, git URL with its ref, or project path, from the change's start to the commit pushed, read by the system map's reader of that manifest (`READERS`, ADR 0317) from its text at each end.
   The text is read as committed, as the secret scan reads (`BranchPush.fileAt`: `git ls-tree` for the entry and its size, the path read literally and never as a pathspec, since a brewer named it, then `git cat-file blob`), up to 1 MiB.
-  Only the files a reader matches count, up to 64 manifests per push, the rest counted.
+  Only the files a reader matches count, up to 64 manifests per push, the rest counted, also when the ones read change no dependency: the line then says how many changed manifests it did not read, since they may hold one.
   A manifest absent at one end counts as one with no dependencies, so an added or deleted manifest counts by its dependencies; a change elsewhere in a manifest gives nothing.
   A manifest its reader cannot read at one end, or that git cannot give whole, is recorded with that commit and why, and nothing else is said of it.
   Each name and side is cut to one line, as the map cuts them.
