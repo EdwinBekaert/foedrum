@@ -131,11 +131,18 @@ const run = async (
   const state = () => fold(store.eventsAfter(0).map(({ event }) => event));
   const { shelf, shelved, dropped } = fakeShelf(options.dates);
   const reads: string[] = [];
+  // How many batches each forget took.
+  const forgets: number[] = [];
   const actions = rackActions({
     brewery,
     recipes,
     state,
-    store,
+    store: {
+      forget: (batchIds) => {
+        forgets.push(batchIds.length);
+        store.forget(batchIds);
+      },
+    },
     shelf,
     issueState: async (repo, issue) => {
       reads.push(`${repo}#${issue}`);
@@ -158,7 +165,7 @@ const run = async (
   const ending = actions.ending(state(), ref);
   const batches = [...new Set(store.eventsAfter(0).map(({ event }) => batchOf(event)))];
   store.close();
-  return { batches, shelved, dropped, reads, ending, failed };
+  return { batches, shelved, dropped, reads, ending, failed, forgets };
 };
 
 describe('rack (ADR 0383)', () => {
@@ -305,6 +312,14 @@ describe('rack (ADR 0383)', () => {
     const ran = await run('archive', [...onTap('6-1', 6), ...onTap('7-1', 7)], [6, 7], { reading });
     assert.match(String(ran.failed), /GitHub did not answer/);
     assert.deepStrictEqual(ran.batches, ['7-1', '20-1']);
+  });
+
+  it('forgets the groups it read in chunks, not one by one, so a long history costs few folds', async () => {
+    const issues = Array.from({ length: 60 }, (_, i) => 100 + i);
+    const events = issues.flatMap((issue) => onTap(`${issue}-1`, issue));
+    const ran = await run('archive', events, issues);
+    assert.deepStrictEqual(ran.forgets, [25, 25, 10]);
+    assert.deepStrictEqual(ran.batches, ['20-1']);
   });
 
   it('leaves a group a batch joined while its issues were read', async () => {
