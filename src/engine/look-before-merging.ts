@@ -200,8 +200,8 @@ const dependencyText = ({
 
 /**
  * The merge brief's line of what to look at before merging, from what the latest push recorded:
- * each kind with its files, the sensitive paths (ADR 0201) last and without a file another kind
- * already names; nothing when the push recorded none.
+ * each kind with its files, the sensitive paths (ADR 0201) last and without a file the line already
+ * names for another kind; nothing when the push recorded none.
  */
 export const lookLine = ({
   look,
@@ -211,11 +211,11 @@ export const lookLine = ({
   const shown = new Set<string>();
   const files = (label: string, found: { count: number; files: string[] } | undefined) => {
     if (found === undefined) return;
-    for (const file of found.files) shown.add(file);
+    for (const file of found.files.slice(0, MOST_NAMED)) shown.add(file);
     parts.push(`${label}: ${listed(found.files.map(plain), found.count)}`);
   };
   if (look?.dependencies !== undefined) {
-    for (const { manifest } of look.dependencies.changes) shown.add(manifest);
+    for (const { manifest } of look.dependencies.changes.slice(0, MOST_NAMED)) shown.add(manifest);
     parts.push(`a dependency changed: ${dependencyText(look.dependencies)}`);
   }
   files('a lock file changed', look?.locks);

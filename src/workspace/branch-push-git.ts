@@ -316,7 +316,12 @@ export const openBranchPush = (options: BranchPushOptions): BranchPush => {
       fullSha(commit);
       // The entry at exactly that path, with its object and size: none when the commit has no file.
       const args = ['ls-tree', '-z', '--long', '--full-tree', commit, '--', path];
-      const listed = await gitOutput(local, clone, args, { ...aborts(signal), ...AS_COMMITTED });
+      // The path is a committer's: git reads it as written, never as a pathspec with magic.
+      const listed = await gitOutput(local, clone, args, {
+        ...aborts(signal),
+        ...AS_COMMITTED,
+        env: { ...AS_COMMITTED.env, GIT_LITERAL_PATHSPECS: '1' },
+      });
       const entry = listed.split('\0').find((line) => line.slice(line.indexOf('\t') + 1) === path);
       if (entry === undefined) return undefined;
       const [, type, object, size] = entry.slice(0, entry.indexOf('\t')).split(/ +/);
