@@ -9,10 +9,10 @@ import type { Recipe } from './recipes.ts';
 export const RACK_LABEL = 'recipe:rack';
 
 /** How long after the newest rack issue serve opens the next one: 4 weeks, fixed (ADR 0387). */
-export const RACK_EVERY_MS = 28 * 86_400_000;
+const RACK_EVERY_MS = 28 * 86_400_000;
 
 /** How long between serve's reads of the rack issues (ADR 0387). */
-export const RACK_READ_EVERY_MS = 3_600_000;
+const RACK_READ_EVERY_MS = 3_600_000;
 
 /** A Brewery issue labelled recipe:rack, as the code host lists it. */
 export interface RackIssue {
@@ -30,7 +30,7 @@ export interface RackIssues {
 }
 
 /** Whether serve opens a rack issue now, given every one there is. */
-export const rackDue = (issues: readonly RackIssue[], now: Date): boolean =>
+const rackDue = (issues: readonly RackIssue[], now: Date): boolean =>
   issues.every(
     (issue) =>
       issue.state === 'closed' && now.getTime() - Date.parse(issue.created) >= RACK_EVERY_MS,
@@ -51,7 +51,7 @@ const inWords = (ms: number): string => {
 };
 
 /** The rack issue's title and body, naming what the Brewery's own rack steps do (ADR 0387). */
-export const rackIssueText = (rack: Recipe): { title: string; body: string } => {
+const rackIssueText = (rack: Recipe): { title: string; body: string } => {
   const does = rack.steps.flatMap((stepId) => {
     const olderThan = rack.olderThan(stepId);
     const age = olderThan === undefined ? '' : ` older than ${inWords(olderThan)}`;

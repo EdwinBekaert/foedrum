@@ -341,6 +341,11 @@ export const runServe = async (setup: ServeSetup, shell: ServeShell): Promise<nu
     const bases = baseChecks(setup, shell, pushes, merged);
     // GitHub's rate limit holds requests until then: no pass starts before it (ADR 0052).
     let pausedUntil = 0;
+    const pausedBy = (error: unknown): void => {
+      if (error instanceof GitHubRateLimited) {
+        pausedUntil = Math.max(pausedUntil, error.until.getTime());
+      }
+    };
     const intake = createIntake({
       log,
       archived: () => archivedIds(setup.stateWorktree),
@@ -354,9 +359,7 @@ export const runServe = async (setup: ServeSetup, shell: ServeShell): Promise<nu
       limits: limitsOf(setup.intake.openOrders, setup.recipes),
       clock,
       report: (notice) => {
-        if (notice.kind === 'failed' && notice.error instanceof GitHubRateLimited) {
-          pausedUntil = Math.max(pausedUntil, notice.error.until.getTime());
-        }
+        if (notice.kind === 'failed') pausedBy(notice.error);
         say(formatIntakeNotice(notice));
       },
       ...(shell.intakeDeadlineMs === undefined ? {} : { deadlineMs: shell.intakeDeadlineMs }),
@@ -381,9 +384,7 @@ export const runServe = async (setup: ServeSetup, shell: ServeShell): Promise<nu
             signal,
             opened: (issue) => say(`opened the rack issue ${setup.brewery}#${issue}`),
             failed: (error) => {
-              if (error instanceof GitHubRateLimited) {
-                pausedUntil = Math.max(pausedUntil, error.until.getTime());
-              }
+              pausedBy(error);
               say(`the rack check failed: ${messageOf(error)}`);
             },
           });
