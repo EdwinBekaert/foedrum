@@ -653,8 +653,11 @@ const laneText = (
         }
         case 'done':
           return [`🍻 ${head}: ${doneWords(state.how)}`];
+        // batchState never queues an on-tap batch: shown as it would be, never thrown.
+        case 'queued':
+          return [`📥 ${head}`];
         default:
-          throw new Error(`An on-tap batch is never ${state.kind}`);
+          return state satisfies never;
       }
     }
     case 'cancelled':
