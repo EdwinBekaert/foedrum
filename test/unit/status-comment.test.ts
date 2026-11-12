@@ -3500,6 +3500,25 @@ describe('the Next line of a status comment that waits on the person (#777)', ()
     );
   });
 
+  it("a batch waiting at a human gate's go is told to approve or cancel, not to read a plan (ADR 0383)", () => {
+    const lane: Lane = {
+      kind: 'stuck',
+      reason: { kind: 'plan_review', stepId: 'approval', attempt: 1 },
+      options: ['approve', 'lauter', 'retry', 'recipe', 'cancel'],
+      remindAt: at,
+    };
+    const gate: Attempt = {
+      phase: 'finished',
+      attempt: 1,
+      deadlineAt: at,
+      outcome: { kind: 'succeeded', output: { gate: 'human' } },
+    };
+    assert.equal(
+      nextOf(render(batch({ lane, steps: new Map([step('approval', gate)]) }))),
+      'Next: go on with `foedrum approve 7`, or end it with `foedrum cancel 7`.',
+    );
+  });
+
   it("a plan waiting for its review names on its Next line the options the plan's commands leave out", () => {
     const lane: Lane = {
       kind: 'stuck',

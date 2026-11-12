@@ -1461,6 +1461,35 @@ describe('foedrum stuck', () => {
     });
   });
 
+  it('lists a batch waiting at a human gate, with its go to give by hand (ADR 0383)', async () => {
+    const at = { batchId: '13-1', stepId: 'approval', attempt: 1 };
+    append(
+      ordered(13),
+      { type: 'step.scheduled', ...at, deadlineAt: iso(60) },
+      { type: 'step.started', ...at },
+      { type: 'step.finished', ...at, outcome: { kind: 'succeeded', output: { gate: 'human' } } },
+      {
+        type: 'batch.stuck',
+        batchId: '13-1',
+        reason: { kind: 'plan_review', stepId: 'approval', attempt: 1 },
+        options: ['approve', 'retry', 'recipe', 'cancel'],
+        remindAt: iso(2880),
+      },
+    );
+    assert.deepStrictEqual(await run(['stuck']), {
+      exitCode: 0,
+      stdout: [
+        '1 Stuck batch',
+        '',
+        `13-1  #13  approval waits for your go; reminder ${iso(2880)}`,
+        '  options: approve, retry, recipe, cancel',
+        '  next: go on with foedrum approve 13, or end it with foedrum cancel 13.',
+        '',
+      ].join('\n'),
+      stderr: '',
+    });
+  });
+
   it('lists a batch whose plan is ready for review, with what to do next by hand (#658)', async () => {
     append(ordered(12), {
       type: 'batch.stuck',
