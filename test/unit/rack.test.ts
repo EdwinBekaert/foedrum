@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import type { AttemptRef } from '../../src/engine/attempt-key.ts';
@@ -381,15 +381,15 @@ describe('rack (ADR 0383)', () => {
     });
     afterEach(() => dir.remove());
 
+    const file = (path: string, ageMs: number) => {
+      const full = join(dir.path, path);
+      mkdirSync(join(full, '..'), { recursive: true });
+      writeFileSync(full, 'x');
+      const time = new Date(now.getTime() - ageMs);
+      utimesSync(full, time, time);
+      return full;
+    };
     it('rack deletes temporary files older than 2 days', async () => {
-      const file = (path: string, ageMs: number) => {
-        const full = join(dir.path, path);
-        mkdirSync(join(full, '..'), { recursive: true });
-        writeFileSync(full, 'x');
-        const time = new Date(now.getTime() - ageMs);
-        utimesSync(full, time, time);
-        return full;
-      };
       const old = file('old.txt', 3 * day);
       const recent = file('recent.txt', day);
       const nested = file(join('921', 'run.log'), 3 * day);
@@ -408,6 +408,15 @@ describe('rack (ADR 0383)', () => {
     it('deletes nothing, and ends, when the Brewery has no .foedrum/tmp yet (ADR 0383): regression test', async () => {
       const ran = await run('delete-temporary', [], [], { temporary: join(dir.path, 'none') });
       assert.deepStrictEqual(ran.ending, { kind: 'succeeded', output: { deleted: 0 } });
+    });
+
+    it('deleteTemporary deletes a read-only file: regression test', async () => {
+      // A git object in a scratch clone is read-only; node's rm deletes it on every platform.
+      const readOnly = file(join('clone', 'object'), 3 * day);
+      chmodSync(readOnly, 0o444);
+      const ran = await run('delete-temporary', [], [], { temporary: dir.path });
+      assert.equal(ran.failed, undefined);
+      assert.equal(existsSync(readOnly), false);
     });
 
     it('never follows a link out of the temporary folder (ADR 0383): regression test', async () => {
