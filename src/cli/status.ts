@@ -16,7 +16,7 @@ import { changesText } from '../engine/order-changes.ts';
 import { subOrderRows } from '../engine/order-end.ts';
 import { pauseOf, stopAtText } from '../engine/pauses.ts';
 import { totalParts } from '../engine/receipt.ts';
-import { sessionCommand } from '../engine/status-comment.ts';
+import { issueNumbers, sessionCommand } from '../engine/status-comment.ts';
 import { plainReason } from '../engine/supervisor.ts';
 import { sameRepo } from '../engine/task-tree.ts';
 import { usageWindowsText } from '../engine/usage-window.ts';
@@ -171,7 +171,7 @@ export const describeState = (state: State, batch: Batch): { state: string; deta
       if (lane.kind !== 'on_tap') {
         return { state: words, detail: describeLane(batch, calledAs(state, batch)).detail };
       }
-      const named = numbers.length === 0 ? '' : ` (${numbers.map((n) => `#${n}`).join(', ')})`;
+      const named = numbers.length === 0 ? '' : ` (${issueNumbers(numbers)})`;
       return { state: words, detail: `the sub-orders brew${named}` };
     }
     case 'waiting': {
@@ -200,8 +200,7 @@ export const describeState = (state: State, batch: Batch): { state: string; deta
         return { state: words, detail: [open, ended].filter((part) => part !== '').join('; ') };
       }
       if (now.for.kind === 'open_order') {
-        const named = now.for.subOrders.map((n) => `#${n}`).join(', ');
-        return { state: words, detail: `${what} (${named})` };
+        return { state: words, detail: `${what} (${issueNumbers(now.for.subOrders)})` };
       }
       return { state: words, detail: what };
     }

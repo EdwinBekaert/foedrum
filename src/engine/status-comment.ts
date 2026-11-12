@@ -575,7 +575,7 @@ const orderEndLines = (rows: readonly SubOrderRow[]): string[] => {
 };
 
 /** Issue `numbers` as `#1, #2`. */
-const issueNumbers = (numbers: readonly number[]): string =>
+export const issueNumbers = (numbers: readonly number[]): string =>
   numbers.map((number) => `#${number}`).join(', ');
 
 /** A batch's mark, in a lane it changes nothing in (ADR 0335); a Stuck reason on it says it itself. */
@@ -658,7 +658,7 @@ const laneText = (
       }
     }
     case 'cancelled':
-      return [`🚫 ${head}: cancelled by ${plain(lane.by)} (${lane.via})`];
+      return [`🚫 ${head}: ${doneWords({ kind: 'cancelled', by: lane.by, via: lane.via })}`];
     default:
       return lane satisfies never;
   }
