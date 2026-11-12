@@ -427,7 +427,7 @@ describe('rack (ADR 0383)', () => {
       const empty = join(dir.path, 'empty');
       mkdirSync(empty);
       const ran = await run('delete-temporary', [], [], { temporary: dir.path });
-      // Its out doc says how many it deleted.
+      // Its attempt's output says how many it deleted and how many it left.
       assert.deepStrictEqual(ran.ending, { kind: 'succeeded', output: { deleted: 2, left: 0 } });
       assert.equal(existsSync(old), false);
       assert.equal(existsSync(nested), false);

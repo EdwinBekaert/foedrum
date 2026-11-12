@@ -279,7 +279,7 @@ export const rackActions = (options: RackActionsOptions): DriverActions => {
         }
       },
     },
-    // What its effect did is its out doc.
+    // What its effect did is its attempt's output; an action has no out doc.
     ending: (current, ref): Ending => {
       const [key] = due(current, ref);
       const result = key === undefined ? undefined : current.effects.get(effectKey.encode(key));
