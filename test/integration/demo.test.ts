@@ -98,7 +98,7 @@ describe('npm run demo', () => {
       `headings at ${at.join(', ')}:\n${result.stdout}`,
     );
     // The first Cellar shows status as the batch moves, up to the Gauger's attempt the kill takes.
-    assert.match(part('brewing'), /brewing +gauge #1 started/);
+    assert.match(part('brewing'), /running +gauge #1 started/);
     // The restart shows that it found the lost attempt: lost because the killed Cellar stopped, in
     // plain words without its owner or a UTC time (#277), and brewed again.
     assert.match(
@@ -108,14 +108,14 @@ describe('npm run demo', () => {
     assert.equal(result.stdout.split(LOST_LINE).length, 2, 'the lost attempt is said once');
     // The cause before the effect: the lost attempt, then the status that shows its retry (#277).
     const restart = part('restart');
-    const retried = restart.search(/brewing +gauge #2 started/);
+    const retried = restart.search(/running +gauge #2 started/);
     assert.ok(retried >= 0, restart);
     assert.ok(restart.indexOf(LOST_LINE) < retried, restart);
     // The red proof reads the Gauger's test red, the first fix fails green, and the Cellarman's
     // second attempt is told why, with the failed test's own line.
     const checks = part('checks');
-    assert.match(checks, /brewing +red #1 started/);
-    assert.match(checks, /brewing +green #1 started.*brewing +implement #2 started/s);
+    assert.match(checks, /running +red #1 started/);
+    assert.match(checks, /running +green #1 started.*running +implement #2 started/s);
     assert.match(
       checks,
       /demo: implement #2 is told why step implement runs again: the failed checks of step green\n +not ok \d+ - greets a stranger when no name is given/,
@@ -283,7 +283,7 @@ describe('npm run demo', () => {
     // While they brewed, foedrum status showed the four of them at once.
     assert.match(
       part('checks'),
-      /brewing +correctness #1 started, security #1 started, test-design #1 started, design-conformance #1 started/,
+      /running +correctness #1 started, security #1 started, test-design #1 started, design-conformance #1 started/,
     );
     // Correctness's finding sends the batch back to implement, with its out doc as the route
     // input (ADR 0128), and round 2 is told the change since round 1 and that finding marked
@@ -307,7 +307,7 @@ describe('npm run demo', () => {
     );
     assert.match(
       part('checks'),
-      /brewing +correctness #2 started, security #2 started, test-design #2 started, design-conformance #2 started/,
+      /running +correctness #2 started, security #2 started, test-design #2 started, design-conformance #2 started/,
     );
     // The status comment's path has both rounds, the four lenses side by side in each and a line
     // where the batch went back to implement (#662), and each failed attempt with why (#656); every
@@ -471,7 +471,7 @@ describe('npm run demo', () => {
     );
     // Step 3 shows the survey's session as status sees it, and the status comment names the map's
     // module, which green did not measure.
-    assert.match(part('brewing'), /brewing +survey #1 started/);
+    assert.match(part('brewing'), /running +survey #1 started/);
     assert.match(part('pull-request'), /not measured, coverage none: greet/);
   });
 
