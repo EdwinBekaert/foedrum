@@ -36,6 +36,7 @@ import { effectKey } from '../../src/engine/effect-key.ts';
 import type { EffectTarget } from '../../src/engine/effects.ts';
 import type { EffectKey, EventStore, EventStoreTransaction } from '../../src/engine/event-store.ts';
 import { fold, type State } from '../../src/engine/fold.ts';
+import { GATE_OUTPUT } from '../../src/engine/recipes.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import type { ModelFamily } from '../../src/engine/usage-window.ts';
 import type { Event, UsageLimitName } from '../../src/schemas/events.ts';
@@ -4032,6 +4033,28 @@ describe('openDriver', () => {
         kind: 'plan_review',
         stepId: 'approval',
         attempt: 1,
+      });
+    });
+
+    it("ends a human gate with the output the status comment's go line reads: regression test", async () => {
+      assert.equal(
+        intake.issue({ kind: 'order', batchId: 'b1', order: { issue: 1 } }, now).kind,
+        'accepted',
+      );
+      const route = {
+        kind: 'route',
+        batchId: 'b1',
+        recipe: 'rack',
+        reason: 'label',
+        source: 'label',
+      } as const;
+      assert.equal(intake.issue(route, now).kind, 'accepted');
+      const driver = await open({ runner: handRunner().runner });
+      await driver.drive();
+      const ended = driver.state().batches.get('b1')?.steps.get('approval')?.attempts.get(1);
+      assert.deepStrictEqual(ended?.phase === 'finished' && ended.outcome, {
+        kind: 'succeeded',
+        output: GATE_OUTPUT,
       });
     });
 

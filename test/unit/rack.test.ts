@@ -5,8 +5,10 @@ import { afterEach, beforeEach, describe, it } from 'node:test';
 import type { AttemptRef } from '../../src/engine/attempt-key.ts';
 import { effectKey } from '../../src/engine/effect-key.ts';
 import { fold } from '../../src/engine/fold.ts';
-import { type ArchiveShelf, rackActions } from '../../src/engine/rack.ts';
+import { claimEffectsDue } from '../../src/engine/issue-claims.ts';
+import { type ArchiveShelf, rackActions, withRack } from '../../src/engine/rack.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
+import { batchOf } from '../../src/engine/state-branch.ts';
 import type { Event } from '../../src/schemas/events.ts';
 import { fakeRecipe, fakeRecipes, hour } from '../helpers/fake-recipes.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
@@ -51,6 +53,43 @@ const brewing = (batchId: string, issue: number, parentBatchId?: string): Event[
   ...ordered(batchId, issue, parentBatchId),
   ...at(batchId, 'archive'),
 ];
+const pullRequest = 'https://github.com/acme/api/pull/3';
+/** The status comment's revision that shows a batch ended (ADR 0345). */
+const shown = (batchId: string): Event => ({
+  type: 'effect.applied',
+  key: JSON.stringify([batchId, 'status.1']),
+  result: { comment: 1, digest: '0123456789abcdef' },
+});
+const applied = (batchId: string, effect: string): Event => ({
+  type: 'effect.applied',
+  key: JSON.stringify([batchId, effect]),
+  result: null,
+});
+const cancelled = (batchId: string, issue: number, repo?: string): Event[] => [
+  {
+    type: 'batch.ordered',
+    batchId,
+    order: repo === undefined ? { issue } : { issue, repo },
+    routeBy: '2026-12-31T00:00:00.000Z',
+  },
+  { type: 'batch.cancelled', batchId, by: 'ada', via: 'terminal' },
+];
+/** A batch on tap with one pull request, merged when `merged`. */
+const opened = (batchId: string, issue: number, merged: boolean): Event[] => [
+  ...ordered(batchId, issue),
+  { type: 'batch.on_tap', batchId, pullRequests: [pullRequest] },
+  ...(merged
+    ? [{ type: 'pull_request.ended', batchId, pullRequest, state: 'merged' } satisfies Event]
+    : []),
+];
+/** The release effects of the claimed, cancelled batch `batchId` of acme/api#`issue`, applied. */
+const released = (batchId: string, issue: number): Event[] =>
+  claimEffectsDue(
+    { batchId, repo: 'acme/api', issue, lane: { kind: 'cancelled', by: 'ada', via: 'terminal' } },
+    { brewery: 'acme/api', login: '' },
+    () => 'open',
+  ).map(({ key }) => ({ type: 'effect.applied', key: effectKey.encode(key), result: null }));
+
 /** The rack batch that runs `stepId`, issue 20. */
 const racking = (stepId: string): Event[] => [...ordered('20-1', 20), ...at('20-1', stepId)];
 
@@ -75,7 +114,12 @@ const run = async (
   stepId: string,
   events: readonly Event[],
   closed: readonly number[],
-  options: { dates?: readonly string[]; temporary?: string } = {},
+  options: {
+    dates?: readonly string[];
+    temporary?: string;
+    /** An issue's state by `<repo>#<n>`, over what `closed` says. */
+    states?: Readonly<Record<string, 'open' | 'closed' | 'gone'>>;
+  } = {},
 ) => {
   const store = openSqliteEventStore(':memory:');
   store.withTransaction((tx) => {
@@ -92,16 +136,14 @@ const run = async (
     shelf,
     issueState: async (repo, issue) => {
       reads.push(`${repo}#${issue}`);
-      return closed.includes(issue) ? 'closed' : 'open';
+      return options.states?.[`${repo}#${issue}`] ?? (closed.includes(issue) ? 'closed' : 'open');
     },
     temporary: options.temporary ?? join('nowhere', '.foedrum', 'tmp'),
     clock: () => now,
   });
   const ref: AttemptRef = { batchId: '20-1', stepId, attempt: 1 };
   for (const key of actions.due(state(), ref)) await actions.target.apply(effectKey.encode(key));
-  const batches = [
-    ...new Set(store.eventsAfter(0).map(({ event }) => ('batchId' in event ? event.batchId : ''))),
-  ];
+  const batches = [...new Set(store.eventsAfter(0).map(({ event }) => batchOf(event)))];
   store.close();
   return { batches, shelved, dropped, reads };
 };
@@ -158,6 +200,82 @@ describe('rack (ADR 0383)', () => {
       done.shelved.map(({ batchIds }) => batchIds),
       [['10-1', '11-1', '12-1']],
     );
+  });
+
+  it('leaves each batch one condition keeps: regression test', async () => {
+    const events = [
+      // On tap with an open pull request.
+      ...opened('1-1', 1, false),
+      // Cancelled, its comment not showing it yet.
+      ...cancelled('2-1', 2),
+      // Merged and shown, its issue's close still due.
+      ...opened('3-1', 3, true),
+      shown('3-1'),
+      // Claimed and cancelled, its claim not released.
+      ...cancelled('acme-4', 4, 'acme/api'),
+      shown('acme-4'),
+      // The same three with what each lacked: these go.
+      ...opened('5-1', 5, true),
+      shown('5-1'),
+      applied('5-1', 'close.comment'),
+      applied('5-1', 'close.issue'),
+      ...cancelled('6-1', 6),
+      shown('6-1'),
+      ...cancelled('acme-7', 7, 'acme/api'),
+      shown('acme-7'),
+      ...released('acme-7', 7),
+    ];
+    const ran = await run('archive', events, [1, 2, 3, 4, 5, 6, 7]);
+    assert.deepStrictEqual(ran.batches, ['1-1', '2-1', '3-1', 'acme-4', '20-1']);
+    assert.deepStrictEqual(ran.shelved[0]?.batchIds, ['5-1', '6-1', 'acme-7']);
+  });
+
+  it('archives the batches of an issue together, an issue by its repository too: regression test', async () => {
+    const events = [
+      // 8's older batch is finished, its later one brews: neither goes.
+      ...onTap('8-1', 8),
+      ...brewing('8-2', 8),
+      // Brewery issue 9 is finished; acme/api#9, another issue, has not ended its comment.
+      ...onTap('9-1', 9),
+      ...cancelled('acme-9', 9, 'acme/api'),
+      // A claimed batch whose target issue is open stays; a deleted issue counts as closed.
+      ...cancelled('acme-10', 10, 'acme/api'),
+      shown('acme-10'),
+      ...released('acme-10', 10),
+      ...onTap('11-1', 11),
+    ];
+    const states = { 'acme/api#10': 'open', [`${brewery}#11`]: 'gone' } as const;
+    const ran = await run('archive', events, [8, 9, 10], { states });
+    assert.deepStrictEqual(ran.batches, ['8-1', '8-2', 'acme-9', 'acme-10', '20-1']);
+    assert.deepStrictEqual(ran.shelved[0]?.batchIds, ['9-1', '11-1']);
+  });
+
+  it('sends each action attempt to its own actions, and each effect to its own target: regression test', async () => {
+    const both = fakeRecipes({
+      ale: fakeRecipe({ steps: ['open'], actions: { open: 'openPullRequest' }, pullRequests: [] }),
+      rack: fakeRecipe({ steps: ['archive'], actions: { archive: 'archive' }, pullRequests: [] }),
+    });
+    const fake = (name: string) => ({
+      due: () => [{ batchId: name, effect: name }],
+      target: { find: async () => undefined, apply: async () => name },
+      ending: () => ({ kind: 'succeeded', output: name }) as const,
+    });
+    const actions = withRack(both, fake('open'), fake('rack'));
+    const state = fold([
+      ...ordered('1-1', 1),
+      { type: 'batch.recipe_chosen', batchId: '1-1', recipe: 'ale', reason: 'l', source: 'label' },
+      ...at('1-1', 'open'),
+      ...ordered('2-1', 2),
+      ...at('2-1', 'archive'),
+    ]);
+    const open = { batchId: '1-1', stepId: 'open', attempt: 1 };
+    const archive = { batchId: '2-1', stepId: 'archive', attempt: 1 };
+    assert.deepStrictEqual(
+      [actions.due(state, open), actions.due(state, archive)],
+      [[{ batchId: 'open', effect: 'open' }], [{ batchId: 'rack', effect: 'rack' }]],
+    );
+    assert.equal(await actions.target.apply(JSON.stringify(['2-1', 'rack.archive'])), 'rack');
+    assert.equal(await actions.target.apply(JSON.stringify(['1-1', 'push'])), 'open');
   });
 
   it('rack deletes archive folders older than 180 days', async () => {
