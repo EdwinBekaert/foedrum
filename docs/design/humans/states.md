@@ -16,7 +16,7 @@ A pause changes no state: the surface shows the state underneath and who paused 
 
 ## Where it shows
 
-- **The status comment**: its first line, the state in bold after the lane's mark (🔔 when it waits for you), then its few words; a done split order's one line is `🍻 **Done**: every sub-order merged`.
+- **The status comment**: its first line, the state in bold after its mark (🍺 Running, 🔔 Waiting for you, 📥 or ⏳ Queued, 🍻 Done, 🚫 Done when cancelled), then its few words; a done split order's one line is `🍻 **Done**: every sub-order merged`.
   A sub-order with no pull request yet shows its own batch's state in its row.
 - **The plan comment**: its Gate, `Waiting for you: approve the plan with foedrum approve <n>.`, while the plan waits for its review; an approved plan's Gate names who approved it.
 - **`foedrum status`** and its `--watch` board: the state column, then the few words, for example `1-1  #1  waiting for you  approve the plan` and `3-1  #3  done  merged: <url>`.
