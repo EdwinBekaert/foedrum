@@ -95,11 +95,18 @@ const released = (batchId: string, issue: number): Event[] =>
 const racking = (stepId: string): Event[] => [...ordered('20-1', 20), ...at('20-1', stepId)];
 
 /** A shelf that keeps what it was asked. */
-const fakeShelf = (ids: () => readonly string[], dates: readonly string[] = []) => {
+const fakeShelf = (
+  ids: () => readonly string[],
+  dates: readonly string[] = [],
+  waiting: () => void = () => {},
+) => {
   const shelved: { batchIds: readonly string[]; date: string; known: string[] }[] = [];
   const dropped: string[][] = [];
   const shelf: ArchiveShelf = {
     shelve: async (batchIds, date, known) => {
+      // As the state branch's shelve waits for its writer lock.
+      await Promise.resolve();
+      waiting();
       shelved.push({ batchIds, date, known: ids().filter(known).sort() });
     },
     dates: async () => [...dates],
@@ -122,6 +129,8 @@ const run = async (
     states?: Readonly<Record<string, 'open' | 'closed' | 'gone'>>;
     /** What happens while issue `issue` is read: a write to the store, or a failed read. */
     reading?: (store: EventStore, issue: number) => void;
+    /** What happens while the shelf waits for its lock: a write to the store. */
+    shelving?: (store: EventStore) => void;
     /** How far the clock moves at each issue read, in milliseconds. */
     readMs?: number;
   } = {},
@@ -134,6 +143,7 @@ const run = async (
   const { shelf, shelved, dropped } = fakeShelf(
     () => [...new Set(store.eventsAfter(0).flatMap(({ event }) => batchOf(event) ?? []))],
     options.dates,
+    () => options.shelving?.(store),
   );
   const reads: string[] = [];
   // How many batches each forget took.
@@ -333,6 +343,15 @@ describe('rack (ADR 0383)', () => {
     const events = [...onTap('6-1', 6), ...onTap('7-1', 7), ...onTap('8-1', 8)];
     const ran = await run('archive', events, [6, 7, 8], { readMs: 11_000 });
     assert.deepStrictEqual(ran.forgets, [2, 1]);
+  });
+
+  it('counts as known a batch ordered while the shelf waited for its lock, so its folder stays', async () => {
+    const shelving = (store: EventStore) =>
+      store.withTransaction((tx) => {
+        for (const event of ordered('30-1', 30)) tx.append(event);
+      });
+    const ran = await run('archive', onTap('6-1', 6), [6], { shelving });
+    assert.deepStrictEqual(ran.shelved[0]?.known, ['20-1', '30-1']);
   });
 
   it('leaves a group a batch joined while its issues were read', async () => {
