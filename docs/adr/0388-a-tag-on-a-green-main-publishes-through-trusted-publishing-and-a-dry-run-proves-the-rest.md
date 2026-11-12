@@ -27,6 +27,7 @@ What npm's documentation and source say, read on 2026-11-12:
   CI's run of the same commit passed it already; this run installs the tarball when it is published, on that day's runner images and newest Node 24, with the dependency the registry serves then, as a user's first install will.
 - `publish` (`id-token: write`, `contents: read`) runs `npm ci`, `npm run build` and `npm publish --tag <dist-tag>` on `ubuntu-latest` in a fresh checkout, without the npm cache.
   It stays in `release.yml`, the file the trusted publisher names, and runs in the GitHub environment `npm`, whose deployment rule lets only `v*` tags in; the trusted publisher names that environment too, so npm takes no token from a run outside it.
+  The environment has the maintainer as its required reviewer, so every publish waits for one approval on GitHub.
   Its condition, a pushed tag, keeps a mistake in the file from publishing; the environment is what keeps a branch that changes the file from publishing.
 - `publish-dry-run` (`contents: read`) runs the same build and `npm publish --tag <dist-tag> --dry-run` for every other event, outside the environment and without `id-token`, and prints whether GitHub gave it an OIDC token request URL.
 - `release` (`contents: write`) runs `gh release create <tag> --verify-tag --generate-notes`, with `--prerelease` for `next`.
@@ -57,6 +58,7 @@ Whether `foedrum init` from the installed package still offers the shim [ADR 021
 - The first version on npm has no provenance badge; every version the workflow publishes has one.
 - A branch that changes `release.yml` cannot publish: its runs are outside the environment's tag rule, and npm checks the environment.
   A `v*` tag on a commit outside `main` still runs that commit's `release.yml`, so whoever may push such a tag may publish: the maintainer, and every Claude Code session on the maintainer's machine, which pushes with the same credentials and whose local gate reads no tags.
+  The required reviewer is what stops such a run: a session could approve the deployment only through a `gh api` write, which the session's permission prompts ask about.
 - The environment and the trusted publisher are settings outside the repository's files; nothing in CI checks them.
 - The Flight before tagging (M4) is a job of its own here when it comes.
 - **Brewery migration:** none: Foedrum has no release yet.
