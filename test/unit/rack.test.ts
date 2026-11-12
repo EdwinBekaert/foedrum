@@ -454,6 +454,18 @@ describe('rack (ADR 0383)', () => {
       assert.equal(existsSync(old), false);
     });
 
+    it('deleteTemporary skips a file that vanished before its delete', async () => {
+      const vanished = file('vanished.txt', 3 * day);
+      const old = file('old.txt', 3 * day);
+      const files = io({
+        // Gone between its lstat and its delete, as another process deletes it.
+        remove: { [vanished]: () => rm(vanished) },
+      });
+      const ran = await run('delete-temporary', [], [], { temporary: dir.path, files });
+      assert.deepStrictEqual(ran.ending, { kind: 'succeeded', output: { deleted: 1, left: 0 } });
+      assert.equal(existsSync(old), false);
+    });
+
     it('deleteTemporary skips a folder it cannot read and says how many it left', async () => {
       const locked = join(dir.path, 'locked');
       const inLocked = file(join('locked', 'old.txt'), 3 * day);
