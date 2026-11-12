@@ -122,6 +122,8 @@ const run = async (
     states?: Readonly<Record<string, 'open' | 'closed' | 'gone'>>;
     /** What happens while issue `issue` is read: a write to the store, or a failed read. */
     reading?: (store: EventStore, issue: number) => void;
+    /** How far the clock moves at each issue read, in milliseconds. */
+    readMs?: number;
   } = {},
 ) => {
   const store = openSqliteEventStore(':memory:');
@@ -133,6 +135,7 @@ const run = async (
   const reads: string[] = [];
   // How many batches each forget took.
   const forgets: number[] = [];
+  let elapsed = 0;
   const actions = rackActions({
     brewery,
     recipes,
@@ -146,11 +149,12 @@ const run = async (
     shelf,
     issueState: async (repo, issue) => {
       reads.push(`${repo}#${issue}`);
+      elapsed += options.readMs ?? 0;
       options.reading?.(store, issue);
       return options.states?.[`${repo}#${issue}`] ?? (closed.includes(issue) ? 'closed' : 'open');
     },
     temporary: options.temporary ?? join('nowhere', '.foedrum', 'tmp'),
-    clock: () => now,
+    clock: () => new Date(now.getTime() + elapsed),
   });
   const ref: AttemptRef = { batchId: '20-1', stepId, attempt: 1 };
   let failed: unknown;
@@ -320,6 +324,12 @@ describe('rack (ADR 0383)', () => {
     const ran = await run('archive', events, issues);
     assert.deepStrictEqual(ran.forgets, [25, 25, 10]);
     assert.deepStrictEqual(ran.batches, ['20-1']);
+  });
+
+  it('forgets what it read once 20 s passed since the last forget, before a chunk is full', async () => {
+    const events = [...onTap('6-1', 6), ...onTap('7-1', 7), ...onTap('8-1', 8)];
+    const ran = await run('archive', events, [6, 7, 8], { readMs: 11_000 });
+    assert.deepStrictEqual(ran.forgets, [2, 1]);
   });
 
   it('leaves a group a batch joined while its issues were read', async () => {
