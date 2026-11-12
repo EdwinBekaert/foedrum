@@ -950,6 +950,38 @@ describe('the merge brief (ADR 0225)', () => {
       );
     });
 
+    it('counts the dependency changes past the first ten and the manifests not read: regression test', async () => {
+      const changes = Array.from({ length: 12 }, (_, n) => ({
+        manifest: 'package.json',
+        kind: 'added' as const,
+        name: `p${n}`,
+        to: '1.0.0',
+      }));
+      const body = await looked({ dependencies: { count: 15, changes, left: 2 } });
+      assert.match(
+        lookAt(body) ?? '',
+        /new: p9 1\.0\.0\) and 5 more, and 2 more manifests not read\.$/,
+      );
+      assert.doesNotMatch(lookAt(body) ?? '', /p10/);
+    });
+
+    it('leaves out the sensitive files the line names for another kind, and counts those it did not record: regression test', async () => {
+      const dependencies = {
+        count: 1,
+        changes: [{ manifest: 'package.json', kind: 'added' as const, name: 'zod', to: '4.0.0' }],
+      };
+      const all = await looked({ dependencies }, { count: 1, files: ['package.json'] });
+      assert.equal(
+        lookAt(all),
+        '**Look at before merging:** a dependency changed: package.json (new: zod 4.0.0).',
+      );
+      store.close();
+      store = openSqliteEventStore(':memory:');
+      log = createCommandLog({ store, recipes });
+      const more = await looked({ dependencies }, { count: 3, files: ['package.json'] });
+      assert.match(lookAt(more) ?? '', /; sensitive paths: 2 more files\.$/);
+    });
+
     it('the merge brief has no look-before-merging line when nothing matches: regression test', async () => {
       const body = await looked();
       assert.match(body, /\*\*Ready to merge\.\*\*[^\n]*\n\n\*\*What changed since it opened\*\*/);

@@ -1111,6 +1111,83 @@ describe('pullRequestActions: what to look at before merging (ADR 0384)', () => 
     });
     assert.equal(reads.length, 128);
   });
+
+  it("records a manifest it cannot read at the change's start with that commit: regression test", async () => {
+    const { actions } = actionsWith({
+      touched: ['package.json'],
+      files: {
+        ...at(other, { 'package.json': '[]' }),
+        ...at(tip, { 'package.json': npm({ zod: '3.24.0' }) }),
+      },
+    });
+    keysOf(brewing(), actions);
+    assert.deepEqual(await actions.target.apply(push), {
+      branch,
+      commit: tip,
+      from,
+      look: {
+        dependencies: {
+          count: 1,
+          changes: [
+            { manifest: 'package.json', kind: 'unread', at: other, why: 'it is not a JSON object' },
+          ],
+        },
+      },
+    });
+  });
+
+  it('names a dependency once with each side its manifest gives, and one with no version as any version: regression test', async () => {
+    const { actions } = actionsWith({
+      touched: ['package.json'],
+      files: at(tip, {
+        'package.json': npm({ zod: '3.24.0' }, { devDependencies: { zod: '3.25.0', lib: '' } }),
+      }),
+    });
+    keysOf(brewing(), actions);
+    assert.deepEqual(await actions.target.apply(push), {
+      branch,
+      commit: tip,
+      from,
+      look: {
+        dependencies: {
+          count: 2,
+          changes: [
+            { manifest: 'package.json', kind: 'added', name: 'zod', to: '3.24.0, 3.25.0' },
+            { manifest: 'package.json', kind: 'added', name: 'lib', to: 'any version' },
+          ],
+        },
+      },
+    });
+  });
+
+  it('fails the push effect, pushing nothing, when git cannot give a manifest: regression test', async () => {
+    const pushed = fakePush(undefined, undefined, undefined, undefined, undefined, [
+      'package.json',
+    ]);
+    const actions = pullRequestActions({
+      brewery: 'acme/brewery',
+      repositories: [
+        {
+          repo: 'acme/api',
+          base: 'main',
+          push: {
+            ...pushed.target,
+            fileAt: async () => {
+              throw new Error('git ls-tree failed: fatal: bad object');
+            },
+          },
+        },
+      ],
+      host: fakeHost().host,
+      orderTitle: async () => 'Add a --json flag',
+      visibility: () => 'public',
+    });
+    keysOf(brewing(), actions);
+    await assert.rejects(actions.target.apply(push), {
+      message: 'git ls-tree failed: fatal: bad object',
+    });
+    assert.deepEqual(pushed.pushes, []);
+  });
 });
 
 describe('pullRequestActions: the sensitive paths the change touches (ADR 0201)', () => {

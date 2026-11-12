@@ -931,6 +931,16 @@ describe('openBranchPush: fileAt (ADR 0384)', () => {
     for (const call of calls) assert.equal(call.options?.env?.GIT_NO_REPLACE_OBJECTS, '1');
   });
 
+  it('reads a file of exactly 1 MiB: regression test', async () => {
+    const { git, calls } = recordingGit((args) =>
+      args[0] === 'ls-tree' ? entry('blob', String(1024 * 1024), 'package.json') : ok('{}'),
+    );
+    assert.deepEqual(await openBranchPush({ git, clone }).fileAt(TIP, 'package.json'), {
+      text: '{}',
+    });
+    assert.equal(calls.length, 2);
+  });
+
   it('reads the path literally, so pathspec magic in a name a brewer committed is no magic (review of #1015)', async () => {
     const { git, calls } = recordingGit(() => ok(''));
     const path = ':(icase)x/package.json';
