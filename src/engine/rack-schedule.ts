@@ -55,15 +55,23 @@ const rackIssueText = (rack: Recipe): { title: string; body: string } => {
   const does = rack.steps.flatMap((stepId) => {
     const olderThan = rack.olderThan(stepId);
     const age = olderThan === undefined ? '' : ` older than ${inWords(olderThan)}`;
-    switch (rack.action(stepId)) {
+    const action = rack.action(stepId);
+    switch (action) {
       case 'archive':
         return ['- it archives the finished batches on the state branch,'];
       case 'deleteArchives':
         return [`- it deletes archive folders${age},`];
       case 'deleteTemporary':
         return [`- it deletes temporary files in .foedrum/tmp/${age},`];
-      default:
+      // A gate, a brewer step and an action rack has not are no cleanup to name.
+      case 'gate':
+      case 'openPullRequest':
+      case undefined:
         return [];
+      default: {
+        const unknown: never = action;
+        throw new Error(`Unknown action ${String(unknown)}`);
+      }
     }
   });
   const body = [
