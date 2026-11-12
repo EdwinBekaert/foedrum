@@ -931,6 +931,25 @@ describe('the merge brief (ADR 0225)', () => {
       assert.doesNotMatch(body, /Touches sensitive paths/);
     });
 
+    it('names a sensitive file another kind records but leaves past its first ten (review of #1015)', async () => {
+      const ci = Array.from({ length: 12 }, (_, n) => `.github/workflows/w${n}.yml`);
+      const added = (manifest: string, n: number) =>
+        ({ manifest, kind: 'added', name: `p${n}`, to: '1.0.0' }) as const;
+      const changes = [
+        ...Array.from({ length: 10 }, (_, n) => added('package.json', n)),
+        added('svc/package.json', 10),
+      ];
+      const body = await looked(
+        { dependencies: { count: 11, changes }, ci: { count: 12, files: ci } },
+        { count: 3, files: ['.github/workflows/w11.yml', 'svc/package.json', 'package.json'] },
+      );
+      // Only what the line names counts as named: the other two stay sensitive paths.
+      assert.match(
+        lookAt(body) ?? '',
+        /; sensitive paths: \.github\/workflows\/w11\.yml, svc\/package\.json\.$/,
+      );
+    });
+
     it('the merge brief has no look-before-merging line when nothing matches: regression test', async () => {
       const body = await looked();
       assert.match(body, /\*\*Ready to merge\.\*\*[^\n]*\n\n\*\*What changed since it opened\*\*/);

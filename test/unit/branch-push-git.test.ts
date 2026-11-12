@@ -931,6 +931,14 @@ describe('openBranchPush: fileAt (ADR 0384)', () => {
     for (const call of calls) assert.equal(call.options?.env?.GIT_NO_REPLACE_OBJECTS, '1');
   });
 
+  it('reads the path literally, so pathspec magic in a name a brewer committed is no magic (review of #1015)', async () => {
+    const { git, calls } = recordingGit(() => ok(''));
+    const path = ':(icase)x/package.json';
+    assert.equal(await openBranchPush({ git, clone }).fileAt(TIP, path), undefined);
+    assert.equal(calls[0]?.args.at(-1), path);
+    assert.equal(calls[0]?.options?.env?.GIT_LITERAL_PATHSPECS, '1');
+  });
+
   it('gives nothing for a file the commit does not have, and only the entry of that path', async () => {
     for (const listed of [ok(''), entry('blob', '3', 'web/package.json.bak')]) {
       const { git, calls } = recordingGit(() => listed);
