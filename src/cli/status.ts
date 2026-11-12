@@ -1,6 +1,7 @@
-// `foedrum status`: every batch with its issue and lane (architecture §4.3), and what it is doing
-// or waiting for, and what its attempts took. The lane's words are shared with replay.
+// `foedrum status`: every batch with its issue and state (ADR 0385), and what it is doing or
+// waiting for, and what its attempts took. The lane's words are shared with replay and brew.
 
+import { batchState, type DoneHow, stateWords, waitingWords } from '../engine/batch-state.ts';
 import { calledAs, claimOfOrder, claimOrderOf, orderName } from '../engine/claim-orders.ts';
 import {
   attemptRecipeTypeOf,
@@ -12,6 +13,7 @@ import {
   stuckOnFailing,
 } from '../engine/fold.ts';
 import { changesText } from '../engine/order-changes.ts';
+import { subOrderRows } from '../engine/order-end.ts';
 import { pauseOf, stopAtText } from '../engine/pauses.ts';
 import { totalParts } from '../engine/receipt.ts';
 import { sessionCommand } from '../engine/status-comment.ts';
@@ -100,8 +102,6 @@ export const describeLane = (
   batch: Batch,
   /** How its lines name its work (`calledAs`, ADR 0329). */
   called: string,
-  /** Whether an on-tap batch's pull requests say how each ended (the board's; brew and replay do not). */
-  withEnds = false,
 ): { lane: string; detail: string } => {
   const { lane } = batch;
   switch (lane.kind) {
@@ -124,13 +124,7 @@ export const describeLane = (
       const { approval } = batch;
       const approved =
         approval === undefined ? [] : [`plan approved by ${approval.by} via ${approval.via}`];
-      if (!withEnds)
-        return { lane: 'on tap', detail: [...lane.pullRequests, ...approved].join(' ') };
-      // The lane stays on tap, since no event changes it: the ends say how far the work got.
-      const ends = lane.pullRequests.map(
-        (url) => `${url} ${batch.pullRequestEnds?.[url] ?? 'open'}`,
-      );
-      return { lane: 'on tap', detail: [...ends, ...approved].join(' ') };
+      return { lane: 'on tap', detail: [...lane.pullRequests, ...approved].join(' ') };
     }
     case 'cancelled':
       return { lane: 'cancelled', detail: `by ${lane.by} via ${lane.via}` };
@@ -138,6 +132,83 @@ export const describeLane = (
       const unhandled: never = lane;
       throw new Error(`Unhandled lane ${JSON.stringify(unhandled)}`);
     }
+  }
+};
+
+/** How an on-tap batch ended, in `foedrum status`'s words. */
+const doneText = (how: DoneHow): string => {
+  switch (how.kind) {
+    case 'pull_requests':
+      return [
+        ...(how.merged.length === 0 ? [] : [`merged: ${how.merged.join(' ')}`]),
+        ...(how.closed.length === 0 ? [] : [`closed without merging: ${how.closed.join(' ')}`]),
+      ].join('; ');
+    case 'sub_orders':
+      return 'every sub-order merged';
+    case 'no_pull_request':
+      return 'no pull request';
+    case 'cancelled':
+      return `cancelled by ${how.by} via ${how.via}`;
+    default:
+      return how satisfies never;
+  }
+};
+
+/**
+ * A batch's state (ADR 0385), and what it does, waits for, or how it ended, as `foedrum status`
+ * and `foedrum stuck` say it ('' when nothing).
+ */
+export const describeState = (state: State, batch: Batch): { state: string; detail: string } => {
+  const rows = batch.decomposed === true ? subOrderRows(state, batch.issue) : [];
+  const now = batchState(batch, rows);
+  const words = stateWords[now.kind];
+  const { lane } = batch;
+  switch (now.kind) {
+    case 'running':
+    case 'queued': {
+      // A split order runs while its sub-orders brew (ADR 0293).
+      const numbers = now.kind === 'running' ? (now.subOrders ?? []) : [];
+      if (lane.kind !== 'on_tap') {
+        return { state: words, detail: describeLane(batch, calledAs(state, batch)).detail };
+      }
+      const named = numbers.length === 0 ? '' : ` (${numbers.map((n) => `#${n}`).join(', ')})`;
+      return { state: words, detail: `the sub-orders brew${named}` };
+    }
+    case 'waiting': {
+      const what = waitingWords(now.for, (login) => login);
+      if (lane.kind === 'stuck') {
+        // A plan's review needs nothing past its words; another reason says what it is.
+        if (lane.reason.kind === 'plan_review') return { state: words, detail: what };
+        // Who stopped it is in its words already.
+        if (lane.reason.kind === 'stopped') {
+          const { stepId, via, why } = lane.reason;
+          const after = `at ${stepId} via ${via}${why === undefined ? '' : `: ${why}`}`;
+          return { state: words, detail: `${what}: ${after}; reminder ${lane.remindAt}` };
+        }
+        const reason = stuckOn(lane.reason, calledAs(state, batch), batch);
+        return { state: words, detail: `${what}: ${reason}; reminder ${lane.remindAt}` };
+      }
+      // The ones still open first, then how each other one ended.
+      if (now.for.kind === 'merge' && lane.kind === 'on_tap') {
+        const ends = batch.pullRequestEnds ?? {};
+        const ended = doneText({
+          kind: 'pull_requests',
+          merged: lane.pullRequests.filter((url) => ends[url] === 'merged'),
+          closed: lane.pullRequests.filter((url) => ends[url] === 'closed'),
+        });
+        const open = `${what}: ${now.for.pullRequests.join(' ')}`;
+        return { state: words, detail: [open, ended].filter((part) => part !== '').join('; ') };
+      }
+      if (now.for.kind === 'open_order') {
+        const named = now.for.subOrders.map((n) => `#${n}`).join(', ');
+        return { state: words, detail: `${what} (${named})` };
+      }
+      return { state: words, detail: what };
+    }
+    case 'done':
+      return { state: words, detail: doneText(now.how) };
+    default:
+      return now satisfies never;
   }
 };
 
@@ -184,7 +255,7 @@ export const statusRow = (
   const failing = failingParts(batch);
   // A batch whose rendering throws is still shown, with its mark, and the board goes on (ADR 0335).
   try {
-    const { lane, detail } = describeLane(batch, calledAs(state, batch), true);
+    const { state: now, detail } = describeState(state, batch);
     const pause = pauseOf(state, batch);
     const paused = pause === undefined ? [] : [`paused ${pauseLine(pause)}`];
     const owner = interactive.get(batch.id);
@@ -195,7 +266,7 @@ export const statusRow = (
     return [
       batch.id,
       orderName(state, batch),
-      lane,
+      now,
       [detail, ...failing, ...paused, ...by, total].filter((part) => part !== '').join('; '),
     ];
   } catch (error) {

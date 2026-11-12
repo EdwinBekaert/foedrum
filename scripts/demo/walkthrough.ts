@@ -75,7 +75,7 @@ export const STEPS: readonly Step[] = [
   {
     id: 'on-tap',
     title: 'On tap',
-    lookFor: 'foedrum status shows the batch on tap, with its pull request.',
+    lookFor: 'foedrum status shows the batch waiting for you to merge its pull request.',
   },
   {
     id: 'lenses',
@@ -103,7 +103,7 @@ export const STEPS: readonly Step[] = [
   {
     id: 'mash',
     title: `foedrum mash ${MASH_ORDER.number} --as ${USER}`,
-    lookFor: `the Innkeeper asks which recipe brews #${MASH_ORDER.number}; the answer chooses mash; three Tasters review the plan, sent back once, then waiting Stuck.`,
+    lookFor: `the Innkeeper asks which recipe brews #${MASH_ORDER.number}; the answer chooses mash; three Tasters review the plan, sent back once, then waiting for you to approve it.`,
   },
 ];
 

@@ -9,7 +9,13 @@ import { findingText, knownCommits } from '../engine/pull-request.ts';
 import { longest, planNextStep, roundsText, STEP_BACK } from '../engine/status-comment.ts';
 import type { StuckReason } from '../schemas/events.ts';
 import { columns } from './columns.ts';
-import { describeLane, failingParts, issueOf, unreadable } from './status.ts';
+import { describeState, failingParts, issueOf, unreadable } from './status.ts';
+
+/** A Stuck batch's state (ADR 0385), what it waits for, and why. */
+const stuckHead = (state: State, batch: Batch): string => {
+  const { state: now, detail } = describeState(state, batch);
+  return `${now}: ${detail}`;
+};
 
 /**
  * The open findings a findings route that ran out of rounds left, one line each with secrets left
@@ -65,7 +71,7 @@ export const formatStuck = (state: State): string => {
         () => [
           batch.id,
           orderName(state, batch),
-          [describeLane(batch, calledAs(state, batch)).detail, ...failingParts(batch)].join('; '),
+          [stuckHead(state, batch), ...failingParts(batch)].join('; '),
         ],
         (error) => [batch.id, issueOf(batch), `stuck: ${unreadable(batch, error)}`],
       ),

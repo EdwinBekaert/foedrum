@@ -1,10 +1,11 @@
 // The end of a split order (ADR 0293): each sub-order its latest breakdown keeps, with its latest
-// batch's lane and the release that followed its merge, and whether every one of them merged, or
+// batch's state (ADR 0385) and the release that followed its merge, and whether every one of them merged, or
 // which keep the order open and why. The order's status comment shows it, and the close of the
 // order's Brewery issue waits for it (`brewery-closes.ts`).
 
 import { planOf } from '../schemas/plan.ts';
-import type { Lane, Release, State, SubOrder } from './fold.ts';
+import { type BatchState, batchState } from './batch-state.ts';
+import type { Release, State, SubOrder } from './fold.ts';
 import { openedPullRequest } from './pull-request.ts';
 import { releaseAfterMerge } from './ready-set.ts';
 import { type SubOrderPullRequest, subOrderPullRequests } from './sibling-pull-requests.ts';
@@ -14,8 +15,8 @@ export type LeftWhy = 'cancelled' | 'closed without merging' | 'needs refinement
 
 /** A sub-order of the order, in merge order, as the order's status comment rolls it up. */
 export interface SubOrderRow extends SubOrderPullRequest {
-  /** Its latest batch's lane, or undefined while it has none. */
-  lane?: Lane['kind'];
+  /** Its latest batch's state (ADR 0385), or undefined while it has none. */
+  now?: BatchState;
   /** The first release of its repository recorded after its merge (ADR 0216). */
   release?: Release;
   /** Why it keeps the order open, when it does; a sub-order only waiting has none. */
@@ -53,12 +54,14 @@ const leftWhy = (state: State, row: SubOrderPullRequest): LeftWhy | undefined =>
 export const subOrderRows = (state: State, order: number): SubOrderRow[] =>
   subOrderPullRequests(state, order).map((row) => {
     const latest = state.subOrders.get(row.subOrder)?.batchIds.at(-1);
-    const lane = latest === undefined ? undefined : state.batches.get(latest)?.lane.kind;
+    const batch = latest === undefined ? undefined : state.batches.get(latest);
+    // A sub-order is never split itself (ADR 0285): its batch has no rows of its own.
+    const now = batch === undefined ? undefined : batchState(batch);
     const release = row.state === 'merged' ? releaseAfterMerge(state, row.subOrder) : undefined;
     const left = leftWhy(state, row);
     return {
       ...row,
-      ...(lane === undefined ? {} : { lane }),
+      ...(now === undefined ? {} : { now }),
       ...(release === undefined ? {} : { release }),
       ...(left === undefined ? {} : { left }),
     };
