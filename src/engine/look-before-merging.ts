@@ -65,12 +65,8 @@ const viaText = (via: DependencyVia): string => {
 
 type Dependencies = Map<string, string> | { unread: string };
 
-/** The dependencies of the manifest at `path` in `commit` by name, or why they cannot be read. */
-const dependenciesAt = async (
-  reader: ManifestReader,
-  path: string,
-  file: FileAt,
-): Promise<Dependencies> => {
+/** The dependencies of the manifest at `path`, from its `file`, by name, or why they cannot be read. */
+const dependenciesAt = (reader: ManifestReader, path: string, file: FileAt): Dependencies => {
   const named = new Map<string, string>();
   if (file === undefined) return named;
   if ('unread' in file) return { unread: mapName(file.unread) || 'git could not read it' };
@@ -94,8 +90,8 @@ const manifestChanges = async (
   commit: string,
   fileAt: (commit: string, path: string) => Promise<FileAt>,
 ): Promise<DependencyChange[]> => {
-  const before = await dependenciesAt(reader, manifest, await fileAt(since, manifest));
-  const after = await dependenciesAt(reader, manifest, await fileAt(commit, manifest));
+  const before = dependenciesAt(reader, manifest, await fileAt(since, manifest));
+  const after = dependenciesAt(reader, manifest, await fileAt(commit, manifest));
   // A manifest that cannot be read at one end is named with that end, and nothing else of it.
   if ('unread' in before) return [{ manifest, kind: 'unread', at: since, why: before.unread }];
   if ('unread' in after) return [{ manifest, kind: 'unread', at: commit, why: after.unread }];
