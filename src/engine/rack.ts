@@ -66,7 +66,7 @@ export interface TemporaryFilesIo {
 const NODE_FILES: TemporaryFilesIo = {
   readdir: (path) => readdir(path, { withFileTypes: true }),
   lstat,
-  remove: (path) => rm(path),
+  remove: rm,
 };
 
 const DAY_MS = 86_400_000;
@@ -168,8 +168,10 @@ const deleteOldFiles = async (
       if (entry.isDirectory()) {
         const deleted = done.deleted;
         await walk(path);
-        const emptied = done.deleted > deleted;
-        if (emptied && (await files.readdir(path).catch(() => undefined))?.length === 0) {
+        if (
+          done.deleted > deleted &&
+          (await files.readdir(path).catch(() => undefined))?.length === 0
+        ) {
           await rmdir(path).catch(() => {});
         }
       } else if (
