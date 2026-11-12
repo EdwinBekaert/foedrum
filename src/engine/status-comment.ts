@@ -41,7 +41,7 @@ import { changesText, issueUrl } from './order-changes.ts';
 import { orderEnd, type SubOrderRow, subOrderRows } from './order-end.ts';
 import { withoutSecrets } from './out-doc-text.ts';
 import { pauseOf, stopAtText } from './pauses.ts';
-import { allSubIssues } from './plan-applied.ts';
+import { allSubIssues, planApproval } from './plan-applied.ts';
 import { checkPassed } from './pr-checks.ts';
 import { type FiledIssue, filedIssues } from './pre-existing-issues.ts';
 import {
@@ -638,7 +638,7 @@ const laneText = (
     }
     case 'on_tap': {
       // A plan a person signed off is on tap with no pull request (ADR 0281).
-      const { approval } = batch;
+      const approval = planApproval(batch);
       if (approval === undefined) return ['🍻 **On tap**'];
       const opened =
         subIssues === undefined || subIssues.length === 0
@@ -698,7 +698,7 @@ const nextLines = (
   const unended = lane.pullRequests.filter((url) => batch.pullRequestEnds?.[url] === undefined);
   if (unended.length > 0) return [`Next: ${pullRequestsNext(unended, brief, open)}.`];
   // A split order hands its work to its sub-orders (ADR 0293).
-  if (lane.pullRequests.length > 0 || (batch.approval === undefined && rows.length === 0)) {
+  if (lane.pullRequests.length > 0 || (planApproval(batch) === undefined && rows.length === 0)) {
     return [];
   }
   const end = orderEnd(rows);

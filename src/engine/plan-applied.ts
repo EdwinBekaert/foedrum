@@ -1,11 +1,25 @@
 // What the ledger holds of an approved plan applied as Brewery sub-issues (ADR 0285): the keys of
 // its effects, and the issues opened so far, which the plan comment and the status comment show.
 
+import { isDeepStrictEqual } from 'node:util';
 import { type PlanReport, planOf } from '../schemas/plan.ts';
 import type { BatchEffectKey } from '../schemas/store.ts';
 import { z } from '../schemas/zod.ts';
 import { effectKey } from './effect-key.ts';
 import type { Batch, State } from './fold.ts';
+import { GATE_OUTPUT } from './recipes.ts';
+
+/** `batch`'s approval when it signed off a plan; none for a human gate's go (ADR 0383). */
+export const planApproval = (batch: Batch): Batch['approval'] => {
+  const { approval } = batch;
+  if (approval === undefined) return undefined;
+  const ran = batch.steps.get(approval.stepId)?.attempts.get(approval.attempt);
+  const gate =
+    ran?.phase === 'finished' &&
+    ran.outcome.kind === 'succeeded' &&
+    isDeepStrictEqual(ran.outcome.output, GATE_OUTPUT);
+  return gate ? undefined : approval;
+};
 
 /** A sub-issue the ledger has for an approved plan's entry `id`. */
 export interface OpenedSubIssue {
