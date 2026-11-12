@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, utimesSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import type { AttemptRef } from '../../src/engine/attempt-key.ts';
@@ -323,6 +323,22 @@ describe('rack (ADR 0383)', () => {
       assert.equal(existsSync(join(dir.path, '921')), false, 'a folder it emptied goes');
       assert.equal(existsSync(recent), true);
       assert.equal(existsSync(empty), true, 'a folder it did not empty stays');
+    });
+
+    it('never follows a link out of the temporary folder (ADR 0383): regression test', async () => {
+      const outside = makeTempDir('rack-outside');
+      try {
+        const kept = join(outside.path, 'old.txt');
+        writeFileSync(kept, 'x');
+        const time = new Date(now.getTime() - 3 * day);
+        utimesSync(kept, time, time);
+        // A junction on Windows, a symbolic link elsewhere: neither needs a privilege.
+        symlinkSync(outside.path, join(dir.path, 'link'), 'junction');
+        await run('delete-temporary', [], [], { temporary: dir.path });
+        assert.equal(existsSync(kept), true);
+      } finally {
+        outside.remove();
+      }
     });
   });
 });
