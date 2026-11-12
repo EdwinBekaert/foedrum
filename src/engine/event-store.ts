@@ -90,6 +90,13 @@ export interface EventStore {
    * naming the first event that cannot be appended.
    */
   restore(log: readonly LoggedEvent[], commit: string): void;
+  /**
+   * Deletes every row of these batches, their events and the indexes kept for them, in one
+   * transaction: the one exception to append-only, for rack's archive (ADR 0383).
+   */
+  forget(batchIds: readonly string[]): void;
+  /** How many forgets this connection made, so a fold of its events knows to start again. */
+  forgotten(): number;
   /** The recorded result of a side effect, or `undefined` when it was never applied. */
   findEffect(key: EffectKey): { result: unknown } | undefined;
   close(): void;

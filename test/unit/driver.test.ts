@@ -36,6 +36,7 @@ import { effectKey } from '../../src/engine/effect-key.ts';
 import type { EffectTarget } from '../../src/engine/effects.ts';
 import type { EffectKey, EventStore, EventStoreTransaction } from '../../src/engine/event-store.ts';
 import { fold, type State } from '../../src/engine/fold.ts';
+import { GATE_OUTPUT } from '../../src/engine/recipes.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import type { ModelFamily } from '../../src/engine/usage-window.ts';
 import type { Event, UsageLimitName } from '../../src/schemas/events.ts';
@@ -56,6 +57,12 @@ const recipes = fakeRecipes({
   ale: fakeRecipe({
     steps: ['plan', 'open'],
     actions: { open: 'openPullRequest' },
+    pullRequests: [],
+  }),
+  // A human gate before rack's archive (ADR 0383).
+  rack: fakeRecipe({
+    steps: ['approval', 'archive'],
+    actions: { approval: 'gate', archive: 'archive' },
     pullRequests: [],
   }),
   // Its green check merges the base first (ADR 0164).
@@ -4002,6 +4009,54 @@ describe('openDriver', () => {
     };
     const push = JSON.stringify(['b1', 'push']);
     const pullRequest = JSON.stringify(['b1', 'pull_request']);
+
+    it('ends a human gate at once, with no runner and no code host, and the batch waits for approve (ADR 0383)', async () => {
+      const brewer = handRunner();
+      assert.equal(
+        intake.issue({ kind: 'order', batchId: 'b1', order: { issue: 1 } }, now).kind,
+        'accepted',
+      );
+      const route = {
+        kind: 'route',
+        batchId: 'b1',
+        recipe: 'rack',
+        reason: 'label',
+        source: 'label',
+      } as const;
+      assert.equal(intake.issue(route, now).kind, 'accepted');
+      const driver = await open({ runner: brewer.runner });
+      await driver.drive();
+      assert.deepStrictEqual(brewer.started, []);
+      assert.deepStrictEqual(driver.state().batches.get('b1')?.lane.kind, 'stuck');
+      const lane = driver.state().batches.get('b1')?.lane;
+      assert.deepStrictEqual(lane?.kind === 'stuck' && lane.reason, {
+        kind: 'plan_review',
+        stepId: 'approval',
+        attempt: 1,
+      });
+    });
+
+    it("ends a human gate with the output the status comment's go line reads: regression test", async () => {
+      assert.equal(
+        intake.issue({ kind: 'order', batchId: 'b1', order: { issue: 1 } }, now).kind,
+        'accepted',
+      );
+      const route = {
+        kind: 'route',
+        batchId: 'b1',
+        recipe: 'rack',
+        reason: 'label',
+        source: 'label',
+      } as const;
+      assert.equal(intake.issue(route, now).kind, 'accepted');
+      const driver = await open({ runner: handRunner().runner });
+      await driver.drive();
+      const ended = driver.state().batches.get('b1')?.steps.get('approval')?.attempts.get(1);
+      assert.deepStrictEqual(ended?.phase === 'finished' && ended.outcome, {
+        kind: 'succeeded',
+        output: GATE_OUTPUT,
+      });
+    });
 
     it('starts the action itself, never on the runner, applies its effects and ends it', async () => {
       const brewer = handRunner();

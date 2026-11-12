@@ -4,10 +4,13 @@
 
 import type { Batch } from './fold.ts';
 import { orderEnd, type SubOrderRow } from './order-end.ts';
+import { atGate, planApproval } from './plan-applied.ts';
 
 /** What a batch waits for a person to do. */
 export type WaitingFor =
   | { kind: 'approve' }
+  /** A human gate's go (ADR 0383). */
+  | { kind: 'go' }
   | { kind: 'answer' }
   | { kind: 'session' }
   | { kind: 'stopped'; by: string }
@@ -46,7 +49,7 @@ export const batchState = (batch: Batch, rows: readonly SubOrderRow[] = []): Bat
     case 'brewing':
       return { kind: 'running' };
     case 'stuck':
-      return { kind: 'waiting', for: stuckFor(lane.reason) };
+      return { kind: 'waiting', for: stuckFor(batch, lane.reason) };
     case 'on_tap': {
       const ends = batch.pullRequestEnds ?? {};
       const open = lane.pullRequests.filter((url) => ends[url] === undefined);
@@ -56,8 +59,9 @@ export const batchState = (batch: Batch, rows: readonly SubOrderRow[] = []): Bat
         const closed = lane.pullRequests.filter((url) => ends[url] === 'closed');
         return { kind: 'done', how: { kind: 'pull_requests', merged, closed } };
       }
-      // A plan a person approved hands its work to its sub-orders (ADR 0281, ADR 0293).
-      if (batch.approval === undefined && rows.length === 0) {
+      // A plan a person approved hands its work to its sub-orders (ADR 0281, ADR 0293); a human
+      // gate's go hands it to nothing (ADR 0383).
+      if (planApproval(batch) === undefined && rows.length === 0) {
         return { kind: 'done', how: { kind: 'no_pull_request' } };
       }
       const end = orderEnd(rows);
@@ -78,10 +82,13 @@ export const batchState = (batch: Batch, rows: readonly SubOrderRow[] = []): Bat
   }
 };
 
-const stuckFor = (reason: Extract<Batch['lane'], { kind: 'stuck' }>['reason']): WaitingFor => {
+const stuckFor = (
+  batch: Batch,
+  reason: Extract<Batch['lane'], { kind: 'stuck' }>['reason'],
+): WaitingFor => {
   switch (reason.kind) {
     case 'plan_review':
-      return { kind: 'approve' };
+      return atGate(batch, reason) ? { kind: 'go' } : { kind: 'approve' };
     case 'needs_input':
     case 'order_changed':
       return { kind: 'answer' };
@@ -112,6 +119,8 @@ export const waitingWords = (waiting: WaitingFor, name: (text: string) => string
   switch (waiting.kind) {
     case 'approve':
       return 'approve the plan';
+    case 'go':
+      return 'give your go';
     case 'answer':
       return 'answer a question';
     case 'session':

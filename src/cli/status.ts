@@ -15,6 +15,7 @@ import {
 import { changesText } from '../engine/order-changes.ts';
 import { subOrderRows } from '../engine/order-end.ts';
 import { pauseOf, stopAtText } from '../engine/pauses.ts';
+import { atGate } from '../engine/plan-applied.ts';
 import { totalParts } from '../engine/receipt.ts';
 import { issueNumbers, sessionCommand } from '../engine/status-comment.ts';
 import { plainReason } from '../engine/supervisor.ts';
@@ -41,7 +42,8 @@ const waitingFor = (on: WaitCondition): string => {
   }
 };
 
-const stuckOn = (reason: StuckReason, called: string, { repo, issue }: Batch): string => {
+const stuckOn = (reason: StuckReason, called: string, batch: Batch): string => {
+  const { repo, issue } = batch;
   switch (reason.kind) {
     case 'needs_input':
       return `needs input at ${reason.stepId}`;
@@ -78,6 +80,8 @@ const stuckOn = (reason: StuckReason, called: string, { repo, issue }: Batch): s
       return `${reason.pullRequest} fails its checks on the merged tree with ${branch} at ${tip}: ${check}, ${after}`;
     }
     case 'plan_review':
+      // A human gate waits for a go, with no plan (ADR 0383).
+      if (atGate(batch, reason)) return `${reason.stepId} waits for your go`;
       return `the plan of ${reason.stepId} #${reason.attempt} is ready for your review`;
     case 'stopped':
       return `stopped at ${reason.stepId} by ${reason.by} via ${reason.via}${reason.why === undefined ? '' : `: ${reason.why}`}`;

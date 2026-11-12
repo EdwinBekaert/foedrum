@@ -789,6 +789,11 @@ function finish(draft: Draft, command: Extract<Command, { kind: 'finish' }>): vo
   const batch = draft.batch(batchId);
   switch (ending.kind) {
     case 'succeeded':
+      // A gate's attempt ends at once, and the batch waits for a person's approve (ADR 0383).
+      if (recipe.action(stepId) === 'gate') {
+        stick(draft, batchId, { kind: 'plan_review', stepId, attempt });
+        return;
+      }
       continueAfter(draft, batchId, stepId);
       return;
     case 'failed':
@@ -1389,6 +1394,11 @@ function approve(draft: Draft, { batchId, by, via }: Extract<HumanCommand, { kin
     via,
     at: draft.after(0),
   });
+  // An approved gate lets the batch go on to its next step (ADR 0383).
+  if (recipeOf(draft, batch).action(stepId) === 'gate') {
+    continueAfter(draft, batchId, stepId);
+    return;
+  }
   draft.push({ type: 'batch.on_tap', batchId, pullRequests: [] });
 }
 

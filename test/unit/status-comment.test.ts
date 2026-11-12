@@ -3416,6 +3416,21 @@ describe('renderStatus: a plan that waits for its review (#658)', () => {
     );
   });
 
+  it("a human gate's Stuck line asks for a go, not a plan's review (ADR 0383)", () => {
+    const gate: Attempt = {
+      phase: 'finished',
+      attempt: 1,
+      deadlineAt: at,
+      outcome: { kind: 'succeeded', output: { gate: 'human' } },
+    };
+    const lane = stuck({ kind: 'plan_review', stepId: 'approval', attempt: 1 });
+    const lines = rendered(batch({ lane, steps: new Map([step('approval', gate)]) })).split('\n');
+    assert.ok(
+      lines.includes('🔔 **Waiting for you**: give your go: run `foedrum approve 7`'),
+      lines.join('\n'),
+    );
+  });
+
   it("the status comment shows a session's open time without milliseconds or a T (ADR 0386)", () => {
     const session: Attempt = {
       phase: 'started',
@@ -3601,6 +3616,25 @@ describe('the Next line of a status comment that waits on the person (#777)', ()
     );
   });
 
+  it("a batch waiting at a human gate's go is told to approve or cancel, not to read a plan (ADR 0383)", () => {
+    const lane: Lane = {
+      kind: 'stuck',
+      reason: { kind: 'plan_review', stepId: 'approval', attempt: 1 },
+      options: ['approve', 'lauter', 'retry', 'recipe', 'cancel'],
+      remindAt: at,
+    };
+    const gate: Attempt = {
+      phase: 'finished',
+      attempt: 1,
+      deadlineAt: at,
+      outcome: { kind: 'succeeded', output: { gate: 'human' } },
+    };
+    assert.equal(
+      nextOf(render(batch({ lane, steps: new Map([step('approval', gate)]) }))),
+      'Next: go on with `foedrum approve 7`, or end it with `foedrum cancel 7`.',
+    );
+  });
+
   it("a plan waiting for its review names on its Next line the options the plan's commands leave out", () => {
     const lane: Lane = {
       kind: 'stuck',
@@ -3633,6 +3667,35 @@ describe('the Next line of a status comment that waits on the person (#777)', ()
       nextOf(render(split)),
       'Next: nothing to do; the sub-orders brew, and each pull request comes to you to merge.',
     );
+  });
+
+  it("a rack batch on tap after its gate's approval says no plan was approved and has no Next line (ADR 0383)", () => {
+    const gate = { ...approval, stepId: 'approval' };
+    const steps: Batch['steps'] = new Map([
+      [
+        'approval',
+        {
+          id: 'approval',
+          inputs: [],
+          attempts: new Map([
+            [
+              1,
+              {
+                phase: 'finished',
+                attempt: 1,
+                deadlineAt: at,
+                outcome: { kind: 'succeeded', output: { gate: 'human' } },
+              },
+            ],
+          ]),
+        },
+      ],
+    ]);
+    const text = render(
+      batch({ lane: { kind: 'on_tap', pullRequests: [] }, approval: gate, steps }),
+    );
+    assert.ok(text.split('\n').includes('🍻 **Done**: no pull request'), text);
+    assert.doesNotMatch(text, /plan approved|sub-orders|Next:/);
   });
 
   it('a batch on tap with no pull request and no approved plan has no Next line: regression test', () => {

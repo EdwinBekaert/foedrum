@@ -13,6 +13,7 @@ import { effectKey, numberedEffects } from './effect-key.ts';
 import type { Batch } from './fold.ts';
 import { same } from './issue-claims.ts';
 import { orderEnd, type SubOrderRow, subOrderRows } from './order-end.ts';
+import { planApproval } from './plan-applied.ts';
 
 /** The labels of the lanes, in the order a batch moves through them. */
 export const laneLabels = LaneLabelName.options;
@@ -61,7 +62,7 @@ export const laneLabel = (
       }
       // A plan a person approved: its sub-orders brew until every one merged (ADR 0281, ADR 0293).
       return lane.pullRequests.length === 0 &&
-        batch.approval !== undefined &&
+        planApproval(batch) !== undefined &&
         orderEnd(subOrders)?.kind !== 'done'
         ? 'foedrum:sub-orders'
         : undefined;

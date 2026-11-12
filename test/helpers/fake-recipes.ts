@@ -29,6 +29,8 @@ export interface FakeRecipe {
   maxRounds?: number;
   /** The steps that are actions the engine runs itself, by step id; default none (ADR 0071). */
   actions?: Readonly<Record<string, RecipeAction>>;
+  /** How old what each delete action removes is, in milliseconds, by step id (ADR 0383). */
+  olderThan?: Readonly<Record<string, number>>;
   pullRequests?: readonly string[];
   /** The steps whose attempts merge the base before they run (ADR 0164); default none. */
   merges?: readonly string[];
@@ -56,6 +58,7 @@ export const fakeRecipe = ({
   skips = {},
   routes = {},
   actions = {},
+  olderThan = {},
   pullRequests = ['https://github.com/acme/api/pull/7'],
   merges = [],
   proven,
@@ -96,6 +99,7 @@ export const fakeRecipe = ({
     choosesRecipe: (stepId) => chooses.includes(stepId),
     chosen: (option) => chosen[option],
     action: (stepId) => actions[stepId],
+    olderThan: (stepId) => olderThan[stepId],
     mergesBase: (stepId) => merges.includes(stepId),
     proven: (stepId) => stepId === proven,
     // As the loaded recipe does, a parallel group has no deadline: only its children are scheduled.

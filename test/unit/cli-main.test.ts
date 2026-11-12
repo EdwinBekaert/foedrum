@@ -385,8 +385,8 @@ describe("foedrum with the Brewery's recipe files (ADR 0053)", () => {
   });
 
   it("is refused with doctor's line when a recipe file is not valid, and changes nothing", async () => {
-    writeRecipe([{ brewer: 'roaster' }, { id: 'approve', gate: 'human', deadline: '1d' }]);
-    const line = `${INVALID_RECIPES}: recipes/pale.jsonc: step "approve" is a gate step, which the engine does not brew yet (ADR 0053)`;
+    writeRecipe([{ brewer: 'roaster' }, { id: 'split', fanOut: {} }]);
+    const line = `${INVALID_RECIPES}: recipes/pale.jsonc: step "split" is a fanOut step, which the engine does not brew yet (ADR 0053)`;
     const retry = await foedrum('retry', '12-1');
     assert.deepEqual(
       { exitCode: retry.exitCode, stdout: retry.stdout, stderr: retry.stderr },
@@ -463,6 +463,25 @@ describe('foedrum order through cliFromCheckout (ADR 0105)', () => {
       userInfo().username,
       'terminal',
     ]);
+  });
+
+  it("orders a Brewery issue past the ids the state branch's archive holds, found from local.jsonc (ADR 0383)", async () => {
+    const workRoot = join(brewery.path, 'work');
+    writeFileSync(join(brewery.path, 'foedrum.jsonc'), config({}, intake));
+    mkdirSync(join(brewery.path, '.foedrum'));
+    writeFileSync(join(brewery.path, '.foedrum', 'local.jsonc'), JSON.stringify({ workRoot }));
+    mkdirSync(join(workRoot, 'state', 'archive', '2026-11-01', '12-1'), { recursive: true });
+    openSqliteEventStore(store).close();
+    const { exitCode, stderr } = await cliFromCheckout(['order', '12'], brewery.path, {
+      exec: startsNothing,
+      resolve: madeUpPath,
+    });
+    assert.equal(stderr, '');
+    assert.equal(exitCode, 0);
+    const reader = openSqliteEventStore(store, { readOnly: true });
+    const last = reader.eventsAfter(0).at(-1)?.event;
+    reader.close();
+    assert.equal(last?.type === 'batch.ordered' && last.batchId, '12-2');
   });
 
   it('says in one line when foedrum.jsonc is missing or does not pass its schema, and asks gh nothing', async () => {

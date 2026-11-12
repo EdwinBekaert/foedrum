@@ -64,6 +64,41 @@ const approval = {
 } as const;
 
 describe('the state a person reads a batch as (ADR 0385)', () => {
+  /** Rack's batch after its human gate, whose attempt is a gate's, not a plan (ADR 0383). */
+  const gated = (lane: Lane, fields: Partial<Batch> = {}): Batch =>
+    batch(lane, {
+      steps: new Map([
+        [
+          'plan',
+          {
+            id: 'plan',
+            inputs: [],
+            attempts: new Map([
+              [
+                1,
+                {
+                  phase: 'finished',
+                  attempt: 1,
+                  deadlineAt: at,
+                  outcome: { kind: 'succeeded', output: { gate: 'human' } },
+                },
+              ],
+            ]),
+          },
+        ],
+      ]),
+      ...fields,
+    });
+
+  it('a finished rack batch reads done, with no sub-orders to brew (ADR 0383)', () => {
+    const finished = gated({ kind: 'on_tap', pullRequests: [] }, { approval });
+    assert.deepEqual(statusOf(finished), ['done', 'no pull request']);
+  });
+
+  it('a batch at a human gate reads waiting for you to give your go, not to approve a plan (ADR 0383)', () => {
+    assert.deepEqual(statusOf(gated(planReview)), ['waiting for you', 'give your go']);
+  });
+
   it('a plan waiting for review reads waiting for you in foedrum status', () => {
     assert.deepEqual(statusOf(batch(planReview)), ['waiting for you', 'approve the plan']);
   });

@@ -5,8 +5,15 @@ import { calledAs, orderName } from '../engine/claim-orders.ts';
 import type { Batch, State } from '../engine/fold.ts';
 import { issueUrl, ORDER_CHANGED_QUESTION } from '../engine/order-changes.ts';
 import { withoutSecrets } from '../engine/out-doc-text.ts';
+import { atGate } from '../engine/plan-applied.ts';
 import { findingText, knownCommits } from '../engine/pull-request.ts';
-import { longest, planNextStep, roundsText, STEP_BACK } from '../engine/status-comment.ts';
+import {
+  gateNextStep,
+  longest,
+  planNextStep,
+  roundsText,
+  STEP_BACK,
+} from '../engine/status-comment.ts';
 import type { StuckReason } from '../schemas/events.ts';
 import { columns } from './columns.ts';
 import { describeState, failingParts, issueOf, unreadable } from './status.ts';
@@ -105,7 +112,9 @@ export const formatStuck = (state: State): string => {
     ),
     // What to do with a plan that waits for its review (ADR 0275, ADR 0281).
     ...(lane.reason.kind === 'plan_review'
-      ? [`  next: ${planNextStep(calledAs(state, batch), (command) => command)}`]
+      ? [
+          `  next: ${(atGate(batch, lane.reason) ? gateNextStep : planNextStep)(calledAs(state, batch), (command) => command)}`,
+        ]
       : []),
   ]);
   const count = `${stuck.length} Stuck ${stuck.length === 1 ? 'batch' : 'batches'}`;

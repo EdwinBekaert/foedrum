@@ -45,7 +45,7 @@ import { attemptRecipeOf, type Batch, runningAttempt, type State, stuckOnFailing
 import type { OrderCheck } from './order-changes.ts';
 import { withoutSecrets } from './out-doc-text.ts';
 import { pauseOf, stopsNow } from './pauses.ts';
-import type { RecipeAction, Recipes } from './recipes.ts';
+import { GATE_OUTPUT, type RecipeAction, type Recipes } from './recipes.ts';
 import { afterOverrun, type Resumption, resumeOf } from './session-resume.ts';
 import type { StateBranch } from './state-branch-git.ts';
 import type { AttemptProgress } from './supervisor.ts';
@@ -996,6 +996,11 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
    */
   const startAction = (ref: AttemptRef, action: RecipeAction): boolean => {
     if (!recordStart({ type: 'step.started', ...ref })) return false;
+    // A gate does nothing but let the batch wait for a person's approve (ADR 0383).
+    if (action === 'gate') {
+      issue({ kind: 'finish', ...ref, ending: { kind: 'succeeded', output: { ...GATE_OUTPUT } } });
+      return true;
+    }
     if (actions === undefined) {
       const summary = `the driver has no code host to run the ${action} action of step ${ref.stepId} on`;
       issue({

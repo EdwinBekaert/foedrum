@@ -114,3 +114,13 @@ describe('aliasOf (ADR 0144)', () => {
     });
   }
 });
+
+describe('the archive (ADR 0383)', () => {
+  it('a new batch skips an id the archive holds', () => {
+    const state = fold([ordered('42-2', 42), ordered('acme-7', 7)]);
+    const archived = new Set(['42-1', '42-3', 'acme-7-2']);
+    assert.equal(nextBatchId(state, 42, archived), '42-4');
+    assert.equal(targetBatchId(state, 'acme', 7, archived), 'acme-7-3');
+    assert.equal(targetBatchId(emptyState, 'acme', 7, new Set(['acme-7'])), 'acme-7-2');
+  });
+});

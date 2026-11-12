@@ -12,8 +12,19 @@ export type RouteWhy = ScheduleRoute['why'];
 /** A person's choice that schedules a step of its own (ADR 0286). */
 export type ChosenOption = ChosenBy;
 
-/** An action step the engine runs itself, never a brewer (brewers-and-recipes §1, ADR 0071). */
-export type RecipeAction = 'openPullRequest';
+/**
+ * An action step the engine runs itself, never a brewer (brewers-and-recipes §1, ADR 0071): rack's
+ * three, and a `gate: "human"` step, whose attempt ends at once and waits for approve (ADR 0383).
+ */
+export type RecipeAction =
+  | 'openPullRequest'
+  | 'gate'
+  | 'archive'
+  | 'deleteArchives'
+  | 'deleteTemporary';
+
+/** What a human gate's attempt ends with: no plan, a go to wait for (ADR 0383). */
+export const GATE_OUTPUT = { gate: 'human' } as const;
 
 /** What follows a step that succeeded or was skipped. */
 export type Continuation =
@@ -77,6 +88,8 @@ export interface Recipe {
   chosen(option: ChosenOption): string | undefined;
   /** The action `stepId` is, which the engine runs itself; `undefined` for any other step. */
   action(stepId: string): RecipeAction | undefined;
+  /** How old, in milliseconds, what the delete action `stepId` removes is (ADR 0383). */
+  olderThan(stepId: string): number | undefined;
   /**
    * Whether an attempt at `stepId` merges the base into its worktree before it runs: the recipe's
    * last check step that expects to pass, when an openPullRequest step follows it (ADR 0164).

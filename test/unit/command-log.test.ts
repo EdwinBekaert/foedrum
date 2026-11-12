@@ -45,6 +45,13 @@ describe('createCommandLog', () => {
   const log = () => createCommandLog({ store, recipes });
   const types = () => store.eventsAfter(0).map(({ event }) => event.type);
 
+  it('folds again from empty after a forget (ADR 0383)', () => {
+    const terminal = log();
+    assert.equal(terminal.state().batches.has('b1'), true);
+    store.forget(['b1']);
+    assert.equal(terminal.state().batches.has('b1'), false);
+  });
+
   it('appends the events of an accepted command, and its state folds them', () => {
     const terminal = log();
     const decision = terminal.issue(retry, t0);

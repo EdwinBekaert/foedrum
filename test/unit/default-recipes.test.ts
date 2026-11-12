@@ -188,3 +188,22 @@ describe("the default recipes' Tasters, every finding routed (ADR 0354)", () => 
     });
   }
 });
+
+describe('rack (ADR 0383)', () => {
+  it('loads from the defaults: a human gate, then its three actions, and no model is offered it', () => {
+    const loaded = loadRecipes(readBreweryFiles(join(root, '..', 'no-brewery')));
+    assert.ok(loaded.valid, loaded.valid ? '' : loaded.problems.join('\n'));
+    const rack = loaded.recipes.find('rack');
+    assert.deepEqual(
+      rack?.steps.map((id) => [id, rack.action(id), rack.olderThan(id)]),
+      [
+        ['approval', 'gate', undefined],
+        ['archive', 'archive', undefined],
+        ['delete-archives', 'deleteArchives', 180 * 86_400_000],
+        ['delete-temporary', 'deleteTemporary', 2 * 86_400_000],
+      ],
+    );
+    const offered = loaded.brewers.find('mash-in', 'innkeep')?.choices?.map(({ name }) => name);
+    assert.ok(offered !== undefined && !offered.includes('rack'), String(offered));
+  });
+});
