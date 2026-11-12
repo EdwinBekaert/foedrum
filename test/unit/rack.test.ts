@@ -299,6 +299,20 @@ describe('rack (ADR 0383)', () => {
     assert.deepStrictEqual(ran.shelved[0]?.batchIds, ['9-1', '11-1']);
   });
 
+  it('rack reads a Brewery issue and a claimed issue with the same number apart', async () => {
+    // Brewery issue 10 is closed; acme/api#10, read after it, is open: its batch stays.
+    const events = [
+      ...onTap('10-1', 10),
+      ...cancelled('acme-10', 10, 'acme/api'),
+      shown('acme-10'),
+      ...released('acme-10', 10),
+    ];
+    const ran = await run('archive', events, [10], { states: { 'acme/api#10': 'open' } });
+    assert.deepStrictEqual(ran.reads, [`${brewery}#10`, 'acme/api#10']);
+    assert.deepStrictEqual(ran.batches, ['acme-10', '20-1']);
+    assert.deepStrictEqual(ran.shelved[0]?.batchIds, ['10-1']);
+  });
+
   it('sends each action attempt to its own actions, and each effect to its own target: regression test', async () => {
     const both = fakeRecipes({
       ale: fakeRecipe({ steps: ['open'], actions: { open: 'openPullRequest' }, pullRequests: [] }),

@@ -21,6 +21,7 @@ import { issueNumbers, sessionCommand } from '../engine/status-comment.ts';
 import { plainReason } from '../engine/supervisor.ts';
 import { sameRepo } from '../engine/task-tree.ts';
 import { usageWindowsText } from '../engine/usage-window.ts';
+import { utcMinute } from '../engine/wall-clock.ts';
 import { firstLineOf, messageOf } from '../platform/errors.ts';
 import type { OrderRef, StuckReason, Usage, WaitCondition } from '../schemas/events.ts';
 import { addUsage, number } from './brewer-report.ts';
@@ -51,15 +52,15 @@ const stuckOn = (reason: StuckReason, called: string, batch: Batch): string => {
     case 'attempts_exhausted':
       return `attempts exhausted at ${reason.stepId} after ${reason.attempts}: ${plainReason(reason.lastReason)}`;
     case 'deadline_passed':
-      return `deadline passed at ${reason.stepId} (${reason.deadlineAt})`;
+      return `deadline passed at ${reason.stepId} (${utcMinute(reason.deadlineAt)})`;
     case 'waiting_for_session':
       return `waiting for a session at ${reason.stepId}: ${sessionCommand(called)} opens it in a terminal`;
     case 'failing':
-      return `failing at ${reason.stepId} in ${reason.pass} since ${reason.since}: ${reason.summary}`;
+      return `failing at ${reason.stepId} in ${reason.pass} since ${utcMinute(reason.since)}: ${reason.summary}`;
     case 'stalled':
-      return `stalled at ${reason.stepId} since ${reason.lastProgressAt}`;
+      return `stalled at ${reason.stepId} since ${utcMinute(reason.lastProgressAt)}`;
     case 'routing':
-      return `not routed by ${reason.deadlineAt}`;
+      return `not routed by ${utcMinute(reason.deadlineAt)}`;
     case 'pull_request_failed': {
       const after = `at ${reason.stepId} after ${reason.rounds} ${reason.rounds === 1 ? 'round' : 'rounds'}`;
       if (reason.cause === undefined) {
@@ -110,18 +111,18 @@ export const describeLane = (
   const { lane } = batch;
   switch (lane.kind) {
     case 'ordered':
-      return { lane: 'ordered', detail: `to be routed by ${lane.routeBy}` };
+      return { lane: 'ordered', detail: `to be routed by ${utcMinute(lane.routeBy)}` };
     case 'brewing':
       return { lane: 'brewing', detail: underWay(batch).join(', ') || 'between steps' };
     case 'conditioning':
       return {
         lane: 'conditioning',
-        detail: `waiting for ${waitingFor(lane.on)}; reminder ${lane.remindAt}`,
+        detail: `waiting for ${waitingFor(lane.on)}; reminder ${utcMinute(lane.remindAt)}`,
       };
     case 'stuck':
       return {
         lane: 'stuck',
-        detail: `${stuckOn(lane.reason, called, batch)}; reminder ${lane.remindAt}`,
+        detail: `${stuckOn(lane.reason, called, batch)}; reminder ${utcMinute(lane.remindAt)}`,
       };
     case 'on_tap': {
       // A plan a person signed off is on tap with no pull request (ADR 0281).
@@ -187,10 +188,13 @@ export const describeState = (state: State, batch: Batch): { state: string; deta
         if (lane.reason.kind === 'stopped') {
           const { stepId, via, why } = lane.reason;
           const after = `at ${stepId} via ${via}${why === undefined ? '' : `: ${why}`}`;
-          return { state: words, detail: `${what}: ${after}; reminder ${lane.remindAt}` };
+          return {
+            state: words,
+            detail: `${what}: ${after}; reminder ${utcMinute(lane.remindAt)}`,
+          };
         }
         const reason = stuckOn(lane.reason, calledAs(state, batch), batch);
-        return { state: words, detail: `${what}: ${reason}; reminder ${lane.remindAt}` };
+        return { state: words, detail: `${what}: ${reason}; reminder ${utcMinute(lane.remindAt)}` };
       }
       // The ones still open first, then how each other one ended.
       if (now.for.kind === 'merge' && lane.kind === 'on_tap') {
@@ -230,7 +234,7 @@ export const issueOf = (batch: Batch): string => `${batch.repo ?? ''}#${batch.is
 
 /** A batch's mark as it reads (ADR 0335). */
 const failingText = ({ pass, since, summary }: Failing): string =>
-  `failing in ${pass} since ${since}: ${summary}`;
+  `failing in ${pass} since ${utcMinute(since)}: ${summary}`;
 
 /** A batch's mark, but on a batch whose Stuck reason says it already. */
 export const failingParts = ({ failing, lane }: Batch): string[] =>

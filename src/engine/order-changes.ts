@@ -7,6 +7,7 @@ import { MOST_ORDER_CHANGES, type OrderChange } from '../schemas/events.ts';
 import { isMarkedComment } from './claim-effects.ts';
 import type { Batch } from './fold.ts';
 import { type IntakeFilter, same } from './issue-claims.ts';
+import { utcMinute } from './wall-clock.ts';
 
 export type { OrderChange };
 
@@ -52,7 +53,7 @@ export const changesText = (
   const listed = changes.map((change) => {
     const what = change.what === 'comment' ? `comment ${change.comment}` : `the ${change.what}`;
     const by = change.by === undefined ? 'a deleted account' : shown(change.by);
-    return `${what} by ${by} at ${change.at}`;
+    return `${what} by ${by} at ${utcMinute(change.at)}`;
   });
   return `${listed.join(', ')}${more > 0 ? ` and ${more} more` : ''}`;
 };

@@ -21,6 +21,16 @@ export const wallClock = (instant: number, zone: string): number => {
   return Date.UTC(year, month - 1, day, hour, minute, second);
 };
 
+/**
+ * An ISO instant as a person reads it, to the minute in UTC: `2026-11-12 13:36 UTC` (ADR 0386);
+ * a text that is no instant, as it is.
+ */
+export const utcMinute = (iso: string): string => {
+  const instant = Date.parse(iso);
+  if (Number.isNaN(instant)) return iso;
+  return `${new Date(instant).toISOString().slice(0, 16).replace('T', ' ')} UTC`;
+};
+
 /** The instant whose wall clock in `zone` reads `local` (a UTC time of those fields). */
 export const fromWallClock = (local: number, zone: string): number => {
   // The zone's offset at a first guess, then at the instant that guess gives: right across a
