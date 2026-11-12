@@ -35,6 +35,7 @@ The maintainer decided on 2026-11-12: `foedrum serve` opens one every 4 weeks, w
 ## Consequences
 - **What an existing Brewery must do: nothing.** Foedrum has no release. A Brewery with the default `rack` gets its first rack issue at serve's next start, unless one opened in the last 28 days.
 - The intake orders a Brewery issue only when its author is in `users` (ADR 0068). Serve opens it as gh's login, which `foedrum init` puts in `users`; a Brewery that took that login out gets an issue every 4 weeks that the intake never orders. The design page says so; nothing is built against it.
+- A rack batch already on tap when this ships gets the close at the driver's first tick after it: an open issue gets the comment and is closed, and one a person closed is only recorded. Foedrum has no release, so no Brewery has such a batch from before.
 - Rack's archive waits for that close as for any close still due (ADR 0383), and takes the rack batch once its issue is closed, at the next rack run.
 - A person who closes the issue skips one cleanup; the next opens 4 weeks after the closed one was opened, not after it was closed.
 - A rack issue someone else opened counts as the newest as well, and so does an open one: serve opens none beside it.
