@@ -236,7 +236,7 @@ describe('renderStatus', () => {
     );
     assert.equal(
       lineOf(text, 'brew'),
-      '- ▶️ `brew`: session open since 2026-10-18T09:30:00.000Z, attempt 2',
+      '- ▶️ `brew`: session open since 2026-10-18 09:30 UTC, attempt 2',
     );
   });
 
@@ -319,7 +319,9 @@ describe('renderStatus', () => {
       ['gauge', 'red', 'implement'],
     );
     const lines = text.split('\n');
-    const path = lines.indexOf('Path: `gauge #1` ✅ → `red #1` ❌ passes → `gauge #2` 🔔');
+    const path = lines.indexOf(
+      'Steps run, in order (#n is the nth try of a step): `gauge #1` ✅ → `red #1` ❌ passes → `gauge #2` 🔔',
+    );
     assert.ok(path >= 0, text);
     const firstStep = lines.findIndex((line) => line.startsWith('- ') && line.includes('`gauge`'));
     assert.ok(path < firstStep, 'the path comes before the steps');
@@ -348,7 +350,14 @@ describe('renderStatus', () => {
       }),
       steps,
     );
-    assert.ok(text.split('\n').includes('Path: `plan #1` ❓ → `brew #1` ⏹️ → `taste #1` ▶️'), text);
+    assert.ok(
+      text
+        .split('\n')
+        .includes(
+          'Steps run, in order (#n is the nth try of a step): `plan #1` ❓ → `brew #1` ⏹️ → `taste #1` ▶️',
+        ),
+      text,
+    );
   });
 
   it('ends the path where the batch is Stuck, though that attempt never started (#406)', () => {
@@ -361,7 +370,14 @@ describe('renderStatus', () => {
       }),
       ['gauge'],
     );
-    assert.ok(text.split('\n').includes('Path: `gauge #1` ✅ → `gauge #2` 🔔'), text);
+    assert.ok(
+      text
+        .split('\n')
+        .includes(
+          'Steps run, in order (#n is the nth try of a step): `gauge #1` ✅ → `gauge #2` 🔔',
+        ),
+      text,
+    );
   });
 
   const which = { q: 'Which?', options: ['a', 'b'], recommended: 'a', whyBlocking: 'x' };
@@ -378,7 +394,9 @@ describe('renderStatus', () => {
     attempt,
   });
   const pathOf = (text: string): string =>
-    text.split('\n').find((line) => line.startsWith('Path: ')) ?? '';
+    text
+      .split('\n')
+      .find((line) => line.startsWith('Steps run, in order (#n is the nth try of a step): ')) ?? '';
 
   it('shows the answer to a question on the path, with who gave it and from where (#656)', () => {
     const [, innkeep] = step('innkeep', asking(1));
@@ -398,7 +416,7 @@ describe('renderStatus', () => {
     );
     assert.equal(
       pathOf(text),
-      'Path: `innkeep #1` ❓ → mash (by ann via terminal) → `plan #1` ❌ the out doc plan.md is invalid → `plan #2` ▶️',
+      'Steps run, in order (#n is the nth try of a step): `innkeep #1` ❓ → mash (by ann via terminal) → `plan #1` ❌ the out doc plan.md is invalid → `plan #2` ▶️',
     );
   });
 
@@ -420,7 +438,7 @@ describe('renderStatus', () => {
     );
     assert.equal(
       pathOf(text),
-      `Path: \`plan #1\` ❓ → second (by ann via terminal) → \`plan #2\` ❓ → \\*${'x'.repeat(37)}… (by ann via terminal) → \`plan #3\` ▶️`,
+      `Steps run, in order (#n is the nth try of a step): \`plan #1\` ❓ → second (by ann via terminal) → \`plan #2\` ❓ → \\*${'x'.repeat(37)}… (by ann via terminal) → \`plan #3\` ▶️`,
     );
   });
 
@@ -457,7 +475,7 @@ describe('renderStatus', () => {
     );
     assert.equal(
       pathOf(text),
-      'Path: `gauge #1` ❌ the attempt was lost → `gauge #2` ✅ → `green #1` ❌ the check "tests" failed with exit code 1 → `green #2` ✅ → `correctness #1` ❌ blocked (findings) → `correctness #2` ✅',
+      'Steps run, in order (#n is the nth try of a step): `gauge #1` ❌ the attempt was lost → `gauge #2` ✅ → `green #1` ❌ the check "tests" failed with exit code 1 → `green #2` ✅ → `correctness #1` ❌ blocked (findings) → `correctness #2` ✅',
     );
   });
 
@@ -473,7 +491,10 @@ describe('renderStatus', () => {
       }),
       ['gauge'],
     );
-    assert.equal(pathOf(text), 'Path: `gauge #1` ❌ the attempt was lost → `gauge #2` ✅');
+    assert.equal(
+      pathOf(text),
+      'Steps run, in order (#n is the nth try of a step): `gauge #1` ❌ the attempt was lost → `gauge #2` ✅',
+    );
   });
 
   describe('a batch sent back, a line per round (#662)', () => {
@@ -481,10 +502,12 @@ describe('renderStatus', () => {
       ...done(attempt),
       route: { from, why },
     });
-    /** The path's lines: from `Path: ` up to the step list. */
+    /** The path's lines: from its first up to the step list. */
     const pathLines = (text: string): string[] => {
       const lines = text.split('\n');
-      const start = lines.findIndex((line) => line.startsWith('Path: '));
+      const start = lines.findIndex((line) =>
+        line.startsWith('Steps run, in order (#n is the nth try of a step): '),
+      );
       const end = lines.findIndex((line, i) => i > start && line.startsWith('- '));
       return lines.slice(start, end);
     };
@@ -516,7 +539,7 @@ describe('renderStatus', () => {
         ['implement', 'green', 'taste'],
       );
       assert.deepEqual(pathLines(text), [
-        'Path: `implement #1` ✅ → `green #1` ❌ the check "t" failed with exit code 1',
+        'Steps run, in order (#n is the nth try of a step): `implement #1` ✅ → `green #1` ❌ the check "t" failed with exit code 1',
         '→ `implement #2` ✅ → `green #2` ✅ → `taste #1` ❌ blocked (findings)',
         '→ `implement #3` ✅ → `green #3` ✅ → `taste #2` ✅',
       ]);
@@ -542,7 +565,7 @@ describe('renderStatus', () => {
         ['fix', 'docs', 'taste'],
       );
       assert.deepEqual(pathLines(text), [
-        'Path: `fix #1` ✅ → `docs #1` ✅ → `taste #1` ❌ blocked (findings)',
+        'Steps run, in order (#n is the nth try of a step): `fix #1` ✅ → `docs #1` ✅ → `taste #1` ❌ blocked (findings)',
         '→ `fix #2` ✅ → `docs #2` ✅',
       ]);
     });
@@ -561,7 +584,11 @@ describe('renderStatus', () => {
         }),
         ['fix'],
       );
-      assert.deepEqual(pathLines(text), ['Path: `fix #1` ✅', '→ `fix #2` ✅', '→ `fix #3` ✅']);
+      assert.deepEqual(pathLines(text), [
+        'Steps run, in order (#n is the nth try of a step): `fix #1` ✅',
+        '→ `fix #2` ✅',
+        '→ `fix #3` ✅',
+      ]);
     });
 
     it('keeps one line for a batch that was retried and never sent back (regression test)', () => {
@@ -581,7 +608,7 @@ describe('renderStatus', () => {
         ['green'],
       );
       assert.deepEqual(pathLines(text), [
-        'Path: `green #1` ❌ the check "t" failed with exit code 1 → `green #2` ✅',
+        'Steps run, in order (#n is the nth try of a step): `green #1` ❌ the check "t" failed with exit code 1 → `green #2` ✅',
       ]);
     });
   });
@@ -600,7 +627,7 @@ describe('renderStatus', () => {
     );
     assert.equal(
       pathOf(text),
-      'Path: `plan #1` ❌ the brewer wrote no out doc before its turns… → `plan #2` ▶️',
+      'Steps run, in order (#n is the nth try of a step): `plan #1` ❌ the brewer wrote no out doc before its turns… → `plan #2` ▶️',
     );
   });
 
@@ -616,7 +643,10 @@ describe('renderStatus', () => {
       }),
       ['plan'],
     );
-    assert.equal(pathOf(text), `Path: \`plan #1\` ❌ ${word.slice(0, 47)}… → \`plan #2\` ▶️`);
+    assert.equal(
+      pathOf(text),
+      `Steps run, in order (#n is the nth try of a step): \`plan #1\` ❌ ${word.slice(0, 47)}… → \`plan #2\` ▶️`,
+    );
   });
 
   it('drops a parenthesised part of a long reason whole, though another is nested in it (#656)', () => {
@@ -633,7 +663,7 @@ describe('renderStatus', () => {
     );
     assert.equal(
       pathOf(text),
-      'Path: `green #1` ❌ the check "test" failed with exit code 1 → `green #2` ▶️',
+      'Steps run, in order (#n is the nth try of a step): `green #1` ❌ the check "test" failed with exit code 1 → `green #2` ▶️',
     );
   });
 
@@ -677,7 +707,7 @@ describe('renderStatus', () => {
     };
     assert.equal(
       checkedPath(reading),
-      'Path: `green #1` ❌ the check "test" failed, 5 tests failing → `green #2` ▶️',
+      'Steps run, in order (#n is the nth try of a step): `green #1` ❌ the check "test" failed, 5 tests failing → `green #2` ▶️',
     );
   });
 
@@ -692,7 +722,7 @@ describe('renderStatus', () => {
     };
     assert.equal(
       checkedPath(reading),
-      'Path: `green #1` ❌ the check "node --test --test-name-pattern="a:… → `green #2` ▶️',
+      'Steps run, in order (#n is the nth try of a step): `green #1` ❌ the check "node --test --test-name-pattern="a:… → `green #2` ▶️',
     );
   });
 
@@ -708,7 +738,7 @@ describe('renderStatus', () => {
     const reason = 'the test map the survey proposed disagrees with a run of acme/api: x';
     assert.equal(
       checkedPath(reading, reason),
-      'Path: `green #1` ❌ the test map the survey proposed disagrees… → `green #2` ▶️',
+      'Steps run, in order (#n is the nth try of a step): `green #1` ❌ the test map the survey proposed disagrees… → `green #2` ▶️',
     );
   });
 
@@ -729,33 +759,42 @@ describe('renderStatus', () => {
   it('keeps a long reason whole, cut at a word, when a parenthesis in it is never closed (#656)', () => {
     assert.equal(
       failedPath('the check "x" (echo "(") failed with exit code 1 and more'),
-      'Path: `green #1` ❌ the check "x" (echo "(") failed with exit code… → `green #2` ▶️',
+      'Steps run, in order (#n is the nth try of a step): `green #1` ❌ the check "x" (echo "(") failed with exit code… → `green #2` ▶️',
     );
   });
 
   it('keeps a reason of exactly 48 characters whole: regression test (#656)', () => {
     const reason = `${'word '.repeat(9)}abc`;
     assert.equal(reason.length, 48);
-    assert.equal(failedPath(reason), `Path: \`green #1\` ❌ ${reason} → \`green #2\` ▶️`);
+    assert.equal(
+      failedPath(reason),
+      `Steps run, in order (#n is the nth try of a step): \`green #1\` ❌ ${reason} → \`green #2\` ▶️`,
+    );
   });
 
   it('keeps the parenthesised part of a reason of exactly 48 characters: regression test (#656)', () => {
     const reason = `${'word '.repeat(7)}(npm test) ab`;
     assert.equal(reason.length, 48);
-    assert.equal(failedPath(reason), `Path: \`green #1\` ❌ ${reason} → \`green #2\` ▶️`);
+    assert.equal(
+      failedPath(reason),
+      `Steps run, in order (#n is the nth try of a step): \`green #1\` ❌ ${reason} → \`green #2\` ▶️`,
+    );
   });
 
   it('keeps a reason whole once its parenthesised part goes and 48 characters are left: regression test (#656)', () => {
     const kept = `${'word '.repeat(8)}word abc`;
     assert.equal(kept.length, 48);
     const reason = `${'word '.repeat(8)}word (npm test) abc`;
-    assert.equal(failedPath(reason), `Path: \`green #1\` ❌ ${kept} → \`green #2\` ▶️`);
+    assert.equal(
+      failedPath(reason),
+      `Steps run, in order (#n is the nth try of a step): \`green #1\` ❌ ${kept} → \`green #2\` ▶️`,
+    );
   });
 
   it('keeps a stray closing parenthesis of a long reason: regression test (#656)', () => {
     assert.equal(
       failedPath('the check "x" (a) b) failed with exit code 1 and more'),
-      'Path: `green #1` ❌ the check "x" b) failed with exit code 1 and… → `green #2` ▶️',
+      'Steps run, in order (#n is the nth try of a step): `green #1` ❌ the check "x" b) failed with exit code 1 and… → `green #2` ▶️',
     );
   });
 
@@ -773,14 +812,19 @@ describe('renderStatus', () => {
     noToken(text);
     assert.match(
       pathOf(text),
-      new RegExp(`^Path: \`gauge #1\` ❌ ${escaped(leftOut('gauge'))} → `),
+      new RegExp(
+        `^${escaped('Steps run, in order (#n is the nth try of a step): ')}\`gauge #1\` ❌ ${escaped(leftOut('gauge'))} → `,
+      ),
     );
   });
 
   it('keeps the bare mark of an open question: regression test (#656)', () => {
     const steps = new Map([step('plan', asking(1))]);
     const path = [{ stepId: 'plan', attempt: 1 }];
-    assert.equal(pathOf(renderStatus(batch({ steps, path }), ['plan'])), 'Path: `plan #1` ❓');
+    assert.equal(
+      pathOf(renderStatus(batch({ steps, path }), ['plan'])),
+      'Steps run, in order (#n is the nth try of a step): `plan #1` ❓',
+    );
   });
 
   it('keeps the bell where the batch is Stuck on an open question: regression test (#656)', () => {
@@ -789,7 +833,7 @@ describe('renderStatus', () => {
     const reason: StuckReason = { kind: 'needs_input', stepId: 'plan', questions: [which] };
     assert.equal(
       pathOf(renderStatus(batch({ lane: stuck(reason), steps, path }), ['plan'])),
-      'Path: `plan #1` 🔔',
+      'Steps run, in order (#n is the nth try of a step): `plan #1` 🔔',
     );
   });
 
@@ -798,8 +842,8 @@ describe('renderStatus', () => {
       batch({ steps: new Map([step('plan', done(1))]), path: [{ stepId: 'plan', attempt: 1 }] }),
       ['plan'],
     );
-    assert.equal(pathOf(text), 'Path: `plan #1` ✅');
-    assert.equal(lineOf(text, 'plan'), '- ✅ `plan`');
+    assert.equal(pathOf(text), 'Steps run, in order (#n is the nth try of a step): `plan #1` ✅');
+    assert.equal(lineOf(text, 'plan'), '- ✅ `plan`: done');
   });
 
   it('lists the steps the batch has when its recipe is unknown', () => {
@@ -954,7 +998,10 @@ describe('renderStatus', () => {
 
   it('says what chose the recipe: its label, the router and why, or who', () => {
     const chosen = (recipe: NonNullable<Batch['recipe']>) => renderStatus(batch({ recipe }), steps);
-    assert.match(chosen({ name: 'nip', reason: 'label', source: 'label' }), /chosen by its label/);
+    assert.match(
+      chosen({ name: 'nip', reason: 'label', source: 'label' }),
+      /chosen by the issue's `recipe:nip` label/,
+    );
     assert.match(
       chosen({ name: 'nip', reason: 'a one-line fix', source: 'router' }),
       /chosen by the router: a one-line fix/,
@@ -3279,8 +3326,8 @@ describe('renderStatus: a plan that waits for its review (#658)', () => {
         steps: new Map([step('plan', planned(2, ['Kept the flag.'])), step('green', checked)]),
       }),
     );
-    assert.equal(stepOf(text, 'green'), '- ✅ `green`');
-    assert.match(stepOf(text, 'plan'), /out doc: \[/);
+    assert.equal(stepOf(text, 'green'), '- ✅ `green`: done');
+    assert.match(stepOf(text, 'plan'), /done, its report: \[/);
   });
 
   it('links no out doc of an action step, which writes none, as openPullRequest (#658)', () => {
@@ -3292,7 +3339,7 @@ describe('renderStatus: a plan that waits for its review (#658)', () => {
       outcome: { kind: 'succeeded', output: { pullRequest: pr } },
     };
     const text = rendered(batch({ lane: review, steps: new Map([step('pr', opened)]) }));
-    assert.equal(stepOf(text, 'pr'), '- ✅ `pr`');
+    assert.equal(stepOf(text, 'pr'), '- ✅ `pr`: done');
   });
 
   it("links each step's out doc on its line: the plan's as it reads, another's in its plain view", () => {
@@ -3308,12 +3355,12 @@ describe('renderStatus: a plan that waits for its review (#658)', () => {
     );
     assert.equal(
       stepOf(text, 'plan'),
-      `- ✅ \`plan\`: out doc: [7-1/plan-2.md](<${stateBranchUrl}/batches/7-1/plan-2.md>)`,
+      `- ✅ \`plan\`: done, its report: [plan-2.md](<${stateBranchUrl}/batches/7-1/plan-2.md>)`,
     );
     assert.equal(stepOf(text, 'brew'), '- ❌ `brew`: attempt 3 failed: no');
     assert.equal(
       stepOf(text, 'taste'),
-      `- ✅ \`taste\`: out doc: [7-1/taste-1.md](<${stateBranchUrl}/batches/7-1/taste-1.md?plain=1>)`,
+      `- ✅ \`taste\`: done, its report: [taste-1.md](<${stateBranchUrl}/batches/7-1/taste-1.md?plain=1>)`,
     );
   });
 
@@ -3326,11 +3373,46 @@ describe('renderStatus: a plan that waits for its review (#658)', () => {
     );
     assert.equal(
       stepOf(text, 'fine'),
-      `- ✅ \`fine\`: out doc: [7-1/fine-3.md](<${stateBranchUrl}/batches/7-1/fine-3.md?plain=1>)`,
+      `- ✅ \`fine\`: done, its report: [fine-3.md](<${stateBranchUrl}/batches/7-1/fine-3.md?plain=1>)`,
     );
     assert.equal(
       section(text).at(-1),
       `- \`plan\`: full plan: [7-1/plan-1.md](<${stateBranchUrl}/batches/7-1/plan-1.md>); [plan comment](<${planComment}>)`,
+    );
+  });
+
+  it("the status comment names each step's report in plain words (ADR 0386)", () => {
+    const checked: Attempt = {
+      phase: 'finished',
+      attempt: 1,
+      deadlineAt: at,
+      outcome: { kind: 'succeeded', output: null },
+    };
+    const text = rendered(
+      batch({ steps: new Map([step('taste', done(2)), step('green', checked)]) }),
+    );
+    assert.equal(stepOf(text, 'plan'), '- ⬜ `plan`: not run yet');
+    assert.equal(
+      stepOf(text, 'taste'),
+      `- ✅ \`taste\`: done, its report: [taste-2.md](<${stateBranchUrl}/batches/7-1/taste-2.md?plain=1>)`,
+    );
+    assert.equal(stepOf(text, 'green'), '- ✅ `green`: done');
+  });
+
+  it('the status comment says which label chose the recipe and which steps ran, in plain words (ADR 0386)', () => {
+    const lines = rendered(
+      batch({
+        steps: new Map([step('taste', done(2))]),
+        path: [{ stepId: 'taste', attempt: 2 }],
+      }),
+    ).split('\n');
+    assert.ok(
+      lines.includes("Recipe **nip**, chosen by the issue's `recipe:nip` label"),
+      lines.join('\n'),
+    );
+    assert.ok(
+      lines.includes('Steps run, in order (#n is the nth try of a step): `taste #2` ✅'),
+      lines.join('\n'),
     );
   });
 
@@ -3346,6 +3428,20 @@ describe('renderStatus: a plan that waits for its review (#658)', () => {
     assert.ok(
       lines.includes('🔔 **Waiting for you**: give your go: run `foedrum approve 7`'),
       lines.join('\n'),
+    );
+  });
+
+  it("the status comment shows a session's open time without milliseconds or a T (ADR 0386)", () => {
+    const session: Attempt = {
+      phase: 'started',
+      attempt: 1,
+      deadlineAt: at,
+      interactiveSince: '2026-11-12T13:36:00.098Z',
+    };
+    const text = rendered(batch({ steps: new Map([step('refine', session)]) }));
+    assert.equal(
+      stepOf(text, 'refine'),
+      '- ▶️ `refine`: session open since 2026-11-12 13:36 UTC, attempt 1',
     );
   });
 
@@ -3732,8 +3828,8 @@ describe('renderStatus: a parallel group that ran in part after a round back (AD
   });
 
   it("says a Taster's step that did not run again is from the round it ran in, and only that step", () => {
-    assert.equal(lineOf(shown, 'correctness'), '- ✅ `correctness`, from round 1');
-    assert.equal(lineOf(shown, 'security'), '- ✅ `security`');
+    assert.equal(lineOf(shown, 'correctness'), '- ✅ `correctness`, from round 1: done');
+    assert.equal(lineOf(shown, 'security'), '- ✅ `security`: done');
   });
 
   it("counts a kept Taster's rounds by its reviews, from round 2 after it had findings in round 1: regression test", () => {
@@ -3765,7 +3861,7 @@ describe('renderStatus: a parallel group that ran in part after a round back (AD
       ],
     });
     const text = renderStatus(third, ['implement', 'correctness', 'security']);
-    assert.equal(lineOf(text, 'correctness'), '- ✅ `correctness`, from round 2');
+    assert.equal(lineOf(text, 'correctness'), '- ✅ `correctness`, from round 2: done');
   });
 
   it('says nothing of a round after a route back that is not for findings: regression test', () => {
@@ -3789,7 +3885,7 @@ describe('renderStatus: a parallel group that ran in part after a round back (AD
       ],
     });
     const text = renderStatus(fixing, ['implement', 'correctness']);
-    assert.equal(lineOf(text, 'correctness'), '- ✅ `correctness`');
+    assert.equal(lineOf(text, 'correctness'), '- ✅ `correctness`: done');
   });
 
   it("counts a kept Taster's rounds from the batch's latest run from the start (ADR 0357)", () => {
@@ -3821,7 +3917,7 @@ describe('renderStatus: a parallel group that ran in part after a round back (AD
       runFrom: 5,
     });
     const text = renderStatus(again, ['implement', 'correctness', 'security']);
-    assert.equal(lineOf(text, 'correctness'), '- ✅ `correctness`, from round 1');
+    assert.equal(lineOf(text, 'correctness'), '- ✅ `correctness`, from round 1: done');
   });
 
   it("says nothing of a round for a Taster's approval the path does not hold: regression test", () => {
@@ -3837,7 +3933,7 @@ describe('renderStatus: a parallel group that ran in part after a round back (AD
       ],
     });
     const text = renderStatus(unplaced, ['implement', 'correctness']);
-    assert.equal(lineOf(text, 'correctness'), '- ✅ `correctness`');
+    assert.equal(lineOf(text, 'correctness'), '- ✅ `correctness`: done');
   });
 
   it("says nothing of a round for a Taster's approval from before the batch's latest run (ADR 0357)", () => {
@@ -3864,7 +3960,7 @@ describe('renderStatus: a parallel group that ran in part after a round back (AD
       runFrom: 4,
     });
     const text = renderStatus(rewound, ['implement', 'correctness', 'security']);
-    assert.equal(lineOf(text, 'correctness'), '- ✅ `correctness`');
+    assert.equal(lineOf(text, 'correctness'), '- ✅ `correctness`: done');
   });
 
   it("counts a kept Taster's review that is its run's first attempt, after a rewind to it: regression test", () => {
@@ -3898,6 +3994,6 @@ describe('renderStatus: a parallel group that ran in part after a round back (AD
       runFrom: 4,
     });
     const text = renderStatus(rewound, ['implement', 'correctness', 'security']);
-    assert.equal(lineOf(text, 'correctness'), '- ✅ `correctness`, from round 1');
+    assert.equal(lineOf(text, 'correctness'), '- ✅ `correctness`, from round 1: done');
   });
 });

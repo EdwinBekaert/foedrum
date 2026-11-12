@@ -449,7 +449,7 @@ describe('foedrum order through cliFromCheckout (ADR 0105)', () => {
     const { exitCode, stdout, stderr } = await order(gh.exec);
     assert.equal(stderr, '');
     assert.equal(exitCode, 0);
-    assert.match(stdout, /^web#7 ordered: to be routed by \S+\n$/);
+    assert.match(stdout, /^web#7 ordered: to be routed by \d{4}-\d\d-\d\d \d\d:\d\d UTC\n$/);
     assert.deepStrictEqual(api.created, ['acme/web refs/foedrum/claims/issues/7']);
     assert.deepStrictEqual(
       [...new Set(gh.calls.map(({ args }) => flagValue(args, '--hostname')))],

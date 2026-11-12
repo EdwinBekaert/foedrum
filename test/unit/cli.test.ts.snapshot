@@ -110,21 +110,21 @@ State
 exports[`foedrum status > lists every batch with its issue, lane and what it waits for 1`] = `
 15 batches
 
-  11-1  #11  queued           to be routed by 2026-12-31T00:00:00.000Z
+  11-1  #11  queued           to be routed by 2026-12-31 00:00 UTC
   12-1  #12  running          implement #1 started
-  13-1  #13  queued           waiting for @acme/lib 2.4.0 or later in acme/lib; reminder 2026-10-17T09:00:00.000Z
+  13-1  #13  queued           waiting for @acme/lib 2.4.0 or later in acme/lib; reminder 2026-10-17 09:00 UTC
   14-1  #14  running          between steps
-  15-1  #15  waiting for you  answer a question: needs input at plan; reminder 2026-10-17T09:00:00.000Z
+  15-1  #15  waiting for you  answer a question: needs input at plan; reminder 2026-10-17 09:00 UTC
   16-1  #16  waiting for you  merge a pull request: https://github.com/acme/app/pull/7
   17-1  #17  done             cancelled by bob via comment
-  18-1  #18  queued           waiting for the merge of https://github.com/acme/app/pull/8; reminder 2026-10-17T09:00:00.000Z
-  19-1  #19  queued           waiting for batch 13-1; reminder 2026-10-17T09:00:00.000Z
-  20-1  #20  waiting for you  look at a failure: blocked at review (environment): denied Bash(curl); reminder 2026-10-17T09:00:00.000Z
-  21-1  #21  waiting for you  look at a failure: attempts exhausted at test after 3: tests fail; reminder 2026-10-17T09:00:00.000Z
-  22-1  #22  waiting for you  open its session: waiting for a session at analyze: foedrum brew 22 --take opens it in a terminal; reminder 2026-10-17T09:00:00.000Z
-  23-1  #23  waiting for you  look at a failure: stalled at implement since 2026-10-15T11:00:00.000Z; reminder 2026-10-17T09:00:00.000Z
-  24-1  #24  waiting for you  look at a failure: deadline passed at plan (2026-10-15T10:00:00.000Z); reminder 2026-10-17T09:00:00.000Z
-  25-1  #25  waiting for you  look at a failure: not routed by 2026-10-15T10:00:00.000Z; reminder 2026-10-17T09:00:00.000Z
+  18-1  #18  queued           waiting for the merge of https://github.com/acme/app/pull/8; reminder 2026-10-17 09:00 UTC
+  19-1  #19  queued           waiting for batch 13-1; reminder 2026-10-17 09:00 UTC
+  20-1  #20  waiting for you  look at a failure: blocked at review (environment): denied Bash(curl); reminder 2026-10-17 09:00 UTC
+  21-1  #21  waiting for you  look at a failure: attempts exhausted at test after 3: tests fail; reminder 2026-10-17 09:00 UTC
+  22-1  #22  waiting for you  open its session: waiting for a session at analyze: foedrum brew 22 --take opens it in a terminal; reminder 2026-10-17 09:00 UTC
+  23-1  #23  waiting for you  look at a failure: stalled at implement since 2026-10-15 11:00 UTC; reminder 2026-10-17 09:00 UTC
+  24-1  #24  waiting for you  look at a failure: deadline passed at plan (2026-10-15 10:00 UTC); reminder 2026-10-17 09:00 UTC
+  25-1  #25  waiting for you  look at a failure: not routed by 2026-10-15 10:00 UTC; reminder 2026-10-17 09:00 UTC
 
 `;
 

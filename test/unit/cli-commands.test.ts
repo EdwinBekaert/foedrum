@@ -1453,11 +1453,11 @@ describe('foedrum stuck', () => {
       stdout: [
         '2 Stuck batches',
         '',
-        `21-1  #21  waiting for you: answer a question: needs input at plan; reminder ${iso(2880)}`,
+        `21-1  #21  waiting for you: answer a question: needs input at plan; reminder 2026-10-17 12:00 UTC`,
         '  options: answer, retry, skip, recipe, rewind, cancel',
         '  1. Which database should the cache use? (sqlite, redis; recommended: sqlite)',
         '  2. Keep the old endpoint? (yes, no; recommended: yes)',
-        `25-1  #25  waiting for you: look at a failure: not routed by ${iso(60)}; reminder ${iso(2880)}`,
+        `25-1  #25  waiting for you: look at a failure: not routed by 2026-10-15 13:00 UTC; reminder 2026-10-17 12:00 UTC`,
         '  options: retry, recipe, cancel',
         '',
       ].join('\n'),
@@ -1611,7 +1611,7 @@ describe('foedrum stuck', () => {
       stdout: [
         '1 Stuck batch',
         '',
-        `11-1  #11  waiting for you: look at a failure: blocked at correctness (findings): the Taster asks for changes: no deadline; reminder ${iso(2880)}`,
+        `11-1  #11  waiting for you: look at a failure: blocked at correctness (findings): the Taster asks for changes: no deadline; reminder 2026-10-17 12:00 UTC`,
         '  options: retry, skip, recipe, rewind, cancel',
         '  still open after 2 rounds:',
         '    major in src/poll.ts:3: no deadline',
@@ -1644,7 +1644,7 @@ describe('foedrum stuck', () => {
       stdout: [
         '1 Stuck batch',
         '',
-        `11-1  #11  waiting for you: look at a failure: blocked at correctness (findings): the Taster asks for changes: no deadline; reminder ${iso(2880)}`,
+        `11-1  #11  waiting for you: look at a failure: blocked at correctness (findings): the Taster asks for changes: no deadline; reminder 2026-10-17 12:00 UTC`,
         '  options: retry, skip, recipe, rewind, cancel',
         '',
       ].join('\n'),
@@ -1990,7 +1990,7 @@ describe('foedrum order: order an issue again (ADR 0105)', () => {
     stderr: `foedrum order: ${reason}\n`,
   });
   const reached = (): number => [...github.calls.values()].reduce((sum, n) => sum + n, 0);
-  const ordered = `ordered: to be routed by ${iso(60)}`;
+  const ordered = `ordered: to be routed by 2026-10-15 13:00 UTC`;
 
   it('pauses and continues a target issue by its alias, and refuses an alias foedrum.jsonc lacks (ADR 0202)', async () => {
     assert.equal((await run(['pause', 'web#9'])).exitCode, 0);
