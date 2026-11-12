@@ -465,6 +465,25 @@ describe('foedrum order through cliFromCheckout (ADR 0105)', () => {
     ]);
   });
 
+  it("orders a Brewery issue past the ids the state branch's archive holds, found from local.jsonc (ADR 0383)", async () => {
+    const workRoot = join(brewery.path, 'work');
+    writeFileSync(join(brewery.path, 'foedrum.jsonc'), config({}, intake));
+    mkdirSync(join(brewery.path, '.foedrum'));
+    writeFileSync(join(brewery.path, '.foedrum', 'local.jsonc'), JSON.stringify({ workRoot }));
+    mkdirSync(join(workRoot, 'state', 'archive', '2026-11-01', '12-1'), { recursive: true });
+    openSqliteEventStore(store).close();
+    const { exitCode, stderr } = await cliFromCheckout(['order', '12'], brewery.path, {
+      exec: startsNothing,
+      resolve: madeUpPath,
+    });
+    assert.equal(stderr, '');
+    assert.equal(exitCode, 0);
+    const reader = openSqliteEventStore(store, { readOnly: true });
+    const last = reader.eventsAfter(0).at(-1)?.event;
+    reader.close();
+    assert.equal(last?.type === 'batch.ordered' && last.batchId, '12-2');
+  });
+
   it('says in one line when foedrum.jsonc is missing or does not pass its schema, and asks gh nothing', async () => {
     const gh = ghOver(fakeGitHubApi({ login: 'ann', issues: {} }).fetch);
     assert.deepStrictEqual(await order(gh.exec), {

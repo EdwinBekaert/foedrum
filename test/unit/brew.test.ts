@@ -4,6 +4,7 @@
 // when the batch needs input. No process starts (ADR 0021).
 
 import assert from 'node:assert/strict';
+import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { beforeEach, describe, it } from 'node:test';
 import { type BrewRequest, runBrew } from '../../src/cli/brew.ts';
@@ -388,6 +389,12 @@ describe('brewFromCheckout', () => {
 describe('runBrew', () => {
   const f = brewFixture();
   const { leaseOf, log, shell } = f;
+
+  it("orders an issue past the ids the state branch's archive holds (ADR 0383)", async () => {
+    mkdirSync(join(f.setup.stateWorktree, 'archive', '2026-11-01', '12-1'), { recursive: true });
+    assert.equal(await runBrew(f.setup, shell(behave.succeed('Brewed')), request), 0);
+    assert.deepStrictEqual([...log().state().batches.keys()], ['12-2']);
+  });
 
   it('orders and routes an issue with no batch, and brews it on tap with no Cellar: exit 0', async () => {
     assert.equal(await runBrew(f.setup, shell(behave.succeed('Brewed')), request), 0);
