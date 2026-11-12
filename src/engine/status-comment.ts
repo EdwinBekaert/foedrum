@@ -71,6 +71,7 @@ import { outDocLink, outDocPlace } from './state-branch.ts';
 import { plainReason } from './supervisor.ts';
 import { mutantLines } from './survivors.ts';
 import { usageWindowsText } from './usage-window.ts';
+import { utcMinute } from './wall-clock.ts';
 
 /**
  * What the status comment says of a pull request's merge brief: the current one, or the open pull
@@ -818,7 +819,7 @@ const recipeText = (recipe: Batch['recipe']): string => {
   const name = `Recipe **${plain(recipe.name)}**`;
   switch (recipe.source) {
     case 'label':
-      return `${name}, chosen by its label`;
+      return `${name}, chosen by the issue's ${code(`recipe:${recipe.name}`)} label`;
     case 'router':
       return `${name}, chosen by the router: ${plain(recipe.reason)}`;
     case 'human':
@@ -857,17 +858,20 @@ const stuckStep = ({ lane }: Batch): string | undefined =>
 
 /**
  * The out doc of the attempt `attempt` of `stepId` on `stateBranchUrl`: a plan's as GitHub renders
- * it, since its body reads (ADR 0275), any other's as written.
+ * it, since its body reads (ADR 0275), any other's as written; on a step's line named by its file
+ * alone, since the comment is the batch's (ADR 0386).
  */
 const outDocLabelled = (
   batch: Batch,
   stepId: string,
   done: { attempt: number; output: unknown },
   stateBranchUrl: string,
+  fileOnly = false,
 ): string => {
   const ref = { batchId: batch.id, stepId, attempt: done.attempt };
+  const place = outDocPlace(ref);
   return labelled(
-    outDocPlace(ref),
+    fileOnly ? place.slice(`${batch.id}/`.length) : place,
     outDocLink(stateBranchUrl, ref, planOf(done.output) !== undefined),
   );
 };
@@ -883,14 +887,14 @@ const stepLine = (batch: Batch, stepId: string, told: Told, stateBranchUrl?: str
       : `- ⏭️ ${id}: skipped: ${testFirstOffText(told(testFirstOff, plan.stepId))}`;
   }
   const [latest] = latestFirst(batch, stepId);
-  if (latest === undefined) return `- ⬜ ${id}`;
+  if (latest === undefined) return `- ⬜ ${id}: not run yet`;
   const n = latest.attempt;
   if (stuckStep(batch) === stepId) return `- 🔔 ${id}: stuck at attempt ${n}`;
   if (latest.phase !== 'finished') {
     if (latest.abandoned === true) return `- ⏹️ ${id}: attempt ${n} stopped`;
     // A person's open session has no deadline: the comment says since when it waits (ADR 0222).
     if (latest.phase === 'started' && latest.interactiveSince !== undefined) {
-      return `- ▶️ ${id}: session open since ${latest.interactiveSince}, attempt ${n}`;
+      return `- ▶️ ${id}: session open since ${utcMinute(latest.interactiveSince)}, attempt ${n}`;
     }
     const resumed = resumedAfterOverrun(batch, { batchId: batch.id, stepId, attempt: n });
     return `- ▶️ ${id}: brewing, attempt ${n}${resumed ? `, ${afterTheBudget}` : ''}`;
@@ -904,8 +908,8 @@ const stepLine = (batch: Batch, stepId: string, told: Told, stateBranchUrl?: str
       const round = keptRound(batch, stepId);
       const ran = round === undefined ? id : `${id}, from round ${round}`;
       return stateBranchUrl === undefined || !OutDocAssumptions.safeParse(outcome.output).success
-        ? `- ✅ ${ran}`
-        : `- ✅ ${ran}: out doc: ${outDocLabelled(batch, stepId, { attempt: n, output: outcome.output }, stateBranchUrl)}`;
+        ? `- ✅ ${ran}: done`
+        : `- ✅ ${ran}: done, its report: ${outDocLabelled(batch, stepId, { attempt: n, output: outcome.output }, stateBranchUrl, true)}`;
     }
     case 'failed':
       return `- ❌ ${id}: attempt ${n} failed: ${told(plainReason(outcome.reason), stepId)}`;
@@ -970,6 +974,9 @@ const markOf = (batch: Batch, stepId: string, n: number): string => {
   }
 };
 
+/** What the path's first line starts with, for a person who hasn't followed the batch (ADR 0386). */
+const pathHead = 'Steps run, in order (#n is the nth try of a step): ';
+
 /**
  * The batch's attempts in the order they ran, each marked, a line per round; none before its
  * first. Each is a code span: GitHub would link a bare `#1` to issue 1.
@@ -1013,7 +1020,7 @@ const pathLines = (batch: Batch, told: Told): string[] => {
     rounds.at(-1)?.push(shown[n] ?? '');
     routeBefore = routed;
   }
-  return rounds.map((round, n) => `${n === 0 ? 'Path: ' : '→ '}${round.join(' → ')}`);
+  return rounds.map((round, n) => `${n === 0 ? pathHead : '→ '}${round.join(' → ')}`);
 };
 
 /** The number and output of the latest attempt of `stepId` that succeeded; else undefined. */
