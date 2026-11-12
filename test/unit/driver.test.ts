@@ -58,6 +58,12 @@ const recipes = fakeRecipes({
     actions: { open: 'openPullRequest' },
     pullRequests: [],
   }),
+  // A human gate before rack's archive (ADR 0383).
+  rack: fakeRecipe({
+    steps: ['approval', 'archive'],
+    actions: { approval: 'gate', archive: 'archive' },
+    pullRequests: [],
+  }),
   // Its green check merges the base first (ADR 0164).
   nip: fakeRecipe({
     steps: ['implement', 'green', 'open'],
@@ -4002,6 +4008,32 @@ describe('openDriver', () => {
     };
     const push = JSON.stringify(['b1', 'push']);
     const pullRequest = JSON.stringify(['b1', 'pull_request']);
+
+    it('ends a human gate at once, with no runner and no code host, and the batch waits for approve (ADR 0383)', async () => {
+      const brewer = handRunner();
+      assert.equal(
+        intake.issue({ kind: 'order', batchId: 'b1', order: { issue: 1 } }, now).kind,
+        'accepted',
+      );
+      const route = {
+        kind: 'route',
+        batchId: 'b1',
+        recipe: 'rack',
+        reason: 'label',
+        source: 'label',
+      } as const;
+      assert.equal(intake.issue(route, now).kind, 'accepted');
+      const driver = await open({ runner: brewer.runner });
+      await driver.drive();
+      assert.deepStrictEqual(brewer.started, []);
+      assert.deepStrictEqual(driver.state().batches.get('b1')?.lane.kind, 'stuck');
+      const lane = driver.state().batches.get('b1')?.lane;
+      assert.deepStrictEqual(lane?.kind === 'stuck' && lane.reason, {
+        kind: 'plan_review',
+        stepId: 'approval',
+        attempt: 1,
+      });
+    });
 
     it('starts the action itself, never on the runner, applies its effects and ends it', async () => {
       const brewer = handRunner();

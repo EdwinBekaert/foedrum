@@ -247,12 +247,11 @@ describe('loadRecipes: fails closed', () => {
           steps: [{ id: 'taste', brewer: 'brewmaster' }],
         },
       },
-      { id: 'approve', gate: 'human', deadline: '1d' },
       { action: 'comment' },
       { id: 'split', fanOut: {} },
     ];
-    const kinds = ['loop', 'gate', 'action', 'fanOut'];
-    const ids = ['review', 'approve', 'comment', 'split'];
+    const kinds = ['loop', 'action', 'fanOut'];
+    const ids = ['review', 'comment', 'split'];
     assert.deepEqual(
       problemsOf(brewery({ recipes: [recipe('pale', steps)] })),
       ids.map(
@@ -260,6 +259,39 @@ describe('loadRecipes: fails closed', () => {
           `recipes/pale.jsonc: step "${id}" is a ${kinds[i]} step, which the engine does not brew yet (ADR 0053)`,
       ),
     );
+  });
+
+  it("loads a human gate and rack's actions, each delete with its olderThan (ADR 0383)", () => {
+    const steps = [
+      { id: 'approval', gate: 'human', deadline: '1h' },
+      { action: 'archive' },
+      { action: 'deleteArchives', olderThan: '180d' },
+      { action: 'deleteTemporary', olderThan: '2d' },
+    ];
+    const rack = loaded(loadRecipes(brewery({ recipes: [recipe('rack', steps)] }))).find('rack');
+    assert.deepEqual(
+      rack?.steps.map((id) => [id, rack.action(id), rack.olderThan(id)]),
+      [
+        ['approval', 'gate', undefined],
+        ['archive', 'archive', undefined],
+        ['delete-archives', 'deleteArchives', 180 * 86_400_000],
+        ['delete-temporary', 'deleteTemporary', 2 * 86_400_000],
+      ],
+    );
+    assert.equal(rack?.deadlineMs('approval'), 3_600_000);
+  });
+
+  it('refuses a delete with no olderThan, and an olderThan on any other action (ADR 0383)', () => {
+    const steps = [
+      { action: 'deleteTemporary' },
+      { action: 'archive', olderThan: '2d' },
+      { action: 'openPullRequest', olderThan: '2d' },
+    ];
+    assert.deepEqual(problemsOf(brewery({ recipes: [recipe('rack', steps)] })), [
+      'recipes/rack.jsonc: step "delete-temporary" is a deleteTemporary action with no "olderThan": say how old what it deletes is (ADR 0383)',
+      'recipes/rack.jsonc: step "archive" has "olderThan", which only deleteArchives and deleteTemporary read (ADR 0383)',
+      'recipes/rack.jsonc: step "open-pull-request" has "olderThan", which only deleteArchives and deleteTemporary read (ADR 0383)',
+    ]);
   });
 
   it('reports every problem of every file, brewers first, and a broken brewer file once', () => {
