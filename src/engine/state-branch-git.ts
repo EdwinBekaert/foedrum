@@ -245,15 +245,7 @@ export const openStateBranch = (options: StateBranchOptions): StateBranch => {
       throw error;
     });
   /** The names of the folders in `path` of the worktree; none when it is missing. */
-  const folders = async (path: string): Promise<string[]> =>
-    (
-      await readdir(onDisk(path), { withFileTypes: true }).catch((error: unknown) => {
-        if (errorCode(error) === 'ENOENT') return [];
-        throw error;
-      })
-    )
-      .filter((entry) => entry.isDirectory())
-      .map((entry) => entry.name);
+  const folders = async (path: string): Promise<string[]> => foldersIn(onDisk(path));
   /** The log files in the worktree. */
   const logFiles = async (): Promise<string[]> => {
     // No batches folder yet is no batches; any other failure must not look like none.

@@ -58,8 +58,7 @@ import {
 } from './pull-request.ts';
 import { type PairConflict, pairsOf } from './pull-request-pairs.ts';
 import { receiptParts, receiptsOf } from './receipt.ts';
-import type { Recipe, Recipes } from './recipes.ts';
-import { GATE_OUTPUT } from './recipes.ts';
+import { GATE_OUTPUT, type Recipe, type Recipes } from './recipes.ts';
 import { resumedAfterOverrun } from './session-resume.ts';
 import { stateText } from './sibling-pull-requests.ts';
 import { pastBySkip, pastLine } from './skip-past.ts';

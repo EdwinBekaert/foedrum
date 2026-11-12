@@ -793,6 +793,10 @@ function tooLong(id: string, deadline: string): string | undefined {
     : `step "${id}" has a deadline of ${deadline}, longer than 365 days`;
 }
 
+/** Why a step that is not a delete may not have `olderThan` (ADR 0383). */
+const strayOlderThan = (id: string): string =>
+  `step "${id}" has "olderThan", which only deleteArchives and deleteTemporary read (ADR 0383)`;
+
 /**
  * The line of one of rack's actions (ADR 0383): a delete needs its `olderThan`, and no other
  * action takes one.
@@ -804,7 +808,7 @@ function rackLine(step: ActionStep): StepLoad {
     return [
       deletes
         ? `step "${id}" is a ${step.action} action with no "olderThan": say how old what it deletes is (ADR 0383)`
-        : `step "${id}" has "olderThan", which only deleteArchives and deleteTemporary read (ADR 0383)`,
+        : strayOlderThan(id),
     ];
   }
   const line: LineStep = {
@@ -844,11 +848,7 @@ function gateLine(step: GateStep): StepLoad {
 /** The openPullRequest action's line, when it is the recipe's `last` step (ADR 0071). */
 function actionLine(step: ActionStep, last: boolean): StepLoad {
   const id = stepId(step);
-  if (step.olderThan !== undefined) {
-    return [
-      `step "${id}" has "olderThan", which only deleteArchives and deleteTemporary read (ADR 0383)`,
-    ];
-  }
+  if (step.olderThan !== undefined) return [strayOlderThan(id)];
   // The pull request holds the commits of the steps before it; none may come after it.
   if (!last) {
     return [
