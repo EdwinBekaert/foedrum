@@ -49,6 +49,12 @@ export interface RackActionsOptions {
 }
 
 const DAY_MS = 86_400_000;
+/** How many groups, or how long since the last, before the read ones are forgotten (ADR 0383). */
+const CHUNK = 25;
+const CHUNK_MS = 20_000;
+
+/** A group's batch ids, as one key. */
+const named = (group: readonly Batch[]): string => group.map(({ id }) => id).join(' ');
 
 /** The effect of each of rack's actions, one per attempt. */
 const EFFECTS: Partial<Record<RecipeAction, string>> = {
@@ -163,21 +169,34 @@ export const rackActions = (options: RackActionsOptions): DriverActions => {
       return (await read) !== 'open';
     };
     const ids: string[] = [];
-    for (const group of finishedGroups(before)) {
-      const issues = group.flatMap((batch) => issuesOf(before, batch, brewery));
-      let all = true;
-      for (const issue of issues) all = all && (await closed(issue));
-      if (!all) continue;
-      // Checked again with no await before its forget: a batch may have joined it meanwhile.
-      const named = group.map(({ id }) => id).join(' ');
-      const still = finishedGroups(state()).some(
-        (now) => now.map(({ id }) => id).join(' ') === named,
-      );
-      if (!still) continue;
-      // Each group as soon as it is read, so a run cut off by its deadline still gets further. Rows
-      // first, then the folders: a crash between them leaves a folder the next run moves.
-      store.forget(group.map(({ id }) => id));
-      ids.push(...group.map(({ id }) => id));
+    // The groups read closed and not forgotten yet, and since when.
+    let read: Batch[][] = [];
+    let since = clock().getTime();
+    // Checked again with no await before the forget: a batch may have joined a group meanwhile.
+    // Rows first, then the folders: a crash between them leaves a folder the next run moves.
+    const forgetRead = (): void => {
+      const now = new Set(finishedGroups(state()).map((group) => named(group)));
+      const gone = read
+        .filter((group) => now.has(named(group)))
+        .flatMap((g) => g.map(({ id }) => id));
+      if (gone.length > 0) store.forget(gone);
+      ids.push(...gone);
+      read = [];
+      since = clock().getTime();
+    };
+    try {
+      for (const group of finishedGroups(before)) {
+        const issues = group.flatMap((batch) => issuesOf(before, batch, brewery));
+        let all = true;
+        for (const issue of issues) all = all && (await closed(issue));
+        if (!all) continue;
+        read.push(group);
+        // In chunks, so each forget and fold serves many groups, and a run cut off by its deadline
+        // still gets further.
+        if (read.length >= CHUNK || clock().getTime() - since >= CHUNK_MS) forgetRead();
+      }
+    } finally {
+      forgetRead();
     }
     const date = clock().toISOString().slice(0, 10);
     await shelf.shelve(ids, date, new Set(state().batches.keys()));
