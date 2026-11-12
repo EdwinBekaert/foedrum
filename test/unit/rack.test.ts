@@ -142,10 +142,14 @@ const run = async (
     clock: () => now,
   });
   const ref: AttemptRef = { batchId: '20-1', stepId, attempt: 1 };
-  for (const key of actions.due(state(), ref)) await actions.target.apply(effectKey.encode(key));
+  for (const key of actions.due(state(), ref)) {
+    const result = await actions.target.apply(effectKey.encode(key));
+    store.withTransaction((tx) => tx.recordEffect(key, result));
+  }
+  const ending = actions.ending(state(), ref);
   const batches = [...new Set(store.eventsAfter(0).map(({ event }) => batchOf(event)))];
   store.close();
-  return { batches, shelved, dropped, reads };
+  return { batches, shelved, dropped, reads, ending };
 };
 
 describe('rack (ADR 0383)', () => {
@@ -156,6 +160,8 @@ describe('rack (ADR 0383)', () => {
       { batchIds: ['6-1', '6-2'], date: '2026-11-12', known: ['20-1'] },
     ]);
     assert.deepStrictEqual(ran.reads, [`${brewery}#6`]);
+    // Its out doc is what its effect did.
+    assert.deepStrictEqual(ran.ending, { kind: 'succeeded', output: { archived: ['6-1', '6-2'] } });
   });
 
   it('rack leaves a batch that has not finished', async () => {
@@ -190,6 +196,11 @@ describe('rack (ADR 0383)', () => {
       [10, 11, 12],
     );
     assert.deepStrictEqual(waiting.batches, ['10-1', '11-1', '12-1', '20-1']);
+    // A run that archives nothing still moves what a crash left in batches/.
+    assert.deepStrictEqual(
+      waiting.shelved.map(({ batchIds }) => batchIds),
+      [[]],
+    );
     const done = await run(
       'archive',
       [...order, ...onTap('11-1', 11, '10-1'), ...onTap('12-1', 12, '10-1')],
