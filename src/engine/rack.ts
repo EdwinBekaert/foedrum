@@ -167,10 +167,18 @@ export const rackActions = (options: RackActionsOptions): DriverActions => {
       const issues = group.flatMap((batch) => issuesOf(before, batch, brewery));
       let all = true;
       for (const issue of issues) all = all && (await closed(issue));
-      if (all) ids.push(...group.map(({ id }) => id));
+      if (!all) continue;
+      // Checked again with no await before its forget: a batch may have joined it meanwhile.
+      const named = group.map(({ id }) => id).join(' ');
+      const still = finishedGroups(state()).some(
+        (now) => now.map(({ id }) => id).join(' ') === named,
+      );
+      if (!still) continue;
+      // Each group as soon as it is read, so a run cut off by its deadline still gets further. Rows
+      // first, then the folders: a crash between them leaves a folder the next run moves.
+      store.forget(group.map(({ id }) => id));
+      ids.push(...group.map(({ id }) => id));
     }
-    // Rows first, then the folders: a crash between them leaves a folder the next run moves.
-    if (ids.length > 0) store.forget(ids);
     const date = clock().toISOString().slice(0, 10);
     await shelf.shelve(ids, date, new Set(state().batches.keys()));
     return ids;
