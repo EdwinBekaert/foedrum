@@ -29,7 +29,7 @@ describe('describeLane', () => {
     };
     assert.deepStrictEqual(describeLane(batch, '12'), {
       lane: 'stuck',
-      detail: `https://github.com/acme/api/pull/12 failed its checks on ${'c'.repeat(40)} at open-pull-request after 2 rounds; reminder 2026-10-17T12:00:00.000Z`,
+      detail: `https://github.com/acme/api/pull/12 failed its checks on ${'c'.repeat(40)} at open-pull-request after 2 rounds; reminder 2026-10-17 12:00 UTC`,
     });
   });
 
@@ -57,7 +57,7 @@ describe('describeLane', () => {
     };
     assert.deepStrictEqual(describeLane(batch, '12'), {
       lane: 'stuck',
-      detail: `https://github.com/acme/api/pull/12 got changes asked for on ${'c'.repeat(40)} at open-pull-request after 2 rounds: review 81 by ada, and 2 more; reminder 2026-10-17T12:00:00.000Z`,
+      detail: `https://github.com/acme/api/pull/12 got changes asked for on ${'c'.repeat(40)} at open-pull-request after 2 rounds: review 81 by ada, and 2 more; reminder 2026-10-17 12:00 UTC`,
     });
   });
 
@@ -90,7 +90,7 @@ describe('describeLane', () => {
     };
     assert.deepStrictEqual(describeLane(batch, '12'), {
       lane: 'stuck',
-      detail: `https://github.com/acme/api/pull/12 fails its checks on the merged tree with main at ${'e'.repeat(40)}: the check "test" (npm test), at open-pull-request after 1 round; reminder 2026-10-17T12:00:00.000Z`,
+      detail: `https://github.com/acme/api/pull/12 fails its checks on the merged tree with main at ${'e'.repeat(40)}: the check "test" (npm test), at open-pull-request after 1 round; reminder 2026-10-17 12:00 UTC`,
     });
   });
 
@@ -123,7 +123,7 @@ describe('describeLane', () => {
     };
     assert.deepStrictEqual(describeLane(batch, '12'), {
       lane: 'stuck',
-      detail: `https://github.com/acme/api/pull/12 conflicts with main at ${'e'.repeat(40)} in src/a.ts, logo.png, at open-pull-request after 2 rounds; reminder 2026-10-17T12:00:00.000Z`,
+      detail: `https://github.com/acme/api/pull/12 conflicts with main at ${'e'.repeat(40)} in src/a.ts, logo.png, at open-pull-request after 2 rounds; reminder 2026-10-17 12:00 UTC`,
     });
   });
 });
@@ -229,5 +229,32 @@ describe('foedrum status of a batch on tap, by how its pull requests ended', () 
       'done',
       'no pull request',
     ]);
+  });
+});
+
+describe('foedrum status shows a time as a person reads it (ADR 0386)', () => {
+  const batch = (lane: Batch['lane']): Batch => ({
+    id: '12-1',
+    issue: 12,
+    steps: new Map(),
+    rewinds: [],
+    lane,
+  });
+
+  it('foedrum status shows a routing time without milliseconds or a T', () => {
+    const ordered = batch({ kind: 'ordered', routeBy: '2026-11-12T13:36:00.098Z' });
+    assert.equal(describeLane(ordered, '12').detail, 'to be routed by 2026-11-12 13:36 UTC');
+  });
+
+  it('foedrum status shows a reminder time without milliseconds or a T', () => {
+    const waiting = batch({
+      kind: 'conditioning',
+      on: { kind: 'merge', pullRequest: 'https://github.com/acme/api/pull/12' },
+      remindAt: '2026-11-14T09:05:42.517Z',
+    });
+    assert.equal(
+      describeLane(waiting, '12').detail,
+      'waiting for the merge of https://github.com/acme/api/pull/12; reminder 2026-11-14 09:05 UTC',
+    );
   });
 });

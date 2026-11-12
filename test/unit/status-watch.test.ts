@@ -20,7 +20,7 @@ const T0 = Date.parse('2026-10-25T10:00:00.000Z');
 const ROUTE_BY = '2026-12-31T00:00:00.000Z';
 const REMIND = '2026-10-27T09:00:00.000Z';
 const DEADLINE = '2026-10-25T12:00:00.000Z';
-const ROUTED = `to be routed by ${ROUTE_BY}`;
+const ROUTED = 'to be routed by 2026-12-31 00:00 UTC';
 
 /** `ms` after the epoch as the store records a time. */
 const iso = (ms: number): string => new Date(ms).toISOString();
@@ -204,14 +204,14 @@ describe('foedrum status --watch: the board of the live batches (ADR 0188)', () 
             '13-1',
             '#13',
             'queued',
-            `waiting for the merge of https://github.com/acme/app/pull/8; reminder ${REMIND}`,
+            `waiting for the merge of https://github.com/acme/app/pull/8; reminder 2026-10-27 09:00 UTC`,
           ],
           [
             '-',
             '14-1',
             '#14',
             'waiting for you',
-            `look at a failure: blocked at review (findings): denied Bash(curl); reminder ${REMIND}`,
+            `look at a failure: blocked at review (findings): denied Bash(curl); reminder 2026-10-27 09:00 UTC`,
           ],
         ],
         '',

@@ -257,8 +257,7 @@ describe('the ladder steps', () => {
 
   it('say that the label chose the recipe and the plan comment names a recipe per sub-order', () => {
     const plan = LADDER_STEPS[0]?.lookFor ?? '';
-    assert.match(plan, /recipe:mash/);
-    assert.match(plan, /chosen by its label/);
+    assert.match(plan, /chosen by the issue's `recipe:mash` label/);
     assert.match(plan, /each with its recipe/);
   });
 });
