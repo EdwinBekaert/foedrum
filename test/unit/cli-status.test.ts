@@ -2,7 +2,13 @@
 
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { describeLane, formatOrderStatus, formatStatus, statusRow } from '../../src/cli/status.ts';
+import {
+  describeLane,
+  describeState,
+  formatOrderStatus,
+  formatStatus,
+  statusRow,
+} from '../../src/cli/status.ts';
 import { type Batch, emptyState, type State } from '../../src/engine/fold.ts';
 
 describe('describeLane', () => {
@@ -256,5 +262,17 @@ describe('foedrum status shows a time as a person reads it (ADR 0386)', () => {
       describeLane(waiting, '12').detail,
       'waiting for the merge of https://github.com/acme/api/pull/12; reminder 2026-11-14 09:05 UTC',
     );
+  });
+
+  it("foedrum stuck shows a stopped batch's reminder time without milliseconds or a T", () => {
+    const stopped = batch({
+      kind: 'stuck',
+      reason: { kind: 'stopped', stepId: 'plan', by: 'ann', via: 'terminal' },
+      options: ['retry', 'cancel'],
+      remindAt: '2026-11-14T09:05:42.517Z',
+    });
+    const state: State = { ...emptyState, batches: new Map([[stopped.id, stopped]]) };
+    const { detail } = describeState(state, stopped);
+    assert.ok(detail.endsWith('at plan via terminal; reminder 2026-11-14 09:05 UTC'), detail);
   });
 });
