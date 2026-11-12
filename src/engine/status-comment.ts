@@ -594,7 +594,7 @@ const stateHead = (state: BatchState): string => {
 
 /**
  * The batch's state (ADR 0385), and what it waits for or how it ended; for Stuck why. Never a
- * reminder's time, which changes alone. The marks stay the lanes' (🔔 for a person's action).
+ * reminder's time, which changes alone. The mark follows the state (🔔 for a person's action).
  */
 const laneText = (
   batch: Batch,
