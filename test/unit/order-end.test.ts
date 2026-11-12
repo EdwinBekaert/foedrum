@@ -255,6 +255,31 @@ describe('the end of a split order (ADR 0293)', () => {
     ]);
   });
 
+  it('shows an order whose sub-orders all merged as done in foedrum status (ADR 0385): regression test', () => {
+    const state = fold([...split(), ...bothMerged]);
+    const order = state.batches.get('1-1') ?? assert.fail('no batch 1-1');
+    assert.deepEqual(statusRow(state, order).slice(2), ['done', 'every sub-order merged']);
+  });
+
+  it("shows a Stuck sub-order's row as waiting for you (ADR 0385): regression test", async () => {
+    const state = fold([
+      ...split(),
+      ...libReleased,
+      {
+        type: 'batch.stuck',
+        batchId: '3-1',
+        reason: { kind: 'routing', deadlineAt: routeBy },
+        options: ['retry', 'cancel'],
+        remindAt: routeBy,
+      },
+    ]);
+    const lines = await statusLines(state);
+    assert.ok(
+      lines.includes('- #3 in acme/web: waiting for you, no pull request yet'),
+      lines.join('\n'),
+    );
+  });
+
   it('shows an order whose sub-orders still brew as running in foedrum status, with their numbers (ADR 0385): regression test', () => {
     const state = fold([...split(), ...libReleased]);
     const order = state.batches.get('1-1') ?? assert.fail('no batch 1-1');
