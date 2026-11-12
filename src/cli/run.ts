@@ -80,6 +80,8 @@ export interface CliContext {
    * missing or does not pass. Only `order` of a target issue reads it (ADR 0105).
    */
   config: () => BreweryConfig;
+  /** The batch ids the state branch's archive holds, by folder name (ADR 0383); none when absent. */
+  archived?: () => ReadonlySet<string>;
   /**
    * The claim refs on the GitHub host `config` names, through gh's own login (ADR 0073). Only
    * `order` of a target issue calls it.

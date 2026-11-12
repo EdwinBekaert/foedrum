@@ -603,21 +603,36 @@ export const orderIssue = async (
   state: () => State,
   order: OrderRef,
   claim: OrderClaim | undefined,
-  { claims, now, issued }: { claims: () => ClaimHost; now: Date; issued: Issued },
+  {
+    claims,
+    now,
+    issued,
+    archived = new Set(),
+  }: {
+    claims: () => ClaimHost;
+    now: Date;
+    issued: Issued;
+    /** The batch ids the archive holds, which no new batch takes (ADR 0383). */
+    archived?: ReadonlySet<string>;
+  },
 ): Promise<HumanCommand | { refused: string }> => {
   const { issue } = order;
   // Before the claim, so a refused order claims nothing; decide checks it again.
   const refused = orderRefusal(state(), order);
   if (refused !== undefined) return { refused };
   if (claim === undefined)
-    return { kind: 'order_again', ...issued(nextBatchId(state(), issue)), order };
+    return { kind: 'order_again', ...issued(nextBatchId(state(), issue, archived)), order };
   const { repo, brewery } = claim;
   const outcome = await claimIssue(claims(), { repo, issue, brewery, now: now.toISOString() });
   if (outcome.kind === 'taken') {
     const by = outcome.by ?? 'a ref whose record cannot be read';
     return { refused: `${repo}#${issue} is claimed by ${by}` };
   }
-  return { kind: 'order_again', ...issued(targetBatchId(state(), claim.alias, issue)), order };
+  return {
+    kind: 'order_again',
+    ...issued(targetBatchId(state(), claim.alias, issue, archived)),
+    order,
+  };
 };
 
 /** Why a decision on a Stuck batch is the terminal's (ADR 0125). */
@@ -975,6 +990,7 @@ export const commands: readonly RegisteredCommand[] = [
               claims: () => context.claims(claim?.config ?? context.config()),
               now: now(),
               issued,
+              archived: context.archived?.() ?? new Set(),
             });
             if ('refused' in ordered) return failed('recipe', ordered.refused);
             const decision = log.issue(ordered, now());
@@ -1161,6 +1177,7 @@ export const commands: readonly RegisteredCommand[] = [
           claims: () => context.claims(claim?.config ?? context.config()),
           now: context.now(),
           issued,
+          archived: context.archived?.() ?? new Set(),
         });
       });
     },

@@ -173,6 +173,32 @@ describe('laneLabel', () => {
     assert.equal(laneLabel(approved), 'foedrum:sub-orders');
   });
 
+  it("a rack batch on tap after its gate's approval has no lane label: it has no sub-orders (ADR 0383)", () => {
+    const gate = { ...approval, stepId: 'approval' };
+    const steps: Batch['steps'] = new Map([
+      [
+        'approval',
+        {
+          id: 'approval',
+          inputs: [],
+          attempts: new Map([
+            [
+              1,
+              {
+                phase: 'finished',
+                attempt: 1,
+                deadlineAt: at,
+                outcome: { kind: 'succeeded', output: { gate: 'human' } },
+              },
+            ],
+          ]),
+        },
+      ],
+    ]);
+    const racked = batch({ kind: 'on_tap', pullRequests: [] }, { approval: gate, steps });
+    assert.equal(laneLabel(racked), undefined);
+  });
+
   it('a batch on tap with no pull request and no approved plan has no lane label', () => {
     assert.equal(laneLabel(batch({ kind: 'on_tap', pullRequests: [] })), undefined);
   });

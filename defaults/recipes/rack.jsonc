@@ -1,0 +1,19 @@
+// Rack, the Brewery's cleanup (ADR 0383): racking moves finished beer off its sediment. A person
+// opens a Brewery issue labelled recipe:rack and approves it with foedrum approve; the engine then
+// archives the finished batches on the state branch, deletes the archive's folders older than six
+// months, and the files of the Brewery's .foedrum/tmp/ older than two days. No brewer, no model.
+// A Brewery changes the ages with a rack.jsonc of its own.
+{
+  "$schema": "../../schemas/recipe.json",
+  "name": "rack",
+  "type": "brew",
+  "description": "The Brewery's cleanup: archive the finished batches, delete old archive folders and old temporary files",
+  "steps": [
+    // The batch waits Stuck for a person's foedrum approve; this deadline is only its own
+    // attempt's, which ends at once (ADR 0383).
+    { "id": "approval", "gate": "human", "deadline": "1h" },
+    { "action": "archive" },
+    { "action": "deleteArchives", "olderThan": "180d" },
+    { "action": "deleteTemporary", "olderThan": "2d" }
+  ]
+}

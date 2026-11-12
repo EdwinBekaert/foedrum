@@ -4,6 +4,7 @@
 // claim effects, the attempt plans, the check runner and the guards, and the driver with the real
 // runner. Each caller says which batches its driver takes.
 
+import { dirname, join } from 'node:path';
 import { createAttemptPlans } from '../brewers/attempt-plans.ts';
 import { attemptSettingsCleaner } from '../brewers/attempt-settings-cleanup.ts';
 import { type CheckTree, createCheckRunner } from '../checks/check-runner.ts';
@@ -22,6 +23,7 @@ import { createCommandLog } from '../engine/command-log.ts';
 import {
   type Doing,
   type Driver,
+  type DriverActions,
   type DriverNotice,
   openDriver,
   type RepositoryWorktrees,
@@ -39,6 +41,7 @@ import { planCommentOf, planEffects } from '../engine/plan-comment.ts';
 import { planIssueEffects } from '../engine/plan-issues.ts';
 import { preExistingIssueEffects } from '../engine/pre-existing-issues.ts';
 import { type PullRequestRepository, pullRequestActions } from '../engine/pull-request-actions.ts';
+import { rackActions, withRack } from '../engine/rack.ts';
 import { readyForReviewEffects } from '../engine/ready-for-review.ts';
 import { recipeLabelEffects } from '../engine/recipe-label.ts';
 import { siblingEffects } from '../engine/sibling-pull-requests.ts';
@@ -297,7 +300,7 @@ export const wireDriver = async (
       : []),
   );
   // The login was read at the start, for the status comments (ADR 0072).
-  const actions = pullRequestActions({
+  const pullRequestAction = pullRequestActions({
     brewery: setup.brewery,
     repositories: pushes,
     host: pullRequests,
@@ -330,6 +333,26 @@ export const wireDriver = async (
     brewery: (repo) => repositoryNamed(repo)?.testMap?.text,
   });
   const mapLog = createCommandLog({ store, recipes: setup.recipes });
+  // Rack's actions beside the pull request's, where the state branch archives (ADR 0383).
+  const { shelve, dates, drop } = stateBranch;
+  const rackOf = (actions: DriverActions): DriverActions =>
+    shelve === undefined || dates === undefined || drop === undefined
+      ? actions
+      : withRack(
+          setup.recipes,
+          actions,
+          rackActions({
+            brewery: setup.brewery,
+            recipes: setup.recipes,
+            state,
+            store,
+            shelf: { shelve, dates, drop },
+            issueState: marks.issueState,
+            // The Brewery's .foedrum/tmp, beside its store.
+            temporary: join(dirname(setup.store), 'tmp'),
+            clock,
+          }),
+        );
   // Who approves a claimed order's issue, and by which labels (ADR 0359, ADR 0368).
   const approvers = {
     users: setup.intake.users,
@@ -530,7 +553,7 @@ export const wireDriver = async (
     resumes: resumes ?? attempts.resumes,
     alsoCleans: [attemptSettingsCleaner(setup.workRoot)],
     effects,
-    actions,
+    actions: rackOf(pullRequestAction),
     // Before each attempt of a claimed order, what changed on its issue since someone in users
     // approved it: anything asks the engineer (ADR 0368).
     orderCheck: createOrderCheck({

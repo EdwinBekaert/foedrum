@@ -11,20 +11,36 @@ const checkIssue = (issue: number): void => {
   }
 };
 
-/** The id of the next batch of `issue`: `<issue>-<n>`, with the first `n` no batch uses yet. */
-export const nextBatchId = (state: State, issue: number): string => {
+/** Whether a batch, or a folder of the archive, has `id` (ADR 0383). */
+const taken = (state: State, archived: ReadonlySet<string>, id: string): boolean =>
+  state.batches.has(id) || archived.has(id);
+
+/**
+ * The id of the next batch of `issue`: `<issue>-<n>`, with the first `n` no batch uses yet, nor a
+ * folder of the archive (ADR 0383).
+ */
+export const nextBatchId = (
+  state: State,
+  issue: number,
+  archived: ReadonlySet<string> = new Set(),
+): string => {
   checkIssue(issue);
   for (let n = 1; ; n++) {
     const id = `${issue}-${n}`;
-    if (!state.batches.has(id)) return id;
+    if (!taken(state, archived, id)) return id;
   }
 };
 
 /**
  * The id of the next batch of `issue` in the target repository named `alias`: `<alias>-<issue>`,
- * or `<alias>-<issue>-<n>` from 2 when a batch of the issue has that already.
+ * or `<alias>-<issue>-<n>` from 2 when a batch of the issue, or the archive, has that already.
  */
-export const targetBatchId = (state: State, alias: string, issue: number): string => {
+export const targetBatchId = (
+  state: State,
+  alias: string,
+  issue: number,
+  archived: ReadonlySet<string> = new Set(),
+): string => {
   if (!RepositoryAlias.safeParse(alias).success) {
     throw new RangeError(
       `The alias must be 1 to 20 lower-case letters and digits, starting with a letter, got ${JSON.stringify(alias)}`,
@@ -32,10 +48,10 @@ export const targetBatchId = (state: State, alias: string, issue: number): strin
   }
   checkIssue(issue);
   const first = `${alias}-${issue}`;
-  if (!state.batches.has(first)) return first;
+  if (!taken(state, archived, first)) return first;
   for (let n = 2; ; n++) {
     const id = `${first}-${n}`;
-    if (!state.batches.has(id)) return id;
+    if (!taken(state, archived, id)) return id;
   }
 };
 

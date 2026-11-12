@@ -445,6 +445,8 @@ const killableStore = (inner: EventStore, life: Life, watch: StoreWatch): EventS
     pushedThrough: reading(inner.pushedThrough),
     keptOutDocs: reading(inner.keptOutDocs),
     restore: reading(inner.restore),
+    forget: reading(inner.forget),
+    forgotten: reading(inner.forgotten),
     findEffect: reading(inner.findEffect),
     // The run's connection outlives every driver.
     close: () => {},

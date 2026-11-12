@@ -812,6 +812,16 @@ describe('createIntake', () => {
       ]);
     });
 
+    it('orders past the ids the archive holds, a Brewery issue and a target issue alike (ADR 0383): regression test', async () => {
+      const { tracker } = fakeTracker({ [brewery]: [labelled(12)], [web]: [issue(7)], [api]: [] });
+      const archived = () => new Set(['12-1', 'web-7']);
+      await breweryIntake(tracker, { archived }).poll();
+      assert.deepStrictEqual(
+        batches().map(({ id }) => id),
+        ['web-7-2', '12-2'],
+      );
+    });
+
     it('awaits its ordered hook between ordering and routing, only while an Ordered batch waits for its route (ADR 0316)', async () => {
       // The lanes as the hook sees them.
       const seen: string[][] = [];

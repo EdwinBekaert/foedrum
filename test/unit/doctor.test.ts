@@ -842,10 +842,7 @@ describe("diagnose: the Brewery's recipes (ADR 0053)", () => {
   const brewer = { path: 'brewers/maltster.md', text: brewerText('maltster') };
   const pale = {
     path: 'recipes/pale.jsonc',
-    text: recipeText('pale', [
-      { brewer: 'maltster' },
-      { id: 'approve', gate: 'human', deadline: '1d' },
-    ]),
+    text: recipeText('pale', [{ brewer: 'maltster' }, { id: 'split', fanOut: {} }]),
   };
 
   it('is not ok on a lens directly in lenses/, with the line that says where it belongs (ADR 0143)', () => {
@@ -867,7 +864,7 @@ describe("diagnose: the Brewery's recipes (ADR 0053)", () => {
     assert.equal(diagnosis.ok, false);
     const problem = diagnosis.problems.find(({ what }) => what === INVALID_RECIPES);
     const line =
-      'recipes/pale.jsonc: step "approve" is a gate step, which the engine does not brew yet (ADR 0053)';
+      'recipes/pale.jsonc: step "split" is a fanOut step, which the engine does not brew yet (ADR 0053)';
     assert.deepEqual(problem, { required: true, what: INVALID_RECIPES, fix: line });
     assert.equal(`${problem?.what}: ${problem?.fix}`, invalidRecipes([line]));
     // Valid recipe files, none, or none read: no problem.

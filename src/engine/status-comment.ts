@@ -46,7 +46,7 @@ import { changesText, issueUrl } from './order-changes.ts';
 import { orderEnd, type SubOrderRow, subOrderRows } from './order-end.ts';
 import { withoutSecrets } from './out-doc-text.ts';
 import { pauseOf, stopAtText } from './pauses.ts';
-import { allSubIssues } from './plan-applied.ts';
+import { allSubIssues, atGate, planApproval } from './plan-applied.ts';
 import { checkPassed } from './pr-checks.ts';
 import { type FiledIssue, filedIssues } from './pre-existing-issues.ts';
 import {
@@ -160,6 +160,10 @@ export const STEP_BACK = 'Another round is unlikely to help: plan the order agai
  */
 export const planNextStep = (called: string, command: (text: string) => string): string =>
   `read the plan and its assumptions; sign it off with ${command(`foedrum approve ${called}`)}, correct it in a session with ${command(`foedrum lauter ${called}`)}, plan it again with ${command(`foedrum retry ${called}`)}, or end it with ${command(`foedrum cancel ${called}`)}.`;
+
+/** What a person does with a batch that waits at a human gate (ADR 0383). */
+export const gateNextStep = (called: string, command: (text: string) => string): string =>
+  `go on with ${command(`foedrum approve ${called}`)}, or end it with ${command(`foedrum cancel ${called}`)}.`;
 
 /**
  * An option as a line offers it: its name, under a comment that says its number, or the whole command
@@ -275,9 +279,10 @@ const stuckText = (
   reason: StuckReason,
   told: Told,
   called: string,
-  { repo, issue }: Batch,
+  batch: Batch,
   planComment?: string,
 ): string => {
+  const { repo, issue } = batch;
   switch (reason.kind) {
     case 'needs_input':
       return `${code(reason.stepId)} needs input`;
@@ -324,6 +329,8 @@ const stuckText = (
       return `${code(reason.stepId)}: ${link(reason.pullRequest)} failed its checks on ${code(reason.head)} ${after}: ${[...checks, ...more].join(', ')}`;
     }
     case 'plan_review': {
+      // A human gate waits for a go, with no plan (ADR 0383).
+      if (atGate(batch, reason)) return `run ${code(`foedrum approve ${called}`)}`;
       return planComment === undefined
         ? `${code(reason.stepId)} #${reason.attempt}`
         : labelled('plan comment', planComment);
@@ -639,7 +646,7 @@ const laneText = (
     }
     case 'on_tap': {
       // A plan a person signed off is on tap with no pull request (ADR 0281).
-      const { approval } = batch;
+      const approval = planApproval(batch);
       const approved =
         approval === undefined ? [] : [`plan approved by ${plain(approval.by)} (${approval.via})`];
       switch (state.kind) {
@@ -709,7 +716,9 @@ const nextLines = (
     switch (reason.kind) {
       // What to do with a plan that waits for its review (ADR 0275, ADR 0281).
       case 'plan_review':
-        return [planNextLine(called, options, batch.id)];
+        return atGate(batch, reason)
+          ? [`Next: ${gateNextStep(called, code)}`]
+          : [planNextLine(called, options, batch.id)];
       case 'needs_input': {
         const answers = reason.questions.map((_, n) => `<answer ${n + 1}>`).join(' ');
         const others = options.filter((option) => option !== 'answer');
@@ -733,7 +742,7 @@ const nextLines = (
   const unended = lane.pullRequests.filter((url) => batch.pullRequestEnds?.[url] === undefined);
   if (unended.length > 0) return [`Next: ${pullRequestsNext(unended, brief, open)}.`];
   // A split order hands its work to its sub-orders (ADR 0293).
-  if (lane.pullRequests.length > 0 || (batch.approval === undefined && rows.length === 0)) {
+  if (lane.pullRequests.length > 0 || (planApproval(batch) === undefined && rows.length === 0)) {
     return [];
   }
   const end = orderEnd(rows);

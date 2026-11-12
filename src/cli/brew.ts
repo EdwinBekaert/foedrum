@@ -34,6 +34,7 @@ import { orderEffects } from '../engine/issue-claims.ts';
 import { orderOfBatch, pauseOf } from '../engine/pauses.ts';
 import { planCommentOf } from '../engine/plan-comment.ts';
 import { MASH_IN } from '../engine/recipe-label.ts';
+import { archivedIds } from '../engine/state-branch-git.ts';
 import { statusCommentOf } from '../engine/status-comment.ts';
 import type { AttemptProgress } from '../engine/supervisor.ts';
 import { githubOrderLabels, type OrderIssue } from '../github/order-text.ts';
@@ -712,6 +713,7 @@ export const runBrew = async (
           claims: () => claims,
           now: clock(),
           issued: (id) => ({ batchId: id, by, via }),
+          archived: archivedIds(setup.stateWorktree),
         }),
       );
       if ('refused' in command) return refuse(command.refused);
