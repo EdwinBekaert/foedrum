@@ -1,6 +1,6 @@
 # 0387. Serve opens a rack issue every 4 weeks
 
-Date: 2026-11-12 · Status: Accepted · Amends [0383](0383-rack-archives-finished-batches-and-deletes-old-archive-folders-and-temporary-files.md) (rack is started by an issue serve opens too, on a schedule), [0063](0063-foedrum-serve-its-configuration-and-wiring.md) (serve's loop reads the rack issues beside its ticks) and [0033](0033-chaos-tests-effects-found-by-key-and-leases-at-start.md) (the rack issue is an external side effect opened outside the ledger, found again by its label)
+Date: 2026-11-12 · Status: Accepted · Amends [0383](0383-rack-archives-finished-batches-and-deletes-old-archive-folders-and-temporary-files.md) (rack is started by an issue serve opens too, on a schedule, and its issue is closed once it ran), [0063](0063-foedrum-serve-its-configuration-and-wiring.md) (serve's loop reads the rack issues beside its ticks), [0296](0296-a-target-repository-s-pull-request-names-no-brewery-issue-and-the-engine-closes-it.md) (the engine also closes a finished rack batch's issue) and [0033](0033-chaos-tests-effects-found-by-key-and-leases-at-start.md) (the rack issue is an external side effect opened outside the ledger, found again by its label)
 
 ## Context
 Rack, the Brewery's cleanup, runs when a Brewery issue labelled `recipe:rack` is ordered and a person gives their go (ADR 0383).
@@ -20,6 +20,10 @@ The maintainer decided on 2026-11-12: `foedrum serve` opens one every 4 weeks, w
 - A read or an open that fails opens nothing and says one line, `the rack check failed: …`; the next read, an hour later, tries again.
 - The 4 weeks are fixed. A setting comes only when someone needs another period.
 - Only serve opens it; `foedrum brew` does not.
+- Once rack ran to its end, the engine closes its Brewery issue, so the next read finds every rack issue closed.
+  The close is due when the batch's recipe is `rack`, its lane is on tap with no pull requests, and it is the issue's latest batch; it goes through the close's ledger effects `close.comment` and `close.issue` (ADR 0296), with the comment `Rack ran; Foedrum closes this cleanup.` (`dueClose`, `src/engine/brewery-closes.ts`).
+  Without it nothing would close the issue, and serve would open no second one: a batch on tap with no pull request closed nothing before.
+  Another recipe that ends on tap with no pull request still leaves its issue open.
 
 ### Why no ledger
 - The ledger keys an effect by its batch, and its record is an `effect.applied` event; a rack issue belongs to no batch, and a new key or event was ruled out.
@@ -31,6 +35,7 @@ The maintainer decided on 2026-11-12: `foedrum serve` opens one every 4 weeks, w
 ## Consequences
 - **What an existing Brewery must do: nothing.** Foedrum has no release. A Brewery with the default `rack` gets its first rack issue at serve's next start, unless one opened in the last 28 days.
 - The intake orders a Brewery issue only when its author is in `users` (ADR 0068). Serve opens it as gh's login, which `foedrum init` puts in `users`; a Brewery that took that login out gets an issue every 4 weeks that the intake never orders. The design page says so; nothing is built against it.
+- Rack's archive waits for that close as for any close still due (ADR 0383), and takes the rack batch once its issue is closed, at the next rack run.
 - A person who closes the issue skips one cleanup; the next opens 4 weeks after the closed one was opened, not after it was closed.
 - A rack issue someone else opened counts as the newest as well, and so does an open one: serve opens none beside it.
 
