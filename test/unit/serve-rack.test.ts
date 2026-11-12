@@ -67,21 +67,33 @@ describe('runServe', () => {
       options: {
         waits?: number;
         stepMs?: number;
-        instead?: (method: string, url: URL) => Instead | undefined;
+        /** The answer instead of the fake's own, given the minute of serve's clock. */
+        instead?: (method: string, url: URL, minute: number) => Instead | undefined;
       } = {},
     ) => {
       const { waits = 4, stepMs = 5000, instead } = options;
+      let now = t0.getTime();
+      const minute = () => (now - t0.getTime()) / 60_000;
       const github = fakeGitHubApi({
         login: 'ann',
         issues: { 'acme/brewery': issues },
-        ...(instead === undefined ? {} : { instead }),
+        ...(instead === undefined
+          ? {}
+          : { instead: (method: string, url: URL) => instead(method, url, minute()) }),
       });
-      let now = t0.getTime();
+      // The minute of serve's clock at which each rack read went out.
+      const readAt: number[] = [];
       let waited = 0;
       const ran = await runServe(
         f.setup,
         shell({
-          fetch: github.fetch,
+          fetch: (input, init) => {
+            const url = new URL(String(input));
+            if (rackRead(`${init?.method ?? 'GET'} ${url.pathname}${url.search}`)) {
+              readAt.push(minute());
+            }
+            return github.fetch(input, init);
+          },
           runner: () => hanging,
           clock: () => new Date(now),
           wait: async () => {
@@ -97,7 +109,8 @@ describe('runServe', () => {
         (request) => request.toLowerCase() === 'post /repos/acme/brewery/issues',
       );
       const rackIssues = github.issues['acme/brewery'] ?? [];
-      return { github, reads: github.requests.filter(rackRead).length, opened, rackIssues };
+      const reads = github.requests.filter(rackRead).length;
+      return { github, reads, readAt, opened, rackIssues };
     };
     const rackIssue = (
       number: number,
@@ -228,6 +241,84 @@ describe('runServe', () => {
         f.lines.filter((line) => line.includes('rack check failed')),
         [],
       );
+    });
+
+    it("serve's rate-limited rack read holds the intake off, and a pause holds the next read off", async () => {
+      // The rack read at 0 is refused until 30 minutes in; the intake's listing at 55 minutes until
+      // 80, so the hourly read at 60 waits until then.
+      const limited = (minute: number) => ({
+        status: 403,
+        body: { message: 'API rate limit exceeded' },
+        headers: {
+          'x-ratelimit-remaining': '0',
+          'x-ratelimit-reset': String(Math.floor((t0.getTime() + minute * 60_000) / 1000)),
+        },
+      });
+      let rackRefused = false;
+      let listingRefused = false;
+      const { readAt } = await serve([rackIssue(5, 1, 'closed')], {
+        waits: 20,
+        stepMs: 5 * 60_000,
+        instead: (method, url, minute) => {
+          if (rackRead(`${method} ${url.pathname}${url.search}`)) {
+            if (rackRefused) return undefined;
+            rackRefused = true;
+            return limited(30);
+          }
+          const listing = url.pathname.toLowerCase() === '/repos/acme/brewery/issues';
+          if (!listing || listingRefused || minute < 55) return undefined;
+          listingRefused = true;
+          return limited(80);
+        },
+      });
+      assert.deepStrictEqual(readAt, [0, 80], f.lines.join('\n'));
+      assert.equal(f.lines.filter((line) => line.includes('rack check failed')).length, 1);
+      // Only the listing refused at 55 minutes: no pass started while the rack read's pause held.
+      assert.equal(
+        f.lines.filter((line) => line.includes('the intake failed')).length,
+        1,
+        f.lines.join('\n'),
+      );
+    });
+
+    it('serve waits for the rack read underway before it returns from a stop', async () => {
+      const github = fakeGitHubApi({ login: 'ann', issues: { 'acme/brewery': [] } });
+      const events: string[] = [];
+      let release = (): void => {};
+      const held = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      // The rack read answers only once serve said it stopped, whatever the stop's signal says.
+      const fetch: typeof globalThis.fetch = async (input, init) => {
+        const url = new URL(String(input));
+        if (!rackRead(`${init?.method ?? 'GET'} ${url.pathname}${url.search}`)) {
+          return github.fetch(input, init);
+        }
+        await held;
+        const { signal: _stop, ...rest } = init ?? {};
+        const answer = await github.fetch(input, rest);
+        events.push('answered');
+        return answer;
+      };
+      let waited = 0;
+      const ran = await runServe(
+        f.setup,
+        shell({
+          fetch,
+          runner: () => hanging,
+          out: (line) => {
+            f.lines.push(line);
+            if (line === 'foedrum serve: stopped') setTimeout(release, 0);
+          },
+          wait: async () => {
+            await new Promise((resolve) => setTimeout(resolve, 1));
+            if (++waited >= 2) f.controller.abort();
+          },
+        }),
+      );
+      events.push('returned');
+      assert.equal(ran, 0, f.lines.join('\n'));
+      assert.deepStrictEqual(events, ['answered', 'returned']);
     });
 
     it('serve reads the rack issues at its start and then at most once an hour', async () => {
