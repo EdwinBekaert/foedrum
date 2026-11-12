@@ -4,7 +4,7 @@
 
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { describeLane } from '../../src/cli/status.ts';
+import { describeLane, statusRow } from '../../src/cli/status.ts';
 import { formatStuck } from '../../src/cli/stuck.ts';
 import { type Batch, emptyState, type State } from '../../src/engine/fold.ts';
 import { laneLabel } from '../../src/engine/lane-labels.ts';
@@ -61,10 +61,18 @@ describe('an order that changed after its approval, as people see it (ADR 0368)'
     const text = renderStatus(changed);
     assert.ok(
       text.includes(
-        `${'`plan`'} waits for you: [acme/app\\#7](<https://github.com/acme/app/issues/7>) changed after its approval: ${what}. Run ${'`foedrum answer 7 continue`'} to brew it as it is now, or ${'`foedrum answer 7 stop`'} to end the batch`,
+        `${'`plan`'}: [acme/app\\#7](<https://github.com/acme/app/issues/7>) changed after its approval: ${what}. Run ${'`foedrum answer 7 continue`'} to brew it as it is now, or ${'`foedrum answer 7 stop`'} to end the batch`,
       ),
       text,
     );
+  });
+
+  it('the status comment and foedrum status say it waits for an answer, not a look at a failure (ADR 0385): regression test', () => {
+    const line = renderStatus(changed).split('\n')[2] ?? '';
+    assert.ok(line.startsWith('🔔 **Waiting for you**: answer a question: `plan`: '), line);
+    const [, , state, detail] = statusRow(stateOf(changed), changed);
+    assert.equal(state, 'waiting for you');
+    assert.ok(detail?.startsWith('answer a question: the order changed at plan: '), detail);
   });
 
   it("the status comment's Next: line names continue and stop", () => {

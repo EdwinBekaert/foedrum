@@ -16,6 +16,13 @@ import { planOf } from '../schemas/plan.ts';
 import { ChosenBy } from '../schemas/recipe.ts';
 import type { MergeBrief } from '../schemas/status-comment.ts';
 import type { SensitiveFiles } from '../schemas/store.ts';
+import {
+  type BatchState,
+  batchState,
+  type DoneHow,
+  stateWords,
+  waitingWords,
+} from './batch-state.ts';
 import type { MarkedComment } from './claim-effects.ts';
 import { breweryIssueOf, calledAs } from './claim-orders.ts';
 import { commentRevisions, cutForComment, type DueRevision } from './comment-revisions.ts';
@@ -26,7 +33,6 @@ import {
   baseChecksOn,
   batchEnded,
   type Input,
-  type Lane,
   type Pause,
   type State,
   stuckOnFailing,
@@ -318,19 +324,20 @@ const stuckText = (
       return `${code(reason.stepId)}: ${link(reason.pullRequest)} failed its checks on ${code(reason.head)} ${after}: ${[...checks, ...more].join(', ')}`;
     }
     case 'plan_review': {
-      const at = planComment === undefined ? '' : `: ${labelled('plan comment', planComment)}`;
-      return `the plan of ${code(reason.stepId)} #${reason.attempt} is ready for your review${at}`;
+      return planComment === undefined
+        ? `${code(reason.stepId)} #${reason.attempt}`
+        : labelled('plan comment', planComment);
     }
     // Who stopped it and why are a person's words, shown as plain text (ADR 0205).
     case 'stopped': {
       const why = reason.why === undefined ? '' : `: ${plain(reason.why)}`;
-      return `${code(reason.stepId)} was stopped by ${plain(reason.by)} (${reason.via})${why}`;
+      return `at ${code(reason.stepId)}, from the ${reason.via}${why}`;
     }
     // The issue's link and the logins GitHub gave, as plain text (ADR 0368).
     case 'order_changed': {
       const where = labelled(`${repo ?? ''}#${issue}`, issueUrl(repo ?? '', issue));
       const answer = (word: string) => code(`foedrum answer ${called} ${word}`);
-      return `${code(reason.stepId)} waits for you: ${where} changed after its approval: ${changesText(reason, plain)}. Run ${answer('continue')} to brew it as it is now, or ${answer('stop')} to end the batch`;
+      return `${code(reason.stepId)}: ${where} changed after its approval: ${changesText(reason, plain)}. Run ${answer('continue')} to brew it as it is now, or ${answer('stop')} to end the batch`;
     }
     default:
       return reason satisfies never;
@@ -540,25 +547,15 @@ const checkLine = (batch: Batch, url: string): string | undefined => {
   return `- ${link(url)} failed its checks on ${head}: ${plain(named.name)} (${named.conclusion})${at}${more}`;
 };
 
-/** A sub-order's latest batch's lane, in a few words (ADR 0293). */
-const laneWords: Record<Lane['kind'], string> = {
-  ordered: 'ordered',
-  brewing: 'brewing',
-  conditioning: 'conditioning',
-  stuck: 'Stuck',
-  on_tap: 'on tap',
-  cancelled: 'cancelled',
-};
-
 /**
  * A sub-order of the batch's order: its pull request by its state, and the release after its
- * merge (ADR 0292); before it has one, its lane, or that its plan entry needs refinement (ADR 0293).
+ * merge (ADR 0292); before it has one, its state (ADR 0385), or that its plan entry needs refinement (ADR 0293).
  */
 const subOrderPullLine = (row: SubOrderRow): string => {
-  const { subOrder, repo, pullRequest, state, lane, release, left } = row;
+  const { subOrder, repo, pullRequest, state, now, release, left } = row;
   const where = `- #${subOrder} in ${plain(repo)}`;
   if (pullRequest === undefined) {
-    if (lane !== undefined) return `${where}: ${laneWords[lane]}, no pull request yet`;
+    if (now !== undefined) return `${where}: ${stateWords[now.kind]}, no pull request yet`;
     return `${where}: ${left === 'needs refinement' ? left : 'not ordered yet'}`;
   }
   const at = release?.url === undefined ? '' : ` ${link(release.url)}`;
@@ -566,18 +563,19 @@ const subOrderPullLine = (row: SubOrderRow): string => {
   return `${where}: ${link(pullRequest)}, ${stateText[state]}${releasedAs}`;
 };
 
-/** Whether the order is done, or which of its sub-orders keep it open and why (ADR 0293). */
+/**
+ * Which of the order's sub-orders keep it open and why (ADR 0293); a done order says so on its
+ * state line (ADR 0385).
+ */
 const orderEndLines = (rows: readonly SubOrderRow[]): string[] => {
   const end = orderEnd(rows);
-  if (end === undefined) return [];
-  if (end.kind === 'done') return ['🍻 **Done**: every sub-order merged'];
-  if (end.left.length === 0) return [];
+  if (end === undefined || end.kind === 'done' || end.left.length === 0) return [];
   const named = end.left.map(({ subOrder, why }) => `#${subOrder} (${why})`);
   return [`Keeps the order open: ${named.join(', ')}`];
 };
 
 /** Issue `numbers` as `#1, #2`. */
-const issueNumbers = (numbers: readonly number[]): string =>
+export const issueNumbers = (numbers: readonly number[]): string =>
   numbers.map((number) => `#${number}`).join(', ');
 
 /** A batch's mark, in a lane it changes nothing in (ADR 0335); a Stuck reason on it says it itself. */
@@ -588,22 +586,34 @@ const failingLines = ({ failing, lane }: Batch, told: Told): string[] =>
         `⚠️ **Failing**: the ${failing.pass} pass has failed since ${failing.since}: ${told(failing.summary, '')}`,
       ];
 
-/** The lane, and for Stuck why; never a reminder's time, which changes alone. */
+/** A state's own words as a comment's line starts them, in bold: `**Waiting for you**`. */
+const stateHead = (state: BatchState): string => {
+  const words = stateWords[state.kind];
+  return `**${words.charAt(0).toUpperCase()}${words.slice(1)}**`;
+};
+
+/**
+ * The batch's state (ADR 0385), and what it waits for or how it ended; for Stuck why. Never a
+ * reminder's time, which changes alone. The mark follows the state (🔔 for a person's action).
+ */
 const laneText = (
   batch: Batch,
   told: Told,
   called: string,
   planComment?: string,
   subIssues?: readonly number[],
+  rows: readonly SubOrderRow[] = [],
 ): string[] => {
   const { lane } = batch;
+  const state = batchState(batch, rows);
+  const head = stateHead(state);
   switch (lane.kind) {
     case 'ordered':
-      return ['📥 **Ordered**: waiting for a recipe'];
+      return [`📥 ${head}: waiting for a recipe`];
     case 'brewing':
-      return ['🍺 **Brewing**'];
+      return [`🍺 ${head}`];
     case 'conditioning':
-      return [`⏳ **Conditioning**: waiting for ${waitText(lane.on)}`];
+      return [`⏳ ${head}: waiting for ${waitText(lane.on)}`];
     case 'stuck': {
       const { reason } = lane;
       const asked = reason.kind === 'needs_input' ? reason.questions : [];
@@ -618,8 +628,9 @@ const laneText = (
       if (asked.length > questions.length) {
         questions.push(`- and ${asked.length - questions.length} more questions`);
       }
+      const what = state.kind === 'waiting' ? waitingWords(state.for, plain) : '';
       return [
-        `🔔 **Stuck**: ${stuckText(reason, told, called, batch, planComment)}`,
+        `🔔 ${head}: ${what}: ${stuckText(reason, told, called, batch, planComment)}`,
         ...questions,
         ...(reason.kind === 'blocked' && reason.roundsOut !== undefined
           ? openLines(reason.stepId, reason.roundsOut, told)
@@ -629,17 +640,51 @@ const laneText = (
     case 'on_tap': {
       // A plan a person signed off is on tap with no pull request (ADR 0281).
       const { approval } = batch;
-      if (approval === undefined) return ['🍻 **On tap**'];
-      const opened =
-        subIssues === undefined || subIssues.length === 0
-          ? ''
-          : `; sub-issues ${issueNumbers(subIssues)}`;
-      return [`🍻 **On tap**: plan approved by ${plain(approval.by)} (${approval.via})${opened}`];
+      const approved =
+        approval === undefined ? [] : [`plan approved by ${plain(approval.by)} (${approval.via})`];
+      switch (state.kind) {
+        case 'waiting':
+          return [`🔔 ${head}: ${waitingWords(state.for, plain)}`];
+        case 'running': {
+          const numbers = (state.subOrders?.length ?? 0) > 0 ? state.subOrders : subIssues;
+          const named =
+            numbers === undefined || numbers.length === 0 ? '' : ` (${issueNumbers(numbers)})`;
+          return [`🍺 ${head}: ${[`the sub-orders brew${named}`, ...approved].join('; ')}`];
+        }
+        case 'done':
+          return [`🍻 ${head}: ${doneWords(state.how)}`];
+        // batchState never queues an on-tap batch: shown as it would be, never thrown.
+        case 'queued':
+          return [`📥 ${head}`];
+        default:
+          return state satisfies never;
+      }
     }
     case 'cancelled':
-      return [`🚫 **Cancelled** by ${plain(lane.by)} (${lane.via})`];
+      return [`🚫 ${head}: ${doneWords({ kind: 'cancelled', by: lane.by, via: lane.via })}`];
     default:
       return lane satisfies never;
+  }
+};
+
+/** How an on-tap batch ended, in the comment's words. */
+const doneWords = (how: DoneHow): string => {
+  switch (how.kind) {
+    case 'pull_requests':
+      return [
+        ...(how.merged.length === 0 ? [] : [`merged ${how.merged.map(link).join(', ')}`]),
+        ...(how.closed.length === 0
+          ? []
+          : [`closed without merging ${how.closed.map(link).join(', ')}`]),
+      ].join('; ');
+    case 'sub_orders':
+      return 'every sub-order merged';
+    case 'no_pull_request':
+      return 'no pull request';
+    case 'cancelled':
+      return `cancelled by ${plain(how.by)} (${how.via})`;
+    default:
+      return how satisfies never;
   }
 };
 
@@ -701,7 +746,7 @@ const nextLines = (
   const numbers = rows.length > 0 ? rows.map(({ subOrder }) => subOrder) : (subIssues ?? []);
   const named = numbers.length === 0 ? '' : ` (${issueNumbers(numbers)})`;
   return [
-    `Next: nothing to do; the sub-orders brew${named}, and each pull request comes to you on tap.`,
+    `Next: nothing to do; the sub-orders brew${named}, and each pull request comes to you to merge.`,
   ];
 };
 
@@ -1339,7 +1384,7 @@ export const renderStatus = (
   const sections = [
     [`### Foedrum · batch ${code(batch.id)}`],
     [
-      ...laneText(batch, told, String(order), planComment, subIssues),
+      ...laneText(batch, told, String(order), planComment, subIssues, subOrderPulls),
       ...failingLines(batch, told),
       ...orderEndLines(subOrderPulls),
       ...subOrderPulls.map(subOrderPullLine),

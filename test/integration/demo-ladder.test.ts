@@ -234,7 +234,7 @@ describe('npm run demo -- ladder', () => {
       standing(
         1,
         'foedrum:sub-orders',
-        'nothing to do; the sub-orders brew \\(#2, #3\\), and each pull request comes to you on tap\\.',
+        'nothing to do; the sub-orders brew \\(#2, #3\\), and each pull request comes to you to merge\\.',
       ),
     );
     assert.match(

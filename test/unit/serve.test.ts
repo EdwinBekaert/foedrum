@@ -874,7 +874,7 @@ describe('runServe', () => {
     const status = f.api.comments.get('acme/brewery#12') ?? [];
     assert.equal(status.length, 1, 'one status comment');
     assert.equal(status[0]?.author, 'ann');
-    assert.match(status[0]?.body ?? '', /On tap/);
+    assert.match(status[0]?.body ?? '', /Waiting for you\*\*: merge a pull request/);
     assert.match(status[0]?.body ?? '', /`brew`/);
     // The batch goes on tap within the first tick, so whether an edit came first is the timing's.
     assert.match(status[0]?.body ?? '', /<!-- foedrum:\["12-1","status\.\d+"\] -->$/);

@@ -53,7 +53,7 @@ export const LADDER_STEPS: readonly (Omit<Step, 'id'> & { id: string })[] = [
   {
     id: 'approve',
     title: `foedrum approve ${LADDER_ORDER.number}`,
-    lookFor: 'the plan signed off by its digest: the batch goes on tap.',
+    lookFor: 'the plan signed off by its digest: the order runs its sub-orders.',
   },
   {
     id: 'sub-issues',

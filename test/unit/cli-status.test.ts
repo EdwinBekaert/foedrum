@@ -143,31 +143,23 @@ describe('foedrum status of a batch on tap, by how its pull requests ended', () 
     ...emptyState,
     batches: new Map([[batch.id, batch]]),
   });
-  /** The detail cell of the batch's row, whose layout is id, order, lane, detail. */
+  /** The detail cell of the batch's row, whose layout is id, order, state, detail. */
   const detailOf = (batch: Batch): string => statusRow(stateOf(batch), batch)[3] ?? '';
-  /** What the detail says between `url` and the next link (or its end). */
-  const saidOf = (detail: string, url: string, next?: string): string => {
-    const from = detail.indexOf(url);
-    assert.notEqual(from, -1, `${url} is in ${detail}`);
-    const to = next === undefined ? detail.length : detail.indexOf(next);
-    assert.ok(to > from, `${next} follows ${url} in ${detail}`);
-    return detail.slice(from + url.length, to);
-  };
 
   it('foedrum status of a batch whose pull request merged says so', () => {
     const batch = onTap([first], { [first]: 'merged' });
     const text = formatStatus(stateOf(batch));
     const row = text.split('\n').find((line) => line.includes('7-1')) ?? '';
-    assert.match(row, /^ {2}7-1 +#7 +on tap +/);
+    assert.match(row, /^ {2}7-1 +#7 +done +/);
     assert.ok(row.includes(first), row);
     assert.match(row, /\bmerged\b/);
   });
 
-  it('keeps the four cells of the row, the lane still on tap, and the link', () => {
+  it('keeps the four cells of the row, the state done, and the link', () => {
     const batch = onTap([first], { [first]: 'merged' });
     const row = statusRow(stateOf(batch), batch);
     assert.equal(row.length, 4);
-    assert.deepStrictEqual(row.slice(0, 3), ['7-1', '#7', 'on tap']);
+    assert.deepStrictEqual(row.slice(0, 3), ['7-1', '#7', 'done']);
     assert.ok(row[3]?.includes(first), row[3]);
     assert.match(row[3] ?? '', /\bmerged\b/);
   });
@@ -179,51 +171,38 @@ describe('foedrum status of a batch on tap, by how its pull requests ended', () 
     assert.doesNotMatch(detail, /\bmerged\b/);
   });
 
-  it('says a pull request with no end is still open', () => {
+  it('says a pull request with no end waits for you to merge it', () => {
     const detail = detailOf(onTap([first]));
     assert.ok(detail.includes(first), detail);
-    assert.match(detail, /\bopen\b/);
+    assert.match(detail, /^merge a pull request: /);
     assert.doesNotMatch(detail, /\b(merged|closed|done)\b/i);
   });
 
-  it('says it of each pull request beside its own link', () => {
+  it('says how each pull request ended, before its own link', () => {
     const detail = detailOf(onTap([first, second], { [first]: 'closed', [second]: 'merged' }));
-    const ofFirst = saidOf(detail, first, second);
-    const ofSecond = saidOf(detail, second);
-    assert.match(ofFirst, /\bclosed\b/);
-    assert.doesNotMatch(ofFirst, /\bmerged\b/);
-    assert.match(ofSecond, /\bmerged\b/);
-    assert.doesNotMatch(ofSecond, /\bclosed\b/);
+    assert.equal(detail, `merged: ${second}; closed without merging: ${first}`);
   });
 
   it('says of a batch with one pull request merged and one still open which is which, and not that it is done', () => {
     const detail = detailOf(onTap([first, second], { [first]: 'merged' }));
-    assert.match(saidOf(detail, first, second), /\bmerged\b/);
-    assert.match(saidOf(detail, second), /\bopen\b/);
+    assert.equal(detail, `merge a pull request: ${second}; merged: ${first}`);
     assert.doesNotMatch(detail, /\bdone\b/i);
-  });
-
-  it('foedrum status of a batch whose pull requests all merged says merged and not done', () => {
-    const detail = detailOf(onTap([first, second], { [first]: 'merged', [second]: 'merged' }));
-    assert.match(saidOf(detail, first, second), /merged/);
-    assert.match(saidOf(detail, second), /merged/);
-    assert.doesNotMatch(detail, /done/i);
   });
 
   it('says it in the board of an order too', () => {
     const batch = onTap([first], { [first]: 'merged' });
     const text = formatOrderStatus(stateOf(batch), [batch], new Map());
     const row = text.split('\n').find((line) => line.includes('7-1')) ?? '';
-    assert.match(row, /^ {2}7-1 +#7 +on tap +/);
+    assert.match(row, /^ {2}7-1 +#7 +done +/);
     assert.match(row, /\bmerged\b/);
   });
 
-  it('keeps the pull request’s link and the lane of a batch whose pull request has not ended (regression test)', () => {
+  it('keeps the pull request’s link, waiting for you, of a batch whose pull request has not ended', () => {
     assert.deepStrictEqual(describeLane(onTap([first]), '7'), { lane: 'on tap', detail: first });
     const open = onTap([first]);
     const row = statusRow(stateOf(open), open);
-    assert.deepStrictEqual(row.slice(0, 3), ['7-1', '#7', 'on tap']);
-    assert.ok(row[3]?.startsWith(first), row[3]);
+    assert.deepStrictEqual(row.slice(0, 3), ['7-1', '#7', 'waiting for you']);
+    assert.equal(row[3], `merge a pull request: ${first}`);
   });
 
   it('keeps what a plan a person signed off says, with no pull request (regression test)', () => {
@@ -242,8 +221,13 @@ describe('foedrum status of a batch on tap, by how its pull requests ended', () 
     });
   });
 
-  it('says nothing of pull requests for a batch on tap that has none (regression test)', () => {
+  it('says a batch on tap that has no pull request is done with none', () => {
     const batch = onTap([]);
-    assert.deepStrictEqual(statusRow(stateOf(batch), batch), ['7-1', '#7', 'on tap', '']);
+    assert.deepStrictEqual(statusRow(stateOf(batch), batch), [
+      '7-1',
+      '#7',
+      'done',
+      'no pull request',
+    ]);
   });
 });

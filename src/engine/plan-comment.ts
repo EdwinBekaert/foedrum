@@ -13,6 +13,7 @@ import {
   planOf,
 } from '../schemas/plan.ts';
 import type { StatusRevision } from '../schemas/status-comment.ts';
+import { waitingWords } from './batch-state.ts';
 import { breweryIssueOf, calledAs } from './claim-orders.ts';
 import {
   commentRevisions,
@@ -314,7 +315,12 @@ export const renderPlan = (
               ]),
           ...(notReady.length === 0 ? [] : ['', `Not ready: ${notReady.join(', ')}.`]),
         ]
-      : [waitsForReview ? `Waiting for ${code(`foedrum approve ${called}`)}.` : 'None yet.'];
+      : [
+          // The state its status comment shows too (ADR 0385).
+          waitsForReview
+            ? `Waiting for you: ${waitingWords({ kind: 'approve' }, plain)} with ${code(`foedrum approve ${called}`)}.`
+            : 'None yet.',
+        ];
   const after = [
     [
       '**Review**',
