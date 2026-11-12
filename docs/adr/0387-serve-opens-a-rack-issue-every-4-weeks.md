@@ -1,6 +1,6 @@
 # 0387. Serve opens a rack issue every 4 weeks
 
-Date: 2026-11-12 · Status: Accepted · Amends [0383](0383-rack-archives-finished-batches-and-deletes-old-archive-folders-and-temporary-files.md) (rack is started by an issue serve opens too, on a schedule) and [0063](0063-foedrum-serve-its-configuration-and-wiring.md) (serve's loop reads the rack issues beside its ticks)
+Date: 2026-11-12 · Status: Accepted · Amends [0383](0383-rack-archives-finished-batches-and-deletes-old-archive-folders-and-temporary-files.md) (rack is started by an issue serve opens too, on a schedule), [0063](0063-foedrum-serve-its-configuration-and-wiring.md) (serve's loop reads the rack issues beside its ticks) and [0033](0033-chaos-tests-effects-found-by-key-and-leases-at-start.md) (the rack issue is an external side effect opened outside the ledger, found again by its label)
 
 ## Context
 Rack, the Brewery's cleanup, runs when a Brewery issue labelled `recipe:rack` is ordered and a person gives their go (ADR 0383).
