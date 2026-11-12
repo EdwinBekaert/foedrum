@@ -1188,19 +1188,35 @@ describe('forget (ADR 0383)', () => {
       tx.putLease(lease);
       tx.putBatchLease({ batchId: 'b1', owner: 'cellar', expiresAt: at('2026-10-15T10:01:00Z') });
       tx.keepOutDoc(keptDoc());
+      // b2's own rows, which stay.
+      tx.recordEffect({ ...key, batchId: 'b2' }, 'kept');
+      tx.putLease({ ...lease, attemptKey: '["b2","plan",1]' });
+      tx.putBatchLease({ batchId: 'b2', owner: 'cellar', expiresAt: at('2026-10-15T10:01:00Z') });
+      tx.keepOutDoc(keptDoc({ batchId: 'b2' }));
       return { first, last: tx.append(ordered('b3')) };
     });
     assert.equal(store.forgotten(), 0);
     store.forget(['b1']);
     assert.equal(store.forgotten(), 1);
     assert.deepEqual(
-      store.eventsAfter(0).map(({ event }) => 'batchId' in event && event.batchId),
-      ['b2', 'b2', 'b3'],
+      store.eventsAfter(0).map(({ event }) => event.type),
+      ['batch.ordered', 'step.scheduled', 'effect.applied', 'batch.ordered'],
     );
     assert.equal(store.findEffect(key), undefined);
-    assert.deepEqual(store.currentLeases(at('2026-10-15T10:00:00Z')), []);
-    assert.deepEqual(store.batchLeases(at('2026-10-15T10:00:00Z')), []);
-    assert.deepEqual(store.keptOutDocs(), []);
+    assert.deepEqual(store.findEffect({ ...key, batchId: 'b2' }), { result: 'kept' });
+    const now = at('2026-10-15T10:00:00Z');
+    assert.deepEqual(
+      store.currentLeases(now).map(({ attemptKey }) => attemptKey),
+      ['["b2","plan",1]'],
+    );
+    assert.deepEqual(
+      store.batchLeases(now).map(({ batchId }) => batchId),
+      ['b2'],
+    );
+    assert.deepEqual(
+      store.keptOutDocs().map(({ batchId }) => batchId),
+      ['b2'],
+    );
     assert.deepEqual(
       store.batchesPastDeadline(at('2026-10-16T00:00:00Z')).map(({ batchId }) => batchId),
       ['b2'],
