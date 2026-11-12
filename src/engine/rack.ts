@@ -20,9 +20,13 @@ import type { Recipe, RecipeAction, Recipes } from './recipes.ts';
 export interface ArchiveShelf {
   /**
    * Moves `batches/<id>/` of each of `batchIds` to `archive/<date>/<id>/`, and so the folder of any
-   * batch `known` lacks, which a forget left before a crash; one already moved is left as it is.
+   * batch that is not `known`, which a forget left before a crash; one already moved is left as it is.
    */
-  shelve(batchIds: readonly string[], date: string, known: ReadonlySet<string>): Promise<void>;
+  shelve(
+    batchIds: readonly string[],
+    date: string,
+    known: (batchId: string) => boolean,
+  ): Promise<void>;
   /** The dates of the folders `archive/<date>/`. */
   dates(): Promise<string[]>;
   /** Deletes the folders `archive/<date>/` of `dates`. */
@@ -199,7 +203,8 @@ export const rackActions = (options: RackActionsOptions): DriverActions => {
       forgetRead();
     }
     const date = clock().toISOString().slice(0, 10);
-    await shelf.shelve(ids, date, new Set(state().batches.keys()));
+    const batches = new Set(state().batches.keys());
+    await shelf.shelve(ids, date, (batchId) => batches.has(batchId));
     return ids;
   };
 

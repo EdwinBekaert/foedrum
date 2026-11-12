@@ -95,12 +95,12 @@ const released = (batchId: string, issue: number): Event[] =>
 const racking = (stepId: string): Event[] => [...ordered('20-1', 20), ...at('20-1', stepId)];
 
 /** A shelf that keeps what it was asked. */
-const fakeShelf = (dates: readonly string[] = []) => {
+const fakeShelf = (ids: () => readonly string[], dates: readonly string[] = []) => {
   const shelved: { batchIds: readonly string[]; date: string; known: string[] }[] = [];
   const dropped: string[][] = [];
   const shelf: ArchiveShelf = {
     shelve: async (batchIds, date, known) => {
-      shelved.push({ batchIds, date, known: [...known].sort() });
+      shelved.push({ batchIds, date, known: ids().filter(known).sort() });
     },
     dates: async () => [...dates],
     drop: async (gone) => {
@@ -131,7 +131,10 @@ const run = async (
     for (const event of [...events, ...racking(stepId)]) tx.append(event);
   });
   const state = () => fold(store.eventsAfter(0).map(({ event }) => event));
-  const { shelf, shelved, dropped } = fakeShelf(options.dates);
+  const { shelf, shelved, dropped } = fakeShelf(
+    () => [...new Set(store.eventsAfter(0).flatMap(({ event }) => batchOf(event) ?? []))],
+    options.dates,
+  );
   const reads: string[] = [];
   // How many batches each forget took.
   const forgets: number[] = [];

@@ -673,7 +673,7 @@ describe('openStateBranch with a fake git', () => {
       };
       const state = branch();
       await state.start();
-      await state.shelve(['b1'], '2026-11-12', new Set(['b2']));
+      await state.shelve(['b1'], '2026-11-12', (id) => id === 'b2');
       assert.equal(read('archive/2026-11-12/b1/plan-1.md'), '# Plan\n');
       assert.equal(read('archive/2026-11-12/b3/events.jsonl'), line(3, ordered('b3')));
       assert.equal(read('batches/b2/events.jsonl'), line(2, ordered('b2')));
@@ -683,7 +683,7 @@ describe('openStateBranch with a fake git', () => {
       await state.drop(['2026-05-01']);
       assert.deepEqual(await state.dates(), ['2026-11-12']);
       // Shelved twice, as a crash before the push leaves it: nothing more moves.
-      await state.shelve(['b1'], '2026-11-12', new Set(['b2']));
+      await state.shelve(['b1'], '2026-11-12', (id) => id === 'b2');
       assert.deepEqual(readdirSync(join(worktree, 'archive', '2026-11-12')).sort(), ['b1', 'b3']);
     });
   });

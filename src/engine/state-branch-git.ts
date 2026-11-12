@@ -557,8 +557,7 @@ export const openStateBranch = (options: StateBranchOptions): StateBranch => {
       asTheWriter(async () => {
         const named = new Set(batchIds);
         for (const name of await folders('batches')) {
-          if (!PathSafeId.safeParse(name).success || (!named.has(name) && known.has(name)))
-            continue;
+          if (!PathSafeId.safeParse(name).success || (!named.has(name) && known(name))) continue;
           const to = onDisk(archivePath(date, name));
           if (existsSync(to)) continue;
           await mkdir(dirname(to), { recursive: true });
