@@ -5,6 +5,7 @@
 
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
+import { statusRow } from '../../src/cli/status.ts';
 import { breweryCloseEffects } from '../../src/engine/brewery-closes.ts';
 import { effectMarker } from '../../src/engine/claim-effects.ts';
 import type { DriverEffects } from '../../src/engine/driver.ts';
@@ -232,6 +233,32 @@ describe('the end of a split order (ADR 0293)', () => {
     await settle(breweryCloseEffects({ marks: github.marks('alice'), brewery }), state, '1-1');
     assert.equal(github.issue(brewery, 1).state, undefined);
     assert.equal(github.issue(brewery, 1).comments.length, 0);
+  });
+
+  it('shows an order a cancelled sub-order keeps open as waiting for you, in its comment and foedrum status (ADR 0385): regression test', async () => {
+    const more = [{ issue: 4, entry: entry('cli', 'acme/cli') }];
+    const state = fold([
+      ...split(more),
+      ...bothMerged,
+      ordered('4-1', 4, '1-1'),
+      { type: 'batch.cancelled', batchId: '4-1', by: 'ann', via: 'terminal' },
+    ]);
+    const lines = await statusLines(state);
+    assert.ok(
+      lines.includes('🔔 **Waiting for you**: see to what keeps the order open'),
+      lines.join('\n'),
+    );
+    const order = state.batches.get('1-1') ?? assert.fail('no batch 1-1');
+    assert.deepEqual(statusRow(state, order).slice(2), [
+      'waiting for you',
+      'see to what keeps the order open (#4)',
+    ]);
+  });
+
+  it('shows an order whose sub-orders still brew as running in foedrum status, with their numbers (ADR 0385): regression test', () => {
+    const state = fold([...split(), ...libReleased]);
+    const order = state.batches.get('1-1') ?? assert.fail('no batch 1-1');
+    assert.deepEqual(statusRow(state, order).slice(2), ['running', 'the sub-orders brew (#2, #3)']);
   });
 
   it('keeps the order open and names a sub-order whose plan entry needs refinement', async () => {

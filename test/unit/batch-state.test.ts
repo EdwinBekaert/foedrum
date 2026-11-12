@@ -25,7 +25,11 @@ const stateOf = (one: Batch): State => ({ ...emptyState, batches: new Map([[one.
 /** The state and what follows it in `foedrum status`. */
 const statusOf = (one: Batch): string[] => statusRow(stateOf(one), one).slice(2);
 /** The status comment's first block, the state's. */
-const stateBlockOf = (one: Batch, rows: readonly SubOrderRow[] = []): string[] =>
+const stateBlockOf = (
+  one: Batch,
+  rows: readonly SubOrderRow[] = [],
+  subIssues?: readonly number[],
+): string[] =>
   (
     renderStatus(
       one,
@@ -40,7 +44,7 @@ const stateBlockOf = (one: Batch, rows: readonly SubOrderRow[] = []): string[] =
       [],
       undefined,
       undefined,
-      undefined,
+      subIssues,
       rows,
     ).split('\n\n')[1] ?? ''
   ).split('\n');
@@ -104,6 +108,23 @@ describe('the state a person reads a batch as (ADR 0385)', () => {
       assert.ok(words.includes(shown ?? ''), `${one.lane.kind}: ${shown}`);
       assert.equal(head, shown, one.lane.kind);
     }
+  });
+
+  it("a running split order names its sub-orders' rows before the plan's sub-issues: regression test", () => {
+    const split = batch({ kind: 'on_tap', pullRequests: [] }, { approval, decomposed: true });
+    const rows: SubOrderRow[] = [
+      { subOrder: 16, repo: 'acme/web', state: 'none', now: { kind: 'running' } },
+      { subOrder: 15, repo: 'acme/lib', state: 'none', now: { kind: 'queued' } },
+    ];
+    const running = '🍺 **Running**: the sub-orders brew';
+    assert.equal(
+      stateBlockOf(split, rows, [8, 9])[0],
+      `${running} (#16, #15); plan approved by ann (terminal)`,
+    );
+    assert.equal(
+      stateBlockOf(split, [], [8, 9])[0],
+      `${running} (#8, #9); plan approved by ann (terminal)`,
+    );
   });
 
   it('a cancelled batch reads done, cancelled', () => {
