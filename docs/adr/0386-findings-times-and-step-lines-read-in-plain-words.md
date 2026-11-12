@@ -1,6 +1,6 @@
 # 0386. Findings, times and step lines read in plain words
 
-Date: 2026-11-12 · Status: Accepted · Amends [0154](0154-lane-labels-on-the-order-s-issue-and-the-status-comment-s-path-line.md) (the path line's head), [0169](0169-house-yeast-rules-reach-a-batch-s-brewers-by-scope-and-lens.md) (where a finding names the house rule it breaks), [0222](0222-a-recipe-s-brewer-step-may-be-interactive.md) (the time on an open session's step line) and [0275](0275-a-finished-plan-waits-stuck-for-its-review-and-every-comment-links-the-doc-it-sums-up.md) (the out doc's link on a step's line)
+Date: 2026-11-12 · Status: Accepted · Amends [0154](0154-lane-labels-on-the-order-s-issue-and-the-status-comment-s-path-line.md) (the path line's head), [0169](0169-house-yeast-rules-reach-a-batch-s-brewers-by-scope-and-lens.md) (where a finding names the house rule it breaks), [0222](0222-a-recipe-s-brewer-step-may-be-interactive.md) (the time on an open session's step line), [0272](0272-the-status-comment-names-a-pull-request-once-and-breaks-its-path-per-round.md) (the words the path's first line begins with), [0275](0275-a-finished-plan-waits-stuck-for-its-review-and-every-comment-links-the-doc-it-sums-up.md) (the out doc's link on a step's line) and [0294](0294-npm-run-demo-ladder-walks-an-order-across-two-repositories.md) (the recipe line the ladder demo shows)
 
 ## Context
 Three texts a person reads needed the engine's words to make sense (#927).
@@ -23,8 +23,9 @@ The labels, command names, batch ids, the engine's states, events and schemas, t
   A plan's finding still starts with its sub-order's id, the place it is about, as the plan lenses ask; the plain sentence follows it.
   Only the prompt changes: one shared line serves all 14 default lenses, and no schema field is added.
 - **A time reads to the minute in UTC.** `utcMinute` (`src/engine/wall-clock.ts`) writes an ISO instant as `2026-11-12 13:36 UTC`, and a text that is no instant as it is.
-  `foedrum status` and `foedrum stuck` print every time this way: the routing deadline, each reminder, a passed deadline, `failing … since` and `stalled … since`.
-  The lines come from `describeLane` and `stuckOn`, which `foedrum brew`, `replay` and `resume` share, so their lines change in the time's form only, and the same time reads the same everywhere.
+  `foedrum status` and `foedrum stuck` print every time this way: the routing deadline, each reminder, a passed deadline, `failing … since`, `stalled … since`, and when an order changed after its approval (`changesText`).
+  The lines come from `describeLane` and `stuckOn`, which `foedrum brew`, `replay` and `resume` share, so their lines change in the time's form only, and a time reads the same on every terminal line.
+  `changesText` also writes the status comment's line of an order that changed, which reads its times the same way.
 - **The step lines say what ran and where its report is.**
   - The recipe line names the label that chose it: `Recipe **mash**, chosen by the issue's \`recipe:mash\` label`.
   - The path's first line starts `Steps run, in order (#n is the nth try of a step):` instead of `Path:`.
@@ -37,5 +38,5 @@ The labels, command names, batch ids, the engine's states, events and schemas, t
 - The status comment's step block can be read without the glossary.
 - A Brewery's own copy of `taster.md` keeps its own words, and its findings read as before.
 - A time shown to the minute drops its seconds: a deadline of `13:36:59` reads `13:36`.
-- The status comment's failing line and the order-change times keep their form; they are outside this decision.
+- The status comment's other times keep their form, outside this decision, which asked for the times of `foedrum status`: its failing line, a Stuck reason's passed deadline, `stalled … since` and routing deadline, and the line of a pull request whose checks it waits for.
 - **Brewery migration:** none; Foedrum has no release.
