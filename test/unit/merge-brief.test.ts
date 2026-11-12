@@ -931,6 +931,12 @@ describe('the merge brief (ADR 0225)', () => {
       assert.doesNotMatch(body, /Touches sensitive paths/);
     });
 
+    it('the merge brief has no look-before-merging line when nothing matches: regression test', async () => {
+      const body = await looked();
+      assert.match(body, /\*\*Ready to merge\.\*\*[^\n]*\n\n\*\*What changed since it opened\*\*/);
+      assert.doesNotMatch(body, /Look at before merging|sensitive paths/i);
+    });
+
     /** A batch of Nip whose survey ended with `output`, brewed to On tap with the map's push. */
     const surveyed = (output: { [key: string]: string | string[] }): void => {
       order('surveyed');
@@ -1984,6 +1990,27 @@ describe('the merge brief (ADR 0225)', () => {
       assert.deepStrictEqual(asked, [`isDraft ${url}`, `markReady ${url}`]);
       assert.deepStrictEqual(log.state().effects.get(keyOf('brief.1.ready.1')), { ready: true });
       assert.deepStrictEqual(await both(drafts), []);
+    });
+
+    it('the look-before-merging line holds the pull request a draft in no case: regression test', async () => {
+      // Every kind recorded at once, sensitive paths too (ADR 0384).
+      nip(
+        {},
+        { count: 1, files: ['src/auth/login.ts'] },
+        {
+          dependencies: {
+            count: 1,
+            changes: [{ manifest: 'package.json', kind: 'added', name: 'undici', to: '6.0.0' }],
+          },
+          locks: { count: 1, files: ['package-lock.json'] },
+          ci: { count: 1, files: ['.github/workflows/ci.yml'] },
+          migrations: { count: 1, files: ['db/migrations/1.sql'] },
+        },
+      );
+      const { drafts, asked } = fakeDrafts();
+      finished([passed('ci/test')]);
+      assert.deepStrictEqual(await both(drafts), ['brief.1', 'brief.1.ready.1']);
+      assert.deepStrictEqual(asked, [`isDraft ${url}`, `markReady ${url}`]);
     });
 
     it('records as ready, without marking it, a pull request that is no draft', async () => {
