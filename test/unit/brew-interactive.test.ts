@@ -193,7 +193,10 @@ describe('runBrew', () => {
       assert.equal(stuck.length, 1, f.lines.join('\n'));
       assert.match(stuck[0] ?? '', /waiting for a session at refine/);
       const body = f.api.comments.get('acme/brewery#12')?.[0]?.body ?? '';
-      assert.match(body, /🔔 \*\*Stuck\*\*: `refine` waits for its session/);
+      assert.match(
+        body,
+        /🔔 \*\*Waiting for you\*\*: open its session: `refine` waits for its session/,
+      );
     });
 
     it('parks the batch inside Claude Code, and names the brew to run in a terminal: exit 3', async () => {

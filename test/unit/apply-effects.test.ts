@@ -87,6 +87,7 @@ describe('runApplyEffects (ADR 0355)', () => {
       push: async () => {},
       secretScan: async () => [],
       touchedFiles: async () => [],
+      fileAt: async () => undefined,
     }),
     runner: () => ({
       start: (attempt) => {

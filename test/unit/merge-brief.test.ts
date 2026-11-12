@@ -26,7 +26,7 @@ import type {
   UnreportedTests,
 } from '../../src/schemas/events.ts';
 import type { TastingFinding } from '../../src/schemas/out-doc.ts';
-import type { PushResult, SensitiveFiles } from '../../src/schemas/store.ts';
+import type { LookBeforeMerging, PushResult, SensitiveFiles } from '../../src/schemas/store.ts';
 import { fakeRecipe, fakeRecipes } from '../helpers/fake-recipes.ts';
 
 const url = 'https://github.com/acme/web/pull/12';
@@ -249,12 +249,19 @@ describe('the merge brief (ADR 0225)', () => {
     });
   };
   /** The action's scheduled attempt: the push of `round` recorded, and the pull request opened. */
-  const open = (round = 1, commit = head, sensitive?: SensitiveFiles, batchId = 'web-7'): void => {
+  const open = (
+    round = 1,
+    commit = head,
+    sensitive?: SensitiveFiles,
+    batchId = 'web-7',
+    look?: LookBeforeMerging,
+  ): void => {
     const pushed: PushResult = {
       branch: 'foedrum/web-7/acme.web',
       commit,
       from: 'start',
       ...(sensitive === undefined ? {} : { sensitive }),
+      ...(look === undefined ? {} : { look }),
     };
     const attempts = log.state().batches.get(batchId)?.steps.get(OPEN)?.attempts;
     const attempt = Math.max(...(attempts?.keys() ?? []));
@@ -273,22 +280,24 @@ describe('the merge brief (ADR 0225)', () => {
     commit = head,
     tastes: { correctness?: Ending; acceptance?: Ending } = {},
     sensitive?: SensitiveFiles,
+    look?: LookBeforeMerging,
   ): void => {
     run('implement');
     run('green', done, { readings: greenReadings });
     run('correctness', tastes.correctness ?? tasting(), { commit });
     run('acceptance', tastes.acceptance ?? tasting(), { commit });
-    open(round, commit, sensitive);
+    open(round, commit, sensitive, 'web-7', look);
   };
   /** A batch of Nip brewed to On tap, its pull request opened on `head`. */
   const nip = (
     tastes: { correctness?: Ending; acceptance?: Ending } = {},
     sensitive?: SensitiveFiles,
+    look?: LookBeforeMerging,
   ): void => {
     order('nip');
     run('gauge');
     run('red', done, { readings: [redReading] });
-    nipFromImplement(1, head, tastes, sensitive);
+    nipFromImplement(1, head, tastes, sensitive, look);
   };
   const finished = (checks: HeadCheck[], on = head, more?: number, batchId = 'web-7'): void =>
     accept({
@@ -850,13 +859,138 @@ describe('the merge brief (ADR 0225)', () => {
       assert.match(await brief(), /- Tasted at `dddddddd`; 1 fix round since\./);
     });
 
-    it('names the sensitive paths the latest push recorded', async () => {
-      nip({}, { count: 2, files: ['.github/workflows/ci.yml', 'package.json'] });
+    /** The brief of Nip's batch whose push recorded `look` and `sensitive`. */
+    const looked = async (look?: LookBeforeMerging, sensitive?: SensitiveFiles) => {
+      nip({}, sensitive, look);
       finished([passed('ci/build')]);
-      assert.match(
-        await brief(),
-        /- Touches sensitive paths: \.github\/workflows\/ci\.yml, package\.json\./,
+      return await brief();
+    };
+    /** The look-before-merging line, right under the verdict (ADR 0384). */
+    const lookAt = (body: string): string | undefined =>
+      /\*\*Ready to merge\.\*\*[^\n]*\n\n(\*\*Look at before merging:\*\*[^\n]*)\n/.exec(body)?.[1];
+
+    it('the merge brief names a dependency the change adds or changes', async () => {
+      const body = await looked({
+        dependencies: {
+          count: 4,
+          changes: [
+            {
+              manifest: 'package.json',
+              kind: 'changed',
+              name: 'zod',
+              from: '3.23.0',
+              to: '3.24.0',
+            },
+            { manifest: 'package.json', kind: 'added', name: 'undici', to: '6.0.0' },
+            { manifest: 'old/package.json', kind: 'removed', name: 'lib', from: 'lib' },
+            { manifest: 'App/App.csproj', kind: 'unread', at: tasted, why: 'not XML' },
+          ],
+        },
+      });
+      assert.equal(
+        lookAt(body),
+        '**Look at before merging:** a dependency changed: package.json (zod 3.23.0 → 3.24.0, new: undici 6.0.0), old/package.json (removed: lib lib), App/App.csproj (not read at `dddddddd`: not XML).',
       );
+    });
+
+    it('the merge brief names a changed lock file', async () => {
+      const body = await looked({ locks: { count: 1, files: ['package-lock.json'] } });
+      assert.equal(
+        lookAt(body),
+        '**Look at before merging:** a lock file changed: package-lock.json.',
+      );
+    });
+
+    it('the merge brief names a changed CI workflow file', async () => {
+      const files = Array.from({ length: 12 }, (_, n) => `.github/workflows/w${n}.yml`);
+      const body = await looked({ ci: { count: 14, files } });
+      assert.equal(
+        lookAt(body),
+        `**Look at before merging:** a CI file changed: ${files.slice(0, 10).join(', ')} and 4 more.`,
+      );
+    });
+
+    it('the merge brief names a changed file in a migrations folder', async () => {
+      const body = await looked({ migrations: { count: 1, files: ['db/migrations/0003.sql'] } });
+      assert.equal(
+        lookAt(body),
+        '**Look at before merging:** a migration changed: db/migrations/0003.sql.',
+      );
+    });
+
+    it('the merge brief names the sensitive files in the look-before-merging line', async () => {
+      const body = await looked(
+        { ci: { count: 1, files: ['.github/workflows/ci.yml'] } },
+        { count: 3, files: ['.github/workflows/ci.yml', 'src/auth/login.ts', 'src/auth/<b>.ts'] },
+      );
+      // A file another kind names is not named again, and the Evidence no longer lists them.
+      assert.equal(
+        lookAt(body),
+        '**Look at before merging:** a CI file changed: .github/workflows/ci.yml; sensitive paths: src/auth/login.ts, src/auth/&lt;b&gt;.ts.',
+      );
+      assert.doesNotMatch(body, /Touches sensitive paths/);
+    });
+
+    it('names a sensitive file another kind records but leaves past its first ten (review of #1015)', async () => {
+      const ci = Array.from({ length: 12 }, (_, n) => `.github/workflows/w${n}.yml`);
+      const added = (manifest: string, n: number) =>
+        ({ manifest, kind: 'added', name: `p${n}`, to: '1.0.0' }) as const;
+      const changes = [
+        ...Array.from({ length: 10 }, (_, n) => added('package.json', n)),
+        added('svc/package.json', 10),
+      ];
+      const body = await looked(
+        { dependencies: { count: 11, changes }, ci: { count: 12, files: ci } },
+        { count: 3, files: ['.github/workflows/w11.yml', 'svc/package.json', 'package.json'] },
+      );
+      // Only what the line names counts as named: the other two stay sensitive paths.
+      assert.match(
+        lookAt(body) ?? '',
+        /; sensitive paths: \.github\/workflows\/w11\.yml, svc\/package\.json\.$/,
+      );
+    });
+
+    it('names the manifests not read when no dependency change is recorded (review of #1015)', async () => {
+      const body = await looked({ dependencies: { count: 0, changes: [], left: 2 } });
+      assert.equal(lookAt(body), '**Look at before merging:** 2 changed manifests not read.');
+    });
+
+    it('counts the dependency changes past the first ten and the manifests not read: regression test', async () => {
+      const changes = Array.from({ length: 12 }, (_, n) => ({
+        manifest: 'package.json',
+        kind: 'added' as const,
+        name: `p${n}`,
+        to: '1.0.0',
+      }));
+      const body = await looked({ dependencies: { count: 15, changes, left: 2 } });
+      assert.match(
+        lookAt(body) ?? '',
+        /new: p9 1\.0\.0\) and 5 more, and 2 more manifests not read\.$/,
+      );
+      assert.doesNotMatch(lookAt(body) ?? '', /p10/);
+    });
+
+    it('leaves out the sensitive files the line names for another kind, and counts those it did not record: regression test', async () => {
+      const dependencies = {
+        count: 1,
+        changes: [{ manifest: 'package.json', kind: 'added' as const, name: 'zod', to: '4.0.0' }],
+      };
+      const all = await looked({ dependencies }, { count: 1, files: ['package.json'] });
+      assert.equal(
+        lookAt(all),
+        '**Look at before merging:** a dependency changed: package.json (new: zod 4.0.0).',
+      );
+      store.close();
+      store = openSqliteEventStore(':memory:');
+      log = createCommandLog({ store, recipes });
+      const more = await looked({ dependencies }, { count: 3, files: ['package.json'] });
+      assert.match(lookAt(more) ?? '', /; sensitive paths: 2 more files\.$/);
+    });
+
+    it('the merge brief has no look-before-merging line when nothing matches: regression test', async () => {
+      const body = await looked();
+      assert.match(body, /\*\*Ready to merge\.\*\*[^\n]*\n\n\*\*What changed since it opened\*\*/);
+      assert.doesNotMatch(body, /Look at before merging|sensitive paths/i);
     });
 
     /** A batch of Nip whose survey ended with `output`, brewed to On tap with the map's push. */
@@ -879,7 +1013,7 @@ describe('the merge brief (ADR 0225)', () => {
       });
       assert.match(
         await brief(),
-        /- Touches sensitive paths: \.foedrum\/test-map\.jsonc\.\n- The test map of acme\/web was stale \(svc\/package\.json \(added\), old\/package\.json \(removed\)\): the Maltster refreshed it\.\n/,
+        /\n- The test map of acme\/web was stale \(svc\/package\.json \(added\), old\/package\.json \(removed\)\): the Maltster refreshed it\.\n/,
       );
     });
 
@@ -934,7 +1068,10 @@ describe('the merge brief (ADR 0225)', () => {
     it('says nothing of the test map when the survey found it fresh', async () => {
       surveyed({ status: 'done', summary: 'The test map is fresh', map: 'fresh' });
       const body = await brief();
-      assert.match(body, /- Touches sensitive paths: /);
+      assert.match(
+        body,
+        /\*\*Look at before merging:\*\* sensitive paths: \.foedrum\/test-map\.jsonc\./,
+      );
       assert.doesNotMatch(body, /The test map of/);
     });
 
@@ -1909,6 +2046,27 @@ describe('the merge brief (ADR 0225)', () => {
       assert.deepStrictEqual(asked, [`isDraft ${url}`, `markReady ${url}`]);
       assert.deepStrictEqual(log.state().effects.get(keyOf('brief.1.ready.1')), { ready: true });
       assert.deepStrictEqual(await both(drafts), []);
+    });
+
+    it('the look-before-merging line holds the pull request a draft in no case: regression test', async () => {
+      // Every kind recorded at once, sensitive paths too (ADR 0384).
+      nip(
+        {},
+        { count: 1, files: ['src/auth/login.ts'] },
+        {
+          dependencies: {
+            count: 1,
+            changes: [{ manifest: 'package.json', kind: 'added', name: 'undici', to: '6.0.0' }],
+          },
+          locks: { count: 1, files: ['package-lock.json'] },
+          ci: { count: 1, files: ['.github/workflows/ci.yml'] },
+          migrations: { count: 1, files: ['db/migrations/1.sql'] },
+        },
+      );
+      const { drafts, asked } = fakeDrafts();
+      finished([passed('ci/test')]);
+      assert.deepStrictEqual(await both(drafts), ['brief.1', 'brief.1.ready.1']);
+      assert.deepStrictEqual(asked, [`isDraft ${url}`, `markReady ${url}`]);
     });
 
     it('records as ready, without marking it, a pull request that is no draft', async () => {

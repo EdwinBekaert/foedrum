@@ -135,6 +135,7 @@ export const brewFixture = (): BrewFixture => {
         push: async () => {},
         secretScan: async () => [],
         touchedFiles: async () => [],
+        fileAt: async () => undefined,
       }),
       runner: () => runner,
       exec: () => Promise.reject(new Error('no check step runs here')),

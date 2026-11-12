@@ -213,6 +213,7 @@ describe('foedrum brew on recipe:mash, with the default Brewmaster (ADR 0234)', 
         push: async () => {},
         secretScan: async () => [],
         touchedFiles: async () => [],
+        fileAt: async () => undefined,
       }),
       runner: (_claude, plan) => runnerOf(plan),
       exec: () => Promise.reject(new Error('no check step runs here')),
@@ -276,7 +277,7 @@ describe('foedrum brew on recipe:mash, with the default Brewmaster (ADR 0234)', 
     const id = comments().find(({ body }) => body.includes('plan of batch'))?.id;
     const url = `https://github.com/${setup.brewery}/issues/12#issuecomment-${id}`;
     const status = comments().find(({ body }) => body.includes('Foedrum · batch'))?.body ?? '';
-    assert.ok(status.includes(`is ready for your review: [plan comment](<${url}>)`), status);
+    assert.ok(status.includes(`approve the plan: [plan comment](<${url}>)`), status);
   });
 
   it('links the plan comment from the status comment, on the Brewery issue (#658)', async () => {
@@ -288,12 +289,10 @@ describe('foedrum brew on recipe:mash, with the default Brewmaster (ADR 0234)', 
     const url = `https://github.com/${setup.brewery}/issues/12#issuecomment-${id}`;
     const status = comments().find(({ body }) => body.includes('Foedrum · batch'))?.body ?? '';
     assert.ok(
-      status.includes(
-        `🔔 **Stuck**: the plan of \`plan\` #1 is ready for your review: [plan comment](<${url}>)`,
-      ),
+      status.includes(`🔔 **Waiting for you**: approve the plan: [plan comment](<${url}>)`),
       status,
     );
-    assert.doesNotMatch(status, /On tap/);
+    assert.doesNotMatch(status, /Running|Done/);
   });
 
   it("gives the Brewmaster the Brewery's repositories with their bases, on the planner alias", async () => {

@@ -291,6 +291,7 @@ describe('foedrum brew on recipe:mash and recipe:deep-mash, through the default 
         push: async () => {},
         secretScan: async () => [],
         touchedFiles: async () => [],
+        fileAt: async () => undefined,
       }),
       runner: (_claude, plan) => runnerOf(plan),
       exec: () => Promise.reject(new Error('no check step runs here')),

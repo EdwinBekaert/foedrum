@@ -98,7 +98,7 @@ describe('npm run demo', () => {
       `headings at ${at.join(', ')}:\n${result.stdout}`,
     );
     // The first Cellar shows status as the batch moves, up to the Gauger's attempt the kill takes.
-    assert.match(part('brewing'), /brewing +gauge #1 started/);
+    assert.match(part('brewing'), /running +gauge #1 started/);
     // The restart shows that it found the lost attempt: lost because the killed Cellar stopped, in
     // plain words without its owner or a UTC time (#277), and brewed again.
     assert.match(
@@ -108,14 +108,14 @@ describe('npm run demo', () => {
     assert.equal(result.stdout.split(LOST_LINE).length, 2, 'the lost attempt is said once');
     // The cause before the effect: the lost attempt, then the status that shows its retry (#277).
     const restart = part('restart');
-    const retried = restart.search(/brewing +gauge #2 started/);
+    const retried = restart.search(/running +gauge #2 started/);
     assert.ok(retried >= 0, restart);
     assert.ok(restart.indexOf(LOST_LINE) < retried, restart);
     // The red proof reads the Gauger's test red, the first fix fails green, and the Cellarman's
     // second attempt is told why, with the failed test's own line.
     const checks = part('checks');
-    assert.match(checks, /brewing +red #1 started/);
-    assert.match(checks, /brewing +green #1 started.*brewing +implement #2 started/s);
+    assert.match(checks, /running +red #1 started/);
+    assert.match(checks, /running +green #1 started.*running +implement #2 started/s);
     assert.match(
       checks,
       /demo: implement #2 is told why step implement runs again: the failed checks of step green\n +not ok \d+ - greets a stranger when no name is given/,
@@ -137,7 +137,7 @@ describe('npm run demo', () => {
       /^demo: pull request #\d+ on demo\/web: /,
       statusComment,
     );
-    assert.match(statusComment, /On tap/);
+    assert.match(statusComment, /Waiting for you\*\*: merge a pull request/);
     assert.match(
       statusComment,
       /^ +Path: `survey #1` ✅ → `survey-check #1` ✅ → `gauge #1`.*\n +→ `implement #2`.*\n +→ `implement #3`/m,
@@ -150,10 +150,10 @@ describe('npm run demo', () => {
     // A cleanup counts the worktrees and branches it removed (#662).
     assert.match(result.stdout, /cleaned batch 1-1: removed \d+ worktrees; deleted \d+ branches; /);
     assert.doesNotMatch(result.stdout, /removed worktree /);
-    // On tap: foedrum status shows the batch there, with its pull request.
+    // On tap: foedrum status shows the batch waiting for its merge, with its pull request.
     assert.match(
       part('on-tap'),
-      /\$ foedrum status\n.*on tap +https:\/\/github\.com\/demo\/web\/pull\/\d+/s,
+      /\$ foedrum status\n.*waiting for you +merge a pull request: https:\/\/github\.com\/demo\/web\/pull\/\d+/s,
     );
     // foedrum lenses, through the real loader: correctness's finding the round it blocked
     // recorded, fixed; a lens of Nip's the demo's recipe never runs, with no rounds (ADR 0221).
@@ -204,8 +204,8 @@ describe('npm run demo', () => {
     for (const order of [ORDER, BREW_ORDER]) {
       const comments = host.comments(BREWERY, order.number);
       assert.equal(comments.length, 1, JSON.stringify(comments));
-      // Its last revision shows the batch on tap, with the pull request.
-      assert.match(comments[0]?.body ?? '', /On tap/);
+      // Its last revision shows the batch waiting for its merge, with the pull request.
+      assert.match(comments[0]?.body ?? '', /Waiting for you\*\*: merge a pull request/);
     }
     assert.ok(
       host.comments(BREWERY, ORDER.number)[0]?.body.includes(`/demo/web/pull/${pulls[0]?.number}>`),
@@ -283,7 +283,7 @@ describe('npm run demo', () => {
     // While they brewed, foedrum status showed the four of them at once.
     assert.match(
       part('checks'),
-      /brewing +correctness #1 started, security #1 started, test-design #1 started, design-conformance #1 started/,
+      /running +correctness #1 started, security #1 started, test-design #1 started, design-conformance #1 started/,
     );
     // Correctness's finding sends the batch back to implement, with its out doc as the route
     // input (ADR 0128), and round 2 is told the change since round 1 and that finding marked
@@ -307,7 +307,7 @@ describe('npm run demo', () => {
     );
     assert.match(
       part('checks'),
-      /brewing +correctness #2 started, security #2 started, test-design #2 started, design-conformance #2 started/,
+      /running +correctness #2 started, security #2 started, test-design #2 started, design-conformance #2 started/,
     );
     // The status comment's path has both rounds, the four lenses side by side in each and a line
     // where the batch went back to implement (#662), and each failed attempt with why (#656); every
@@ -384,7 +384,7 @@ describe('npm run demo', () => {
     );
     const stuck = mash.slice(mash.indexOf('$ foedrum stuck\n'));
     assert.ok(stuck.startsWith('$ foedrum stuck\n'), mash);
-    assert.match(stuck, /^ +3-1 +[^\n]*the plan of plan #2 is ready for your review(?:;|$)/m);
+    assert.match(stuck, /^ +3-1 +[^\n]*waiting for you: approve the plan$/m);
     assert.match(stuck, /^ {4}next: \S/m);
   });
 
@@ -407,9 +407,7 @@ describe('npm run demo', () => {
     const statusUrl = /status comment: (\S+)$/m.exec(mash)?.[1] ?? assert.fail(mash);
     assert.notEqual(planUrl, statusUrl);
     assert.ok(
-      mash.includes(
-        `🔔 **Stuck**: the plan of \`plan\` #2 is ready for your review: [plan comment](<${planUrl}>)`,
-      ),
+      mash.includes(`🔔 **Waiting for you**: approve the plan: [plan comment](<${planUrl}>)`),
       mash,
     );
   });
@@ -473,7 +471,7 @@ describe('npm run demo', () => {
     );
     // Step 3 shows the survey's session as status sees it, and the status comment names the map's
     // module, which green did not measure.
-    assert.match(part('brewing'), /brewing +survey #1 started/);
+    assert.match(part('brewing'), /running +survey #1 started/);
     assert.match(part('pull-request'), /not measured, coverage none: greet/);
   });
 

@@ -8,5 +8,6 @@ Foedrum has two drivers that share one engine and one event store: the Cellar ([
 | [One command layer](commands.md) | Every action as one typed command |
 | [Pause, continue and stop](pause.md) | Holding an order, or the whole Brewery, and going on; stopping an order at once |
 | [The plugin](plugin.md) | `/foedrum:<command>`, `--via plugin`, the parity test |
+| [What a person reads a batch as](states.md) | Running, Waiting for you, Queued or Done, on every surface |
 | [On GitHub](github.md) | The status comment, the board, labels, commands in comments |
 | [Interactive refinement](refinement.md) | `/foedrum:refine` |

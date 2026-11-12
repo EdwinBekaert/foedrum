@@ -228,6 +228,7 @@ describe('runServe: a Brett step (ADR 0313)', () => {
         push: async () => {},
         secretScan: async () => [],
         touchedFiles: async () => [],
+        fileAt: async () => undefined,
       }),
       commitTree: () => commitTree,
       runner: () => runner,

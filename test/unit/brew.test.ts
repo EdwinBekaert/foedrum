@@ -905,7 +905,10 @@ describe('runBrew', () => {
     it('a run of foedrum brew that ends Stuck has posted the comment with that lane', async () => {
       const brew = shell(behave.succeed(), endsAfterFirstTick(blocked));
       assert.equal(await runBrew(f.setup, brew, request), 3);
-      assert.match(shown(), /🔔 \*\*Stuck\*\*: `brew` is blocked \(findings\): The tests fail/);
+      assert.match(
+        shown(),
+        /🔔 \*\*Waiting for you\*\*: look at a failure: `brew` is blocked \(findings\): The tests fail/,
+      );
       assert.match(shown(), /Next:/);
       assert.equal(stuckLines().length, 1, f.lines.join('\n'));
     });
@@ -915,7 +918,7 @@ describe('runBrew', () => {
       const brew = shell(behave.succeed(), endsAfterFirstTick(asking));
       const exit = await runBrew(f.setup, brew, request);
       assert.equal(exit, 4, f.lines.join('\n'));
-      assert.match(shown(), /🔔 \*\*Stuck\*\*/);
+      assert.match(shown(), /🔔 \*\*Waiting for you\*\*/);
       assert.ok(shown().includes(question.q), shown());
     });
 
@@ -933,10 +936,11 @@ describe('runBrew', () => {
             return [{ commit: 'c'.repeat(40), place: 'src/a.ts:1', kind: 'token' }];
           },
           touchedFiles: async () => [],
+          fileAt: async () => undefined,
         }),
       });
       assert.equal(await runBrew(f.setup, refused, request), 3);
-      assert.match(shown(), /🔔 \*\*Stuck\*\*/);
+      assert.match(shown(), /🔔 \*\*Waiting for you\*\*/);
       assert.match(shown(), /Next:/);
       assert.deepStrictEqual(f.started, ['brew#1']);
       assert.equal(scans, 1);
@@ -953,7 +957,7 @@ describe('runBrew', () => {
             : gh(file, args, options),
       });
       assert.equal(await runBrew(f.setup, failing, request), 3);
-      assert.doesNotMatch(shown(), /Stuck/);
+      assert.doesNotMatch(shown(), /Waiting for you/);
       assert.ok(
         f.lines.some((line) => line.includes('status.2') && line.includes('GitHub is down')),
         f.lines.join('\n'),
@@ -1012,11 +1016,12 @@ describe('runBrew', () => {
           push: async () => assert.fail('a refused push pushes nothing'),
           secretScan: async () => [{ commit: 'c'.repeat(40), place: 'src/a.ts:1', kind: 'token' }],
           touchedFiles: async () => [],
+          fileAt: async () => undefined,
         }),
       });
       assert.equal(await runBrew(f.setup, again, request), 3);
       assert.equal(retried, true);
-      assert.match(shown(), /🔔 \*\*Stuck\*\*: `open-pull-request`/);
+      assert.match(shown(), /🔔 \*\*Waiting for you\*\*: look at a failure: `open-pull-request`/);
       assert.equal(stuckLines().length, 1, f.lines.join('\n'));
     });
 

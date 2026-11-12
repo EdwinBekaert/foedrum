@@ -146,7 +146,7 @@ describe('renderPlan (ADR 0233)', () => {
         '',
         '**Gate**',
         '',
-        'Waiting for `foedrum approve 7-1`.',
+        'Waiting for you: approve the plan with `foedrum approve 7-1`.',
         '',
         next,
       ].join('\n'),
@@ -287,7 +287,12 @@ describe('renderPlan (ADR 0233)', () => {
 
   it('says the gate waits for foedrum approve while the plan waits for its review (#588)', () => {
     const text = renderPlan('7-1', 'plan', three, undefined, fullPlan, true);
-    assert.ok(text.includes('\n\n**Gate**\n\nWaiting for `foedrum approve 7-1`.\n\n'), text);
+    assert.ok(
+      text.includes(
+        '\n\n**Gate**\n\nWaiting for you: approve the plan with `foedrum approve 7-1`.\n\n',
+      ),
+      text,
+    );
   });
 
   it('says who approved the plan, from where and when, with no next step, once it is approved (#588)', () => {
@@ -424,7 +429,10 @@ describe('renderPlan (ADR 0233)', () => {
     assert.ok(text.length <= 60_000, `${text.length}`);
     assert.doesNotMatch(text, /```mermaid|rest is cut/);
     assert.match(text, /\*\*Order\*\*\n\nThe graph is left out: GitHub keeps comments shorter\.\n/);
-    assert.match(text, /\*\*Gate\*\*\n\nWaiting for `foedrum approve 7-1`\.\n\nNext: /);
+    assert.match(
+      text,
+      /\*\*Gate\*\*\n\nWaiting for you: approve the plan with `foedrum approve 7-1`\.\n\nNext: /,
+    );
   });
 
   /** 100 sub-orders at the longest the schema takes: past GitHub's length even without the graph. */
@@ -808,7 +816,10 @@ describe('planEffects (ADR 0233)', () => {
     issue({ kind: 'route', batchId: '7-1', recipe: 'pale', reason: 'label', source: 'label' });
     step('plan', planned(three));
     await driver.applyEffects();
-    assert.match(only().body, /\n\nWaiting for `foedrum approve 7`\.\n\nNext: /);
+    assert.match(
+      only().body,
+      /\n\nWaiting for you: approve the plan with `foedrum approve 7`\.\n\nNext: /,
+    );
     issue({ kind: 'approve', batchId: '7-1', by: 'grace', via: 'terminal' });
     assert.equal(log.state().batches.get('7-1')?.lane.kind, 'on_tap');
     await driver.applyEffects();
