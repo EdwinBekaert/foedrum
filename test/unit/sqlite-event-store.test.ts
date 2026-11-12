@@ -1255,7 +1255,7 @@ describe('SqliteEventStore on a file', () => {
     // What version 1 left: no pushed table, and no batch leases.
     const db = raw(path);
     db.exec(
-      'DROP TABLE pushed; DROP TABLE IF EXISTS batch_leases; DROP TABLE IF EXISTS out_docs; PRAGMA user_version = 1',
+      'DROP TABLE pushed; DROP TABLE IF EXISTS batch_leases; DROP TABLE IF EXISTS out_docs; DROP TABLE IF EXISTS forgetting; PRAGMA user_version = 1',
     );
     db.close();
 
@@ -1267,7 +1267,7 @@ describe('SqliteEventStore on a file', () => {
     assert.equal(upgraded.pushedThrough(), undefined);
     upgraded.withTransaction((tx) => tx.markPushed({ eventId: 1, commit: 'e'.repeat(40) }));
     assert.deepEqual(upgraded.pushedThrough(), { eventId: 1, commit: 'e'.repeat(40) });
-    assert.deepEqual({ ...raw(path).prepare('PRAGMA user_version').get() }, { user_version: 4 });
+    assert.deepEqual({ ...raw(path).prepare('PRAGMA user_version').get() }, { user_version: 5 });
   });
 
   it('upgrades a schema version 2 database, which had no batch leases, and keeps its leases', () => {
@@ -1279,7 +1279,7 @@ describe('SqliteEventStore on a file', () => {
     first.close();
     const db = raw(path);
     db.exec(
-      'DROP TABLE IF EXISTS batch_leases; DROP TABLE IF EXISTS out_docs; PRAGMA user_version = 2',
+      'DROP TABLE IF EXISTS batch_leases; DROP TABLE IF EXISTS out_docs; DROP TABLE IF EXISTS forgetting; PRAGMA user_version = 2',
     );
     db.close();
 
@@ -1288,14 +1288,16 @@ describe('SqliteEventStore on a file', () => {
     upgraded.withTransaction((tx) => tx.putBatchLease(held));
     assert.deepEqual(upgraded.batchLeases(at('2026-10-15T10:00:00Z')), [held]);
     assert.deepEqual(upgraded.currentLeases(at('2026-10-15T10:00:00Z')), [lease]);
-    assert.deepEqual({ ...raw(path).prepare('PRAGMA user_version').get() }, { user_version: 4 });
+    assert.deepEqual({ ...raw(path).prepare('PRAGMA user_version').get() }, { user_version: 5 });
   });
 
   it('upgrades a schema version 3 database, which kept no out docs (ADR 0103)', () => {
     open(path).withTransaction((tx) => tx.append(ordered('b1')));
     closeAll();
     const db = raw(path);
-    db.exec('DROP TABLE IF EXISTS out_docs; PRAGMA user_version = 3');
+    db.exec(
+      'DROP TABLE IF EXISTS out_docs; DROP TABLE IF EXISTS forgetting; PRAGMA user_version = 3',
+    );
     db.close();
 
     const upgraded = open(path);
@@ -1498,8 +1500,8 @@ describe('SqliteEventStore read-only', () => {
     open(path);
     closeAll();
     const db = raw(path);
-    db.exec('PRAGMA user_version = 5');
+    db.exec('PRAGMA user_version = 6');
     db.close();
-    assert.throws(() => open(path, { readOnly: true }), /schema version 5/);
+    assert.throws(() => open(path, { readOnly: true }), /schema version 6/);
   });
 });
