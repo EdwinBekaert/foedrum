@@ -9,6 +9,10 @@ describe('utcMinute (ADR 0386)', () => {
     assert.equal(utcMinute('2026-11-12T13:36:59.098Z'), '2026-11-12 13:36 UTC');
   });
 
+  it('writes an instant given with an offset in UTC', () => {
+    assert.equal(utcMinute('2026-11-12T15:36:00+02:00'), '2026-11-12 13:36 UTC');
+  });
+
   it('leaves a text that is no instant as it is', () => {
     assert.equal(utcMinute('soon'), 'soon');
   });
