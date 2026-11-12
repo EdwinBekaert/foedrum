@@ -18,9 +18,11 @@ import { createIntake, type IntakeNotice } from '../engine/intake.ts';
 import { limitsOf } from '../engine/limits.ts';
 import { createMergedChecks, type MergedChecks, mergedCheckStep } from '../engine/merged-checks.ts';
 import type { BranchPush, PullRequestRepository } from '../engine/pull-request-actions.ts';
+import { createRackSchedule, type RackSchedule } from '../engine/rack-schedule.ts';
 import { archivedIds, type StateBranch } from '../engine/state-branch-git.ts';
 import { githubCheckReader } from '../github/checks.ts';
 import { GitHubRateLimited } from '../github/client.ts';
+import { githubRackIssues } from '../github/rack-issues.ts';
 import { githubReleaseReader } from '../github/releases.ts';
 import { githubReviewReader } from '../github/reviews.ts';
 import { githubTargetTracker } from '../github/tracker.ts';
@@ -293,6 +295,8 @@ export const runServe = async (setup: ServeSetup, shell: ServeShell): Promise<nu
   }
   const opened: Opened = { lock };
   let polling: Promise<void> | undefined;
+  // The read of the rack issues, every hour where the Brewery has a rack recipe (ADR 0387).
+  let racking: RackSchedule | undefined;
   // The passes that wait for the next tick to apply the effects of what they ordered (ADR 0316).
   const waitingForTick: (() => void)[] = [];
   const settle = (passes: readonly (() => void)[]): void => {
@@ -365,6 +369,24 @@ export const runServe = async (setup: ServeSetup, shell: ServeShell): Promise<nu
       ordered: () =>
         stopping ? Promise.resolve() : new Promise((resolve) => waitingForTick.push(resolve)),
     });
+    // Beside the ticks as the pass is; a Brewery without a rack recipe gets no rack issue (ADR 0387).
+    const rack = setup.recipes.find('rack');
+    racking =
+      rack === undefined
+        ? undefined
+        : createRackSchedule({
+            issues: githubRackIssues(reads, client, setup.brewery),
+            rack,
+            clock,
+            signal,
+            opened: (issue) => say(`opened the rack issue ${setup.brewery}#${issue}`),
+            failed: (error) => {
+              if (error instanceof GitHubRateLimited) {
+                pausedUntil = Math.max(pausedUntil, error.until.getTime());
+              }
+              say(`the rack check failed: ${messageOf(error)}`);
+            },
+          });
     // The pass underway, never awaited by a tick: a slow GitHub holds off no heartbeat (ADR 0068).
     let nextPoll = Number.NEGATIVE_INFINITY;
     const poll = (): void => {
@@ -397,6 +419,7 @@ export const runServe = async (setup: ServeSetup, shell: ServeShell): Promise<nu
     }
     while (!signal.aborted) {
       poll();
+      if (clock().getTime() >= pausedUntil) racking?.poll();
       merged?.poll(runs);
       // Only a pass that waited before the tick began: its effects run after this tick's drive.
       const waited = waitingForTick.splice(0);
@@ -429,6 +452,7 @@ export const runServe = async (setup: ServeSetup, shell: ServeShell): Promise<nu
     stopRuns?.abort();
     ticksStopped();
     await polling;
+    await racking?.settled();
     await merged?.settled();
     // Closing the driver stops its runs and lets the lock go; without one, the lock goes here.
     try {
