@@ -74,7 +74,7 @@ Branches, descriptions and the rest are in [`CLAUDE.md`, Git and pull requests](
 
 ## Review
 
-A pull request is reviewed with the `/brew-review` skill in [`.claude/skills/brew-review/`](.claude/skills/brew-review/) while it is a draft, unless it changes only plain documentation ([ADR 0067](docs/adr/0067-a-pull-request-of-only-plain-docs-needs-no-review-summary.md)).
+A pull request is reviewed with the `/brew-review` skill in [`.claude/skills/brew-review/`](.claude/skills/brew-review/) while it is a draft, unless every file it changes is a `*.md` in a subfolder of `docs/` other than `docs/adr/` and `docs/design/` ([ADR 0067](docs/adr/0067-a-pull-request-of-only-plain-docs-needs-no-review-summary.md)).
 It runs the red proof, a simplify pass, a reviewer per lens and a mutation check, and posts a summary comment with a disposition for every finding.
 
 You are advised to run it on your own pull request before you mark it ready, so its findings are settled before review instead of passed back and forth.
