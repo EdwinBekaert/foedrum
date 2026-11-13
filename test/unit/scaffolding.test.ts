@@ -14,6 +14,7 @@ interface DevEngine {
 interface PackageJson {
   type?: string;
   license?: string;
+  author?: string;
   engines?: Record<string, string>;
   devEngines?: { runtime?: DevEngine; packageManager?: DevEngine };
   scripts?: Record<string, string>;
@@ -34,6 +35,10 @@ describe('package.json', () => {
 
   it('is licensed AGPL-3.0-only', () => {
     assert.equal(pkg.license, 'AGPL-3.0-only');
+  });
+
+  it('names the copyright holder as its author', () => {
+    assert.equal(pkg.author, 'Edwin Bekaert');
   });
 
   it('fails development installs on a Node or npm too old for the .npmrc hardening', () => {
