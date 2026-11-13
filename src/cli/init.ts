@@ -260,10 +260,6 @@ export type InitAnswers = Omit<InitCommand, 'command'>;
 /** Where a folder is: in no repository, or in one whose top is `top`, a Brewery or not (ADR 0393). */
 type Place = { kind: 'none' } | { kind: 'brewery' | 'repository'; top: string };
 
-/** `path` inside `folder`, both from the working directory (`''` for itself). */
-const inside = (folder: string, path: string): string =>
-  folder === '' ? path : `${folder.replace(/\/$/, '')}/${path}`;
-
 /** A folder from the working directory in one form: `/` between names, none at the end, `''` for itself. */
 const folderPath = (path: string): string => {
   const normal = posix.normalize(path === '' ? '.' : path);
@@ -285,7 +281,7 @@ const placeOf = async (ports: InitPorts, folder: string): Promise<Place | string
     return `git rev-parse failed: ${firstLine(shownCdup)}`;
   }
   const top = folderPath(posix.join(folder, shownCdup.stdout.trim()));
-  const brewery = ports.files.exists(inside(top, 'foedrum.jsonc'));
+  const brewery = ports.files.exists(posix.join(top, 'foedrum.jsonc'));
   return { kind: brewery ? 'brewery' : 'repository', top };
 };
 
@@ -355,7 +351,7 @@ export const runInit = async (ports: InitPorts, given: InitAnswers = {}): Promis
   if (typeof here === 'string') return refuse(here);
   // The Brewery's folder from the working directory, `''` for itself; known once it is asked.
   let folder = here.kind === 'brewery' ? here.top : '';
-  const at = (path: string): string => inside(folder, path);
+  const at = (path: string): string => posix.join(folder, path);
   const noInput = given['no-input'] === true;
 
   // The keyed options' answers, by option and key, each given once (ADR 0212).
@@ -441,11 +437,19 @@ export const runInit = async (ports: InitPorts, given: InitAnswers = {}): Promis
   let pushFailed = false;
   // What init made on GitHub and in a new folder, which a refusal after it names.
   let created = '';
+  // The foedrum.jsonc at the Brewery's top, and why it does not pass its schema when it does not.
+  const readConfig = (): { value: Existing; problem: string | undefined } => {
+    const text = files.read(at('foedrum.jsonc'));
+    const value = readObject(text);
+    return { value, problem: configProblem(value, text) };
+  };
   // The foedrum.jsonc of a Brewery init is in, checked before any question.
-  let config: Existing =
-    here.kind === 'brewery' ? readObject(files.read(at('foedrum.jsonc'))) : { kind: 'missing' };
-  const problem = configProblem(config, files.read(at('foedrum.jsonc')));
-  if (problem !== undefined) return refuse(problem);
+  let config: Existing = { kind: 'missing' };
+  if (here.kind === 'brewery') {
+    const read = readConfig();
+    if (read.problem !== undefined) return refuse(read.problem);
+    config = read.value;
+  }
   try {
     const login = await ports.login();
     // The repository init creates after every question, when it creates one (ADR 0207).
@@ -467,7 +471,7 @@ export const runInit = async (ports: InitPorts, given: InitAnswers = {}): Promis
       }
       // Beside the repository init is in, else where it runs (ADR 0393).
       const byDefault =
-        here.kind === 'repository' ? folderPath(inside(here.top, '../foedrum-brewery')) : '';
+        here.kind === 'repository' ? folderPath(posix.join(here.top, '../foedrum-brewery')) : '';
       const chosen = await ask(
         'Folder for the Brewery',
         shown(byDefault),
@@ -476,9 +480,9 @@ export const runInit = async (ports: InitPorts, given: InitAnswers = {}): Promis
       );
       folder = chosen.folder;
       if (chosen.brewery) {
-        config = readObject(files.read(at('foedrum.jsonc')));
-        const wrong = configProblem(config, files.read(at('foedrum.jsonc')));
-        if (wrong !== undefined) return refuse(wrong);
+        const read = readConfig();
+        if (read.problem !== undefined) return refuse(read.problem);
+        config = read.value;
       } else {
         const named = await nameNew(ports, ask, confirm, optionValue, login);
         if ('refused' in named) return refuse(named.refused);
@@ -489,9 +493,9 @@ export const runInit = async (ports: InitPorts, given: InitAnswers = {}): Promis
           if (cloned.code !== 0) return refuse(`git clone failed: ${firstLine(cloned)}`);
           say(`Cloned ${asked} into ${shown(folder)}`);
           created = `; ${asked} is cloned into the folder ${shown(folder)}`;
-          config = readObject(files.read(at('foedrum.jsonc')));
-          const wrong = configProblem(config, files.read(at('foedrum.jsonc')));
-          if (wrong !== undefined) return refuse(`${wrong}${created}`);
+          const read = readConfig();
+          if (read.problem !== undefined) return refuse(`${read.problem}${created}`);
+          config = read.value;
           const held = (files.entries(folder) ?? []).filter((name) => name !== '.git');
           if (config.kind === 'missing' && held.length > 0) {
             return refuse(
