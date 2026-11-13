@@ -148,7 +148,10 @@ const HELP = new Set(['-h', '--help']);
 const VERSION = '--version';
 const SEE_HELP = 'run foedrum --help for the commands';
 
-/** The legal notices `--version` prints after the version and `--help` ends with (ADR 0009). */
+/**
+ * The copyright line, with the licence of ADR 0009, and the source: after `--version`'s version
+ * and at the end of `--help`.
+ */
 const NOTICE = [
   'Copyright (C) 2026 Edwin Bekaert. AGPL-3.0, no warranty.',
   'Source: https://github.com/EdwinBekaert/foedrum',
