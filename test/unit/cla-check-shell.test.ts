@@ -19,6 +19,13 @@ describe('runClaCheck', () => {
     assert.equal(runClaCheck(env, () => undefined).ok, false);
   });
 
+  it('says the signatures file could not be read instead of that the author did not sign', () => {
+    assert.deepEqual(runClaCheck(env, () => undefined), {
+      ok: false,
+      line: ".github/cla-signatures.md could not be read at the pull request's head",
+    });
+  });
+
   it('fails without an author or an owner in the environment', () => {
     for (const missing of [{ CLA_OWNER: 'maintainer-login' }, { CLA_AUTHOR: 'alice' }]) {
       const verdict = runClaCheck(missing, signed);

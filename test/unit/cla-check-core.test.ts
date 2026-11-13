@@ -69,6 +69,10 @@ describe('claCheck', () => {
     assert.equal(claCheck('Maintainer-Login', owner, '').ok, true);
   });
 
+  it('counts a signature line with trailing whitespace', () => {
+    assert.equal(claCheck('carol', owner, '- @carol, CLA 1.0, 2026-11-20 \t\n').ok, true);
+  });
+
   it('reads a signatures file with CRLF line ends', () => {
     assert.equal(claCheck('bobby', owner, signatures.replaceAll('\n', '\r\n')).ok, true);
   });
