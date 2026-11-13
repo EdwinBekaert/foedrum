@@ -242,7 +242,9 @@ const init = async (
       const printed: Readonly<Record<string, string | undefined>> = {
         status: options.status,
         log: options.unpushed,
-        remote: options.origins?.[folder],
+        // origin as configured; `remote get-url` gives it as a git with url.insteadOf rewrites it.
+        config: options.origins?.[folder],
+        remote: options.origins?.[folder] === undefined ? undefined : 'git@github.com:acme/b.git\n',
       };
       return { code: 0, stdout: printed[args[0] ?? ''] ?? '', stderr: '' };
     },
@@ -1547,9 +1549,7 @@ describe('foedrum init finds where it is (ADR 0393)', () => {
     );
     assert.equal(result.exitCode, 0, result.stderr);
     assert.ok(
-      lines.includes(
-        'The repository . is not a Brewery: a Brewery is a repository of its own, so init writes nothing in it',
-      ),
+      lines.includes('The repository . is not a Brewery: a Brewery is a repository of its own'),
       lines.join('\n'),
     );
     assert.deepStrictEqual(questions.slice(0, 3), [
@@ -1866,5 +1866,22 @@ describe('foedrum init finds where it is (ADR 0393)', () => {
       cloned.result.stderr,
       /does not pass its schema: .*; octocat\/foedrum-brewery is cloned into the folder \.\n$/,
     );
+  });
+
+  it('prints no cd line for a folder whose name holds a backslash, which a POSIX shell drops', async () => {
+    const { result, lines } = await init(['', '', ''], outside(), { given: { folder: 'a\\b' } });
+    assert.equal(result.exitCode, 0, result.stderr);
+    assert.ok(lines.includes('The Brewery is in the folder a\\b'), lines.join('\n'));
+    assert.ok(!lines.some((line) => line.startsWith('cd ')), lines.join('\n'));
+  });
+
+  it('on Windows, asks the folder again on a drive that is not there, creating nothing', async () => {
+    const { result, lines, events } = await init(['', 'Q:\\brewery', 'n'], outside(), {
+      ...unplaced,
+      platform: 'win32',
+    });
+    assert.equal(result.exitCode, 1);
+    assert.ok(lines.includes('  The drive Q: is not there'), lines.join('\n'));
+    assert.ok(!events.some((event) => /^(create|git)/.test(event)), events.join('\n'));
   });
 });
