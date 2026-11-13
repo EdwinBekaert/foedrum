@@ -317,6 +317,59 @@ describe('cleanWorktrees with a fake git', () => {
     );
   });
 
+  it("clears the main checkout's .foedrum/tmp when run from a worktree whose fetch fails", async () => {
+    const now = Date.parse('2026-11-13T12:00:00.000Z');
+    const old = join(dir.path, '.foedrum', 'tmp', 'old.log');
+    const elsewhere = join(wt('7-merged'), '.foedrum', 'tmp', 'old.log');
+    for (const path of [old, elsewhere]) {
+      mkdirSync(join(path, '..'), { recursive: true });
+      writeFileSync(path, 'x');
+      const time = new Date(now - 3 * 86_400_000);
+      utimesSync(path, time, time);
+    }
+    const { git } = fakeGit(main, (args) => args[0] === 'fetch');
+
+    const lines = await cleanWorktrees(wt('7-merged'), git, undefined, {
+      files: NODE_FILES,
+      now: () => now,
+    });
+
+    assert.equal(existsSync(old), false, lines.join('\n'));
+    assert.equal(existsSync(elsewhere), true, "only the main checkout's .foedrum/tmp is cleared");
+    assert.equal(lines[0], 'files deleted from .foedrum/tmp, older than 2 days: 1, left: 0');
+  });
+
+  it('keeps a leftover folder whose only file is in a subfolder', async () => {
+    mkdirSync(join(wt('deep'), 'sub'), { recursive: true });
+    writeFileSync(join(wt('deep'), 'sub', 'notes.txt'), 'x');
+    const { git } = fakeGit(main);
+
+    const lines = await cleanWorktrees(main, git);
+
+    assert.ok(existsSync(join(wt('deep'), 'sub', 'notes.txt')));
+    assert.ok(
+      lines.includes('kept folder .claude/worktrees/deep: not a worktree, it holds files'),
+      lines.join('\n'),
+    );
+  });
+
+  it('leaves the folder of a worktree git lists to the worktree pass, even when it is empty', async () => {
+    // 8-locked is in the worktree list; its folder is there but holds nothing.
+    mkdirSync(wt('8-locked'), { recursive: true });
+    const { git } = fakeGit(main);
+
+    const lines = await cleanWorktrees(main, git);
+
+    assert.ok(existsSync(wt('8-locked')), lines.join('\n'));
+    for (const name of ['7-merged', '8-locked', '9-plain-lock']) {
+      assert.equal(
+        lines.some((line) => line.includes(`folder .claude/worktrees/${name}`)),
+        false,
+        lines.join('\n'),
+      );
+    }
+  });
+
   it('runs nothing outside a git repository', async () => {
     const { calls, git } = fakeGit(main, (args) => args[0] === 'rev-parse');
 
