@@ -20,8 +20,8 @@ export const NODE_FILES: TemporaryFilesIo = {
 };
 
 /**
- * Deletes the files under `folder` last changed before `before`, never following a link, and the
- * folders that leaves empty. An entry gone meanwhile is skipped; one it cannot read or delete is
+ * Deletes the files under `folder` last changed before `before`, never following a link and never
+ * entering a folder that holds a `.git` entry, and the folders that leaves empty. An entry gone meanwhile is skipped; one it cannot read or delete is
  * skipped and counted as left, for the next run. How many went, and how many were left.
  */
 export const deleteOldFiles = async (
@@ -39,7 +39,10 @@ export const deleteOldFiles = async (
     }
   };
   const walk = async (inside: string): Promise<void> => {
-    for (const entry of (await tried(() => files.readdir(inside))) ?? []) {
+    const entries = (await tried(() => files.readdir(inside))) ?? [];
+    // A worktree or a scratch clone: whatever made it removes it (ADR 0389).
+    if (entries.some((entry) => entry.name === '.git')) return;
+    for (const entry of entries) {
       const path = join(inside, entry.name);
       if (entry.isDirectory()) {
         const deleted = done.deleted;
