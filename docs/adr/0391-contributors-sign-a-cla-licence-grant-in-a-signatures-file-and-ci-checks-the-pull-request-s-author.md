@@ -31,6 +31,7 @@ The maintainer decided on #1024 (2026-11-13): a CLA as a licence grant, from an 
   On `pull_request` the workflow file and the script both come from the pull request, so an author can edit them to pass; checking out the base branch's script would not change that, since `ci.yml` itself comes from the pull request.
   The maintainer's review and merge are the guard, the owner of "Bad code reaching `main`" in [trust-boundaries.md](../trust-boundaries.md), so the check adds no row there.
 - A commit by someone other than the pull request's author is covered only by that author's signature.
+- The check counts a signature line whoever committed it, so a line added for another login is caught at the merge: the maintainer checks that a new signature line names the pull request's author.
 - The CLA text carries the maintainer's name as the party who receives the licence.
 - A Brewery needs no migration: nothing a Brewery holds or does changes.
 
