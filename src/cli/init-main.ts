@@ -129,8 +129,10 @@ export const initFromCheckout = async (
           hasLabel: (repo, label) => labelExists(github, repo, label),
           createLabel: (repo, label, description) => createLabel(github, repo, label, description),
         },
-        // The git Foedrum runs: no prompt, no token variable, gh as git's credential helper (ADR 0073).
-        git: (folder, args) => git(at(folder), args, { timeoutMs: GIT_TIMEOUT_MS }),
+        // The git Foedrum runs: no prompt, no token variable, gh as git's credential helper (ADR 0073),
+        // in English, since init reads its "not a git repository" line (ADR 0393).
+        git: (folder, args) =>
+          git(at(folder), args, { timeoutMs: GIT_TIMEOUT_MS, env: { LC_ALL: 'C' } }),
         doctor: async (folder) => {
           const diagnosis = diagnose(await doctorFromCheckout(at(folder), options));
           return { ok: diagnosis.ok, report: formatDiagnosis(diagnosis) };
