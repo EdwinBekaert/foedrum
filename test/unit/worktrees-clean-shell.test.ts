@@ -1,5 +1,13 @@
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  utimesSync,
+  writeFileSync,
+} from 'node:fs';
 import { devNull } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
@@ -350,6 +358,23 @@ describe('cleanWorktrees with a fake git', () => {
     assert.ok(existsSync(join(wt('deep'), 'sub', 'notes.txt')));
     assert.ok(
       lines.includes('kept folder .claude/worktrees/deep: not a worktree, it holds files'),
+      lines.join('\n'),
+    );
+  });
+
+  it('keeps a leftover folder that holds only a link', async () => {
+    const target = join(dir.path, 'elsewhere');
+    mkdirSync(target);
+    mkdirSync(wt('linked'), { recursive: true });
+    // A junction on Windows, a symbolic link elsewhere: neither needs a privilege.
+    symlinkSync(target, join(wt('linked'), 'link'), 'junction');
+    const { git } = fakeGit(main);
+
+    const lines = await cleanWorktrees(main, git);
+
+    assert.ok(existsSync(join(wt('linked'), 'link')), lines.join('\n'));
+    assert.ok(
+      lines.includes('kept folder .claude/worktrees/linked: not a worktree, it holds files'),
       lines.join('\n'),
     );
   });
