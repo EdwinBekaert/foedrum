@@ -148,6 +148,12 @@ const HELP = new Set(['-h', '--help']);
 const VERSION = '--version';
 const SEE_HELP = 'run foedrum --help for the commands';
 
+/** The legal notices `--version` prints after the version and `--help` ends with (ADR 0009). */
+const NOTICE = [
+  'Copyright (C) 2026 Edwin Bekaert. AGPL-3.0, no warranty.',
+  'Source: https://github.com/EdwinBekaert/foedrum',
+];
+
 // Every control character but the line feed, DEL and the C1 controls: model-written text in the
 // event log (a Stuck summary, a failure reason) must not move the cursor, rewrite earlier lines
 // or set the clipboard (OSC 52) when it is printed.
@@ -207,6 +213,8 @@ const usage = (): CliResult => {
     ...below,
     '',
     `Every command takes --via <${VIA.join('|')}> but serve: the surface its events record.`,
+    '',
+    ...NOTICE,
   ];
   return { exitCode: 0, stdout: `${lines.join('\n')}\n`, stderr: '' };
 };
@@ -236,7 +244,9 @@ const runCommand = async (argv: readonly string[], context: CliContext): Promise
   const [name, ...rest] = argv;
   if (name === undefined) return usageError(`foedrum: no command given; ${SEE_HELP}`);
   if (HELP.has(name)) return usage();
-  if (name === VERSION) return { exitCode: 0, stdout: `${context.version()}\n`, stderr: '' };
+  if (name === VERSION) {
+    return { exitCode: 0, stdout: `${[context.version(), ...NOTICE].join('\n')}\n`, stderr: '' };
+  }
   if (name.startsWith('-')) {
     return usageError(`foedrum: unknown option ${JSON.stringify(name)}; ${SEE_HELP}`);
   }
