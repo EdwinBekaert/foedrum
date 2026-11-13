@@ -115,7 +115,11 @@ Foedrum is not open to outside pull requests yet: they will be closed until the 
 
 ## Licence
 
-Foedrum is licensed under the [GNU Affero General Public License v3.0](LICENSE). Contributions require agreeing to a Contributor License Agreement (details will be published before the project opens to contributions). The Foedrum name, logo and mascot are not covered by the code licence.
+Copyright (C) 2026 Edwin Bekaert
+
+Foedrum is free software: you can redistribute it and modify it under the terms of the [GNU Affero General Public License version 3](LICENSE). It comes without any warranty; see [`LICENSE`](LICENSE) for the details.
+
+Contributions require agreeing to a Contributor License Agreement (details will be published before the project opens to contributions). The Foedrum name, logo and mascot are not covered by the code licence.
 
 ---
 
