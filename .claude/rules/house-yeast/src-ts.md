@@ -9,6 +9,10 @@ paths:
 
 Rules learned from reviews of Foedrum's own pull requests (ADR 0122), for the files this session reads or changes (ADR 0271). Follow them where your change meets them: /brew-review looks for what they describe.
 
+## comment-cites-the-adr-that-decides (semantic)
+
+A code comment that cites an ADR for a rule cites the record that decides that rule for this code, not one whose rule it borrows.
+
 ## fallback-tested-where-only-it-answers (semantic)
 
 A lookup with a fallback (`a ?? b`) has a test where only the fallback can give the expected value, since tests whose state always fills the first value, or that expect undefined, pass with the fallback removed.
