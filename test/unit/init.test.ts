@@ -107,6 +107,10 @@ interface Options {
   given?: InitAnswers;
   /** Whether the Clone's options for the questions of where the Brewery goes are given; default yes. */
   placed?: boolean;
+  /** The platform init runs on; default Linux. */
+  platform?: NodeJS.Platform;
+  /** What `git remote get-url origin` prints, by the folder git runs in; default nothing. */
+  origins?: Readonly<Record<string, string>>;
 }
 
 /** Where git's top is from a folder, all from one made-up working folder. */
@@ -231,6 +235,7 @@ const init = async (
       const printed: Readonly<Record<string, string | undefined>> = {
         status: options.status,
         log: options.unpushed,
+        remote: options.origins?.[folder],
       };
       return { code: 0, stdout: printed[args[0] ?? ''] ?? '', stderr: '' };
     },
@@ -240,7 +245,7 @@ const init = async (
     },
     // The foedrum command (ADR 0210) on a made-up Linux machine.
     shim: {
-      platform: 'linux',
+      platform: options.platform ?? 'linux',
       env: { PATH: options.shimFolder ?? '/usr/bin' },
       home: '/home/ada',
       entry: options.shimEntry ?? '/home/ada/code/foedrum/src/cli/main.ts',
@@ -1734,5 +1739,73 @@ describe('foedrum init finds where it is (ADR 0393)', () => {
     assert.equal(here.result.exitCode, 0, here.result.stderr);
     assert.ok(here.events.includes('doctor '), here.events.join('\n'));
     assert.ok(!here.lines.some((line) => line.startsWith('cd ')), here.lines.join('\n'));
+  });
+
+  it('prints no cd line for a folder whose name a shell would expand', async () => {
+    const { result, lines } = await init(['', '', ''], outside(), { given: { folder: 'a$(b)' } });
+    assert.equal(result.exitCode, 0, result.stderr);
+    assert.ok(lines.includes('The Brewery is in the folder a$(b)'), lines.join('\n'));
+    assert.ok(!lines.some((line) => line.startsWith('cd ')), lines.join('\n'));
+  });
+
+  it('on Windows, walks up from a new folder to the root of its drive, not to the working folder', async () => {
+    const clone: Clone = { ...app(), folders: ['D:/'] };
+    const { result, git } = await init(['', 'D:\\brewery', '', '', ''], clone, {
+      ...unplaced,
+      platform: 'win32',
+    });
+    assert.equal(result.exitCode, 0, result.stderr);
+    assert.deepStrictEqual(git[0]?.args.at(-1), 'D:/brewery');
+  });
+
+  it('names the folder of its clone when --no-input refuses a later question', async () => {
+    const { result } = await init([], outside(), {
+      repositories: ['acme/b'],
+      given: { create: 'y', folder: 'b', brewery: 'acme/b', existing: 'y', 'no-input': true },
+    });
+    assert.equal(result.exitCode, 2);
+    assert.match(result.stderr, /add --targets <answer>; acme\/b is cloned into the folder b\n$/);
+  });
+
+  it('takes its own earlier clone of the repository named, run again, without cloning it twice', async () => {
+    const clone: Clone = { files: new Map(), repositories: ['b'] };
+    const { result, events } = await init(['', ''], clone, {
+      repositories: ['acme/b'],
+      origins: { b: 'https://github.com/ACME/B.git\n' },
+      given: { create: 'y', folder: 'b', brewery: 'acme/b', existing: 'y' },
+    });
+    assert.equal(result.exitCode, 0, result.stderr);
+    assert.ok(!events.includes('git clone'), events.join('\n'));
+    assert.ok(clone.files.has('b/foedrum.jsonc'));
+  });
+
+  it('refuses an empty clone of another repository than the one named', async () => {
+    const run = (brewery: string, origin: string) =>
+      init(
+        [''],
+        { files: new Map(), repositories: ['b'] },
+        {
+          repositories: ['acme/b'],
+          origins: { b: origin },
+          given: { create: 'y', folder: 'b', brewery, existing: 'y', visibility: 'private' },
+        },
+      );
+    const other = await run('acme/b', 'https://github.com/acme/other.git\n');
+    assert.equal(other.result.exitCode, 1);
+    assert.match(
+      other.result.stderr,
+      /^foedrum init: b is a clone of another repository than acme\/b/,
+    );
+    // A name GitHub does not have is created and cloned, never into a clone that is there.
+    const created = await run('acme/new', 'https://github.com/acme/new.git\n');
+    assert.equal(created.result.exitCode, 1);
+    assert.match(
+      created.result.stderr,
+      /^foedrum init: b is a clone of another repository than acme\/new/,
+    );
+    assert.ok(
+      !created.events.some((event) => event.startsWith('create')),
+      created.events.join('\n'),
+    );
   });
 });
