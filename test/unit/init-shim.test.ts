@@ -742,6 +742,74 @@ describe('the foedrum command, on the edges of its machine (ADR 0210)', () => {
   });
 });
 
+describe('the foedrum command from the installed package (ADR 0390)', () => {
+  const PACKAGE_ENTRY = '/home/ada/.npm-global/lib/node_modules/foedrum/dist/cli/main.js';
+  const WIN_PACKAGE_ENTRY =
+    'C:\\Users\\ada\\AppData\\Local\\npm-cache\\_npx\\1a2b\\node_modules\\foedrum\\dist\\cli\\main.js';
+  const HOW =
+    'foedrum is not on the PATH: install it with npm install --global foedrum, or run npx foedrum <command>';
+
+  it('asks nothing and writes no shim from main.js, with a folder on the PATH it could write', async () => {
+    const run = await offer(
+      posix('/home/ada/.local/bin', { entry: PACKAGE_ENTRY, resolves: null }),
+      ['1'],
+    );
+    assert.deepStrictEqual(run.questions, []);
+    assert.deepStrictEqual(run.written, []);
+  });
+
+  it('says nothing about the foedrum command from main.js when foedrum is on the PATH', async () => {
+    const machine = posix('/home/ada/.local/bin', {
+      entry: PACKAGE_ENTRY,
+      resolves: '/home/ada/.npm-global/bin/foedrum',
+    });
+    const run = await offer(machine, ['1']);
+    assert.deepStrictEqual(
+      { questions: run.questions, lines: run.lines },
+      { questions: [], lines: [] },
+    );
+  });
+
+  it('says in one line how to get foedrum from main.js when it is not on the PATH', async () => {
+    const posixRun = await offer(
+      posix('/home/ada/.local/bin', { entry: PACKAGE_ENTRY, resolves: null }),
+      ['1'],
+    );
+    assert.deepStrictEqual(posixRun.lines, [HOW]);
+    // Not the PATHEXT line either: from the package there is no shim to say anything of.
+    const windowsRun = await offer(
+      windows('C:\\Users\\ada\\bin', {
+        entry: WIN_PACKAGE_ENTRY,
+        resolves: null,
+        env: { Path: 'C:\\Users\\ada\\bin', PATHEXT: '.EXE' },
+      }),
+      ['1'],
+    );
+    assert.deepStrictEqual(windowsRun.lines, [HOW]);
+  });
+
+  it("says the line under npx too, whose own foedrum in the package's .bin is gone after it", async () => {
+    // npm exec puts <node_modules>/.bin of the package it runs first on the PATH.
+    const posixRun = await offer(
+      posix('/home/ada/.local/bin', {
+        entry: '/home/ada/.npm/_npx/1a2b/node_modules/foedrum/dist/cli/main.js',
+        resolves: '/home/ada/.npm/_npx/1a2b/node_modules/.bin/foedrum',
+      }),
+      ['1'],
+    );
+    assert.deepStrictEqual(posixRun.lines, [HOW]);
+    const windowsRun = await offer(
+      windows('C:\\Users\\ada\\bin', {
+        entry: WIN_PACKAGE_ENTRY,
+        resolves:
+          'c:\\users\\ada\\appdata\\local\\npm-cache\\_npx\\1a2b\\node_modules\\.bin\\FOEDRUM.CMD',
+      }),
+      ['1'],
+    );
+    assert.deepStrictEqual(windowsRun.lines, [HOW]);
+  });
+});
+
 describe('the entry point the shim runs (ADR 0377)', () => {
   const root = resolve('package-root');
 
