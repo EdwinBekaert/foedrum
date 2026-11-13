@@ -660,7 +660,10 @@ export const commands: readonly RegisteredCommand[] = [
     positionals: [],
     // Each the answer to one question, as typed (ADR 0212).
     options: {
+      create: 'y|n',
+      folder: 'path',
       brewery: 'owner/name',
+      existing: 'y|n',
       visibility: 'private|public',
       targets: 'owner/name ...',
       alias: 'repo=alias',

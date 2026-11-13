@@ -8,12 +8,13 @@ import {
   constants,
   existsSync,
   mkdirSync,
+  readdirSync,
   readFileSync,
   statSync,
   writeFileSync,
 } from 'node:fs';
 import { homedir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname, resolve } from 'node:path';
 import { createInterface } from 'node:readline';
 import {
   createLabel,
@@ -86,7 +87,8 @@ export const initFromCheckout = async (
   given: InitAnswers = {},
 ): Promise<CliResult> => {
   const { input, output } = options?.terminal ?? { input: process.stdin, output: process.stdout };
-  const at = (path: string) => join(cwd, ...path.split('/'));
+  // A path from the working directory, or a full one a person typed (ADR 0393).
+  const at = (path: string) => resolve(cwd, path);
   // gh's own login, never a token (ADR 0073), on github.com: the Brewery names no other host yet.
   const github = createGitHubClient({
     ...(options?.exec === undefined ? {} : { exec: options.exec }),
@@ -106,8 +108,12 @@ export const initFromCheckout = async (
         },
         files: {
           exists: (path) => existsSync(at(path)),
-          entries: () => {
-            throw new Error('not implemented');
+          entries: (path) => {
+            try {
+              return statSync(at(path)).isDirectory() ? readdirSync(at(path)) : undefined;
+            } catch {
+              return undefined;
+            }
           },
           read: (path) => (existsSync(at(path)) ? readFileSync(at(path), 'utf8') : undefined),
           write: (path, text) => {
