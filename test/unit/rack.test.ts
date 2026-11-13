@@ -8,15 +8,11 @@ import { effectKey } from '../../src/engine/effect-key.ts';
 import type { EventStore } from '../../src/engine/event-store.ts';
 import { fold } from '../../src/engine/fold.ts';
 import { claimEffectsDue } from '../../src/engine/issue-claims.ts';
-import {
-  type ArchiveShelf,
-  rackActions,
-  type TemporaryFilesIo,
-  withRack,
-} from '../../src/engine/rack.ts';
+import { type ArchiveShelf, rackActions, withRack } from '../../src/engine/rack.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import { batchOf } from '../../src/engine/state-branch.ts';
 import type { Event } from '../../src/schemas/events.ts';
+import type { TemporaryFilesIo } from '../../src/workspace/old-files.ts';
 import { fakeRecipe, fakeRecipes, hour } from '../helpers/fake-recipes.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 
