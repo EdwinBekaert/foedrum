@@ -30,8 +30,9 @@ const branch = (name: string, fact: Partial<BranchFact> = {}): BranchFact => ({
 
 const LIVE = 100;
 const isPidAlive = (pid: number): boolean => pid === LIVE;
-const run = (facts: Omit<Facts, 'records'> & Partial<Pick<Facts, 'records'>>) =>
-  plan({ records: [], ...facts }, isPidAlive);
+const run = (
+  facts: Omit<Facts, 'records' | 'folders'> & Partial<Pick<Facts, 'records' | 'folders'>>,
+) => plan({ records: [], folders: [], ...facts }, isPidAlive);
 
 // A record whose folder is gone; `folder: undefined` is a record whose gitdir file is missing.
 const record = (name: string, fact: Partial<RecordFact> = {}): RecordFact => ({
@@ -223,6 +224,38 @@ describe('plan: worktrees under .claude/worktrees/', () => {
       result.actions.map((action) => action.kind),
       ['remove', 'prune'],
     );
+  });
+});
+
+describe('plan: leftover folders under .claude/worktrees/', () => {
+  it('removes a folder git does not list that holds no files, and keeps one that holds a file', () => {
+    const folder = (name: string, listed: boolean, holdsFiles: boolean) => ({
+      name,
+      path: `/repo/.claude/worktrees/${name}`,
+      listed,
+      holdsFiles,
+    });
+    const result = run({
+      worktrees: [worktree('7-a', { branch: undefined })],
+      branches: [],
+      folders: [
+        folder('7-a', true, false),
+        folder('8-left', false, false),
+        folder('9-files', false, true),
+      ],
+    });
+
+    assert.deepEqual(result.actions, [
+      {
+        kind: 'remove-empty-folder',
+        label: '.claude/worktrees/8-left',
+        path: '/repo/.claude/worktrees/8-left',
+      },
+    ]);
+    assert.deepEqual(result.kept, [
+      'kept worktree .claude/worktrees/7-a: no branch',
+      'kept folder .claude/worktrees/9-files: not a worktree, it holds files',
+    ]);
   });
 });
 

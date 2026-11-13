@@ -23,10 +23,20 @@ export interface BranchFact {
   upstreamGone: boolean;
 }
 
+// A folder directly under .claude/worktrees/: whether git lists it as a worktree, and whether
+// anything in it, at any depth, is not a folder (a file, a link, a .git).
+export interface FolderFact {
+  name: string;
+  path: string;
+  listed: boolean;
+  holdsFiles: boolean;
+}
+
 export interface Facts {
   worktrees: WorktreeFact[];
   branches: BranchFact[];
   records: RecordFact[];
+  folders: FolderFact[];
 }
 
 // `branch` on a worktree action is deleted after the action succeeds.
@@ -42,6 +52,7 @@ export type Action =
   | { kind: 'finish'; label: string; path: string; record: string; branch: string | undefined }
   | { kind: 'prune'; label: string; record: string; branch: string | undefined }
   | { kind: 'drop-record'; label: string; record: string; reason: string }
+  | { kind: 'remove-empty-folder'; label: string; path: string }
   | { kind: 'delete-branch'; branch: string };
 
 export interface Plan {

@@ -85,7 +85,7 @@ const gatherFacts = async (git: Git, main: string): Promise<Gathered> => {
       upstreamGone: track === '[gone]',
     };
   });
-  return { worktrees, branches, records, tips };
+  return { worktrees, branches, records, folders: [], tips };
 };
 
 // Carries out one action and returns what it did; throws when it could not.
@@ -109,6 +109,8 @@ const carryOut = async (
     case 'drop-record':
       await removeTree(action.record);
       return `removed stale worktree record ${action.label}: ${action.reason}`;
+    case 'remove-empty-folder':
+      throw new Error('not implemented');
     case 'delete-branch': {
       // `git branch -d` would check against the main checkout's own main, which is usually
       // behind. Check the tip against origin/main instead, and delete the branch only while it
