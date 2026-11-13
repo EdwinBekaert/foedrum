@@ -141,6 +141,14 @@ export const plan = (facts: Facts, isPidAlive: (pid: number) => boolean): Plan =
     }
   }
 
+  // A folder git does not list goes only when it holds no file; one with a .git stays (ADR 0389).
+  for (const { name, path, listed, holdsFiles } of facts.folders) {
+    if (listed) continue;
+    const label = `.claude/worktrees/${name}`;
+    if (holdsFiles) kept.push(`kept folder ${label}: not a worktree, it holds files`);
+    else actions.push({ kind: 'remove-empty-folder', label, path });
+  }
+
   const checkedOut = new Set(facts.worktrees.map((worktree) => worktree.branch));
   for (const branch of facts.branches) {
     if (checkedOut.has(branch.name)) continue;
