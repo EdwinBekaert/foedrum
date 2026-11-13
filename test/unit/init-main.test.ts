@@ -294,4 +294,50 @@ describe('initFromCheckout', () => {
       machine.remove();
     }
   });
+
+  it('clones into, and writes in, a new folder given as a full path (ADR 0393)', async () => {
+    const here = makeTempDir('init-main-here');
+    const elsewhere = makeTempDir('init-main-elsewhere');
+    try {
+      const target = join(elsewhere.path, 'brewery');
+      const gh = ghOver(
+        fakeFetch([
+          { status: 200, body: { login: 'octocat' } },
+          { status: 404, body: { message: 'Not Found' } },
+          { status: 201, body: {} },
+        ]).fetch,
+      );
+      const clones: string[] = [];
+      const exec: ExecProcess = async (file, args, options) => {
+        if (args[0] === 'api') return gh.exec(file, args, options);
+        if (args[1] === '--show-cdup') {
+          const stderr = 'fatal: not a git repository (or any of the parent directories): .git\n';
+          return { exitCode: 128, stdout: '', stderr, output: stderr };
+        }
+        if (args[0] === 'clone') {
+          clones.push(args[3] ?? '');
+          mkdirSync(join(target, '.git'), { recursive: true });
+        }
+        return { exitCode: 0, stdout: '', stderr: '', output: '' };
+      };
+      const result = await initFromCheckout(
+        here.path,
+        {
+          exec,
+          resolve: (name) => `/usr/bin/${name}`,
+          denylist: () => ({ kind: 'none', path: '/made-up/denylist.txt' }),
+          shim: { env: { PATH: '' }, home: here.path },
+          terminal: { input: Readable.from([]), output: { write: () => true } },
+        },
+        { create: 'y', folder: target, brewery: '', visibility: '', targets: '', push: 'n' },
+      );
+      assert.equal(result.stderr, '');
+      assert.deepStrictEqual(clones, [target.replaceAll('\\', '/')]);
+      assert.ok(existsSync(join(target, 'foedrum.jsonc')));
+      assert.ok(!existsSync(join(here.path, 'foedrum.jsonc')));
+    } finally {
+      here.remove();
+      elsewhere.remove();
+    }
+  });
 });

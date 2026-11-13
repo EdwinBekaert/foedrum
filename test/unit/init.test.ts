@@ -1810,4 +1810,56 @@ describe('foedrum init finds where it is (ADR 0393)', () => {
       created.events.join('\n'),
     );
   });
+
+  it('takes a full path to a new folder in no repository, walking up to the root', async () => {
+    const clone = outside();
+    const { result, git } = await init(['', '', ''], clone, {
+      given: { folder: '/nowhere/brewery' },
+    });
+    assert.equal(result.exitCode, 0, result.stderr);
+    assert.deepStrictEqual(git[0]?.args.at(-1), '/nowhere/brewery');
+    assert.ok(clone.files.has('/nowhere/brewery/foedrum.jsonc'));
+  });
+
+  it("takes a Brewery's clone at its top for a folder in it, and asks again for a new folder in it", async () => {
+    const clone: Clone = {
+      files: new Map([
+        ['shop/foedrum.jsonc', UP_TO_DATE],
+        ['shop/docs/a.md', 'x'],
+      ]),
+      repositories: ['shop'],
+    };
+    const { result, lines } = await init(['', 'shop/new', 'shop/docs', ''], clone);
+    assert.equal(result.exitCode, 0, result.stderr);
+    assert.ok(
+      lines.includes('  shop/new is in the repository shop; a Brewery is a repository of its own'),
+      lines.join('\n'),
+    );
+    assert.ok(clone.files.has('shop/models.jsonc'));
+    assert.ok(!clone.files.has('shop/docs/models.jsonc'));
+  });
+
+  it("suggests the folder beside the repository's top from a folder deep in it, and its plain cd line", async () => {
+    const clone: Clone = { files: new Map([['../main.ts', 'x']]), repositories: ['..'] };
+    const { result, questions, lines } = await init(['', '', '', '', ''], clone, unplaced);
+    assert.equal(result.exitCode, 0, result.stderr);
+    assert.equal(questions[1], 'Folder for the Brewery [../../foedrum-brewery]: ');
+    assert.equal(lines.at(-1), 'cd ../../foedrum-brewery');
+  });
+
+  it('refuses a foedrum.jsonc that does not pass its schema in a folder answered or a repository cloned', async () => {
+    const amber = '{ "colour": "amber" }';
+    const answered = await init(['', 'shop'], {
+      files: new Map([['shop/foedrum.jsonc', amber]]),
+      repositories: ['shop'],
+    });
+    assert.equal(answered.result.exitCode, 1);
+    assert.match(answered.result.stderr, /^foedrum init: the foedrum\.jsonc here does not pass/);
+    const cloned = await init([''], { files: new Map([['foedrum.jsonc', amber]]) });
+    assert.equal(cloned.result.exitCode, 1);
+    assert.match(
+      cloned.result.stderr,
+      /does not pass its schema: .*; octocat\/foedrum-brewery is cloned into the folder \.\n$/,
+    );
+  });
 });
