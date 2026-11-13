@@ -174,4 +174,7 @@ init takes:
 
 Every command takes --via <plugin|terminal> but serve: the surface its events record.
 
+Copyright (C) 2026 Edwin Bekaert. AGPL-3.0, no warranty.
+Source: https://github.com/EdwinBekaert/foedrum
+
 `;
