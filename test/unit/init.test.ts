@@ -159,6 +159,7 @@ const init = async (
       exists: (path) =>
         path === '' ||
         /^\.\.(?:\/\.\.)*$/.test(path) ||
+        path === '/' ||
         tops.includes(path) ||
         (clone.folders ?? []).includes(path) ||
         paths().some((file) => file === path || file.startsWith(`${path}/`)),
@@ -210,6 +211,10 @@ const init = async (
       if (args[0] === 'rev-parse' && args[1] === '--show-cdup') {
         const fails = options.gitFails?.['--show-cdup'];
         if (fails !== undefined) return { code: 128, stdout: '', stderr: `${fails}\n` };
+        // git cannot start in a folder that is not there, as the process runner says.
+        if (!ports.files.exists(folder)) {
+          return { code: 1, stdout: '', stderr: `spawn git ENOENT: no folder ${folder}\n` };
+        }
         const depth = (top: string) => posix.join(ROOT, top).length;
         const top = tops
           .filter((each) => within(each, folder))
