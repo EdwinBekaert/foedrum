@@ -90,6 +90,8 @@ interface Options {
   shimFolder?: string;
   /** The files on the machine the foedrum command goes on, by path; default none. */
   shimFiles?: Readonly<Record<string, string>>;
+  /** The entry point of the Foedrum that runs; default a checkout's main.ts. */
+  shimEntry?: string;
   /** The answers given as options (ADR 0212); default none. */
   given?: InitAnswers;
 }
@@ -177,7 +179,7 @@ const init = async (
       platform: 'linux',
       env: { PATH: options.shimFolder ?? '/usr/bin' },
       home: '/home/ada',
-      entry: '/home/ada/code/foedrum/src/cli/main.ts',
+      entry: options.shimEntry ?? '/home/ada/code/foedrum/src/cli/main.ts',
       writable: (folder) => folder === options.shimFolder,
       read: (path) => options.shimFiles?.[path],
       write: (path) => {
@@ -1146,6 +1148,35 @@ describe('foedrum init with its answers as options (ADR 0212)', () => {
         `${option}: ${events.join('\n')}`,
       );
     }
+  });
+
+  it('with --no-input from the installed package, needs no --shim and writes no shim (ADR 0390)', async () => {
+    const { result, lines, events } = await init([], outside(), {
+      ...FIRST,
+      shimEntry: '/home/ada/.npm-global/lib/node_modules/foedrum/dist/cli/main.js',
+      given: { ...without(ALL, 'shim'), 'no-input': true },
+    });
+    assert.equal(result.exitCode, 0, result.stderr);
+    assert.ok(events.includes('doctor brewery'), events.join('\n'));
+    assert.ok(!events.some((event) => event.startsWith('shim')), events.join('\n'));
+    assert.ok(
+      lines.includes(
+        'foedrum is not on the PATH: install it with npm install --global foedrum, or run npx foedrum <command>',
+      ),
+      lines.join('\n'),
+    );
+  });
+
+  it("with --no-input from the installed package, needs no --repoint for init's shim of a checkout (ADR 0390)", async () => {
+    const { result, events } = await init([], outside(), {
+      ...FIRST,
+      shimFiles: OTHER_SHIM,
+      shimEntry: '/home/ada/.npm-global/lib/node_modules/foedrum/dist/cli/main.js',
+      given: { ...without(ALL, 'shim'), 'no-input': true },
+    });
+    assert.equal(result.exitCode, 0, result.stderr);
+    assert.ok(events.includes('doctor brewery'), events.join('\n'));
+    assert.ok(!events.some((event) => event.startsWith('shim')), events.join('\n'));
   });
 
   it('with --no-input, shows what a later question shows before refusing it', async () => {
