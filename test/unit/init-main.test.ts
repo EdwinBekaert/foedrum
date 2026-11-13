@@ -129,7 +129,11 @@ describe('initFromCheckout', () => {
         if (args[0] === 'api') return gh.exec(file, args, options);
         const ok = (stdout = '') => ({ exitCode: 0, stdout, stderr: '', output: stdout });
         if (args[1] === '--show-cdup') {
-          const stderr = 'fatal: not a git repository (or any of the parent directories): .git\n';
+          // git says it in its locale's language, as a German one does, and in English under C.
+          const stderr =
+            options.env?.LC_ALL === 'C'
+              ? 'fatal: not a git repository (or any of the parent directories): .git\n'
+              : 'fatal: kein Git-Repository (oder irgendeines der Elternverzeichnisse): .git\n';
           return { exitCode: 128, stdout: '', stderr, output: stderr };
         }
         if (args[0] === 'clone') {
