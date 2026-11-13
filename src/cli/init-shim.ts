@@ -138,7 +138,6 @@ const shimOf = (ports: ShimPorts) => {
 /** What init does about the `foedrum` command, read from `ports` without writing anything. */
 export const shimChoice = (ports: ShimPorts): ShimChoice => {
   const { platform, env, home, entry } = ports;
-  const { windows, path, shells, filesIn } = shimOf(ports);
   // Only a checkout gets the shim: the package's main.js may lie in npx's cache, and a global
   // install puts npm's own foedrum on the PATH (ADR 0390).
   if (extname(entry).toLowerCase() !== '.ts') {
@@ -147,6 +146,7 @@ export const shimChoice = (ports: ShimPorts): ShimChoice => {
       lines: ports.resolve('foedrum') === undefined ? [FROM_PACKAGE] : [],
     };
   }
+  const { windows, path, shells, filesIn } = shimOf(ports);
   if (windows && !pathExtensions(env, platform).includes('.cmd')) {
     return {
       kind: 'said',
