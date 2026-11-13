@@ -3,6 +3,7 @@
   "version": "0.0.0",
   "description": "GitHub-native orchestrator that runs Claude brewers through recipes and turns issues into pull requests",
   "license": "AGPL-3.0-only",
+  "author": "Edwin Bekaert",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/EdwinBekaert/foedrum.git"
