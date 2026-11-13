@@ -138,15 +138,20 @@ const shimOf = (ports: ShimPorts) => {
 /** What init does about the `foedrum` command, read from `ports` without writing anything. */
 export const shimChoice = (ports: ShimPorts): ShimChoice => {
   const { platform, env, home, entry } = ports;
-  // Only a checkout gets the shim: the package's main.js may lie in npx's cache, and a global
-  // install puts npm's own foedrum on the PATH (ADR 0390).
-  if (extname(entry).toLowerCase() !== '.ts') {
-    return {
-      kind: 'said',
-      lines: ports.resolve('foedrum') === undefined ? [FROM_PACKAGE] : [],
-    };
-  }
   const { windows, path, shells, filesIn } = shimOf(ports);
+  const same = (a: string, b: string): boolean =>
+    windows
+      ? path.resolve(a).toLowerCase() === path.resolve(b).toLowerCase()
+      : path.resolve(a) === path.resolve(b);
+  // Only a checkout gets the shim: the package's main.js may lie in npx's cache, and a global
+  // install puts npm's own foedrum on the PATH. npm exec puts the `.bin` beside the package it
+  // runs first on the PATH, and that foedrum goes with npx (ADR 0390).
+  if (extname(entry).toLowerCase() !== '.ts') {
+    const runs = ports.resolve('foedrum');
+    const npx = path.resolve(entry, '..', '..', '..', '..', '.bin');
+    const found = runs !== undefined && !same(path.dirname(runs), npx);
+    return { kind: 'said', lines: found ? [] : [FROM_PACKAGE] };
+  }
   if (windows && !pathExtensions(env, platform).includes('.cmd')) {
     return {
       kind: 'said',
@@ -155,10 +160,6 @@ export const shimChoice = (ports: ShimPorts): ShimChoice => {
       ],
     };
   }
-  const same = (a: string, b: string): boolean =>
-    windows
-      ? path.resolve(a).toLowerCase() === path.resolve(b).toLowerCase()
-      : path.resolve(a) === path.resolve(b);
   const checkout = (main: string): string => path.dirname(path.dirname(path.dirname(main)));
 
   // The PATH's folders inside the home that are there and writable, each once, in the order
