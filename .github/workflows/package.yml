@@ -54,14 +54,15 @@ jobs:
         working-directory: ${{ runner.temp }}/install
         run: npm install --no-audit --no-fund "$TARBALL"
 
-      # --version, --help and doctor start the installed bin. Doctor exits 1 on a runner without a
+      # --version, --help and doctor start the installed bin. --version prints the version on its
+      # first line, then the copyright and the source. Doctor exits 1 on a runner without a
       # gh login, and its findings depend on the runner, so only its start is held: exit 0 or 1,
       # and nothing on stderr, where a crash would print its stack.
       - name: Run the installed foedrum
         working-directory: ${{ runner.temp }}/install
         run: |
           foedrum=node_modules/.bin/foedrum
-          version=$("$foedrum" --version)
+          version=$("$foedrum" --version | head -n 1)
           test "$version" = "$(node -p "require('./node_modules/foedrum/package.json').version")"
           "$foedrum" --help > /dev/null
           status=0

@@ -250,11 +250,33 @@ describe('foedrum: the command line', () => {
   });
 
   it("foedrum --version prints the package's version", async () => {
+    const { exitCode, stdout, stderr } = await run(['--version'], { version: () => '1.2.3' });
+    assert.deepEqual(
+      { exitCode, version: stdout.split('\n')[0], stderr },
+      { exitCode: 0, version: '1.2.3', stderr: '' },
+    );
+  });
+
+  it('foedrum --version prints the version alone on its first line, then the copyright and the source', async () => {
     assert.deepEqual(await run(['--version'], { version: () => '1.2.3' }), {
       exitCode: 0,
-      stdout: '1.2.3\n',
+      stdout:
+        '1.2.3\n' +
+        'Copyright (C) 2026 Edwin Bekaert. AGPL-3.0, no warranty.\n' +
+        'Source: https://github.com/EdwinBekaert/foedrum\n',
       stderr: '',
     });
+  });
+
+  it('foedrum --help ends with the copyright and the source', async () => {
+    const { stdout } = await run(['--help']);
+    assert.ok(
+      stdout.endsWith(
+        '\n\nCopyright (C) 2026 Edwin Bekaert. AGPL-3.0, no warranty.\n' +
+          'Source: https://github.com/EdwinBekaert/foedrum\n',
+      ),
+      stdout,
+    );
   });
 
   it('runs foedrum serve through its context, with its exit code (ADR 0063)', async () => {
