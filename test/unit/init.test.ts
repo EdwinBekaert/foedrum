@@ -4,6 +4,7 @@
 // run that changes nothing, and doctor's report at the end.
 
 import assert from 'node:assert/strict';
+import { posix } from 'node:path';
 import { describe, it } from 'node:test';
 import { type InitAnswers, type InitPorts, runInit } from '../../src/cli/init.ts';
 import type { CliResult } from '../../src/cli/run.ts';
@@ -49,9 +50,19 @@ const GITHUB: Readonly<Record<string, RepositoryFacts>> = {
   },
 };
 
+/**
+ * The files of a run, by their path from the working folder. By default they are what the Brewery's
+ * repository on GitHub holds: the working folder starts empty outside any repository, and init,
+ * answered `--create y --folder . --existing y`, clones them into it. With `git: false` it is an
+ * empty folder outside any repository, answered `--create y --folder foedrum-brewery`. With
+ * `repositories`, the files are in the working folder and those folders are repositories' tops.
+ */
 interface Clone {
   files: Map<string, string>;
   git?: boolean;
+  repositories?: readonly string[];
+  /** Empty folders there are besides the working folder and the folders around it. */
+  folders?: readonly string[];
 }
 
 interface Run {
@@ -92,9 +103,16 @@ interface Options {
   shimFiles?: Readonly<Record<string, string>>;
   /** The entry point of the Foedrum that runs; default a checkout's main.ts. */
   shimEntry?: string;
-  /** The answers given as options (ADR 0212); default none. */
+  /** The answers given as options (ADR 0212), over the Clone's own; default none. */
   given?: InitAnswers;
+  /** Whether the Clone's options for the questions of where the Brewery goes are given; default yes. */
+  placed?: boolean;
 }
+
+/** Where git's top is from a folder, all from one made-up working folder. */
+const ROOT = '/work/here';
+const within = (top: string, folder: string): boolean =>
+  !posix.relative(posix.join(ROOT, top), posix.join(ROOT, folder)).startsWith('..');
 
 /** Runs init with `answers` in order; an answer past the last is the end of standard input. */
 const init = async (
@@ -103,6 +121,18 @@ const init = async (
   options: Options = {},
 ): Promise<Run> => {
   const queue = [...answers];
+  // Whether the files are what the Brewery's repository on GitHub holds.
+  const onGitHub = clone.git !== false && clone.repositories === undefined;
+  const remote = new Map(onGitHub ? clone.files : []);
+  if (onGitHub) clone.files.clear();
+  const tops = [...(clone.repositories ?? [])];
+  const placed: InitAnswers =
+    options.placed === false || clone.repositories !== undefined
+      ? {}
+      : onGitHub
+        ? { create: 'y', folder: '.', existing: 'y' }
+        : { create: 'y', folder: 'foedrum-brewery' };
+  const paths = () => [...clone.files.keys()];
   const run: Omit<Run, 'result'> = {
     questions: [],
     lines: [],
@@ -121,9 +151,21 @@ const init = async (
     },
     files: {
       exists: (path) =>
-        path === '.git'
-          ? clone.git !== false
-          : [...clone.files.keys()].some((file) => file === path || file.startsWith(`${path}/`)),
+        path === '' ||
+        /^\.\.(?:\/\.\.)*$/.test(path) ||
+        tops.includes(path) ||
+        (clone.folders ?? []).includes(path) ||
+        paths().some((file) => file === path || file.startsWith(`${path}/`)),
+      entries: (path) => {
+        if ((clone.folders ?? []).includes(path)) return [];
+        if (clone.files.has(path)) return undefined;
+        const under = paths().flatMap((file) =>
+          path === '' ? [file] : file.startsWith(`${path}/`) ? [file.slice(path.length + 1)] : [],
+        );
+        const names = [...new Set(under.map((file) => file.split('/')[0] ?? ''))];
+        const own = names.filter((name) => name !== '..');
+        return own.length > 0 || path === '' || tops.includes(path) ? own : undefined;
+      },
       read: (path) => clone.files.get(path),
       write: (path, text) => {
         run.written.push(path);
@@ -141,7 +183,7 @@ const init = async (
     github: {
       exists: async (repo) => {
         run.events.push(`exists ${repo}`);
-        return (options.repositories ?? []).includes(repo);
+        return onGitHub || (options.repositories ?? []).includes(repo);
       },
       create: async (repo, login, isPrivate) => {
         run.events.push(`create ${repo} ${login} ${isPrivate ? 'private' : 'public'}`);
@@ -158,11 +200,33 @@ const init = async (
       },
     },
     git: async (folder, args) => {
+      // Where a folder is, read by every run, is kept apart from the git calls tests list.
+      if (args[0] === 'rev-parse' && args[1] === '--show-cdup') {
+        const fails = options.gitFails?.['--show-cdup'];
+        if (fails !== undefined) return { code: 128, stdout: '', stderr: `${fails}\n` };
+        const depth = (top: string) => posix.join(ROOT, top).length;
+        const top = tops
+          .filter((each) => within(each, folder))
+          .sort((a, b) => depth(b) - depth(a))[0];
+        if (top === undefined) {
+          const stderr = 'fatal: not a git repository (or any of the parent directories): .git\n';
+          return { code: 128, stdout: '', stderr };
+        }
+        const up = posix.relative(posix.join(ROOT, folder), posix.join(ROOT, top));
+        return { code: 0, stdout: up === '' ? '\n' : `${up}/\n`, stderr: '' };
+      }
       run.git.push({ folder, args });
       run.events.push(`git ${args[0]}`);
       const fails = options.gitFails?.[args[0] ?? ''];
       if (fails !== undefined) {
         return { code: options.gitCodes?.[args[0] ?? ''] ?? 1, stdout: '', stderr: `${fails}\n` };
+      }
+      if (args[0] === 'clone') {
+        // The clone holds what GitHub's repository holds.
+        const into = args[3] === '.' ? '' : (args[3] ?? '');
+        for (const [path, text] of remote)
+          clone.files.set(into === '' ? path : `${into}/${path}`, text);
+        tops.push(into);
       }
       const printed: Readonly<Record<string, string | undefined>> = {
         status: options.status,
@@ -188,9 +252,22 @@ const init = async (
       resolve: () => undefined,
     },
   };
-  const result = await runInit(ports, options.given ?? {});
+  const result = await runInit(ports, { ...placed, ...options.given });
   return { result, ...run };
 };
+
+/** A Brewery's foedrum.jsonc that the default answers leave as it is. */
+const UP_TO_DATE = JSON.stringify({
+  brewery: 'octocat/foedrum-brewery',
+  users: ['octocat'],
+  concurrency: 1,
+  repositories: {},
+});
+
+/** A Brewery's repository on GitHub with `files` besides its up-to-date foedrum.jsonc. */
+const brewery = (files: Readonly<Record<string, string>>): Clone => ({
+  files: new Map([['foedrum.jsonc', UP_TO_DATE], ...Object.entries(files)]),
+});
 
 const parsed = <T>(clone: Clone, path: string, schema: Parameters<typeof readJsonc<T>>[1]): T => {
   const text = clone.files.get(path) ?? assert.fail(`${path} was not written`);
@@ -326,7 +403,7 @@ describe('foedrum init (ADR 0199)', () => {
       ['node_modules/\r\n', 'node_modules/\r\n.foedrum/\r\n'],
       ['node_modules/\r\ndist/', 'node_modules/\r\ndist/\r\n.foedrum/\r\n'],
     ] as const) {
-      const clone: Clone = { files: new Map([['.gitignore', was]]) };
+      const clone = brewery({ '.gitignore': was });
       await init(['', '', 'y'], clone);
       assert.equal(clone.files.get('.gitignore'), now, JSON.stringify(was));
     }
@@ -379,7 +456,7 @@ describe('foedrum init (ADR 0199)', () => {
   });
 
   it('keeps an existing file unless the user says yes, after listing what would change', async () => {
-    const kept: Clone = { files: new Map([['.gitignore', 'node_modules/\n']]) };
+    const kept: Clone = brewery({ '.gitignore': 'node_modules/\n' });
     const no = await init(['', '', 'n'], kept);
     assert.ok(no.questions.includes('Change .gitignore? [y/N]: '), no.questions.join('\n'));
     assert.ok(no.lines.includes('.gitignore would change:'), no.lines.join('\n'));
@@ -387,7 +464,7 @@ describe('foedrum init (ADR 0199)', () => {
     assert.ok(!no.written.includes('.gitignore'));
     assert.equal(kept.files.get('.gitignore'), 'node_modules/\n');
 
-    const changed: Clone = { files: new Map([['.gitignore', 'node_modules/\n']]) };
+    const changed: Clone = brewery({ '.gitignore': 'node_modules/\n' });
     const yes = await init(['', '', 'y'], changed);
     assert.ok(yes.written.includes('.gitignore'));
     assert.equal(changed.files.get('.gitignore'), 'node_modules/\n.foedrum/\n');
@@ -395,7 +472,7 @@ describe('foedrum init (ADR 0199)', () => {
 
   it("merges the plugin into the settings there, keeping Claude Code's other keys", async () => {
     const settings = JSON.stringify({ model: 'opus', enabledPlugins: { other: true } });
-    const clone: Clone = { files: new Map([['.claude/settings.json', settings]]) };
+    const clone = brewery({ '.claude/settings.json': settings });
     const { lines } = await init(['', '', 'y'], clone);
     assert.ok(lines.includes('  enabledPlugins.foedrum@foedrum (added)'), lines.join('\n'));
     assert.deepStrictEqual(parsed(clone, '.claude/settings.json', BreweryClaudeSettings), {
@@ -441,7 +518,10 @@ describe('foedrum init (ADR 0199)', () => {
   });
 
   it('refuses a foedrum.jsonc that does not pass its schema, before any question', async () => {
-    const clone: Clone = { files: new Map([['foedrum.jsonc', '{ "colour": "amber" }']]) };
+    const clone: Clone = {
+      files: new Map([['foedrum.jsonc', '{ "colour": "amber" }']]),
+      repositories: [''],
+    };
     const { result, questions, written } = await init([], clone);
     assert.equal(result.exitCode, 1);
     assert.match(
@@ -516,29 +596,29 @@ describe('foedrum init (ADR 0199)', () => {
       '/.foedrum/\n',
       'x\r\n.foedrum/\r\n',
     ]) {
-      const clone: Clone = { files: new Map([['.gitignore', was]]) };
+      const clone = brewery({ '.gitignore': was });
       const { lines, written } = await init(['', ''], clone);
       assert.ok(lines.includes('.gitignore is up to date'), JSON.stringify(was));
       assert.ok(!written.includes('.gitignore'), JSON.stringify(was));
     }
-    const near: Clone = { files: new Map([['.gitignore', '.foedrumx\n']]) };
+    const near = brewery({ '.gitignore': '.foedrumx\n' });
     const { lines } = await init(['', '', 'y'], near);
     assert.ok(lines.includes('.gitignore would change:'), lines.join('\n'));
     assert.equal(near.files.get('.gitignore'), '.foedrumx\n.foedrum/\n');
   });
 
   it('ends a last line without a line break before adding its own', async () => {
-    const clone: Clone = { files: new Map([['.gitignore', 'node_modules/']]) };
+    const clone = brewery({ '.gitignore': 'node_modules/' });
     await init(['', '', 'y'], clone);
     assert.equal(clone.files.get('.gitignore'), 'node_modules/\n.foedrum/\n');
   });
 
   it('stops with one line when standard input ends at a file question, writing no file after it', async () => {
-    const clone: Clone = { files: new Map([['.gitignore', 'node_modules/\n']]) };
+    const clone: Clone = brewery({ '.gitignore': 'node_modules/\n' });
     const { result, written } = await init(['', ''], clone);
     assert.equal(result.exitCode, 1);
     assert.match(result.stderr, /^foedrum init: no answer to "Change \.gitignore\?"/);
-    assert.deepStrictEqual(written, ['foedrum.jsonc', 'models.jsonc']);
+    assert.deepStrictEqual(written, ['models.jsonc']);
   });
 
   it('asks the targets again for a repository named twice, or one GitHub cannot find', async () => {
@@ -566,7 +646,7 @@ describe('foedrum init (ADR 0199)', () => {
   });
 
   it('names a settings file that does not read, and asks before replacing it', async () => {
-    const clone: Clone = { files: new Map([['.claude/settings.json', '{ not json']]) };
+    const clone = brewery({ '.claude/settings.json': '{ not json' });
     const { lines, questions } = await init(['', '', 'n'], clone);
     const at = lines.indexOf('.claude/settings.json would change:');
     assert.ok(at >= 0, lines.join('\n'));
@@ -627,7 +707,9 @@ describe('foedrum init outside a clone, the labels and the push (ADR 0207)', () 
 
   it('creates the repository of an organization, and clones it into a folder of its name', async () => {
     const clone = outside();
-    const { events, git } = await init(['acme/brewery', '', ''], clone);
+    const { events, git } = await init(['acme/brewery', '', ''], clone, {
+      given: { folder: 'brewery' },
+    });
     assert.ok(events.includes('create acme/brewery octocat private'), events.join('\n'));
     assert.deepStrictEqual(git[0]?.args, [
       'clone',
@@ -638,26 +720,14 @@ describe('foedrum init outside a clone, the labels and the push (ADR 0207)', () 
     assert.ok(clone.files.has('brewery/foedrum.jsonc'));
   });
 
-  it('refuses a name GitHub has with one line, creating and asking nothing more', async () => {
-    const { result, questions, events, written } = await init(['', '', ''], outside(), {
-      repositories: ['octocat/foedrum-brewery'],
-    });
-    assert.equal(result.exitCode, 1);
-    assert.match(
-      result.stderr,
-      /^foedrum init: octocat\/foedrum-brewery is on GitHub already; .*clone/,
-    );
-    assert.equal(result.stderr.split('\n').filter(Boolean).length, 1);
-    assert.equal(questions.length, 1);
-    assert.deepStrictEqual(events, ['exists octocat/foedrum-brewery']);
-    assert.deepStrictEqual(written, []);
-  });
-
   it("refuses a folder of the repository's name that is there, before creating anything", async () => {
     const clone: Clone = { files: new Map([['foedrum-brewery/notes.txt', 'x']]), git: false };
     const { result, events } = await init(['', '', ''], clone);
-    assert.equal(result.exitCode, 1);
-    assert.match(result.stderr, /^foedrum init: the folder foedrum-brewery is there already/);
+    assert.equal(result.exitCode, 2);
+    assert.match(
+      result.stderr,
+      /^foedrum init: --folder foedrum-brewery: The folder foedrum-brewery holds files/,
+    );
     assert.ok(!events.some((event) => event.startsWith('create')), events.join('\n'));
   });
 
@@ -678,7 +748,8 @@ describe('foedrum init outside a clone, the labels and the push (ADR 0207)', () 
   });
 
   it('creates and clones nothing inside a clone, also for a name GitHub has, and asks nothing to push when nothing changed', async () => {
-    const { result, questions, events, lines } = await init(['', ''], undefined, {
+    const clone: Clone = { files: new Map([['foedrum.jsonc', UP_TO_DATE]]), repositories: [''] };
+    const { result, questions, events, lines } = await init([''], clone, {
       repositories: ['octocat/foedrum-brewery'],
     });
     assert.equal(result.exitCode, 0, result.stderr);
@@ -1039,6 +1110,8 @@ describe('foedrum init writes the foedrum command (ADR 0210)', () => {
 
 /** Every answer of a first Brewery as an option: acme/web is a Node target, acme/api is not. */
 const ALL: InitAnswers = {
+  create: 'y',
+  folder: 'brewery',
   brewery: 'acme/brewery',
   visibility: 'public',
   targets: 'acme/web acme/api',
@@ -1185,7 +1258,7 @@ describe('foedrum init with its answers as options (ADR 0212)', () => {
       given: { ...without(ALL, 'shim'), 'no-input': true },
     });
     assert.ok(shim.lines.includes(`  1. ${SHIM_FOLDER}`), shim.lines.join('\n'));
-    const clone: Clone = { files: new Map([['.gitignore', 'dist/\n']]) };
+    const clone = brewery({ '.gitignore': 'dist/\n' });
     const change = await init([], clone, {
       given: { brewery: '', targets: '', push: 'y', 'no-input': true },
     });
@@ -1226,9 +1299,9 @@ describe('foedrum init with its answers as options (ADR 0212)', () => {
       await refused({ ...ALL, brewery: 'acme/NUL' }),
       '1 foedrum init: NUL cannot be a folder on Windows; choose another name\n',
     );
-    assert.match(
-      await refused(ALL, { repositories: ['acme/brewery'] }),
-      /^1 foedrum init: acme\/brewery is on GitHub already; /,
+    assert.equal(
+      await refused({ ...ALL, existing: 'n' }, { repositories: ['acme/brewery'] }),
+      '2 foedrum init: --brewery acme/brewery: it is on GitHub already and not the Brewery meant; give another --brewery\n',
     );
     assert.match(
       await refused({ ...ALL, brewery: 'brewery' }),
@@ -1307,7 +1380,7 @@ describe('foedrum init with its answers as options (ADR 0212)', () => {
       ['y', true],
       ['n', false],
     ] as const) {
-      const clone: Clone = { files: new Map([['.gitignore', 'dist/\n']]) };
+      const clone = brewery({ '.gitignore': 'dist/\n' });
       const { written } = await init([], clone, {
         given: {
           brewery: '',
@@ -1444,5 +1517,222 @@ describe('foedrum init sets the test line up to save its reports (ADR 0376)', ()
     const joined = await tested(typed('acme/api', 'make && pytest'), 'acme/api');
     assert.equal(joined.line, 'make && pytest');
     assert.deepEqual(notes(joined.lines), [unknown]);
+  });
+});
+
+describe('foedrum init finds where it is (ADR 0393)', () => {
+  /** The Brewery's questions of where it goes, each answered by the terminal. */
+  const unplaced = { placed: false } as const;
+  const CREATE = 'Create a Brewery? [Y/n]: ';
+  const app = (): Clone => ({ files: new Map([['src/app.ts', 'x']]), repositories: [''] });
+
+  it('inside a repository that is not a Brewery, writes nothing there and suggests the folder beside it', async () => {
+    const clone = app();
+    const { result, questions, lines, written, git } = await init(
+      ['', '.', '', '', '', ''],
+      clone,
+      unplaced,
+    );
+    assert.equal(result.exitCode, 0, result.stderr);
+    assert.ok(
+      lines.includes(
+        'The repository . is not a Brewery: a Brewery is a repository of its own, so init writes nothing in it',
+      ),
+      lines.join('\n'),
+    );
+    assert.deepStrictEqual(questions.slice(0, 3), [
+      CREATE,
+      'Folder for the Brewery [../foedrum-brewery]: ',
+      'Folder for the Brewery [../foedrum-brewery]: ',
+    ]);
+    assert.ok(
+      lines.includes('  . is in the repository .; a Brewery is a repository of its own'),
+      lines.join('\n'),
+    );
+    assert.ok(written.length > 0);
+    assert.ok(
+      written.every((path) => path.startsWith('../foedrum-brewery/')),
+      written.join('\n'),
+    );
+    assert.deepStrictEqual(git[0]?.args.at(-1), '../foedrum-brewery');
+  });
+
+  it('inside a Brewery from a subfolder, updates that Brewery at its top without asking its name', async () => {
+    const clone: Clone = {
+      files: new Map([
+        ['../foedrum.jsonc', UP_TO_DATE],
+        ['notes.md', 'x'],
+      ]),
+      repositories: ['..'],
+    };
+    const { result, questions, lines, written, events, git } = await init([''], clone);
+    assert.equal(result.exitCode, 0, result.stderr);
+    assert.deepStrictEqual(questions, ['Target repositories (owner/name, separated by spaces): ']);
+    assert.ok(
+      lines.includes('This is the Brewery in ..: init updates its files'),
+      lines.join('\n'),
+    );
+    assert.deepStrictEqual(written, [
+      '../models.jsonc',
+      '../.gitignore',
+      '../.claude/settings.json',
+    ]);
+    assert.ok(events.includes('doctor ..'), events.join('\n'));
+    assert.ok(
+      git.every(({ folder }) => folder === '..'),
+      JSON.stringify(git),
+    );
+    assert.ok(!events.some((event) => /^(exists|create)/.test(event)), events.join('\n'));
+  });
+
+  it("takes a folder that is a Brewery's clone, with its name, without asking it", async () => {
+    const shop = JSON.stringify({ ...JSON.parse(UP_TO_DATE), brewery: 'acme/shop' });
+    const clone: Clone = {
+      files: new Map([['shop/foedrum.jsonc', shop]]),
+      repositories: ['shop'],
+    };
+    const { result, questions, events } = await init(['', 'shop', ''], clone);
+    assert.equal(result.exitCode, 0, result.stderr);
+    assert.ok(
+      !questions.some((question) => question.startsWith('Brewery repository')),
+      questions.join('\n'),
+    );
+    assert.equal(parsed(clone, 'shop/foedrum.jsonc', BreweryConfig).brewery, 'acme/shop');
+    assert.ok(clone.files.has('shop/models.jsonc'));
+    assert.ok(!events.some((event) => /^(exists|create|git clone)/.test(event)), events.join('\n'));
+  });
+
+  it('clones a name GitHub has after a yes, creating no repository', async () => {
+    const clone = outside();
+    const { result, questions, events } = await init(['', 'y', ''], clone, {
+      repositories: ['octocat/foedrum-brewery'],
+    });
+    assert.equal(result.exitCode, 0, result.stderr);
+    assert.deepStrictEqual(questions, [
+      'Brewery repository (owner/name) [octocat/foedrum-brewery]: ',
+      'octocat/foedrum-brewery is on GitHub already. Is it the Brewery you mean? [y/N]: ',
+      'Target repositories (owner/name, separated by spaces): ',
+    ]);
+    assert.ok(!events.some((event) => event.startsWith('create')), events.join('\n'));
+    // Cloned at once, before the files are planned and written.
+    assert.deepStrictEqual(events.slice(0, 3), [
+      'exists octocat/foedrum-brewery',
+      'git clone',
+      'write foedrum-brewery/foedrum.jsonc',
+    ]);
+  });
+
+  it('asks another name after a no to a name GitHub has', async () => {
+    const { result, questions, events } = await init(['', 'n', 'acme/brewery', '', ''], outside(), {
+      repositories: ['octocat/foedrum-brewery'],
+    });
+    assert.equal(result.exitCode, 0, result.stderr);
+    assert.equal(questions[2], 'Brewery repository (owner/name) [octocat/foedrum-brewery]: ');
+    assert.ok(events.includes('create acme/brewery octocat private'), events.join('\n'));
+    assert.equal(events.filter((event) => event === 'git clone').length, 1);
+  });
+
+  it('refuses a cloned repository that holds files but no foedrum.jsonc, naming its folder', async () => {
+    const clone: Clone = { files: new Map([['README.md', '# web']]) };
+    const { result, written } = await init([''], clone);
+    assert.deepStrictEqual(result, {
+      exitCode: 1,
+      stdout: '',
+      stderr:
+        'foedrum init: octocat/foedrum-brewery holds files but no foedrum.jsonc: it is not a Brewery, and init writes nothing in it; octocat/foedrum-brewery is cloned into the folder .\n',
+    });
+    assert.deepStrictEqual(written, []);
+  });
+
+  it('uses an empty folder that is there', async () => {
+    const clone: Clone = { files: new Map(), git: false, folders: ['empty'] };
+    const { result, git } = await init(['', '', ''], clone, { given: { folder: 'empty' } });
+    assert.equal(result.exitCode, 0, result.stderr);
+    assert.deepStrictEqual(git[0]?.args.at(-1), 'empty');
+    assert.ok(clone.files.has('empty/foedrum.jsonc'));
+  });
+
+  it('asks the folder again for one that holds files, or a new one in another repository', async () => {
+    const clone: Clone = {
+      files: new Map([['docs/a.md', 'x']]),
+      git: false,
+      repositories: ['app'],
+    };
+    clone.files.set('app/main.ts', 'x');
+    const { result, questions, lines } = await init(
+      ['', 'docs', 'app/brewery', 'new', '', '', ''],
+      clone,
+    );
+    assert.equal(result.exitCode, 0, result.stderr);
+    assert.deepStrictEqual(questions.slice(1, 4), [
+      'Folder for the Brewery [.]: ',
+      'Folder for the Brewery [.]: ',
+      'Folder for the Brewery [.]: ',
+    ]);
+    assert.ok(
+      lines.includes('  The folder docs holds files; give an empty or a new one'),
+      lines.join('\n'),
+    );
+    assert.ok(
+      lines.includes(
+        '  app/brewery is in the repository app; a Brewery is a repository of its own',
+      ),
+      lines.join('\n'),
+    );
+    assert.ok(clone.files.has('new/foedrum.jsonc'));
+  });
+
+  it('creates nothing after a no to creating a Brewery', async () => {
+    const { result, lines, events } = await init(['n'], outside(), unplaced);
+    assert.equal(result.exitCode, 0, result.stderr);
+    assert.ok(lines.includes('Nothing is created'), lines.join('\n'));
+    assert.deepStrictEqual(events, []);
+  });
+
+  it("stops with git's line when it cannot tell where it is", async () => {
+    const { result, events } = await init([], outside(), {
+      gitFails: { '--show-cdup': 'fatal: detected dubious ownership in repository' },
+    });
+    assert.deepStrictEqual(result, {
+      exitCode: 1,
+      stdout: '',
+      stderr:
+        'foedrum init: git rev-parse failed: fatal: detected dubious ownership in repository\n',
+    });
+    assert.deepStrictEqual(events, []);
+  });
+
+  it('with --no-input, refuses each question of where the Brewery goes without its option', async () => {
+    const cases: [keyof InitAnswers, string][] = [
+      ['create', '"Create a Brewery?" [Y/n]; add --create <answer>'],
+      ['folder', '"Folder for the Brewery" [.]; add --folder <answer>'],
+      [
+        'existing',
+        '"acme/brewery is on GitHub already. Is it the Brewery you mean?" [y/N]; add --existing <answer>',
+      ],
+    ];
+    for (const [option, line] of cases) {
+      const { result, events } = await init([], outside(), {
+        ...FIRST,
+        ...unplaced,
+        repositories: ['acme/brewery'],
+        given: { ...without({ ...ALL, existing: 'y' }, option), 'no-input': true },
+      });
+      assert.equal(result.stderr, `foedrum init: no answer to ${line}\n`, option);
+      assert.equal(result.exitCode, 2, option);
+      assert.ok(!events.some((event) => /^(create|git|write)/.test(event)), events.join('\n'));
+    }
+  });
+
+  it('ends with the cd line to type next, only when the Brewery is not the working folder', async () => {
+    const away = await init(['', '', ''], outside(), { given: { folder: 'my brewery' } });
+    assert.deepStrictEqual(away.lines.slice(-2), [
+      'The Brewery is in the folder my brewery',
+      'cd "my brewery"',
+    ]);
+    const here = await init(['y', '', '', '', ''], outside(), unplaced);
+    assert.equal(here.result.exitCode, 0, here.result.stderr);
+    assert.ok(here.events.includes('doctor '), here.events.join('\n'));
+    assert.ok(!here.lines.some((line) => line.startsWith('cd ')), here.lines.join('\n'));
   });
 });

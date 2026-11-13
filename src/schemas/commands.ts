@@ -19,7 +19,10 @@ export type DoctorCommand = z.infer<typeof DoctorCommand>;
  */
 export const InitCommand = z.strictObject({
   command: z.literal('init'),
+  create: z.string().optional(),
+  folder: z.string().optional(),
   brewery: z.string().optional(),
+  existing: z.string().optional(),
   visibility: z.string().optional(),
   targets: z.string().optional(),
   alias: z.array(z.string()).optional(),

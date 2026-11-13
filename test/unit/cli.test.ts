@@ -315,8 +315,14 @@ describe('foedrum: the command line', () => {
     };
     const argv = [
       'init',
+      '--create',
+      'y',
+      '--folder',
+      '../brewery',
       '--brewery',
       'acme/brewery',
+      '--existing',
+      'n',
       '--visibility',
       'private',
       '--targets',
@@ -347,7 +353,10 @@ describe('foedrum: the command line', () => {
     assert.deepStrictEqual(inputs, [
       {
         command: 'init',
+        create: 'y',
+        folder: '../brewery',
         brewery: 'acme/brewery',
+        existing: 'n',
         visibility: 'private',
         targets: 'acme/web acme/api',
         alias: ['acme/web=web', 'acme/api=api'],

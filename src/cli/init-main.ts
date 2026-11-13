@@ -106,6 +106,9 @@ export const initFromCheckout = async (
         },
         files: {
           exists: (path) => existsSync(at(path)),
+          entries: () => {
+            throw new Error('not implemented');
+          },
           read: (path) => (existsSync(at(path)) ? readFileSync(at(path), 'utf8') : undefined),
           write: (path, text) => {
             mkdirSync(dirname(at(path)), { recursive: true });

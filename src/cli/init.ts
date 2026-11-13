@@ -33,6 +33,8 @@ export interface InitPorts {
   /** Files and folders, by their path from the working directory with `/`. */
   files: {
     exists: (path: string) => boolean;
+    /** The names in the folder `path`; `undefined` when it is not a folder (ADR 0393). */
+    entries: (path: string) => string[] | undefined;
     read: (path: string) => string | undefined;
     write: (path: string, text: string) => void;
   };
