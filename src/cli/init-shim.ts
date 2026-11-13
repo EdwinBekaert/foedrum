@@ -1,6 +1,6 @@
 // The `foedrum` command `foedrum init` writes into a user folder on the PATH (ADR 0210): a shim
-// that runs this checkout's entry point with the node on the PATH, until `npx foedrum` replaces
-// it. The ports are the platform, its environment and home, the files, and the PATH lookup.
+// that runs this checkout's entry point with the node on the PATH, offered only from a checkout
+// (ADR 0390). The ports are the platform, its environment and home, the files, and the PATH lookup.
 
 import { extname, join, posix, win32 } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -13,7 +13,7 @@ export interface ShimPorts {
   env: NodeJS.ProcessEnv;
   /** The user's home, the user profile on Windows. */
   home: string;
-  /** The entry point of the Foedrum that runs: `<checkout>/src/cli/main.ts`. */
+  /** The entry point of the Foedrum that runs: `main.ts` in a checkout, `main.js` in the package. */
   entry: string;
   /** Whether `folder` is there as a folder this process may write in. */
   writable: (folder: string) => boolean;
@@ -39,6 +39,9 @@ export interface ShimTerminal {
 /** The comment line by which init knows a shim it wrote. */
 const MARK = 'The foedrum command, written by foedrum init (ADR 0210)';
 const QUESTION = 'Write the foedrum command into which folder? [1, or n for none]: ';
+/** Said from the installed package when no foedrum is on the PATH (ADR 0390). */
+const FROM_PACKAGE =
+  'foedrum is not on the PATH: install it with npm install --global foedrum, or run npx foedrum <command>';
 /** Said after a script to write by hand on Windows, where editors save CRLF (ADR 0212). */
 const LF_NOTE = 'Save it with LF line ends, not CRLF: Git Bash reads a CR as part of the line';
 
@@ -136,6 +139,14 @@ const shimOf = (ports: ShimPorts) => {
 export const shimChoice = (ports: ShimPorts): ShimChoice => {
   const { platform, env, home, entry } = ports;
   const { windows, path, shells, filesIn } = shimOf(ports);
+  // Only a checkout gets the shim: the package's main.js may lie in npx's cache, and a global
+  // install puts npm's own foedrum on the PATH (ADR 0390).
+  if (extname(entry).toLowerCase() !== '.ts') {
+    return {
+      kind: 'said',
+      lines: ports.resolve('foedrum') === undefined ? [FROM_PACKAGE] : [],
+    };
+  }
   if (windows && !pathExtensions(env, platform).includes('.cmd')) {
     return {
       kind: 'said',
