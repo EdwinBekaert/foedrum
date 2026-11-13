@@ -111,7 +111,7 @@ The full line as designed. Each recipe picks its own steps: Nip, which builds a 
 
 ## Contributing
 
-Foedrum is not open to outside pull requests yet: they will be closed until the public launch (milestone M3), when the Contributor License Agreement and the contribution guide are published. Issues with questions, ideas or feedback are welcome now.
+Foedrum is not open to outside pull requests yet: they will be closed until the public launch (milestone M3), when the contribution guide is published. Issues with questions, ideas or feedback are welcome now.
 
 ## Licence
 
@@ -119,7 +119,7 @@ Copyright (C) 2026 Edwin Bekaert
 
 Foedrum is free software: you can redistribute it and modify it under the terms of the [GNU Affero General Public License version 3](LICENSE). It comes without any warranty; see [`LICENSE`](LICENSE) for the details.
 
-Contributions require agreeing to a Contributor License Agreement (details will be published before the project opens to contributions). The Foedrum name, logo and mascot are not covered by the code licence.
+Contributions require the [Contributor License Agreement](CLA.md), a licence grant: you keep your copyright. To sign it, add `- @<your GitHub login>, CLA 1.0, <YYYY-MM-DD>` to [`.github/cla-signatures.md`](.github/cla-signatures.md) in a commit of its own in your first pull request; a CI check on every pull request reads that file. The Foedrum name, logo and mascot are not covered by the code licence.
 
 ---
 

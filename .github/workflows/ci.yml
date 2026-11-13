@@ -164,11 +164,38 @@ jobs:
   package:
     uses: ./.github/workflows/package.yml
 
+  # The pull request's author has signed CLA.md in .github/cla-signatures.md at the pull request's
+  # head; the repository owner and Dependabot are exempt (ADR 0391). Only node runs: no npm ci, no
+  # package. The author and the owner come from the event payload through env, never into the line.
+  cla:
+    name: CLA
+    if: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24"
+          check-latest: true
+
+      - name: Author signed the CLA
+        env:
+          CLA_AUTHOR: ${{ github.event.pull_request.user.login }}
+          CLA_OWNER: ${{ github.event.repository.owner.login }}
+        run: node scripts/cla-check.ts
+
   # The single required status check: green only when every platform, the package and the audit
-  # passed.
+  # passed, and on a pull request the CLA check.
   ci-ok:
     if: ${{ always() }}
-    needs: [check, package, audit]
+    needs: [check, package, audit, cla]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -177,8 +204,13 @@ jobs:
           CHECK: ${{ needs.check.result }}
           PACKAGE: ${{ needs.package.result }}
           AUDIT: ${{ needs.audit.result }}
+          CLA: ${{ needs.cla.result }}
+          EVENT: ${{ github.event_name }}
         run: |
           echo "check: $CHECK"
           echo "package: $PACKAGE"
           echo "audit: $AUDIT"
-          test "$CHECK" = success && test "$PACKAGE" = success && test "$AUDIT" = success
+          echo "cla: $CLA"
+          # The CLA job runs only on a pull request; on a push or the nightly run it is skipped.
+          test "$CHECK" = success && test "$PACKAGE" = success && test "$AUDIT" = success &&
+            { test "$CLA" = success || { test "$EVENT" != pull_request && test "$CLA" = skipped; }; }
