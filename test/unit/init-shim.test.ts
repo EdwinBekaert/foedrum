@@ -787,6 +787,27 @@ describe('the foedrum command from the installed package (ADR 0390)', () => {
     );
     assert.deepStrictEqual(windowsRun.lines, [HOW]);
   });
+
+  it("says the line under npx too, whose own foedrum in the package's .bin is gone after it", async () => {
+    // npm exec puts <node_modules>/.bin of the package it runs first on the PATH.
+    const posixRun = await offer(
+      posix('/home/ada/.local/bin', {
+        entry: '/home/ada/.npm/_npx/1a2b/node_modules/foedrum/dist/cli/main.js',
+        resolves: '/home/ada/.npm/_npx/1a2b/node_modules/.bin/foedrum',
+      }),
+      ['1'],
+    );
+    assert.deepStrictEqual(posixRun.lines, [HOW]);
+    const windowsRun = await offer(
+      windows('C:\\Users\\ada\\bin', {
+        entry: WIN_PACKAGE_ENTRY,
+        resolves:
+          'c:\\users\\ada\\appdata\\local\\npm-cache\\_npx\\1a2b\\node_modules\\.bin\\FOEDRUM.CMD',
+      }),
+      ['1'],
+    );
+    assert.deepStrictEqual(windowsRun.lines, [HOW]);
+  });
 });
 
 describe('the entry point the shim runs (ADR 0377)', () => {
