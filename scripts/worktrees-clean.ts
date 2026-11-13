@@ -1,15 +1,20 @@
 // `npm run worktrees:clean`: removes worktrees under .claude/worktrees/ and local branches that
 // are merged into origin/main and whose remote branch GitHub has deleted, and records under
-// .git/worktrees/ that git no longer lists or whose folder is gone, wherever it was.
+// .git/worktrees/ that git no longer lists or whose folder is gone, wherever it was; empty
+// folders under .claude/worktrees/ that git does not list; and the main checkout's .foedrum/tmp
+// files older than two days (ADR 0389).
 // worktrees-clean/core.ts decides; this shell gathers the facts and carries out the plan (ADR 0021).
 // With --session-start (the SessionStart hook) it runs only in the main checkout. It never fails.
 
+import { readdir, rmdir } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { parseArgs } from 'node:util';
+import { errorCode } from '../src/platform/errors.ts';
 import { pathInside, samePath } from '../src/platform/paths.ts';
 import { isPidAlive, stopOnSignals } from '../src/platform/processes.ts';
 import { removeTree } from '../src/platform/remove.ts';
 import { type GitOptions, runGit as runFoedrumGit } from '../src/workspace/git.ts';
+import { deleteOldFiles, NODE_FILES, type TemporaryFilesIo } from '../src/workspace/old-files.ts';
 import { parseWorktreeList } from '../src/workspace/worktree-list.ts';
 import { readRecords } from '../src/workspace/worktree-records.ts';
 import {
@@ -19,7 +24,13 @@ import {
   type OkGitResult,
   removeWorktree,
 } from '../src/workspace/worktree-removal-git.ts';
-import { type Action, type Facts, plan, shouldRun } from './worktrees-clean/core.ts';
+import {
+  type Action,
+  type Facts,
+  type FolderFact,
+  plan,
+  shouldRun,
+} from './worktrees-clean/core.ts';
 
 export type Git = (cwd: string, args: string[], options?: GitOptions) => Promise<OkGitResult>;
 
@@ -28,6 +39,9 @@ export { gitThrough };
 // Foedrum's git never prompts and, at its deadline (60 s by default), kills git with every
 // process git started, such as a credential helper of a stalled fetch (#12).
 export const runGit: Git = gitThrough(runFoedrumGit);
+
+// How old a file in the main checkout's .foedrum/tmp must be before it goes (ADR 0389).
+const TWO_DAYS = 2 * 86_400_000;
 
 const lines = (text: string): string[] => text.split(/\r?\n/).filter((line) => line !== '');
 
@@ -42,6 +56,39 @@ const mainCheckoutOf = async (git: Git, cwd: string): Promise<string | undefined
   const result = await git(cwd, ['rev-parse', '--path-format=absolute', '--git-common-dir']);
   const commonDir = result.stdout.trim();
   return result.ok && /[\\/]\.git$/.test(commonDir) ? dirname(commonDir) : undefined;
+};
+
+// Whether anything under `path`, at any depth, is not a folder; a folder it cannot read counts.
+const holdsFiles = async (path: string): Promise<boolean> => {
+  const entries = await readdir(path, { withFileTypes: true }).catch(() => undefined);
+  if (entries === undefined) return true;
+  for (const entry of entries) {
+    if (!entry.isDirectory() || (await holdsFiles(join(path, entry.name)))) return true;
+  }
+  return false;
+};
+
+// The folders directly under .claude/worktrees/, none when it is not there.
+const foldersOf = async (root: string, listed: string[]): Promise<FolderFact[]> => {
+  const entries = await readdir(root, { withFileTypes: true }).catch((error: unknown) => {
+    if (errorCode(error) === 'ENOENT') return [];
+    throw error;
+  });
+  const folders: FolderFact[] = [];
+  for (const entry of entries.filter((entry) => entry.isDirectory())) {
+    const path = join(root, entry.name);
+    const isListed = listed.some((worktree) => samePath(worktree, path));
+    folders.push({ name: entry.name, path, listed: isListed, holdsFiles: await holdsFiles(path) });
+  }
+  return folders;
+};
+
+// Removes an empty folder from the bottom up with rmdir, so a file that arrived meanwhile stops it.
+const removeEmptyFolder = async (path: string): Promise<void> => {
+  for (const entry of await readdir(path, { withFileTypes: true })) {
+    if (entry.isDirectory()) await removeEmptyFolder(join(path, entry.name));
+  }
+  await rmdir(path);
 };
 
 // The facts for the core, and each branch's tip for deleting it only while it is still there.
@@ -85,7 +132,11 @@ const gatherFacts = async (git: Git, main: string): Promise<Gathered> => {
       upstreamGone: track === '[gone]',
     };
   });
-  return { worktrees, branches, records, tips };
+  const folders = await foldersOf(
+    root,
+    worktrees.map(({ path }) => path),
+  );
+  return { worktrees, branches, records, folders, tips };
 };
 
 // Carries out one action and returns what it did; throws when it could not.
@@ -109,6 +160,9 @@ const carryOut = async (
     case 'drop-record':
       await removeTree(action.record);
       return `removed stale worktree record ${action.label}: ${action.reason}`;
+    case 'remove-empty-folder':
+      await removeEmptyFolder(action.path);
+      return `removed empty folder ${action.label}`;
     case 'delete-branch': {
       // `git branch -d` would check against the main checkout's own main, which is usually
       // behind. Check the tip against origin/main instead, and delete the branch only while it
@@ -131,22 +185,29 @@ export const cleanWorktrees = async (
   cwd: string,
   git: Git = runGit,
   alive: (pid: number) => boolean = isPidAlive,
+  temporary: { files: TemporaryFilesIo; now: () => number } = { files: NODE_FILES, now: Date.now },
 ): Promise<string[]> => {
   const main = await mainCheckoutOf(git, cwd);
   if (main === undefined) return ['skipped: not inside a git repository'];
+  // Before the fetch, so a failed fetch still clears it (ADR 0389).
+  const tmp = join(main, '.foedrum', 'tmp');
+  const { deleted, left } = await deleteOldFiles(temporary.files, tmp, temporary.now() - TWO_DAYS);
+  const cleared = `files deleted from .foedrum/tmp, older than 2 days: ${deleted}, left: ${left}`;
   // fetch reads the main checkout's index, and would run its core.fsmonitor command.
   const fetched = await git(main, ['fetch', '--prune', '--quiet', 'origin'], {
     config: noRepositoryCommands,
   });
-  if (!fetched.ok) return [`skipped: git fetch --prune origin failed: ${fetched.stderr.trim()}`];
+  if (!fetched.ok) {
+    return [cleared, `skipped: git fetch --prune origin failed: ${fetched.stderr.trim()}`];
+  }
   let facts: Gathered;
   try {
     facts = await gatherFacts(git, main);
   } catch (error) {
-    return [`skipped: ${(error as Error).message}`];
+    return [cleared, `skipped: ${(error as Error).message}`];
   }
   const { actions, kept } = plan(facts, alive);
-  const done = [...kept];
+  const done = [cleared, ...kept];
   for (const action of actions) {
     const steps: Action[] = [action];
     if ('branch' in action && action.kind !== 'delete-branch' && action.branch !== undefined) {

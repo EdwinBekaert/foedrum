@@ -8,15 +8,11 @@ import { effectKey } from '../../src/engine/effect-key.ts';
 import type { EventStore } from '../../src/engine/event-store.ts';
 import { fold } from '../../src/engine/fold.ts';
 import { claimEffectsDue } from '../../src/engine/issue-claims.ts';
-import {
-  type ArchiveShelf,
-  rackActions,
-  type TemporaryFilesIo,
-  withRack,
-} from '../../src/engine/rack.ts';
+import { type ArchiveShelf, rackActions, withRack } from '../../src/engine/rack.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import { batchOf } from '../../src/engine/state-branch.ts';
 import type { Event } from '../../src/schemas/events.ts';
+import type { TemporaryFilesIo } from '../../src/workspace/old-files.ts';
 import { fakeRecipe, fakeRecipes, hour } from '../helpers/fake-recipes.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 
@@ -512,6 +508,25 @@ describe('rack (ADR 0383)', () => {
       const ran = await run('delete-temporary', [], [], { temporary: dir.path });
       assert.equal(ran.failed, undefined);
       assert.equal(existsSync(readOnly), false);
+    });
+
+    it('deleteTemporary never enters or deletes a folder that holds a .git entry', async () => {
+      // A worktree has a .git file, a scratch clone a .git folder: whatever made them removes them.
+      const worktree = file(join('worktree', 'old.txt'), 3 * day);
+      file(join('worktree', '.git'), 3 * day);
+      const clone = file(join('clone', 'old.txt'), 3 * day);
+      file(join('clone', '.git', 'HEAD'), 3 * day);
+      const old = file('old.txt', 3 * day);
+      // Only an entry named .git counts.
+      const ignore = file(join('other', '.gitignore'), 3 * day);
+      const ran = await run('delete-temporary', [], [], { temporary: dir.path });
+      assert.deepStrictEqual(ran.ending, { kind: 'succeeded', output: { deleted: 2, left: 0 } });
+      assert.equal(existsSync(old), false);
+      assert.equal(existsSync(ignore), false);
+      assert.equal(existsSync(worktree), true);
+      assert.equal(existsSync(join(dir.path, 'worktree', '.git')), true);
+      assert.equal(existsSync(clone), true);
+      assert.equal(existsSync(join(dir.path, 'clone', '.git', 'HEAD')), true);
     });
 
     it('never follows a link out of the temporary folder (ADR 0383): regression test', async () => {

@@ -2,12 +2,9 @@
 // folders and old temporary files. The engine runs them itself, through the ledger, as it runs the
 // openPullRequest action (ADR 0071); no brewer, no model.
 
-import type { Dirent } from 'node:fs';
-import { lstat, readdir, rm, rmdir } from 'node:fs/promises';
-import { join } from 'node:path';
-import { errorCode } from '../platform/errors.ts';
 import { AttemptEffectKey } from '../schemas/store.ts';
 import { z } from '../schemas/zod.ts';
+import { deleteOldFiles, NODE_FILES, type TemporaryFilesIo } from '../workspace/old-files.ts';
 import type { AttemptRef } from './attempt-key.ts';
 import { closeStillDue } from './brewery-closes.ts';
 import { breweryIssueOf, claimStandingOf } from './claim-orders.ts';
@@ -55,19 +52,6 @@ export interface RackActionsOptions {
   files?: TemporaryFilesIo;
   clock(): Date;
 }
-
-/** The file system calls the delete of temporary files makes; injected by tests. */
-export interface TemporaryFilesIo {
-  readdir: (path: string) => Promise<Dirent[]>;
-  lstat: (path: string) => Promise<{ mtimeMs: number }>;
-  remove: (path: string) => Promise<void>;
-}
-
-const NODE_FILES: TemporaryFilesIo = {
-  readdir: (path) => readdir(path, { withFileTypes: true }),
-  lstat,
-  remove: rm,
-};
 
 const DAY_MS = 86_400_000;
 /** How many groups, or how long since the last, before the read ones are forgotten (ADR 0383). */
@@ -141,49 +125,6 @@ export const finishedGroups = (state: State): Batch[][] => {
     groups.set(key, [...(groups.get(key) ?? []), batch]);
   }
   return [...groups.values()].filter((group) => group.every((batch) => finished(state, batch)));
-};
-
-/**
- * Deletes the files under `folder` last changed before `before`, never following a link, and the
- * folders that leaves empty. An entry gone meanwhile is skipped; one it cannot read or delete is
- * skipped and counted as left, for the next run. How many went, and how many were left.
- */
-const deleteOldFiles = async (
-  files: TemporaryFilesIo,
-  folder: string,
-  before: number,
-): Promise<{ deleted: number; left: number }> => {
-  const done = { deleted: 0, left: 0 };
-  const tried = async <T>(call: () => Promise<T>): Promise<T | undefined> => {
-    try {
-      return await call();
-    } catch (error) {
-      if (errorCode(error) !== 'ENOENT') done.left += 1;
-      return undefined;
-    }
-  };
-  const walk = async (inside: string): Promise<void> => {
-    for (const entry of (await tried(() => files.readdir(inside))) ?? []) {
-      const path = join(inside, entry.name);
-      if (entry.isDirectory()) {
-        const deleted = done.deleted;
-        await walk(path);
-        if (
-          done.deleted > deleted &&
-          (await files.readdir(path).catch(() => undefined))?.length === 0
-        ) {
-          await rmdir(path).catch(() => {});
-        }
-      } else if (
-        entry.isFile() &&
-        ((await tried(() => files.lstat(path)))?.mtimeMs ?? before) < before
-      ) {
-        if (await tried(() => files.remove(path).then(() => true))) done.deleted += 1;
-      }
-    }
-  };
-  await walk(folder);
-  return done;
 };
 
 /** Rack's actions, for the driver: one effect per attempt, which does the step's work. */

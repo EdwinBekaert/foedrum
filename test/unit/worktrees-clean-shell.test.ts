@@ -1,5 +1,13 @@
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  utimesSync,
+  writeFileSync,
+} from 'node:fs';
 import { devNull } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
@@ -9,6 +17,7 @@ import type {
   Git as WorkspaceGit,
   GitResult as WorkspaceGitResult,
 } from '../../src/workspace/git.ts';
+import { NODE_FILES } from '../../src/workspace/old-files.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 
 // Captured from git 2.56 with machine paths and object ids replaced (see the fixture folder).
@@ -161,8 +170,9 @@ describe('cleanWorktrees with a fake git', () => {
       calls.map(([, command]) => command),
       ['rev-parse', 'fetch'],
     );
-    assert.equal(lines.length, 1);
-    assert.match(lines[0] ?? '', /^skipped: git fetch --prune origin failed/);
+    // The line of .foedrum/tmp's clear, which runs before the fetch, then the skip.
+    assert.equal(lines.length, 2);
+    assert.match(lines[1] ?? '', /^skipped: git fetch --prune origin failed/);
   });
 
   // Without the list, no branch counts as checked out, and update-ref -d does not refuse one.
@@ -178,8 +188,8 @@ describe('cleanWorktrees with a fake git', () => {
         false,
       );
       assert.ok(existsSync(record('10-gone')));
-      assert.equal(lines.length, 1, lines.join('\n'));
-      assert.match(lines[0] ?? '', new RegExp(`^skipped: git ${failing} .*failed`));
+      assert.equal(lines.length, 2, lines.join('\n'));
+      assert.match(lines[1] ?? '', new RegExp(`^skipped: git ${failing} .*failed`));
     });
   }
 
@@ -271,6 +281,119 @@ describe('cleanWorktrees with a fake git', () => {
     assert.equal(commands.includes('config --remove-section branch.7-merged'), false);
     assert.equal(lines.includes('deleted branch 7-merged'), false);
     assert.ok(lines.some((line) => line.startsWith('could not clean branch 7-merged')));
+  });
+
+  it("deletes files older than 2 days from the main checkout's .foedrum/tmp and keeps newer ones", async () => {
+    const now = Date.parse('2026-11-13T12:00:00.000Z');
+    const tmp = join(dir.path, '.foedrum', 'tmp');
+    const file = (name: string, ageDays: number): string => {
+      const path = join(tmp, name);
+      mkdirSync(join(path, '..'), { recursive: true });
+      writeFileSync(path, 'x');
+      const time = new Date(now - ageDays * 86_400_000);
+      utimesSync(path, time, time);
+      return path;
+    };
+    // An hour either side of the two days.
+    const old = file(join('828', 'old.log'), 2 + 1 / 24);
+    const recent = file('recent.log', 2 - 1 / 24);
+    const { git } = fakeGit(main);
+
+    const lines = await cleanWorktrees(main, git, undefined, { files: NODE_FILES, now: () => now });
+
+    assert.equal(existsSync(old), false, lines.join('\n'));
+    assert.equal(existsSync(recent), true);
+    assert.ok(
+      lines.includes('files deleted from .foedrum/tmp, older than 2 days: 1, left: 0'),
+      lines.join('\n'),
+    );
+  });
+
+  it('removes an empty folder under .claude/worktrees/ that git does not list, and keeps one that holds a file', async () => {
+    mkdirSync(join(wt('left'), 'sub'), { recursive: true });
+    mkdirSync(wt('kept'), { recursive: true });
+    writeFileSync(join(wt('kept'), 'notes.txt'), 'x');
+    const { git } = fakeGit(main);
+
+    const lines = await cleanWorktrees(main, git);
+
+    assert.equal(existsSync(wt('left')), false, lines.join('\n'));
+    assert.ok(existsSync(join(wt('kept'), 'notes.txt')));
+    assert.ok(lines.includes('removed empty folder .claude/worktrees/left'), lines.join('\n'));
+    assert.ok(
+      lines.includes('kept folder .claude/worktrees/kept: not a worktree, it holds files'),
+      lines.join('\n'),
+    );
+  });
+
+  it("clears the main checkout's .foedrum/tmp when run from a worktree whose fetch fails", async () => {
+    const now = Date.parse('2026-11-13T12:00:00.000Z');
+    const old = join(dir.path, '.foedrum', 'tmp', 'old.log');
+    const elsewhere = join(wt('7-merged'), '.foedrum', 'tmp', 'old.log');
+    for (const path of [old, elsewhere]) {
+      mkdirSync(join(path, '..'), { recursive: true });
+      writeFileSync(path, 'x');
+      const time = new Date(now - 3 * 86_400_000);
+      utimesSync(path, time, time);
+    }
+    const { git } = fakeGit(main, (args) => args[0] === 'fetch');
+
+    const lines = await cleanWorktrees(wt('7-merged'), git, undefined, {
+      files: NODE_FILES,
+      now: () => now,
+    });
+
+    assert.equal(existsSync(old), false, lines.join('\n'));
+    assert.equal(existsSync(elsewhere), true, "only the main checkout's .foedrum/tmp is cleared");
+    assert.equal(lines[0], 'files deleted from .foedrum/tmp, older than 2 days: 1, left: 0');
+  });
+
+  it('keeps a leftover folder whose only file is in a subfolder', async () => {
+    mkdirSync(join(wt('deep'), 'sub'), { recursive: true });
+    writeFileSync(join(wt('deep'), 'sub', 'notes.txt'), 'x');
+    const { git } = fakeGit(main);
+
+    const lines = await cleanWorktrees(main, git);
+
+    assert.ok(existsSync(join(wt('deep'), 'sub', 'notes.txt')));
+    assert.ok(
+      lines.includes('kept folder .claude/worktrees/deep: not a worktree, it holds files'),
+      lines.join('\n'),
+    );
+  });
+
+  it('keeps a leftover folder that holds only a link', async () => {
+    const target = join(dir.path, 'elsewhere');
+    mkdirSync(target);
+    mkdirSync(wt('linked'), { recursive: true });
+    // A junction on Windows, a symbolic link elsewhere: neither needs a privilege.
+    symlinkSync(target, join(wt('linked'), 'link'), 'junction');
+    const { git } = fakeGit(main);
+
+    const lines = await cleanWorktrees(main, git);
+
+    assert.ok(existsSync(join(wt('linked'), 'link')), lines.join('\n'));
+    assert.ok(
+      lines.includes('kept folder .claude/worktrees/linked: not a worktree, it holds files'),
+      lines.join('\n'),
+    );
+  });
+
+  it('leaves the folder of a worktree git lists to the worktree pass, even when it is empty', async () => {
+    // 8-locked is in the worktree list; its folder is there but holds nothing.
+    mkdirSync(wt('8-locked'), { recursive: true });
+    const { git } = fakeGit(main);
+
+    const lines = await cleanWorktrees(main, git);
+
+    assert.ok(existsSync(wt('8-locked')), lines.join('\n'));
+    for (const name of ['7-merged', '8-locked', '9-plain-lock']) {
+      assert.equal(
+        lines.some((line) => line.includes(`folder .claude/worktrees/${name}`)),
+        false,
+        lines.join('\n'),
+      );
+    }
   });
 
   it('runs nothing outside a git repository', async () => {

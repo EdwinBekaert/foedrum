@@ -23,10 +23,20 @@ export interface BranchFact {
   upstreamGone: boolean;
 }
 
+// A folder directly under .claude/worktrees/: whether git lists it as a worktree, and whether
+// anything in it, at any depth, is not a folder (a file, a link, a .git).
+export interface FolderFact {
+  name: string;
+  path: string;
+  listed: boolean;
+  holdsFiles: boolean;
+}
+
 export interface Facts {
   worktrees: WorktreeFact[];
   branches: BranchFact[];
   records: RecordFact[];
+  folders: FolderFact[];
 }
 
 // `branch` on a worktree action is deleted after the action succeeds.
@@ -42,6 +52,7 @@ export type Action =
   | { kind: 'finish'; label: string; path: string; record: string; branch: string | undefined }
   | { kind: 'prune'; label: string; record: string; branch: string | undefined }
   | { kind: 'drop-record'; label: string; record: string; reason: string }
+  | { kind: 'remove-empty-folder'; label: string; path: string }
   | { kind: 'delete-branch'; branch: string };
 
 export interface Plan {
@@ -128,6 +139,14 @@ export const plan = (facts: Facts, isPidAlive: (pid: number) => boolean): Plan =
           : `its folder ${record.folder} is gone`;
       actions.push({ kind: 'drop-record', label, record: record.dir, reason: why });
     }
+  }
+
+  // A folder git does not list goes only when it holds no file; one with a .git stays (ADR 0389).
+  for (const { name, path, listed, holdsFiles } of facts.folders) {
+    if (listed) continue;
+    const label = `.claude/worktrees/${name}`;
+    if (holdsFiles) kept.push(`kept folder ${label}: not a worktree, it holds files`);
+    else actions.push({ kind: 'remove-empty-folder', label, path });
   }
 
   const checkedOut = new Set(facts.worktrees.map((worktree) => worktree.branch));
