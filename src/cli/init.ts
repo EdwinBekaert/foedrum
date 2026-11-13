@@ -313,6 +313,9 @@ const chooseFolder = async (ports: InitPorts, answer: string): Promise<Parsed<Ch
   // A folder that is not there yet is in the repository of the nearest one that is.
   let nearest = folder;
   while (!files.exists(nearest)) {
+    // A drive that is not there can hold no clone: nothing is created for it.
+    if (/^[A-Za-z]:\/$/.test(nearest))
+      return { refused: `The drive ${nearest.slice(0, 2)} is not there` };
     const up = folderPath(posix.dirname(nearest));
     if (up === nearest) break;
     nearest = up;
@@ -354,8 +357,8 @@ const configProblem = (config: Existing, text: string | undefined): string | und
  * since a person pastes the line.
  */
 const cdLine = (folder: string): string | undefined => {
-  if (/^[\w./:\\-]+$/.test(folder)) return `cd ${folder}`;
-  return /^[\w./:\\ -]+$/.test(folder) ? `cd "${folder}"` : undefined;
+  if (/^[\w./:-]+$/.test(folder)) return `cd ${folder}`;
+  return /^[\w./: -]+$/.test(folder) ? `cd "${folder}"` : undefined;
 };
 
 /** Runs `foedrum init` through `ports`, with the answers `given` as options. */
@@ -473,7 +476,7 @@ export const runInit = async (ports: InitPorts, given: InitAnswers = {}): Promis
     let asked: string | undefined;
     if (here.kind === 'repository') {
       say(
-        `The repository ${shown(here.top)} is not a Brewery: a Brewery is a repository of its own, so init writes nothing in it`,
+        `The repository ${shown(here.top)} is not a Brewery: a Brewery is a repository of its own`,
       );
     }
     if (here.kind === 'brewery') {
@@ -504,14 +507,11 @@ export const runInit = async (ports: InitPorts, given: InitAnswers = {}): Promis
         asked = named.brewery;
         if (chosen.clone === true) {
           // An empty clone is init's own earlier one only for the repository GitHub has and the
-          // user took (ADR 0393), named as git's URL of it, without case as GitHub reads names.
-          const origin = await ports.git(folder, ['remote', 'get-url', 'origin']);
+          // user took (ADR 0393), its origin as configured, before any url.insteadOf rewrites it,
+          // and without case, as GitHub reads names. A read that fails prints nothing to match.
+          const origin = await ports.git(folder, ['config', '--get', 'remote.origin.url']);
           const url = origin.stdout.trim().toLowerCase();
-          if (
-            named.isPrivate !== undefined ||
-            origin.code !== 0 ||
-            url !== urlOf(asked).toLowerCase()
-          ) {
+          if (named.isPrivate !== undefined || url !== urlOf(asked).toLowerCase()) {
             return refuse(
               `${shown(folder)} is a clone of another repository than ${asked}; give another folder`,
             );
