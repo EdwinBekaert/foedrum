@@ -1,6 +1,8 @@
 // `npm run worktrees:clean`: removes worktrees under .claude/worktrees/ and local branches that
 // are merged into origin/main and whose remote branch GitHub has deleted, and records under
-// .git/worktrees/ that git no longer lists or whose folder is gone, wherever it was.
+// .git/worktrees/ that git no longer lists or whose folder is gone, wherever it was; empty
+// folders under .claude/worktrees/ that git does not list; and the main checkout's .foedrum/tmp
+// files older than two days (ADR 0389).
 // worktrees-clean/core.ts decides; this shell gathers the facts and carries out the plan (ADR 0021).
 // With --session-start (the SessionStart hook) it runs only in the main checkout. It never fails.
 

@@ -12,20 +12,20 @@ Arguments: `$ARGUMENTS`
 
 ## Rules for the whole run
 
-- **Read-only.** The audit reads a worktree pinned at one commit and changes nothing in the repository or on GitHub: no branch, no issue, no comment. It writes only its report and findings under `.foedrum/tmp/audits/`, and the temporary detached worktree it removes at the end. Every agent of the workflow is the `auditor` agent (`.claude/agents/auditor.md`): Read, Grep and Glob behind the read guard, so it is read-only by its tools, not by its prompt. It files nothing: a person picks which findings become issues.
+- **Read-only.** The audit reads a worktree pinned at one commit and changes nothing in the repository or on GitHub: no branch, no issue, no comment. It writes only its report and findings under `.foedrum/audits/`, and the temporary detached worktree it removes at the end. Every agent of the workflow is the `auditor` agent (`.claude/agents/auditor.md`): Read, Grep and Glob behind the read guard, so it is read-only by its tools, not by its prompt. It files nothing: a person picks which findings become issues.
 - **Finding nothing is a good result.** The workflow tells every auditor and skeptic so. Never ask for more findings, re-run to get some, or add findings of your own to the report.
-- **Security findings stay local until fixed.** The report and its findings are written under the main checkout's `.foedrum/tmp/audits/` (git-ignored), never into a commit, a pull request or an issue body as they are. When a caller puts the audit's outcome in public text, it gives counts per severity and per area, and counts security findings with the rest and never names one, its file or what it is.
-- **Paths.** `<main>` is the main checkout: the folder above `git rev-parse --path-format=absolute --git-common-dir`. Audits live in `<main>/.foedrum/tmp/audits/<sha>/`.
+- **Security findings stay local until fixed.** The report and its findings are written under the main checkout's `.foedrum/audits/` (git-ignored), never into a commit, a pull request or an issue body as they are. When a caller puts the audit's outcome in public text, it gives counts per severity and per area, and counts security findings with the rest and never names one, its file or what it is.
+- **Paths.** `<main>` is the main checkout: the folder above `git rev-parse --path-format=absolute --git-common-dir`. Audits live in `<main>/.foedrum/audits/<sha>/`.
 
 ## Stage 1: the commit and the mode
 
 1. `git fetch origin`. `<sha>` is `git rev-parse origin/main`, and it must match `^[0-9a-f]{40}$`. `<repo>` is `owner/name` from `gh repo view --json nameWithOwner --jq .nameWithOwner`.
-2. If `<main>/.foedrum/tmp/audits/<sha>/report.md` exists, this commit was audited already: print its path and stop.
+2. If `<main>/.foedrum/audits/<sha>/report.md` exists, this commit was audited already: print its path and stop.
 3. The mode:
    - `--full`: the whole codebase.
-   - `--since <base>`: `<base>` must match `^[0-9a-f]{40}$`, and `<main>/.foedrum/tmp/audits/<base>/findings.json` must exist; else stop and say which is missing.
-   - neither: among the folders of `<main>/.foedrum/tmp/audits/` whose name matches `^[0-9a-f]{40}$` and that hold a `findings.json`, the newest earlier audit whose commit is an ancestor of `<sha>` (`git merge-base --is-ancestor <base> <sha>`, newest by `git log -1 --format=%ct <base>`) is `<base>`; with none, the whole codebase.
-4. In a since-audit, `<changed>` is the list `git diff --name-only <base> <sha>` prints, one repository path per line; the auditors cannot run git, so the workflow gets it as data. `<unfinished>` is the array in `<main>/.foedrum/tmp/audits/<base>/unfinished.json`, the areas that audit did not finish, which this one audits in full (none when the file is not there).
+   - `--since <base>`: `<base>` must match `^[0-9a-f]{40}$`, and `<main>/.foedrum/audits/<base>/findings.json` must exist; else stop and say which is missing.
+   - neither: among the folders of `<main>/.foedrum/audits/` whose name matches `^[0-9a-f]{40}$` and that hold a `findings.json`, the newest earlier audit whose commit is an ancestor of `<sha>` (`git merge-base --is-ancestor <base> <sha>`, newest by `git log -1 --format=%ct <base>`) is `<base>`; with none, the whole codebase.
+4. In a since-audit, `<changed>` is the list `git diff --name-only <base> <sha>` prints, one repository path per line; the auditors cannot run git, so the workflow gets it as data. `<unfinished>` is the array in `<main>/.foedrum/audits/<base>/unfinished.json`, the areas that audit did not finish, which this one audits in full (none when the file is not there).
 5. Say which mode and why before going on: a full audit is about 19 agents and a few million tokens; one since an earlier audit costs less, in proportion to what changed.
 
 ## Stage 2: the pinned checkout
@@ -44,6 +44,6 @@ leaving out `since`, `previous`, `changed` and `unfinished` for a full audit. It
 
 ## Stage 4: the report
 
-1. Write the workflow's `report` to `<main>/.foedrum/tmp/audits/<sha>/report.md`, its `findings` to `findings.json` there, and its `missing` and `unverified` areas together, as one array, to `unfinished.json` there, with the file tool, unedited. `findings` holds this audit's kept findings, the ones its skeptics did not answer (marked `unverified`), and every earlier finding no audit has found fixed or gone yet, so the chain of audits never drops an open one.
+1. Write the workflow's `report` to `<main>/.foedrum/audits/<sha>/report.md`, its `findings` to `findings.json` there, and its `missing` and `unverified` areas together, as one array, to `unfinished.json` there, with the file tool, unedited. `findings` holds this audit's kept findings, the ones its skeptics did not answer (marked `unverified`), and every earlier finding no audit has found fixed or gone yet, so the chain of audits never drops an open one.
 2. Remove the pinned worktree: `git worktree remove .claude/worktrees/audit-<sha8>`.
 3. Print: the mode, the counts of kept findings per severity and per area, how many were dropped, the three things the report says are most worth doing, and the path of `report.md`. Then stop: what becomes an issue is the person's choice.
