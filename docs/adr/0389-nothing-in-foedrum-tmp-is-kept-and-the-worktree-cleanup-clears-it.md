@@ -13,6 +13,7 @@ The maintainer decided on 2026-11-13.
 ### The rule for `.foedrum/tmp`
 Nothing in it is meant to be kept: everything there belongs to a session, review or test that is running or once ran.
 Files older than two days are deleted, and a folder that contains a `.git` entry (a file or a folder) is never deleted by age: whatever made it removes it.
+A bare repository, which has no `.git` entry, is deleted by age like any files: the ones there, such as the remotes of `npm run demo` and the tasting comparison, belong to a finished run, and the next run empties and rebuilds its folder, so nothing is lost.
 Foedrum's development worktrees go only in `.claude/worktrees/`.
 
 ### The audits move
