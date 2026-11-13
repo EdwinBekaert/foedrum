@@ -115,7 +115,9 @@ interface Options {
 
 /** Where git's top is from a folder, all from one made-up working folder. */
 const ROOT = '/work/here';
+/** A full path, such as a drive's root, is in no repository of the working folder's. */
 const within = (top: string, folder: string): boolean =>
+  !/^(?:[A-Za-z]:)?\//.test(folder) &&
   !posix.relative(posix.join(ROOT, top), posix.join(ROOT, folder)).startsWith('..');
 
 /** Runs init with `answers` in order; an answer past the last is the end of standard input. */
@@ -1269,7 +1271,7 @@ describe('foedrum init with its answers as options (ADR 0212)', () => {
     });
     assert.equal(
       change.result.stderr,
-      'foedrum init: no answer to "Change .gitignore?" [y/N]; add --change .gitignore=<answer>\n',
+      'foedrum init: no answer to "Change .gitignore?" [y/N]; add --change .gitignore=<answer>; octocat/foedrum-brewery is cloned into the folder .\n',
     );
     assert.ok(change.lines.includes('.gitignore would change:'), change.lines.join('\n'));
     assert.deepStrictEqual(change.written, []);
