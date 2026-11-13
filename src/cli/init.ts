@@ -1,6 +1,8 @@
 // `foedrum init` (ADR 0199, ADR 0207): asks a few questions on the terminal, builds a Brewery's
-// files from the answers and from what GitHub says of each target repository, checks each against
-// its schema, and, outside a clone, creates the Brewery's repository and clones it. It writes the
+// files from the answers and from what GitHub says of each target repository, and checks each
+// against its schema. Inside a Brewery, from any depth, it updates that Brewery; elsewhere it asks
+// whether and in which folder to create one, never inside another repository, and creates and
+// clones its repository, or clones one GitHub has after a yes (ADR 0393). It writes the
 // new files and asks before changing one that is there, offers the intake label in each target
 // repository, commits and pushes after asking, offers the foedrum command on the PATH (ADR 0210),
 // then runs doctor. The ports are the terminal, the files, GitHub through gh, git, doctor and the
@@ -264,6 +266,8 @@ type Place = { kind: 'none' } | { kind: 'brewery' | 'repository'; top: string };
 const folderPath = (path: string): string => {
   const normal = posix.normalize(path === '' ? '.' : path);
   if (normal === '.' || normal === './') return '';
+  // A drive on its own is its root, never the folder a Windows shell is in on that drive.
+  if (/^[A-Za-z]:$/.test(normal)) return `${normal}/`;
   return /^(?:[A-Za-z]:)?\/$/.test(normal) ? normal : normal.replace(/\/$/, '');
 };
 
@@ -285,10 +289,12 @@ const placeOf = async (ports: InitPorts, folder: string): Promise<Place | string
   return { kind: brewery ? 'brewery' : 'repository', top };
 };
 
-/** What the folder question settles: a new or empty folder, or a Brewery's top. */
+/** What the folder question settles: a new or empty folder, a Brewery's top, or an empty clone. */
 interface Chosen {
   folder: string;
   brewery: boolean;
+  /** The top of a repository holding nothing but `.git`: init's own earlier clone, if its origin says so. */
+  clone?: true;
 }
 
 /**
@@ -316,6 +322,10 @@ const chooseFolder = async (ports: InitPorts, answer: string): Promise<Parsed<Ch
   if (place.kind === 'brewery' && entries !== undefined) {
     return { value: { folder: place.top, brewery: true } };
   }
+  const held = (entries ?? []).filter((name) => name !== '.git');
+  if (place.kind === 'repository' && place.top === folder && held.length === 0) {
+    return { value: { folder, brewery: false, clone: true } };
+  }
   if (place.kind !== 'none') {
     return {
       refused: `${shown(folder)} is in the repository ${shown(place.top)}; a Brewery is a repository of its own`,
@@ -339,9 +349,14 @@ const configProblem = (config: Existing, text: string | undefined): string | und
   return `the foedrum.jsonc here does not pass its schema: ${reason}`;
 };
 
-/** `cd` into `folder`, quoted when a shell would split it. */
-const cdLine = (folder: string): string =>
-  /^[\w./:\\-]+$/.test(folder) ? `cd ${folder}` : `cd "${folder}"`;
+/**
+ * `cd` into `folder`, quoted when it holds a space; none for a name a shell would read more of,
+ * since a person pastes the line.
+ */
+const cdLine = (folder: string): string | undefined => {
+  if (/^[\w./:\\-]+$/.test(folder)) return `cd ${folder}`;
+  return /^[\w./:\\ -]+$/.test(folder) ? `cd "${folder}"` : undefined;
+};
 
 /** Runs `foedrum init` through `ports`, with the answers `given` as options. */
 export const runInit = async (ports: InitPorts, given: InitAnswers = {}): Promise<CliResult> => {
@@ -487,7 +502,23 @@ export const runInit = async (ports: InitPorts, given: InitAnswers = {}): Promis
         const named = await nameNew(ports, ask, confirm, optionValue, login);
         if ('refused' in named) return refuse(named.refused);
         asked = named.brewery;
-        if (named.isPrivate === undefined) {
+        if (chosen.clone === true) {
+          // An empty clone is init's own earlier one only for the repository GitHub has and the
+          // user took (ADR 0393), named as git's URL of it, without case as GitHub reads names.
+          const origin = await ports.git(folder, ['remote', 'get-url', 'origin']);
+          const url = origin.stdout.trim().toLowerCase();
+          if (
+            named.isPrivate !== undefined ||
+            origin.code !== 0 ||
+            url !== urlOf(asked).toLowerCase()
+          ) {
+            return refuse(
+              `${shown(folder)} is a clone of another repository than ${asked}; give another folder`,
+            );
+          }
+          say(`${shown(folder)} is the clone of ${asked} made before`);
+          created = `; ${asked} is cloned into the folder ${shown(folder)}`;
+        } else if (named.isPrivate === undefined) {
           // A repository GitHub has is cloned now, to read what it holds (ADR 0393).
           const cloned = await ports.git('', ['clone', '--', urlOf(asked), shown(folder)]);
           if (cloned.code !== 0) return refuse(`git clone failed: ${firstLine(cloned)}`);
@@ -749,7 +780,7 @@ export const runInit = async (ports: InitPorts, given: InitAnswers = {}): Promis
       confirm: (question, name, byDefault) => confirm(question, byDefault, { name }),
     });
   } catch (error) {
-    if (error instanceof Refused) return usage(error.message);
+    if (error instanceof Refused) return usage(`${error.message}${created}`);
     if (error instanceof NoAnswer) {
       return refuse(`no answer to "${error.message}"; nothing more is written${created}`);
     }
@@ -764,7 +795,8 @@ export const runInit = async (ports: InitPorts, given: InitAnswers = {}): Promis
   // A command cannot change its terminal's folder: the line to type next (ADR 0393).
   if (folder !== '') {
     say(`The Brewery is in the folder ${folder}`);
-    say(cdLine(folder));
+    const cd = cdLine(folder);
+    if (cd !== undefined) say(cd);
   }
   return { exitCode: ok && !pushFailed ? 0 : 1, stdout: '', stderr: '' };
 };
