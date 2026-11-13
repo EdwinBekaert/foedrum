@@ -1,6 +1,6 @@
 # 0390. `foedrum init` offers the shim only from a checkout
 
-Date: 2026-11-13 · Status: Accepted · Amends [0210](0210-foedrum-init-writes-the-foedrum-command-into-a-user-folder-on-the-path.md) (init offers the `foedrum` command only from a checkout) and [0377](0377-the-package-ships-the-javascript-tsc-emits-and-ci-starts-the-installed-tarball.md) (the installed package writes no shim)
+Date: 2026-11-13 · Status: Accepted · Amends [0210](0210-foedrum-init-writes-the-foedrum-command-into-a-user-folder-on-the-path.md) (init offers the `foedrum` command only from a checkout), [0377](0377-the-package-ships-the-javascript-tsc-emits-and-ci-starts-the-installed-tarball.md) (the installed package writes no shim) and [0212](0212-foedrum-init-takes-every-answer-as-an-option-and-foedrum-init-asks-them-in-a-session.md) (from the package there is no shim question to ask, or to refuse under `--no-input`)
 
 ## Context
 [ADR 0210](0210-foedrum-init-writes-the-foedrum-command-into-a-user-folder-on-the-path.md) has `foedrum init` offer a shim, a `foedrum` command in a user folder on the PATH that runs the checkout's `main.ts`, and says that after M3 `npx foedrum` replaces it.

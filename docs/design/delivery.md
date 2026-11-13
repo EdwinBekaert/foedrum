@@ -10,7 +10,7 @@ Foedrum ships as an npm command-line program with a companion Claude Code plugin
 | Brewhouse (M6) | Dashboard served by the engine | `foedrum serve` prints its local address |
 
 Run from a checkout, `foedrum init` offers a `foedrum` command in a user folder on the PATH that runs the checkout's `src/cli/main.ts` ([ADR 0210](../adr/0210-foedrum-init-writes-the-foedrum-command-into-a-user-folder-on-the-path.md)).
-Run from the installed package, it writes none and, when no `foedrum` is on the PATH, says to run `npm install --global foedrum` or `npx foedrum <command>` ([ADR 0390](../adr/0390-foedrum-init-offers-the-shim-only-from-a-checkout.md)).
+Run from the installed package, it writes none and, when no `foedrum` but npx's own is on the PATH, says to run `npm install --global foedrum` or `npx foedrum <command>` ([ADR 0390](../adr/0390-foedrum-init-offers-the-shim-only-from-a-checkout.md)).
 Until `foedrum` is on the PATH, `/foedrum:init` runs a checkout's `src/cli/main.ts` that the engineer names ([ADR 0212](../adr/0212-foedrum-init-takes-every-answer-as-an-option-and-foedrum-init-asks-them-in-a-session.md)).
 
 The package ships the JavaScript `tsc` emits from `src/` into `dist/` (`npm run build`, `tsconfig.build.json`), not the `.ts` files, since Node strips no types under `node_modules`; development runs the `.ts` files directly ([ADR 0377](../adr/0377-the-package-ships-the-javascript-tsc-emits-and-ci-starts-the-installed-tarball.md)).
