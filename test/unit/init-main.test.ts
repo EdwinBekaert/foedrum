@@ -340,4 +340,33 @@ describe('initFromCheckout', () => {
       elsewhere.remove();
     }
   });
+
+  it('refuses a folder that holds a file, read on the disk, before asking GitHub (ADR 0393)', async () => {
+    const here = makeTempDir('init-main-held');
+    try {
+      writeFileSync(join(here.path, 'notes.txt'), 'x');
+      const gh = ghOver(fakeFetch([{ status: 200, body: { login: 'octocat' } }]).fetch);
+      const exec: ExecProcess = async (file, args, options) => {
+        if (args[0] === 'api') return gh.exec(file, args, options);
+        const stderr = 'fatal: not a git repository (or any of the parent directories): .git\n';
+        return { exitCode: 128, stdout: '', stderr, output: stderr };
+      };
+      const result = await initFromCheckout(
+        here.path,
+        {
+          exec,
+          shim: { env: { PATH: '' }, home: here.path },
+          terminal: { input: Readable.from([]), output: { write: () => true } },
+        },
+        { create: 'y', folder: '.' },
+      );
+      assert.deepStrictEqual(result, {
+        exitCode: 2,
+        stdout: '',
+        stderr: 'foedrum init: --folder .: The folder . holds files; give an empty or a new one\n',
+      });
+    } finally {
+      here.remove();
+    }
+  });
 });

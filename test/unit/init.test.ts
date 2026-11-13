@@ -1884,4 +1884,12 @@ describe('foedrum init finds where it is (ADR 0393)', () => {
     assert.ok(lines.includes('  The drive Q: is not there'), lines.join('\n'));
     assert.ok(!events.some((event) => /^(create|git)/.test(event)), events.join('\n'));
   });
+
+  it('asks the folder again for an answer that is a file', async () => {
+    const clone: Clone = { files: new Map([['docs/a.md', 'x']]), git: false };
+    const { lines, questions } = await init(['', 'docs/a.md', 'new', '', '', ''], clone, unplaced);
+    assert.ok(lines.includes('  docs/a.md is a file, not a folder'), lines.join('\n'));
+    assert.equal(questions[1], questions[2]);
+    assert.ok(clone.files.has('new/foedrum.jsonc'));
+  });
 });
