@@ -69,6 +69,10 @@ describe('claCheck', () => {
     assert.equal(claCheck('Maintainer-Login', owner, '').ok, true);
   });
 
+  it('counts a signature of any CLA version', () => {
+    assert.equal(claCheck('carol', owner, '- @carol, CLA 2.1, 2026-11-20\n').ok, true);
+  });
+
   it('counts a signature line with trailing whitespace', () => {
     assert.equal(claCheck('carol', owner, '- @carol, CLA 1.0, 2026-11-20 \t\n').ok, true);
   });

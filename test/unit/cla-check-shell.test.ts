@@ -26,6 +26,22 @@ describe('runClaCheck', () => {
     });
   });
 
+  it('passes the owner from the environment to the check', () => {
+    const owner = { CLA_AUTHOR: 'maintainer-login', CLA_OWNER: 'maintainer-login' };
+    assert.equal(runClaCheck(owner, () => '').ok, true);
+  });
+
+  it('fails with an empty author or an empty owner in the environment', () => {
+    for (const empty of [
+      { CLA_AUTHOR: '', CLA_OWNER: 'maintainer-login' },
+      { CLA_AUTHOR: 'alice', CLA_OWNER: '' },
+    ]) {
+      const verdict = runClaCheck(empty, () => '# CLA signatures\n');
+      assert.equal(verdict.ok, false);
+      assert.equal(verdict.line, 'CLA_AUTHOR and CLA_OWNER must be set by the CI job');
+    }
+  });
+
   it('fails without an author or an owner in the environment', () => {
     for (const missing of [{ CLA_OWNER: 'maintainer-login' }, { CLA_AUTHOR: 'alice' }]) {
       const verdict = runClaCheck(missing, signed);
