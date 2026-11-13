@@ -98,4 +98,4 @@ A CI check reads that file on every pull request, and fails until the pull reque
 
 Report a security problem privately, as [`SECURITY.md`](SECURITY.md) says, never in a public issue.
 
-The Foedrum name, logo and mascot are not covered by the code licence.
+The Foedrum name, logo and mascot are not covered by the code licence: the [trademark policy](TRADEMARK.md) says how you may use them.
