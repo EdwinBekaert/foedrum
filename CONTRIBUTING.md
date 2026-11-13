@@ -4,7 +4,7 @@ Thank you for wanting to help.
 This guide is the short version: what to do, in the order you meet it.
 The full rules for working on Foedrum's code are in [`CLAUDE.md`](CLAUDE.md), and each section below links the part that holds the detail.
 
-Foedrum is not open to outside pull requests yet: they are closed until the public launch (milestone M3).
+Foedrum is not open to outside pull requests yet: they will be closed until the public launch (milestone M3).
 Issues with questions, ideas or feedback are welcome now.
 
 ## Before you start
@@ -52,7 +52,7 @@ More in [`CLAUDE.md`, Commands](CLAUDE.md#commands).
 Commit the failing test before the fix or the feature, in a commit of its own, so the red step can be checked out and run.
 Then commit the code that makes it pass.
 Red means the test runs and fails because the behaviour is missing; a test that does not load or compile is not red.
-Documentation, CI configuration and throwaway spikes are exempt: say so in the pull request.
+Documentation, CI configuration, scaffolding and throwaway spikes are exempt: say so in the pull request.
 The rules for red, green, refactor and regression tests are in [`CLAUDE.md`, Tests](CLAUDE.md#tests).
 
 **One issue per pull request.**
@@ -60,7 +60,7 @@ A pull request closes the one issue it delivers, with `Closes #<n>` in its descr
 When the work is too big for one pull request, split the issue first.
 
 **Open it as a draft.**
-Mark it ready only once it is reviewed (next section).
+Mark it ready when the work is done; the next section says how it is reviewed.
 
 **Update it by merging `main`, never by rebasing.**
 Pushed commits are never rewritten or force-pushed, and pull requests are merged with a merge commit, so the red and green commits stay in the history.
@@ -74,7 +74,7 @@ Branches, descriptions and the rest are in [`CLAUDE.md`, Git and pull requests](
 
 ## Review
 
-Every pull request is reviewed with the `/brew-review` skill in [`.claude/skills/brew-review/`](.claude/skills/brew-review/) while it is a draft.
+A pull request is reviewed with the `/brew-review` skill in [`.claude/skills/brew-review/`](.claude/skills/brew-review/) while it is a draft, unless it changes only plain documentation ([ADR 0067](docs/adr/0067-a-pull-request-of-only-plain-docs-needs-no-review-summary.md)).
 It runs the red proof, a simplify pass, a reviewer per lens and a mutation check, and posts a summary comment with a disposition for every finding.
 
 You are advised to run it on your own pull request before you mark it ready, so its findings are settled before review instead of passed back and forth.
