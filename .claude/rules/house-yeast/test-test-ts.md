@@ -9,6 +9,10 @@ paths:
 
 Rules learned from reviews of Foedrum's own pull requests (ADR 0122), for the files this session reads or changes (ADR 0271). Follow them where your change meets them: /brew-review looks for what they describe.
 
+## fake-refuses-what-the-real-refuses (semantic)
+
+A fake of an engine interface throws for the inputs the real implementation throws for, such as a step id it has no deadline for, so a test through the fake catches code that passes them.
+
 ## negative-test-reaches-the-reporting-path (semantic)
 
 A test that expects nothing to be reported gives the code under test an input that reaches the path that would report something, such as a removed line it must count as moved, so it fails against a stub that never reports.

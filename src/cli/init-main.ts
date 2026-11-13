@@ -8,12 +8,13 @@ import {
   constants,
   existsSync,
   mkdirSync,
+  readdirSync,
   readFileSync,
   statSync,
   writeFileSync,
 } from 'node:fs';
 import { homedir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname, resolve } from 'node:path';
 import { createInterface } from 'node:readline';
 import {
   createLabel,
@@ -86,7 +87,8 @@ export const initFromCheckout = async (
   given: InitAnswers = {},
 ): Promise<CliResult> => {
   const { input, output } = options?.terminal ?? { input: process.stdin, output: process.stdout };
-  const at = (path: string) => join(cwd, ...path.split('/'));
+  // A path from the working directory, or a full one a person typed (ADR 0393).
+  const at = (path: string) => resolve(cwd, path);
   // gh's own login, never a token (ADR 0073), on github.com: the Brewery names no other host yet.
   const github = createGitHubClient({
     ...(options?.exec === undefined ? {} : { exec: options.exec }),
@@ -106,6 +108,13 @@ export const initFromCheckout = async (
         },
         files: {
           exists: (path) => existsSync(at(path)),
+          entries: (path) => {
+            try {
+              return statSync(at(path)).isDirectory() ? readdirSync(at(path)) : undefined;
+            } catch {
+              return undefined;
+            }
+          },
           read: (path) => (existsSync(at(path)) ? readFileSync(at(path), 'utf8') : undefined),
           write: (path, text) => {
             mkdirSync(dirname(at(path)), { recursive: true });
@@ -120,8 +129,10 @@ export const initFromCheckout = async (
           hasLabel: (repo, label) => labelExists(github, repo, label),
           createLabel: (repo, label, description) => createLabel(github, repo, label, description),
         },
-        // The git Foedrum runs: no prompt, no token variable, gh as git's credential helper (ADR 0073).
-        git: (folder, args) => git(at(folder), args, { timeoutMs: GIT_TIMEOUT_MS }),
+        // The git Foedrum runs: no prompt, no token variable, gh as git's credential helper (ADR 0073),
+        // in English, since init reads its "not a git repository" line (ADR 0393).
+        git: (folder, args) =>
+          git(at(folder), args, { timeoutMs: GIT_TIMEOUT_MS, env: { LC_ALL: 'C' } }),
         doctor: async (folder) => {
           const diagnosis = diagnose(await doctorFromCheckout(at(folder), options));
           return { ok: diagnosis.ok, report: formatDiagnosis(diagnosis) };

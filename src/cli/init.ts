@@ -1,11 +1,14 @@
 // `foedrum init` (ADR 0199, ADR 0207): asks a few questions on the terminal, builds a Brewery's
-// files from the answers and from what GitHub says of each target repository, checks each against
-// its schema, and, outside a clone, creates the Brewery's repository and clones it. It writes the
+// files from the answers and from what GitHub says of each target repository, and checks each
+// against its schema. Inside a Brewery, from any depth, it updates that Brewery; elsewhere it asks
+// whether and in which folder to create one, never inside another repository, and creates and
+// clones its repository, or clones one GitHub has after a yes (ADR 0393). It writes the
 // new files and asks before changing one that is there, offers the intake label in each target
 // repository, commits and pushes after asking, offers the foedrum command on the PATH (ADR 0210),
 // then runs doctor. The ports are the terminal, the files, GitHub through gh, git, doctor and the
 // machine the command goes on; init-main.ts gives the real ones.
 
+import { posix } from 'node:path';
 import { npmTestLine, npmTestNotes, readTestLine, testLineNotes } from '../checks/test-line.ts';
 import { parseJsonc } from '../formats/jsonc.ts';
 import { LABEL_COLOR } from '../github/brewery-repository.ts';
@@ -33,6 +36,8 @@ export interface InitPorts {
   /** Files and folders, by their path from the working directory with `/`. */
   files: {
     exists: (path: string) => boolean;
+    /** The names in the folder `path`; `undefined` when it is not a folder (ADR 0393). */
+    entries: (path: string) => string[] | undefined;
     read: (path: string) => string | undefined;
     write: (path: string, text: string) => void;
   };
@@ -254,14 +259,117 @@ const suggestedAlias = (repo: string): string =>
 /** The answers given as options, each as it would be typed (ADR 0212). */
 export type InitAnswers = Omit<InitCommand, 'command'>;
 
+/** Where a folder is: in no repository, or in one whose top is `top`, a Brewery or not (ADR 0393). */
+type Place = { kind: 'none' } | { kind: 'brewery' | 'repository'; top: string };
+
+/** A folder from the working directory in one form: `/` between names, none at the end, `''` for itself. */
+const folderPath = (path: string): string => {
+  const normal = posix.normalize(path === '' ? '.' : path);
+  if (normal === '.' || normal === './') return '';
+  // A drive on its own is its root, never the folder a Windows shell is in on that drive.
+  if (/^[A-Za-z]:$/.test(normal)) return `${normal}/`;
+  return /^(?:[A-Za-z]:)?\/$/.test(normal) ? normal : normal.replace(/\/$/, '');
+};
+
+/** A folder as a person reads it: `.` for the working directory. */
+const shown = (folder: string): string => (folder === '' ? '.' : folder);
+
+/**
+ * The repository `folder` is in, from git's `rev-parse --show-cdup`, which says its top from there
+ * (ADR 0393): a Brewery when `foedrum.jsonc` is at its top. A git that fails otherwise is a line.
+ */
+const placeOf = async (ports: InitPorts, folder: string): Promise<Place | string> => {
+  const shownCdup = await ports.git(folder, ['rev-parse', '--show-cdup']);
+  if (shownCdup.code !== 0) {
+    if (/not a git repository/i.test(shownCdup.stderr)) return { kind: 'none' };
+    return `git rev-parse failed: ${firstLine(shownCdup)}`;
+  }
+  const top = folderPath(posix.join(folder, shownCdup.stdout.trim()));
+  const brewery = ports.files.exists(posix.join(top, 'foedrum.jsonc'));
+  return { kind: brewery ? 'brewery' : 'repository', top };
+};
+
+/** What the folder question settles: a new or empty folder, a Brewery's top, or an empty clone. */
+interface Chosen {
+  folder: string;
+  brewery: boolean;
+  /** The top of a repository holding nothing but `.git`: init's own earlier clone, if its origin says so. */
+  clone?: true;
+}
+
+/**
+ * The folder a Brewery goes in, as answered (ADR 0393): a Brewery's clone is used at its top; a
+ * folder in another repository, a missing one whose nearest folder is in one, a file and a folder
+ * with files are refused, so init never writes into another project.
+ */
+const chooseFolder = async (ports: InitPorts, answer: string): Promise<Parsed<Chosen>> => {
+  const { files } = ports;
+  const typed = ports.shim.platform === 'win32' ? answer.replaceAll('\\', '/') : answer;
+  const folder = folderPath(typed);
+  const entries = files.entries(folder);
+  if (entries === undefined && files.exists(folder)) {
+    return { refused: `${shown(folder)} is a file, not a folder` };
+  }
+  // A folder that is not there yet is in the repository of the nearest one that is.
+  let nearest = folder;
+  while (!files.exists(nearest)) {
+    // A drive that is not there can hold no clone: nothing is created for it.
+    if (/^[A-Za-z]:\/$/.test(nearest))
+      return { refused: `The drive ${nearest.slice(0, 2)} is not there` };
+    const up = folderPath(posix.dirname(nearest));
+    if (up === nearest) break;
+    nearest = up;
+  }
+  const place = await placeOf(ports, nearest);
+  if (typeof place === 'string') return { refused: place };
+  if (place.kind === 'brewery' && entries !== undefined) {
+    return { value: { folder: place.top, brewery: true } };
+  }
+  const held = (entries ?? []).filter((name) => name !== '.git');
+  if (place.kind === 'repository' && place.top === folder && held.length === 0) {
+    return { value: { folder, brewery: false, clone: true } };
+  }
+  if (place.kind !== 'none') {
+    return {
+      refused: `${shown(folder)} is in the repository ${shown(place.top)}; a Brewery is a repository of its own`,
+    };
+  }
+  if (entries !== undefined && entries.length > 0) {
+    return { refused: `The folder ${shown(folder)} holds files; give an empty or a new one` };
+  }
+  return { value: { folder, brewery: false } };
+};
+
+/** A foedrum.jsonc that reads but does not pass is the user's to fix (ADR 0199): its reason. */
+const configProblem = (config: Existing, text: string | undefined): string | undefined => {
+  if (config.kind !== 'read') return undefined;
+  const checked = readJsonc(text ?? '', BreweryConfig);
+  if (checked.valid) return undefined;
+  const reason = checked.reason
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .join(' ');
+  return `the foedrum.jsonc here does not pass its schema: ${reason}`;
+};
+
+/**
+ * `cd` into `folder`, quoted when it holds a space; none for a name a shell would read more of,
+ * since a person pastes the line.
+ */
+const cdLine = (folder: string): string | undefined => {
+  if (/^[\w./:-]+$/.test(folder)) return `cd ${folder}`;
+  return /^[\w./: -]+$/.test(folder) ? `cd "${folder}"` : undefined;
+};
+
 /** Runs `foedrum init` through `ports`, with the answers `given` as options. */
 export const runInit = async (ports: InitPorts, given: InitAnswers = {}): Promise<CliResult> => {
   const { say, files } = ports;
-  // Outside a clone, init creates the repository and clones it into a folder of its name (ADR 0207).
-  const inClone = files.exists('.git');
-  // The clone's folder from the working directory, `''` inside one; known once the name is asked.
-  let folder = '';
-  const at = (path: string): string => (folder === '' ? path : `${folder}/${path}`);
+  // Where init runs: in a Brewery, in another repository, or in none (ADR 0393).
+  const here = await placeOf(ports, '');
+  if (typeof here === 'string') return refuse(here);
+  // The Brewery's folder from the working directory, `''` for itself; known once it is asked.
+  let folder = here.kind === 'brewery' ? here.top : '';
+  const at = (path: string): string => posix.join(folder, path);
   const noInput = given['no-input'] === true;
 
   // The keyed options' answers, by option and key, each given once (ADR 0212).
@@ -347,55 +455,101 @@ export const runInit = async (ports: InitPorts, given: InitAnswers = {}): Promis
   let pushFailed = false;
   // What init made on GitHub and in a new folder, which a refusal after it names.
   let created = '';
-  // A foedrum.jsonc that reads but does not pass is the user's to fix, before any question.
-  const config: Existing = inClone ? readObject(files.read('foedrum.jsonc')) : { kind: 'missing' };
-  if (config.kind === 'read') {
-    const checked = readJsonc(files.read('foedrum.jsonc') ?? '', BreweryConfig);
-    if (!checked.valid) {
-      const reason = checked.reason
-        .split(/\r?\n/)
-        .map((line) => line.trim())
-        .join(' ');
-      return refuse(`the foedrum.jsonc here does not pass its schema: ${reason}`);
-    }
+  // The foedrum.jsonc at the Brewery's top, and why it does not pass its schema when it does not.
+  const readConfig = (): { value: Existing; problem: string | undefined } => {
+    const text = files.read(at('foedrum.jsonc'));
+    const value = readObject(text);
+    return { value, problem: configProblem(value, text) };
+  };
+  // The foedrum.jsonc of a Brewery init is in, checked before any question.
+  let config: Existing = { kind: 'missing' };
+  if (here.kind === 'brewery') {
+    const read = readConfig();
+    if (read.problem !== undefined) return refuse(read.problem);
+    config = read.value;
   }
   try {
     const login = await ports.login();
-    const base: Json = config.kind === 'read' ? config.value : {};
-    const named = Repo.safeParse(base.brewery);
-    const brewery = await ask(
-      'Brewery repository (owner/name)',
-      named.success ? named.data : `${login}/foedrum-brewery`,
-      { name: 'brewery' },
-      schemaOf(Repo),
-    );
-    let isPrivate = true;
-    if (!inClone) {
-      const name = brewery.split('/')[1] ?? '';
-      // The clone's folder must be one on every platform the Brewery's machines run.
-      if (WINDOWS_DEVICE.test(name) || name.endsWith('.')) {
-        return refuse(`${name} cannot be a folder on Windows; choose another name`);
-      }
-      // init creates a repository, never takes one over.
-      if (await ports.github.exists(brewery)) {
-        return refuse(
-          `${brewery} is on GitHub already; run init in its clone (git clone https://github.com/${brewery}.git)`,
-        );
-      }
-      if (files.exists(name)) {
-        return refuse(`the folder ${name} is there already; run init where it is not`);
-      }
-      folder = name;
-      isPrivate = await ask(
-        'Private or public',
-        'private',
-        { name: 'visibility' },
-        (answer): Parsed<boolean> => {
-          if (answer === 'private' || answer === 'public') return { value: answer === 'private' };
-          return { refused: 'Answer private or public' };
-        },
+    // The repository init creates after every question, when it creates one (ADR 0207).
+    let create: { isPrivate: boolean } | undefined;
+    // The name a new or cloned folder's Brewery was given; a Brewery's own is read from its file.
+    let asked: string | undefined;
+    if (here.kind === 'repository') {
+      say(
+        `The repository ${shown(here.top)} is not a Brewery: a Brewery is a repository of its own`,
       );
     }
+    if (here.kind === 'brewery') {
+      say(`This is the Brewery in ${shown(here.top)}: init updates its files`);
+    } else {
+      const option = { name: 'create' } as const;
+      if (!(await confirm('Create a Brewery? [Y/n]: ', true, option))) {
+        say('Nothing is created');
+        return { exitCode: 0, stdout: '', stderr: '' };
+      }
+      // Beside the repository init is in, else where it runs (ADR 0393).
+      const byDefault =
+        here.kind === 'repository' ? folderPath(posix.join(here.top, '../foedrum-brewery')) : '';
+      const chosen = await ask(
+        'Folder for the Brewery',
+        shown(byDefault),
+        { name: 'folder' },
+        (answer) => chooseFolder(ports, answer),
+      );
+      folder = chosen.folder;
+      if (chosen.brewery) {
+        const read = readConfig();
+        if (read.problem !== undefined) return refuse(read.problem);
+        config = read.value;
+      } else {
+        const named = await nameNew(ports, ask, confirm, optionValue, login);
+        if ('refused' in named) return refuse(named.refused);
+        asked = named.brewery;
+        if (chosen.clone === true) {
+          // An empty clone is init's own earlier one only for the repository GitHub has and the
+          // user took (ADR 0393), its origin as configured, before any url.insteadOf rewrites it,
+          // and without case, as GitHub reads names. A read that fails prints nothing to match.
+          const origin = await ports.git(folder, ['config', '--get', 'remote.origin.url']);
+          const url = origin.stdout.trim().toLowerCase();
+          if (named.isPrivate !== undefined || url !== urlOf(asked).toLowerCase()) {
+            return refuse(
+              `${shown(folder)} is a clone of another repository than ${asked}; give another folder`,
+            );
+          }
+          say(`${shown(folder)} is the clone of ${asked} made before`);
+          created = `; ${asked} is cloned into the folder ${shown(folder)}`;
+        } else if (named.isPrivate === undefined) {
+          // A repository GitHub has is cloned now, to read what it holds (ADR 0393).
+          const cloned = await ports.git('', ['clone', '--', urlOf(asked), shown(folder)]);
+          if (cloned.code !== 0) return refuse(`git clone failed: ${firstLine(cloned)}`);
+          say(`Cloned ${asked} into ${shown(folder)}`);
+          created = `; ${asked} is cloned into the folder ${shown(folder)}`;
+          const read = readConfig();
+          if (read.problem !== undefined) return refuse(`${read.problem}${created}`);
+          config = read.value;
+          const held = (files.entries(folder) ?? []).filter((name) => name !== '.git');
+          if (config.kind === 'missing' && held.length > 0) {
+            return refuse(
+              `${asked} holds files but no foedrum.jsonc: it is not a Brewery, and init writes nothing in it${created}`,
+            );
+          }
+        } else {
+          create = { isPrivate: named.isPrivate };
+        }
+      }
+    }
+    const base: Json = config.kind === 'read' ? config.value : {};
+    const named = Repo.safeParse(base.brewery);
+    const brewery =
+      asked ??
+      (named.success
+        ? named.data
+        : await ask(
+            'Brewery repository (owner/name)',
+            `${login}/foedrum-brewery`,
+            { name: 'brewery' },
+            schemaOf(Repo),
+          ));
 
     // The repositories foedrum.jsonc has keep their entries as they are.
     const kept: Json = isRecord(base.repositories) ? base.repositories : {};
@@ -569,18 +723,18 @@ export const runInit = async (ports: InitPorts, given: InitAnswers = {}): Promis
 
     // Every question about the files is answered: the repository is created only now, so input
     // that ended early leaves none behind (ADR 0207).
-    if (!inClone) {
+    if (create !== undefined) {
+      const { isPrivate } = create;
       try {
         await ports.github.create(brewery, login, isPrivate);
       } catch (error) {
         return refuse(messageOf(error));
       }
       say(`Created ${isPrivate ? 'the private' : 'the public'} repository ${brewery}`);
-      const url = `https://github.com/${brewery}.git`;
-      const cloned = await ports.git('', ['clone', '--', url, folder]);
+      const cloned = await ports.git('', ['clone', '--', urlOf(brewery), shown(folder)]);
       if (cloned.code !== 0) return refuse(`git clone failed: ${firstLine(cloned)}`);
-      say(`Cloned it into ${folder}`);
-      created = `; ${brewery} is created and cloned into the folder ${folder}`;
+      say(`Cloned it into ${shown(folder)}`);
+      created = `; ${brewery} is created and cloned into the folder ${shown(folder)}`;
     }
 
     for (const plan of plans) {
@@ -626,7 +780,7 @@ export const runInit = async (ports: InitPorts, given: InitAnswers = {}): Promis
       confirm: (question, name, byDefault) => confirm(question, byDefault, { name }),
     });
   } catch (error) {
-    if (error instanceof Refused) return usage(error.message);
+    if (error instanceof Refused) return usage(`${error.message}${created}`);
     if (error instanceof NoAnswer) {
       return refuse(`no answer to "${error.message}"; nothing more is written${created}`);
     }
@@ -638,11 +792,73 @@ export const runInit = async (ports: InitPorts, given: InitAnswers = {}): Promis
   say('');
   say('Each machine runs these once, in the Brewery, for the plugin:');
   for (const command of PLUGIN_COMMANDS) say(command);
-  if (folder !== '') say(`The Brewery is in the folder ${folder}`);
+  // A command cannot change its terminal's folder: the line to type next (ADR 0393).
+  if (folder !== '') {
+    say(`The Brewery is in the folder ${folder}`);
+    const cd = cdLine(folder);
+    if (cd !== undefined) say(cd);
+  }
   return { exitCode: ok && !pushFailed ? 0 : 1, stdout: '', stderr: '' };
 };
 
 type Confirm = (question: string, byDefault: boolean, option: Option) => Promise<boolean>;
+
+type Ask = <T>(
+  question: string,
+  fallback: string | undefined,
+  option: Option,
+  parse: (answer: string) => Parsed<T> | Promise<Parsed<T>>,
+) => Promise<T>;
+
+const urlOf = (repo: string): string => `https://github.com/${repo}.git`;
+
+/**
+ * The name of a new folder's Brewery (ADR 0393): one GitHub has is used after a yes, its
+ * `isPrivate` undefined, and another is asked after a no; one it has not is created after every
+ * question (ADR 0207), private unless answered public.
+ */
+const nameNew = async (
+  ports: InitPorts,
+  ask: Ask,
+  confirm: Confirm,
+  optionValue: (option: Option) => string | undefined,
+  login: string,
+): Promise<{ brewery: string; isPrivate?: boolean } | { refused: string }> => {
+  for (;;) {
+    const brewery = await ask(
+      'Brewery repository (owner/name)',
+      `${login}/foedrum-brewery`,
+      { name: 'brewery' },
+      schemaOf(Repo),
+    );
+    const name = brewery.split('/')[1] ?? '';
+    // The Brewery's other machines clone it into a folder of its name.
+    if (WINDOWS_DEVICE.test(name) || name.endsWith('.')) {
+      return { refused: `${name} cannot be a folder on Windows; choose another name` };
+    }
+    if (await ports.github.exists(brewery)) {
+      const question = `${brewery} is on GitHub already. Is it the Brewery you mean? [y/N]: `;
+      if (await confirm(question, false, { name: 'existing' })) return { brewery };
+      // An option cannot answer the name twice.
+      if (optionValue({ name: 'brewery' }) !== undefined) {
+        throw new Refused(
+          `--brewery ${brewery}: it is on GitHub already and not the Brewery meant; give another --brewery`,
+        );
+      }
+      continue;
+    }
+    const isPrivate = await ask(
+      'Private or public',
+      'private',
+      { name: 'visibility' },
+      (answer): Parsed<boolean> => {
+        if (answer === 'private' || answer === 'public') return { value: answer === 'private' };
+        return { refused: 'Answer private or public' };
+      },
+    );
+    return { brewery, isPrivate };
+  }
+};
 
 const PUSH_QUESTION = 'Commit and push these? [Y/n]: ';
 

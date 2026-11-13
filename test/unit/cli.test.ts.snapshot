@@ -160,7 +160,10 @@ Commands:
   takeover <issue> [--as <name>]                          Hand a batch from the driver that holds it to another: --as, else this session, else terminal
 
 init takes:
+  [--create <y|n>]
+  [--folder <path>]
   [--brewery <owner/name>]
+  [--existing <y|n>]
   [--visibility <private|public>]
   [--targets <owner/name ...>]
   [--alias <repo=alias>]...
