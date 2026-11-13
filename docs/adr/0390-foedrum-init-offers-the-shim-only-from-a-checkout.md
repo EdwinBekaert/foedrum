@@ -14,6 +14,7 @@ The maintainer decided on #1030 (2026-11-13) that init offers the shim only from
 - From a checkout, everything ADR 0210 and [ADR 0212](0212-foedrum-init-takes-every-answer-as-an-option-and-foedrum-init-asks-them-in-a-session.md) say stays as it is.
 - From the package, init asks no question about the shim, writes none, and `--no-input` refuses nothing for a missing `--shim` or `--repoint`.
 - When `foedrum` runs a file on the PATH already (`resolveExecutable`), init says nothing about it.
+  A `foedrum` in the `.bin` folder beside the package that runs does not count: `npm exec` puts that folder first on the PATH, and it goes with npx.
 - Otherwise it says one line: `foedrum is not on the PATH: install it with npm install --global foedrum, or run npx foedrum <command>`.
 - The check comes before every other shim check, so the package never says the PATHEXT line either.
 
