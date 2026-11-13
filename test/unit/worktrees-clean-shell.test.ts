@@ -286,8 +286,9 @@ describe('cleanWorktrees with a fake git', () => {
       utimesSync(path, time, time);
       return path;
     };
-    const old = file(join('828', 'old.log'), 3);
-    const recent = file('recent.log', 1);
+    // An hour either side of the two days.
+    const old = file(join('828', 'old.log'), 2 + 1 / 24);
+    const recent = file('recent.log', 2 - 1 / 24);
     const { git } = fakeGit(main);
 
     const lines = await cleanWorktrees(main, git, undefined, { files: NODE_FILES, now: () => now });
