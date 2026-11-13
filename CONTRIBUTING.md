@@ -4,7 +4,7 @@ Thank you for wanting to help.
 This guide is the short version: what to do, in the order you meet it.
 The full rules for working on Foedrum's code are in [`CLAUDE.md`](CLAUDE.md), and each section below links the part that holds the detail.
 
-Foedrum is not open to outside pull requests yet: they will be closed until the public launch (milestone M3).
+Foedrum is not open to outside pull requests yet: they will be closed until the public launch (milestone M7).
 Issues with questions, ideas or feedback are welcome now.
 
 ## Before you start

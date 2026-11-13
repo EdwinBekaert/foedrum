@@ -111,7 +111,7 @@ The full line as designed. Each recipe picks its own steps: Nip, which builds a 
 
 ## Contributing
 
-Foedrum is not open to outside pull requests yet: they will be closed until the public launch (milestone M3). Issues with questions, ideas or feedback are welcome now. How to contribute is in [`CONTRIBUTING.md`](CONTRIBUTING.md).
+Foedrum is not open to outside pull requests yet: they will be closed until the public launch (milestone M7). Issues with questions, ideas or feedback are welcome now. How to contribute is in [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
 ## Licence
 
