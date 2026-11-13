@@ -10,6 +10,7 @@ import { pathInside, samePath } from '../src/platform/paths.ts';
 import { isPidAlive, stopOnSignals } from '../src/platform/processes.ts';
 import { removeTree } from '../src/platform/remove.ts';
 import { type GitOptions, runGit as runFoedrumGit } from '../src/workspace/git.ts';
+import { NODE_FILES, type TemporaryFilesIo } from '../src/workspace/old-files.ts';
 import { parseWorktreeList } from '../src/workspace/worktree-list.ts';
 import { readRecords } from '../src/workspace/worktree-records.ts';
 import {
@@ -133,6 +134,7 @@ export const cleanWorktrees = async (
   cwd: string,
   git: Git = runGit,
   alive: (pid: number) => boolean = isPidAlive,
+  _temporary: { files: TemporaryFilesIo; now: () => number } = { files: NODE_FILES, now: Date.now },
 ): Promise<string[]> => {
   const main = await mainCheckoutOf(git, cwd);
   if (main === undefined) return ['skipped: not inside a git repository'];

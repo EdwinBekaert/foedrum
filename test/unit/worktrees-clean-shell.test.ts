@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { devNull } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
@@ -9,6 +9,7 @@ import type {
   Git as WorkspaceGit,
   GitResult as WorkspaceGitResult,
 } from '../../src/workspace/git.ts';
+import { NODE_FILES } from '../../src/workspace/old-files.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 
 // Captured from git 2.56 with machine paths and object ids replaced (see the fixture folder).
@@ -161,8 +162,9 @@ describe('cleanWorktrees with a fake git', () => {
       calls.map(([, command]) => command),
       ['rev-parse', 'fetch'],
     );
-    assert.equal(lines.length, 1);
-    assert.match(lines[0] ?? '', /^skipped: git fetch --prune origin failed/);
+    // The line of .foedrum/tmp's clear, which runs before the fetch, then the skip.
+    assert.equal(lines.length, 2);
+    assert.match(lines[1] ?? '', /^skipped: git fetch --prune origin failed/);
   });
 
   // Without the list, no branch counts as checked out, and update-ref -d does not refuse one.
@@ -178,8 +180,8 @@ describe('cleanWorktrees with a fake git', () => {
         false,
       );
       assert.ok(existsSync(record('10-gone')));
-      assert.equal(lines.length, 1, lines.join('\n'));
-      assert.match(lines[0] ?? '', new RegExp(`^skipped: git ${failing} .*failed`));
+      assert.equal(lines.length, 2, lines.join('\n'));
+      assert.match(lines[1] ?? '', new RegExp(`^skipped: git ${failing} .*failed`));
     });
   }
 
@@ -271,6 +273,48 @@ describe('cleanWorktrees with a fake git', () => {
     assert.equal(commands.includes('config --remove-section branch.7-merged'), false);
     assert.equal(lines.includes('deleted branch 7-merged'), false);
     assert.ok(lines.some((line) => line.startsWith('could not clean branch 7-merged')));
+  });
+
+  it("deletes files older than 2 days from the main checkout's .foedrum/tmp and keeps newer ones", async () => {
+    const now = Date.parse('2026-11-13T12:00:00.000Z');
+    const tmp = join(dir.path, '.foedrum', 'tmp');
+    const file = (name: string, ageDays: number): string => {
+      const path = join(tmp, name);
+      mkdirSync(join(path, '..'), { recursive: true });
+      writeFileSync(path, 'x');
+      const time = new Date(now - ageDays * 86_400_000);
+      utimesSync(path, time, time);
+      return path;
+    };
+    const old = file(join('828', 'old.log'), 3);
+    const recent = file('recent.log', 1);
+    const { git } = fakeGit(main);
+
+    const lines = await cleanWorktrees(main, git, undefined, { files: NODE_FILES, now: () => now });
+
+    assert.equal(existsSync(old), false, lines.join('\n'));
+    assert.equal(existsSync(recent), true);
+    assert.ok(
+      lines.includes('files deleted from .foedrum/tmp, older than 2 days: 1, left: 0'),
+      lines.join('\n'),
+    );
+  });
+
+  it('removes an empty folder under .claude/worktrees/ that git does not list, and keeps one that holds a file', async () => {
+    mkdirSync(join(wt('left'), 'sub'), { recursive: true });
+    mkdirSync(wt('kept'), { recursive: true });
+    writeFileSync(join(wt('kept'), 'notes.txt'), 'x');
+    const { git } = fakeGit(main);
+
+    const lines = await cleanWorktrees(main, git);
+
+    assert.equal(existsSync(wt('left')), false, lines.join('\n'));
+    assert.ok(existsSync(join(wt('kept'), 'notes.txt')));
+    assert.ok(lines.includes('removed empty folder .claude/worktrees/left'), lines.join('\n'));
+    assert.ok(
+      lines.includes('kept folder .claude/worktrees/kept: not a worktree, it holds files'),
+      lines.join('\n'),
+    );
   });
 
   it('runs nothing outside a git repository', async () => {
