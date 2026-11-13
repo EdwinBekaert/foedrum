@@ -1167,6 +1167,18 @@ describe('foedrum init with its answers as options (ADR 0212)', () => {
     );
   });
 
+  it("with --no-input from the installed package, needs no --repoint for init's shim of a checkout (ADR 0390)", async () => {
+    const { result, events } = await init([], outside(), {
+      ...FIRST,
+      shimFiles: OTHER_SHIM,
+      shimEntry: '/home/ada/.npm-global/lib/node_modules/foedrum/dist/cli/main.js',
+      given: { ...without(ALL, 'shim'), 'no-input': true },
+    });
+    assert.equal(result.exitCode, 0, result.stderr);
+    assert.ok(events.includes('doctor brewery'), events.join('\n'));
+    assert.ok(!events.some((event) => event.startsWith('shim')), events.join('\n'));
+  });
+
   it('with --no-input, shows what a later question shows before refusing it', async () => {
     const shim = await init([], outside(), {
       ...FIRST,
