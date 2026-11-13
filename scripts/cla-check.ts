@@ -14,7 +14,11 @@ export const runClaCheck = (env: NodeJS.ProcessEnv, readText: ReadText): ClaVerd
   if (author === undefined || author === '' || owner === undefined || owner === '') {
     return { ok: false, line: 'CLA_AUTHOR and CLA_OWNER must be set by the CI job' };
   }
-  return claCheck(author, owner, readText(SIGNATURES_FILE) ?? '');
+  const signatures = readText(SIGNATURES_FILE);
+  if (signatures === undefined) {
+    return { ok: false, line: `${SIGNATURES_FILE} could not be read at the pull request's head` };
+  }
+  return claCheck(author, owner, signatures);
 };
 
 if (import.meta.main) {

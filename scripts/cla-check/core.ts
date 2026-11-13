@@ -25,7 +25,7 @@ export const claCheck = (author: string, owner: string, signatures: string): Cla
   }
   const signed = signatures
     .split(/\r?\n/)
-    .some((line) => sameLogin(SIGNATURE.exec(line)?.[1] ?? '', author));
+    .some((line) => sameLogin(SIGNATURE.exec(line.trimEnd())?.[1] ?? '', author));
   return signed
     ? { ok: true, line: `@${author} signed the CLA` }
     : {
