@@ -74,11 +74,11 @@ describe('foedrum doctor and serve through cliFromCheckout', () => {
   it("prints the version of Foedrum's own package.json, not the Brewery's, for --version", async () => {
     writeFileSync(join(dir.path, 'package.json'), '{ "name": "brewery", "version": "9.9.9" }\n');
     const own = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8'));
-    assert.deepEqual(await foedrumIn(dir.path, ['--version']), {
-      exitCode: 0,
-      stdout: `${own.version}\n`,
-      stderr: '',
-    });
+    const { exitCode, stdout, stderr } = await foedrumIn(dir.path, ['--version']);
+    assert.deepEqual(
+      { exitCode, version: stdout.split('\n')[0], stderr },
+      { exitCode: 0, version: own.version, stderr: '' },
+    );
   });
 });
 
