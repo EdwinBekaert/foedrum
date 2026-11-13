@@ -20,10 +20,13 @@ describe('runClaCheck', () => {
   });
 
   it('says the signatures file could not be read instead of that the author did not sign', () => {
-    assert.deepEqual(runClaCheck(env, () => undefined), {
-      ok: false,
-      line: ".github/cla-signatures.md could not be read at the pull request's head",
-    });
+    assert.deepEqual(
+      runClaCheck(env, () => undefined),
+      {
+        ok: false,
+        line: ".github/cla-signatures.md could not be read at the pull request's head",
+      },
+    );
   });
 
   it('passes the owner from the environment to the check', () => {
