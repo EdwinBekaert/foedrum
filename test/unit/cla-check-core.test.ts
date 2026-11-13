@@ -67,6 +67,7 @@ describe('claCheck', () => {
   it('compares logins without regard to case, as GitHub does', () => {
     assert.equal(claCheck('Alice-Dev', owner, signatures).ok, true);
     assert.equal(claCheck('Maintainer-Login', owner, '').ok, true);
+    assert.equal(claCheck('Dependabot[bot]', owner, '').ok, true);
   });
 
   it('counts a signature of any CLA version', () => {

@@ -29,6 +29,13 @@ describe('runClaCheck', () => {
     );
   });
 
+  it('fails an author who is not the owner and has not signed', () => {
+    const unsigned = { CLA_AUTHOR: 'carol', CLA_OWNER: 'maintainer-login' };
+    const verdict = runClaCheck(unsigned, signed);
+    assert.equal(verdict.ok, false);
+    assert.match(verdict.line, /^@carol has not signed the CLA/);
+  });
+
   it('passes the owner from the environment to the check', () => {
     const owner = { CLA_AUTHOR: 'maintainer-login', CLA_OWNER: 'maintainer-login' };
     assert.equal(runClaCheck(owner, () => '').ok, true);
