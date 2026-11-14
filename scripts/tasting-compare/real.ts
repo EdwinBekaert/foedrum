@@ -296,16 +296,16 @@ export interface Tasters {
   reads: string;
 }
 
-const MEDIUM_EFFORT = '"effort": "moderate"';
+const MODERATE_EFFORT = '"effort": "moderate"';
 
 /** The `high` setup's Taster: the reading Taster's text at another effort, and no other change. */
 export const highTaster = (reads: string): string => {
-  if (reads.split(MEDIUM_EFFORT).length !== 2) {
+  if (reads.split(MODERATE_EFFORT).length !== 2) {
     throw new Error(
-      `the reading Taster does not say ${MEDIUM_EFFORT} once: high would compare nothing`,
+      `the reading Taster does not say ${MODERATE_EFFORT} once: high would compare nothing`,
     );
   }
-  return reads.replace(MEDIUM_EFFORT, () => '"effort": "larger"');
+  return reads.replace(MODERATE_EFFORT, () => '"effort": "larger"');
 };
 
 /**
