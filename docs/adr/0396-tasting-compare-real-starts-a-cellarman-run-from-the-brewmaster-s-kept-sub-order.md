@@ -34,7 +34,7 @@ That needs four setups: from the order's own text on Sonnet (A) and on Opus (B),
 - A real sub-order's Cellarman reads the sub-issue's body as its order and the plan entry as `planEntry`; here it reads the plan entry as its order, and no `planEntry`.
   The entry holds every line of the sub-issue's body but its first, which names the parent order and its batch.
 - Windows' path limit is a known limit of the measure, not something to fix here.
-  A dry run under `--comparison check-1052`, from the worktree `D:/code/foedrum/.claude/worktrees/1052-plan-sub-order`, failed each green attempt with `the base could not be merged: git update-ref failed: fatal: '$GIT_DIR' too big` before any check ran; its attempt's worktree was `.foedrum/tmp/tasting-compare/real/comparisons/check-1052/brewers/dry-run/855-cellarman-claude-sonnet-5-5-high-plan-1/work/demo.web/attempts/1-1/green/1` inside it, 205 characters from the drive.
+  A dry run under `--comparison check-1052`, from a worktree under `.claude/worktrees/`, failed each green attempt with `the base could not be merged: git update-ref failed: fatal: '$GIT_DIR' too big` before any check ran; its attempt's worktree was `.foedrum/tmp/tasting-compare/real/comparisons/check-1052/brewers/dry-run/855-cellarman-claude-sonnet-5-5-high-plan-1/work/demo.web/attempts/1-1/green/1` inside that worktree, 205 characters from the drive.
   Foedrum's git already runs with `core.longpaths=true` (`gitEnv` in `src/workspace/git.ts`, [ADR 0024](0024-state-branch-layout-outbox-and-divergence.md)), and the error came anyway.
   The same run without `--comparison`, 182 characters, went on tap; a run from the main checkout with a short `--comparison` name stays under that.
 
