@@ -987,6 +987,12 @@ describe('tasting-compare --real --brewer (ADR 0394)', () => {
       );
     });
 
+    it("the dry run's scripted plan is one the planning runs keep as a sub-order's text", () => {
+      const [plan] = scriptedPlan('An order').plan ?? [];
+      const output = { status: 'done', summary: plan?.summary, ...plan?.doc };
+      assert.equal(plannerRecord(planned(output)).planner.subOrder?.title, 'An order');
+    });
+
     it('codes.md says which text each run started from', () => {
       const setup = '855-cellarman-claude-opus-5-5-xhigh-plan' as const;
       const { codes } = brewerBlinded([brewerRecord(setup, 1, { orderText: 'plan' })], 'a seed');
