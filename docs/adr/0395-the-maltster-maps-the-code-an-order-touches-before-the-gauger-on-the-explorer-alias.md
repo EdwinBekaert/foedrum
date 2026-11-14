@@ -33,7 +33,7 @@ So the search runs as a step of its own, and `--safe-mode` and the claude comman
   The map step is a brewer step like any other: an attempt that fails is tried again, and after `maxAttempts` (2) the batch is Stuck.
   It is one more place where a batch can go Stuck, which is accepted until a measure says otherwise.
   A code map that finds nothing, as for an order about a file that does not exist yet, still ends `done`, and its body says where it looked and where it expects the new code to go.
-- **One code map per run.** Every route in `nip` and `deep-brew` goes back to `gauge` or `implement`, both after `map`, so a round back keeps the first code map: the input reads the step's latest success.
+- **One code map per run.** Every route in `nip` and `deep-brew` after `map` goes back to `gauge` or `implement`, both after `map` (survey-check's route back to `survey` runs before it), so a round back keeps the first code map: the input reads the step's latest success.
 - **Where it shows.** The status comment, the live line and the Stuck reasons name the step, `map`; `foedrum brewers` lists the file, `maltster-map`.
 
 ## Consequences
