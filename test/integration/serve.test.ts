@@ -13,6 +13,9 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { pathToFileURL } from 'node:url';
+// serve runs as a process of its own from main.ts. This import, erased at run time, lets a change
+// to anything main.ts imports reach this test (scripts/affected-tests.ts, ADR 0399).
+import type {} from '../../src/cli/main.ts';
 import { execProcess } from '../../src/platform/processes.ts';
 import { removeTree } from '../../src/platform/remove.ts';
 import { outDoc } from '../helpers/fake-brewer-runner.ts';
@@ -147,9 +150,14 @@ const brewerysIssue = (body: string, pulls: Pull[]): Route => {
         return answer(200, commentOf(id));
       }
     }
-    // The lane labels serve makes and puts on the order's issue (ADR 0154).
+    // The lane labels serve makes, puts on the order's issue and takes off it (ADR 0154), which
+    // this test does not check: answered only so serve goes on.
     if (method === 'POST' && bare === '/repos/acme/brewery/labels') return answer(201, {});
-    if (bare.startsWith('/repos/acme/brewery/issues/12/labels')) return answer(200, []);
+    if (method === 'POST' && bare === '/repos/acme/brewery/issues/12/labels')
+      return answer(200, []);
+    if (method === 'DELETE' && /^\/repos\/acme\/brewery\/issues\/12\/labels\/[^/]+$/.test(bare)) {
+      return answer(200, []);
+    }
     return answer(404, { message: 'Not Found' });
   };
 };
