@@ -372,13 +372,15 @@ describe("the map step's attempt and the brewers that read its map (ADR 0395)", 
   }
 
   it('gives the Gauger no map input in a recipe without a map step: regression test', async () => {
-    const { brewers } = loaded();
     // A Brewery's own Nip without the map step, as one made before ADR 0395 is.
-    const withoutMap = {
-      find: (recipe: string, stepId: string) => brewers.find(recipe, stepId),
-      has: (recipe: string, stepId: string) => stepId !== 'map' && brewers.has(recipe, stepId),
-    };
-    const { prompt } = await planOf('gauge', { brewers: withoutMap });
+    const nipText = readFileSync(join(FOEDRUM_DEFAULTS, 'recipes', 'nip.jsonc'), 'utf8');
+    const withoutStep = nipText.replace('{ "id": "map", "brewer": "maltster-map" },', '');
+    const { brewers } = loaded({
+      ...noFiles,
+      recipes: [{ path: 'recipes/nip.jsonc', text: withoutStep }],
+    });
+    assert.equal(brewers.has('nip', 'map'), false);
+    const { prompt } = await planOf('gauge', { brewers });
     assert.match(prompt, /name="order">\nAdd a --json flag to status\.\n/);
     assert.doesNotMatch(prompt, /name="map"/);
     assert.ok(!prompt.includes(MAP_BODY));
