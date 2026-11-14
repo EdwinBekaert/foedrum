@@ -109,9 +109,9 @@ export const gatherDoctorFacts = async (shell: DoctorShell): Promise<DoctorFacts
   // Whether pasta can forward a setup's resolver (ADR 0400): unread, it cannot be relied on.
   let resolvConf: string | undefined;
   try {
-    resolvConf = shell.platform === 'linux' ? shell.readFile?.('/etc/resolv.conf') : undefined;
+    if (shell.platform === 'linux') resolvConf = shell.readFile?.('/etc/resolv.conf');
   } catch {
-    resolvConf = undefined;
+    // Left undefined: pastaResolverGap says the file cannot be read.
   }
   const host = shell.githubHost ?? githubHostOfConfig(config);
   // A command doctor runs besides a version command: its exit code and what it printed, why the
