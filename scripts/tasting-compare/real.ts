@@ -1278,13 +1278,16 @@ export type BrewerRecord = RunRecord<BrewerSetup> & { brewer: BrewerRun };
 
 /**
  * A transcript's calls of Grep, Glob and Read, each once by its id, whatever came of it: only the
- * model's own lines count, as in `transcriptReads` (ADR 0398).
+ * model's own lines count, as in `transcriptReads`; undefined when a line cannot be read, since it
+ * may hold calls (ADR 0398).
  */
-const searchesIn = (transcript: string): Searches => {
+const searchesIn = (transcript: string): Searches | undefined => {
   const names = new Map<string, string>();
   for (const line of transcript.split(/\r?\n/)) {
-    const read = line === '' ? undefined : readLine(line);
-    if (read?.type !== 'assistant') continue;
+    if (line === '') continue;
+    const read = readLine(line);
+    if (read === undefined) return undefined;
+    if (read.type !== 'assistant') continue;
     for (const block of blocksOf(read.message?.content)) {
       const use = ClaudeToolUse.safeParse(block);
       if (use.success) names.set(use.data.id, use.data.name);
@@ -1303,7 +1306,7 @@ const sumSearches = (a: Searches, b: Searches): Searches => ({
 
 /**
  * Each step's searches over its sessions' transcripts; a step with a session whose transcript cannot
- * be found has none, so a count never stands for part of its attempts.
+ * be found or read whole has none, so a count never stands for part of its attempts.
  */
 const searchesOf = (
   events: readonly { event: Event }[],
@@ -1314,12 +1317,11 @@ const searchesOf = (
     if (event.type !== 'step.started' || event.session === undefined) continue;
     const { stepId } = event;
     const transcript = transcriptOf(event.session.id, event.session.worktree);
+    const counted = transcript === undefined ? undefined : searchesIn(transcript);
     const known = steps.has(stepId) ? steps.get(stepId) : { grep: 0, glob: 0, read: 0 };
     steps.set(
       stepId,
-      known === undefined || transcript === undefined
-        ? undefined
-        : sumSearches(known, searchesIn(transcript)),
+      known === undefined || counted === undefined ? undefined : sumSearches(known, counted),
     );
   }
   return steps;
