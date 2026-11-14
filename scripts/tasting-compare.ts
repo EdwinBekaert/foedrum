@@ -534,8 +534,8 @@ const realMode = async (): Promise<Mode<RealSetup>> => {
 };
 
 /**
- * A real brewer's mode (ADR 0394): each order's base, the head's test files committed by the
- * scripted Gauger, then Cellarman on the given model and effort, real or scripted with --dry-run,
+ * A real brewer's mode (ADR 0394): each order's base, with --map the Maltster's map step first
+ * (ADR 0398), the head's test files committed by the scripted Gauger, then Cellarman on the given model and effort, real or scripted with --dry-run,
  * and the repository's checks on its code. Its records stay in a folder of their own beside the
  * Tasters' setups'.
  */
