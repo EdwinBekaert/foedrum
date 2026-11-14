@@ -1,6 +1,7 @@
 // The Maltster's map (ADR 0395): Nip and Deep-brew run a read-only `map` step, on the `explorer`
 // alias, before the Gauger, and the Gauger, Cellarman and the Finer read its out doc as an input.
-// The Maltster's survey is unchanged beside it. The fake brewer runner plays every step.
+// The Maltster's survey, maltster-survey, is unchanged beside it but for its name. The fake brewer
+// runner plays every step.
 
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -198,11 +199,11 @@ describe('the default Nip and Deep-brew map the code before the Gauger (ADR 0395
     assert.equal(started.filter((step) => step === 'map').length, 1, started.join(', '));
   });
 
-  it("leaves the Maltster's survey step as it was: regression test", () => {
+  it("runs the Maltster's survey as maltster-survey, its version and fields as they were", () => {
     const { brewers, recipes } = loaded();
     for (const recipe of ['nip', 'deep-brew']) {
       const survey = brewers.find(recipe, 'survey') ?? assert.fail(`${recipe} has no survey`);
-      assert.equal(survey.brewer.name, 'maltster', recipe);
+      assert.equal(survey.brewer.name, 'maltster-survey', recipe);
       assert.equal(survey.brewer.version, 4, recipe);
       assert.equal(survey.brewer.model, 'builder', recipe);
       assert.deepEqual(survey.brewer.output, { doc: 'survey.md', schema: 'survey' }, recipe);

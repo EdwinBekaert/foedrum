@@ -3097,7 +3097,9 @@ describe("the Brewery's test line for the Maltster (ADR 0376)", () => {
   const repoTestLine = (repo: string) => (repo === 'acme/api' ? line : 'make test');
 
   it("the Maltster's input holds the Brewery's test line", async () => {
-    const { plans } = setup(undefined, {}, undefined, brewedBy('maltster'), { repoTestLine });
+    const { plans } = setup(undefined, {}, undefined, brewedBy('maltster-survey'), {
+      repoTestLine,
+    });
     const { prompt } = await plans.plan(start);
     assert.match(
       prompt,
@@ -3107,7 +3109,7 @@ describe("the Brewery's test line for the Maltster (ADR 0376)", () => {
 
   it("the Maltster's input names each platform's line of a test check given per platform", async () => {
     const perPlatform = { run: 'node --test test/', windows: 'node.exe --test test/' };
-    const { plans } = setup(undefined, {}, undefined, brewedBy('maltster'), {
+    const { plans } = setup(undefined, {}, undefined, brewedBy('maltster-survey'), {
       repoTestLine: () => perPlatform,
     });
     const { prompt } = await plans.plan(start);
@@ -3118,7 +3120,7 @@ describe("the Brewery's test line for the Maltster (ADR 0376)", () => {
   });
 
   it('the Maltster gets no test line for a repository with no test check', async () => {
-    const { plans } = setup(undefined, {}, undefined, brewedBy('maltster'), {
+    const { plans } = setup(undefined, {}, undefined, brewedBy('maltster-survey'), {
       repoTestLine: () => null,
     });
     const { prompt } = await plans.plan(start);

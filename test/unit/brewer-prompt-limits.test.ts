@@ -175,7 +175,7 @@ const brewers: Record<string, Expected> = {
     stated: handover,
     unstated: noDispositions,
   },
-  maltster: {
+  'maltster-survey': {
     name: SURVEY,
     schema: SurveyOutDoc,
     stated: [

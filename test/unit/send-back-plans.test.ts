@@ -247,7 +247,14 @@ describe('createAttemptPlans: the checks before the end (ADR 0381)', () => {
       }
     }
     // The walk reached the other brewers too, so finding none of them asking means something.
-    for (const brewer of ['gauger', 'taster', 'brewmaster', 'innkeeper', 'maltster', 'brett']) {
+    for (const brewer of [
+      'gauger',
+      'taster',
+      'brewmaster',
+      'innkeeper',
+      'maltster-survey',
+      'brett',
+    ]) {
       assert.ok(every.has(brewer), brewer);
     }
     assert.deepEqual([...asking].sort(), ['cellarman', 'finer']);
