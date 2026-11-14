@@ -6,8 +6,9 @@
 import { createHmac } from 'node:crypto';
 import { join, resolve } from 'node:path';
 import { pathInside } from '../../src/platform/paths.ts';
+import type { Effort } from '../../src/schemas/brewer.ts';
 import { ClaudeToolResult, ClaudeToolUse } from '../../src/schemas/claude-stream.ts';
-import type { Event } from '../../src/schemas/events.ts';
+import type { Event, Usage } from '../../src/schemas/events.ts';
 import { z } from '../../src/schemas/zod.ts';
 import type { FakeApiComment } from '../../test/helpers/fake-github-api.ts';
 import type { Scripted } from '../../test/helpers/nip-fixture.ts';
@@ -741,7 +742,7 @@ export const nextRealRun = (
 ) => nextRunOf(setups, records, runs, runFailure);
 
 /** A run's code under `seed`: it says nothing of the run without the seed. */
-export const codeOf = (seed: string, setup: RealSetup, run: number): string =>
+export const codeOf = (seed: string, setup: string, run: number): string =>
   createHmac('sha256', seed).update(`${setup}/${run}`).digest('hex').slice(0, 8);
 
 /**
@@ -980,3 +981,146 @@ export const scriptedTranscript = (worktree: string, model: string): string =>
       }),
     ])
     .join('\n');
+
+/** The brewers `--brewer` runs for real (ADR 0394). */
+export const MEASURED_BREWERS = ['cellarman'] as const;
+export type MeasuredBrewer = (typeof MEASURED_BREWERS)[number];
+
+/** A real brewer's run settings: which brewer, on which model, at which effort (ADR 0394). */
+export interface BrewerSettings {
+  brewer: MeasuredBrewer;
+  model: string;
+  effort: z.infer<typeof Effort>;
+}
+
+/** One order brewed by a real brewer on a model and effort: the order first, as a setup's name. */
+export type BrewerSetup = `${OrderNumber}-${MeasuredBrewer}-${string}`;
+
+/** The recipe of a real Cellarman's run (ADR 0394). */
+export const REAL_BREWER_RECIPE = 'real-brew-cellarman';
+
+/** The settings `--brewer`, `--model` and `--effort` give, or undefined without them; throws on a wrong combination. */
+export const brewerSettingsOf = (_given: {
+  real?: boolean;
+  brewer?: string;
+  model?: string;
+  effort?: string;
+  setups?: string;
+}): BrewerSettings | undefined => {
+  throw new Error('not implemented');
+};
+
+/** The setups of a brewer's runs, one per order, of the orders `--orders` names or of every order. */
+export const brewerSetups = (_settings: BrewerSettings, _orders?: string): BrewerSetup[] => {
+  throw new Error('not implemented');
+};
+
+/** A run's scratch folder name: a setup's name with what Windows refuses in a folder's name replaced. */
+export const scratchNameOf = (_name: string): string => {
+  throw new Error('not implemented');
+};
+
+/** The head's files: its test files, which the scripted Gauger commits, and the rest, Cellarman's. */
+export const splitHead = (_changed: readonly string[]): { tests: string[]; code: string[] } => {
+  throw new Error('not implemented');
+};
+
+/** The recipe of a real Cellarman's runs. */
+export const brewerRecipeText = (_settings: BrewerSettings): string => {
+  throw new Error('not implemented');
+};
+
+/** The Brewery's files of a real Cellarman's run beyond Nip's: its recipe, models.jsonc and foedrum.jsonc. */
+export const brewerBreweryFiles = (
+  _settings: BrewerSettings,
+  _names: { brewery: string; target: string; user: string },
+): Record<string, string> => {
+  throw new Error('not implemented');
+};
+
+/** A head as the scripted brewers play it: its commit, subject and files, by path. */
+export interface BrewedHead {
+  head: string;
+  subject: string;
+  tests: Record<string, string>;
+  code: Record<string, string>;
+}
+
+/** What the scripted brewers of a brewer's run play: the Gauger always, Cellarman on a dry run. */
+export const brewerScript = (
+  _head: BrewedHead,
+  _dryRun: boolean,
+): Record<string, readonly Scripted[]> => {
+  throw new Error('not implemented');
+};
+
+/** One step of a brewer's run: its attempts, and the tokens, turns and time of its sessions. */
+export interface StepRun {
+  stepId: string;
+  attempts: number;
+  usage?: Usage;
+  turns: number;
+  durationMs: number;
+}
+
+/** What a brewer's run measured (ADR 0394). */
+export interface BrewerRun extends BrewerSettings {
+  /** Whether the green step's last attempt passed. */
+  checksPassed: boolean;
+  /** Its last green attempt's readings, one line each. */
+  checks: readonly string[];
+  steps: readonly StepRun[];
+  /** The models the brewer's transcripts name. */
+  models: readonly string[];
+  /** Why a transcript of the brewer cannot say its model. */
+  unreadable?: string;
+  /** The commit the checks read last: the brewer's code. */
+  commit?: string;
+  /** The code's diff from the base, without the head's test files. */
+  diff?: string;
+}
+
+export type BrewerRecord = RunRecord<BrewerSetup> & { brewer: BrewerRun };
+
+/** A brewer's run's record from its store's events. */
+export const brewerRecordOf = (
+  _events: readonly { event: Event }[],
+  _settings: BrewerSettings,
+  _transcriptOf: (sessionId: string, worktree: string) => string | undefined,
+): Pick<BrewerRecord, 'ended' | 'attempts' | 'brewer'> => {
+  throw new Error('not implemented');
+};
+
+/** Why a brewer's run measured nothing, or undefined. */
+export const brewerFailure = (
+  _record: Pick<BrewerRecord, 'ended' | 'brewer'>,
+): string | undefined => {
+  throw new Error('not implemented');
+};
+
+/** Why the comparison must stop after a brewer's run, or undefined. */
+export const brewerStop = (_record: Pick<BrewerRecord, 'setup' | 'brewer'>): string | undefined => {
+  throw new Error('not implemented');
+};
+
+/** The next brewer's run to brew (`nextRunOf`). */
+export const nextBrewerRun = (
+  _records: readonly BrewerRecord[],
+  _runs: number,
+  _setups: readonly BrewerSetup[],
+): { setup: BrewerSetup; run: number; retry: boolean } | undefined => {
+  throw new Error('not implemented');
+};
+
+/** One blinded list per order of the code of its runs, and the file that names their setups. */
+export const brewerBlinded = (
+  _records: readonly BrewerRecord[],
+  _seed: string,
+): { lists: Record<string, string>; codes: string } => {
+  throw new Error('not implemented');
+};
+
+/** What a brewer's comparison prints: each setup's runs, failed, retried and passing the checks. */
+export const brewerTable = (_records: readonly BrewerRecord[]): string => {
+  throw new Error('not implemented');
+};
