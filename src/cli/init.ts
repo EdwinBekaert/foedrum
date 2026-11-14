@@ -305,6 +305,12 @@ interface Chosen {
 const chooseFolder = async (ports: InitPorts, answer: string): Promise<Parsed<Chosen>> => {
   const { files } = ports;
   const typed = ports.shim.platform === 'win32' ? answer.replaceAll('\\', '/') : answer;
+  // A network or device path would fold into a folder on the current drive (ADR 0401).
+  if (ports.shim.platform === 'win32' && typed.startsWith('//')) {
+    return {
+      refused: `${answer} is a network or device path; these are not supported: give a folder on a drive`,
+    };
+  }
   const folder = folderPath(typed);
   const entries = files.entries(folder);
   if (entries === undefined && files.exists(folder)) {
