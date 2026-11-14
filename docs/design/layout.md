@@ -27,7 +27,7 @@ docs/
 
 ```
 foedrum.jsonc     the Brewery's owner/name (brewery) and GitHub API (githubApi); repositories (source, base, triage sources, intake filter and alias, check commands, test report, setup, toolchain allowlist; ADR 0023, ADR 0050), allow-listed users (users), concurrency, the open-order limit (openOrders), how often the intake polls (pollEvery), budgets, permission ceiling (schema so far: the Brewery, the GitHub API, users, concurrency and pollEvery (ADR 0068), openOrders (ADR 0217), source and base, checks, test report, setup, tools, house-yeast and test-map fallbacks, intake filter and alias, and ceiling; [configuration files](recipes/configuration.md); the ceiling: ADR 0026)
-models.jsonc      each agent's model per level and effort word per effort, and a level per brewer (updated by blind-tasting pull requests)
+models.jsonc      each agent's model per level and effort word per effort (updated by blind-tasting pull requests)
 .claude/settings.json  enables the foedrum plugin for sessions opened in the Brewery (written by foedrum init, ADR 0199)
 brewers/          custom and overriding brewers (*.md)
 recipes/          custom and overriding recipes (*.jsonc)

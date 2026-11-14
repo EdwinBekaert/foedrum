@@ -22,7 +22,7 @@ Nip, Deep-brew, Mash and Deep-mash each carry guidance, when to choose it, when 
 
 ## Default brewers
 
-A default brewer names a model level and an effort of Foedrum's own, which `defaults/models.jsonc` translates for `claude` (shown in brackets): each level a family, resolved to its current model; blind tasting may propose changes ([ADR 0397](../../adr/0397-brewers-name-a-model-level-and-an-effort-of-foedrum-s-own-which-models-jsonc-translates.md)).
+Each default recipe's step names the model level and effort its brewer runs on there, in Foedrum's own words, which `defaults/models.jsonc` translates for `claude` (shown in brackets); the table gives what the steps of each brewer name: each level a family, resolved to its current model; blind tasting may propose changes ([ADR 0397](../../adr/0397-brewers-name-a-model-level-and-an-effort-of-foedrum-s-own-which-models-jsonc-translates.md)).
 
 | Brewer | Role | Model | Effort |
 |---|---|---|---|
