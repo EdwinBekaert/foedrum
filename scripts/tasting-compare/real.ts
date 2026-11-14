@@ -720,9 +720,9 @@ export const realRecordOf = (
 
 /**
  * Why a run on a model its setup did not ask for must stop the comparison, or undefined: it is the
- * harness's fault, and every later run would be on it too (ADR 0344). A family such as opus asks for any id that holds it, so
- * an id of that family is what was asked. A Taster that finished with no model named cannot say. An
- * attempt that failed by itself may have called no model, and is a failed run.
+ * harness's fault, and every later run would be on it too (ADR 0344). A family such as opus asks for
+ * any id that holds it. A Taster that finished with no model named cannot say. An attempt that
+ * failed by itself may have called no model, and is a failed run.
  */
 export const modelStop = ({
   setup,
