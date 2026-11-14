@@ -1581,7 +1581,12 @@ export const plannerRecordOf = (
   let wrote: { batchId: string; attempt: number; output: unknown } | undefined;
   for (const { event } of events) {
     if (event.type === 'step.finished' && event.stepId === 'plan') {
-      if (event.outcome.kind === 'succeeded') wrote = { ...event, output: event.outcome.output };
+      const { outcome } = event;
+      if (outcome.kind === 'succeeded') wrote = { ...event, output: outcome.output };
+      // The runner records a question as an outcome of its own, the out doc's status and questions.
+      if (outcome.kind === 'needs_input') {
+        wrote = { ...event, output: { status: 'needs_input', questions: outcome.questions } };
+      }
     }
   }
   const planner = (more: Partial<PlannerRun> = {}) => ({
