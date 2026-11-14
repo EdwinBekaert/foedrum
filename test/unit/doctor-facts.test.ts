@@ -382,7 +382,8 @@ describe('gatherDoctorFacts: the Brewery config', () => {
         return '{ "repositories": {} }';
       },
     });
-    assert.deepEqual(read, [join('/work/brewery', 'foedrum.jsonc')]);
+    // And on Linux the host's resolver's file, for pasta (ADR 0400).
+    assert.deepEqual(read, [join('/work/brewery', 'foedrum.jsonc'), '/etc/resolv.conf']);
     assert.equal(facts.config, '{ "repositories": {} }');
   });
 
