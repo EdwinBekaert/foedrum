@@ -105,6 +105,15 @@ describe('model levels and efforts of Foedrum’s own (#1058, ADR 0397)', () => 
     }
   });
 
+  it('the default claude block maps extreme to the fable family, and no default brewer or step names extreme', () => {
+    const setup = ready(defaultsBrewery(undefined));
+    assert.equal(setup.models.claude.models.extreme, 'fable');
+    for (const [step] of BEFORE) {
+      const [recipeName = '', stepId = ''] = step.split('/');
+      assert.notEqual(setup.brewers.find(recipeName, stepId)?.brewer.model, 'extreme', step);
+    }
+  });
+
   it("a Brewery's models.jsonc that maps larger to xhigh passes --effort xhigh to every larger step and changes nothing else", () => {
     const own = JSON.stringify({ claude: { efforts: { larger: 'xhigh' } } });
     const setup = ready(defaultsBrewery(own));
@@ -180,13 +189,13 @@ describe('model levels and efforts of Foedrum’s own (#1058, ADR 0397)', () => 
     }
   });
 
-  it("a brewer names one of the three levels and one of Foedrum's four efforts, never an alias or a Claude Code word", () => {
+  it("a brewer names one of the four levels and one of Foedrum's four efforts, never an alias or a Claude Code word", () => {
     const frontmatter = (fields: Record<string, string>) => {
       const text = cellarman.replace('"model": "light"', `"model": "${fields.model ?? 'light'}"`);
       const json = text.split('---')[1] ?? '';
       return { ...JSON.parse(json), ...fields };
     };
-    for (const model of ['light', 'standard', 'strong']) {
+    for (const model of ['light', 'standard', 'strong', 'extreme']) {
       assert.equal(BrewerFrontmatter.safeParse(frontmatter({ model })).success, true, model);
     }
     for (const effort of ['small', 'moderate', 'larger', 'full']) {

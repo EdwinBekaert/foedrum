@@ -105,7 +105,7 @@ describe('readBreweryFiles', () => {
     const read = readJsonc(found.text, ModelsConfig);
     assert.ok(read.valid, read.valid ? '' : read.reason);
     assert.deepEqual(read.value.claude, {
-      models: { light: 'haiku', standard: 'sonnet', strong: 'opus' },
+      models: { light: 'haiku', standard: 'sonnet', strong: 'opus', extreme: 'fable' },
       efforts: { small: 'low', moderate: 'medium', larger: 'high', full: 'xhigh' },
     });
     assert.deepEqual(read.value.brewers, {});
