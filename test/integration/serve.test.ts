@@ -115,8 +115,8 @@ const brewerysIssue = (body: string, pulls: Pull[]): Route => {
     const sent = (): string => (JSON.parse(text) as { body: string }).body;
     if (method === 'GET' && bare === '/user') return answer(200, { login });
     // The rack check's listing (ADR 0387): a rack issue opened just now, so serve opens none.
-    const rack = { ...issue, number: 7, title: 'Rack', labels: ['recipe:rack'] };
     if (method === 'GET' && bare === '/repos/acme/brewery/issues' && path.includes(RACK_QUERY)) {
+      const rack = { ...issue, number: 7, title: 'Rack', labels: ['recipe:rack'] };
       return answer(200, [{ ...rack, created_at: new Date().toISOString() }]);
     }
     if (method === 'GET' && bare === '/repos/acme/brewery/issues') return answer(200, [issue]);
