@@ -72,13 +72,13 @@ export interface Lens {
   text: string;
 }
 
-/** The brewer of a recipe's step, with its instructions: the brewer file's body. */
 /** A brewer as its step runs it: with the model level and effort the step names (ADR 0397). */
 export type BrewerOnStep = BrewerFrontmatter & { model: ModelLevel; effort: Effort };
 
 /** A brewer file as read, before a step names its level and effort. */
 export type ShelvedBrewer = Omit<StepBrewer, 'brewer'> & { brewer: BrewerFrontmatter };
 
+/** The brewer of a recipe's step, with its instructions: the brewer file's body. */
 export interface StepBrewer {
   /** Its brewer, with the model level and effort its step names (ADR 0397). */
   brewer: BrewerOnStep;

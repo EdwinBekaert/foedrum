@@ -397,18 +397,18 @@ const tasterOf = (profile: Profile | 'comments', tasters: Tasters): string => {
     case 'apart7':
       throw new Error(`the ${profile} setup tastes with the default Taster, not a text of its own`);
     case 'today':
-      return withoutLevels(tasters.today);
+      return tasters.today;
     case 'opus-bare':
     case 'opus-together':
     case 'high-bare':
     case 'high-together':
-      return withoutLevels(bareTaster(tasters.reads));
+      return bareTaster(tasters.reads);
     case 'reads':
     case 'lens':
     case 'opus':
     case 'high':
     case 'comments':
-      return withoutLevels(tasters.reads);
+      return tasters.reads;
     default: {
       const never: never = profile;
       return never;
@@ -424,7 +424,9 @@ export const realBreweryFiles = (setup: RealSetup, tasters: Tasters): Record<str
   const profile = profileOf(setup);
   return {
     [`recipes/${realRecipeOf(setup)}.jsonc`]: realRecipeText(setup),
-    ...(SHIPPED.has(profile) ? {} : { 'brewers/taster.md': tasterOf(profile, tasters) }),
+    ...(SHIPPED.has(profile)
+      ? {}
+      : { 'brewers/taster.md': withoutLevels(tasterOf(profile, tasters)) }),
   };
 };
 
