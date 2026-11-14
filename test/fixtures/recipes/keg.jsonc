@@ -11,10 +11,12 @@
   },
   "testFirst": false,
   "steps": [
-    { "id": "context", "brewer": "maltster-survey" },
+    { "id": "context", "brewer": "maltster-survey", "model": "standard", "effort": "moderate" },
     {
       "id": "refine",
       "brewer": "brewmaster",
+      "model": "strong",
+      "effort": "larger",
       "interactive": true,
       "prompt": "Refine the order with me: its repositories, their release order and what each sub-order delivers."
     },

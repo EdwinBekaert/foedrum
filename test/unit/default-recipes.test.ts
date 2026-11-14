@@ -58,7 +58,7 @@ describe('mash-in and the Innkeeper (ADR 0232)', () => {
 
   it('the Innkeeper offers deep-mash as the deep plan', () => {
     const text = readFileSync(join(root, 'brewers', 'innkeeper.md'), 'utf8');
-    assert.match(text, /"version": 8,/);
+    assert.match(text, /"version": 9,/);
     assert.match(text, /`deep-mash` for a deep one/);
   });
 
@@ -106,10 +106,12 @@ describe('the default plan lens (ADR 0312)', () => {
   it('a step after plan that names plan/naive-reader loads it from defaults/lenses/plan/', () => {
     const files = readBreweryFiles(join(root, '..', 'no-brewery'));
     const steps = [
-      { id: 'plan', brewer: 'brewmaster' },
+      { id: 'plan', brewer: 'brewmaster', model: 'strong', effort: 'larger' },
       {
         id: 'naive',
         brewer: 'taster',
+        model: 'standard',
+        effort: 'moderate',
         lens: 'plan/naive-reader',
         onFindings: { goto: 'plan', maxRounds: 1 },
       },

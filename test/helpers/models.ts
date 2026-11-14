@@ -10,8 +10,7 @@ export const CLAUDE_EFFORTS: ModelsConfig['claude']['efforts'] = {
   full: 'xhigh',
 };
 
-/** Models whose `claude` block maps `models` and Foedrum's default efforts, with `brewers` swaps. */
-export const claudeModels = (
-  models: Partial<Record<ModelLevel, string>>,
-  brewers: Record<string, ModelLevel> = {},
-): ModelsConfig => ({ claude: { models, efforts: CLAUDE_EFFORTS }, brewers });
+/** Models whose `claude` block maps `models` and Foedrum's default efforts. */
+export const claudeModels = (models: Partial<Record<ModelLevel, string>>): ModelsConfig => ({
+  claude: { models, efforts: CLAUDE_EFFORTS },
+});

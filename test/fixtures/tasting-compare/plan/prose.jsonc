@@ -11,8 +11,14 @@
   },
   "testFirst": false,
   "steps": [
-    { "id": "gauge", "brewer": "gauger", "when": "recipe.testFirst" },
-    { "id": "implement", "brewer": "cellarman" },
+    {
+      "id": "gauge",
+      "brewer": "gauger",
+      "model": "standard",
+      "effort": "larger",
+      "when": "recipe.testFirst"
+    },
+    { "id": "implement", "brewer": "cellarman", "model": "standard", "effort": "larger" },
     { "action": "openPullRequest" }
   ]
 }

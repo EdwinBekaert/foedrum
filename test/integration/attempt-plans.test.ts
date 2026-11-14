@@ -52,7 +52,7 @@ const recipe = `// One brewer step that writes code.
     "notWhen": "An order no test brews",
     "bestUsed": "In a test"
   },
-  "steps": [{ "id": "brew", "brewer": "cellarman" }, { "action": "openPullRequest" }],
+  "steps": [{ "id": "brew", "brewer": "cellarman", "model": "light", "effort": "small" }, { "action": "openPullRequest" }],
   // It commits with no red proof before it, which only a recipe without test-first may (ADR 0064).
   "testFirst": false
 }
@@ -65,8 +65,6 @@ const brewer = `---
   "inputs": [{ "name": "order", "from": "order" }],
   "output": { "doc": "brew.md", "schema": "outDoc" },
   "produces": "commits",
-  "model": "light",
-  "effort": "small",
   "tools": { "allow": ["Read", "Write"] },
   "access": "write",
   "tree": "task",

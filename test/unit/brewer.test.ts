@@ -11,8 +11,6 @@ const taster = {
   name: 'taster',
   description: 'Reviews a diff through one lens',
   version: 1,
-  model: 'standard',
-  effort: 'moderate',
   output: { doc: 'review.md', schema: 'review' },
   produces: 'report',
   tools: { allow: ['Read', 'Grep', 'Bash(git diff*)'] },

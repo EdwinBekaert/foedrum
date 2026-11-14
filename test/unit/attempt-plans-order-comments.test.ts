@@ -42,7 +42,9 @@ const loadedWith = (retryMode: 'fresh' | 'resume', input = 'order') => {
     recipes: [
       {
         path: 'recipes/pale.jsonc',
-        text: recipeText('pale', [{ id: 'brew', brewer: 'brewmaster' }]),
+        text: recipeText('pale', [
+          { id: 'brew', brewer: 'brewmaster', model: 'strong', effort: 'larger' },
+        ]),
       },
     ],
     brewers: [
@@ -113,7 +115,7 @@ const plansOf = (
   createAttemptPlans({
     state: () => fold([...events()]),
     brewers: loadedWith(retryMode),
-    models: claudeModels({ standard: 'claude-sonnet-5-5' }),
+    models: claudeModels({ standard: 'claude-sonnet-5-5', strong: 'claude-sonnet-5-5' }),
     repoTools: () => [],
     clone: (repo) => join('/clones', repo),
     sandbox: false,
@@ -800,7 +802,9 @@ describe('a resumed session hears the comments made since (ADR 0338)', () => {
       recipes: [
         {
           path: 'recipes/pale.jsonc',
-          text: recipeText('pale', [{ id: 'brew', brewer: 'brewmaster' }]),
+          text: recipeText('pale', [
+            { id: 'brew', brewer: 'brewmaster', model: 'strong', effort: 'larger' },
+          ]),
         },
       ],
       brewers: [
@@ -848,7 +852,9 @@ describe('a resumed session hears the comments made since (ADR 0338)', () => {
       recipes: [
         {
           path: 'recipes/mash.jsonc',
-          text: recipeText('mash', [{ id: 'plan', brewer: 'brewmaster' }]),
+          text: recipeText('mash', [
+            { id: 'plan', brewer: 'brewmaster', model: 'strong', effort: 'larger' },
+          ]),
         },
       ],
       brewers: [

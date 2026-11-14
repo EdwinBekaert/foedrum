@@ -51,10 +51,12 @@ const loaded = loadRecipes({
       text: recipeText(
         'amber',
         [
-          { id: 'implement', brewer: 'cellarman' },
+          { id: 'implement', brewer: 'cellarman', model: 'standard', effort: 'larger' },
           {
             id: 'correctness',
             brewer: 'taster',
+            model: 'standard',
+            effort: 'moderate',
             lens: 'diff/correctness',
             onFindings: { goto: 'implement', maxRounds: 1 },
           },

@@ -19,7 +19,7 @@ const loaded = loadRecipes({
   recipes: [
     {
       path: 'recipes/first.jsonc',
-      text: recipeText('first', [{ id: 'brew', brewer: 'maltster' }]),
+      text: recipeText('first', [{ id: 'brew', brewer: 'maltster', model: 'strong' }]),
     },
     {
       path: 'recipes/second.jsonc',
@@ -28,7 +28,13 @@ const loaded = loadRecipes({
     {
       path: 'recipes/talk.jsonc',
       text: recipeText('talk', [
-        { id: 'brew', brewer: 'maltster', interactive: true, prompt: 'Talk it over.' },
+        {
+          id: 'brew',
+          brewer: 'maltster',
+          model: 'strong',
+          interactive: true,
+          prompt: 'Talk it over.',
+        },
       ]),
     },
   ],
@@ -36,7 +42,6 @@ const loaded = loadRecipes({
     {
       path: 'brewers/maltster.md',
       text: brewerText('maltster', {
-        model: 'strong',
         retryMode: 'resume',
         output: { doc: 'survey.md', schema: 'survey' },
         guards: ['testMapOnly'],
@@ -45,7 +50,6 @@ const loaded = loadRecipes({
     {
       path: 'brewers/builder.md',
       text: brewerText('builder', {
-        model: 'standard',
         retryMode: 'fresh',
         access: 'write',
         guards: ['testsUnchanged'],

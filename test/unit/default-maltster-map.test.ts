@@ -204,7 +204,7 @@ describe('the default Nip and Deep-brew map the code before the Gauger (ADR 0395
     for (const recipe of ['nip', 'deep-brew']) {
       const survey = brewers.find(recipe, 'survey') ?? assert.fail(`${recipe} has no survey`);
       assert.equal(survey.brewer.name, 'maltster-survey', recipe);
-      assert.equal(survey.brewer.version, 4, recipe);
+      assert.equal(survey.brewer.version, 5, recipe);
       assert.equal(survey.brewer.model, 'standard', recipe);
       assert.deepEqual(survey.brewer.output, { doc: 'survey.md', schema: 'survey' }, recipe);
       assert.deepEqual(survey.brewer.guards, ['requiresOutDoc', 'requiresCommits', 'testMapOnly']);
@@ -374,7 +374,10 @@ describe("the map step's attempt and the brewers that read its map (ADR 0395)", 
   it('gives the Gauger no map input in a recipe without a map step: regression test', async () => {
     // A Brewery's own Nip without the map step, as one made before ADR 0395 is.
     const nipText = readFileSync(join(FOEDRUM_DEFAULTS, 'recipes', 'nip.jsonc'), 'utf8');
-    const withoutStep = nipText.replace('{ "id": "map", "brewer": "maltster-map" },', '');
+    const withoutStep = nipText.replace(
+      '{ "id": "map", "brewer": "maltster-map", "model": "light", "effort": "moderate" },',
+      '',
+    );
     const { brewers } = loaded({
       ...noFiles,
       recipes: [{ path: 'recipes/nip.jsonc', text: withoutStep }],

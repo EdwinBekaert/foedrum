@@ -9,11 +9,11 @@ import { effortOf, modelOf } from '../../src/brewers/attempt-plan.ts';
 import { claudeArgs } from '../../src/brewers/claude-command.ts';
 import { type ServeInputs, type ServeSetup, serveSetup } from '../../src/cli/serve-config.ts';
 import { FOEDRUM_DEFAULTS, readBreweryFiles } from '../../src/engine/brewery-files.ts';
-import type { BreweryFile } from '../../src/engine/recipe-files.ts';
+import { type BreweryFile, loadRecipes } from '../../src/engine/recipe-files.ts';
 import { BrewerFrontmatter } from '../../src/schemas/brewer.ts';
 import { ModelsConfig } from '../../src/schemas/models.ts';
 import { Recipe } from '../../src/schemas/recipe.ts';
-import { testGuidance } from '../helpers/brewery-files.ts';
+import { brewerText, testGuidance } from '../helpers/brewery-files.ts';
 import { brewer as cellarman, recipe, serveInputs } from '../helpers/serve-brewery.ts';
 
 /**
@@ -123,52 +123,37 @@ describe('model levels and efforts of Foedrum’s own (#1058, ADR 0397)', () => 
     }
   });
 
-  it('a brewer whose effort has no translation refuses the start with a line naming the brewer', () => {
-    const problems = refused(
-      gaugerBrewery({ efforts: { small: 'low', moderate: 'medium' } }, { effort: 'larger' }),
-    );
-    assert.deepEqual(problems, [
-      'defaults/brewers/gauger.md: models.jsonc has no claude effort for the effort "larger" of the brewer "gauger"',
-    ]);
-  });
-
-  it("a step whose effort override has no translation refuses the start with a line naming the step's brewer", () => {
-    const steps = [{ id: 'brew', brewer: 'gauger', effort: 'full' }, { action: 'openPullRequest' }];
-    const problems = refused(gaugerBrewery({}, {}, steps));
+  it("a step whose effort has no translation refuses the start with a line naming the step's brewer", () => {
+    const steps = [
+      { id: 'brew', brewer: 'gauger', model: 'standard', effort: 'full' },
+      { action: 'openPullRequest' },
+    ];
+    const problems = refused(gaugerBrewery({}, steps));
     assert.deepEqual(problems, [
       'recipes/stout.jsonc: step "brew" of the brewer "gauger" names the effort "full", which models.jsonc has no claude effort for',
     ]);
   });
 
-  it('a brewer whose level and effort both have no translation refuses the start with a line for each', () => {
-    const problems = refused(
-      gaugerBrewery(
-        { models: { light: 'haiku' }, efforts: { small: 'low' } },
-        { model: 'strong', effort: 'larger' },
-      ),
-    );
-    assert.deepEqual(problems, [
-      'defaults/brewers/gauger.md: models.jsonc has no claude model for the level "strong" of the brewer "gauger"',
-      'defaults/brewers/gauger.md: models.jsonc has no claude effort for the effort "larger" of the brewer "gauger"',
-    ]);
-  });
-
-  it('a step whose level and effort overrides both have no translation refuses the start with a line for each', () => {
+  it('a step whose level and effort both have no translation refuses the start with a line for each', () => {
     const steps = [
       { id: 'brew', brewer: 'gauger', model: 'strong', effort: 'full' },
       { action: 'openPullRequest' },
     ];
-    const problems = refused(gaugerBrewery({ models: { standard: 'sonnet' } }, {}, steps));
+    const problems = refused(gaugerBrewery({ models: { standard: 'sonnet' } }, steps));
     assert.deepEqual(problems, [
       'recipes/stout.jsonc: step "brew" of the brewer "gauger" names the level "strong", which models.jsonc has no claude model for',
       'recipes/stout.jsonc: step "brew" of the brewer "gauger" names the effort "full", which models.jsonc has no claude effort for',
     ]);
   });
 
-  it('a level with no model refuses the start, as an alias with no model did', () => {
-    const problems = refused(gaugerBrewery({ models: { light: 'haiku' } }, { model: 'strong' }));
+  it("a step's level with no model refuses the start, as an alias with no model did", () => {
+    const steps = [
+      { id: 'brew', brewer: 'gauger', model: 'strong', effort: 'moderate' },
+      { action: 'openPullRequest' },
+    ];
+    const problems = refused(gaugerBrewery({ models: { light: 'haiku' } }, steps));
     assert.deepEqual(problems, [
-      'defaults/brewers/gauger.md: models.jsonc has no claude model for the level "strong" of the brewer "gauger"',
+      'recipes/stout.jsonc: step "brew" of the brewer "gauger" names the level "strong", which models.jsonc has no claude model for',
     ]);
   });
 
@@ -179,7 +164,10 @@ describe('model levels and efforts of Foedrum’s own (#1058, ADR 0397)', () => 
       description: 'Brews an order in one step.',
       guidance: testGuidance,
       testFirst: false,
-      steps: [{ id: 'brew', brewer: 'cellarman', effort }, { action: 'openPullRequest' }],
+      steps: [
+        { id: 'brew', brewer: 'cellarman', model: 'standard', effort },
+        { action: 'openPullRequest' },
+      ],
     });
     for (const level of ['small', 'moderate', 'larger', 'full']) {
       assert.equal(Recipe.safeParse(stout(level)).success, true, level);
@@ -189,27 +177,89 @@ describe('model levels and efforts of Foedrum’s own (#1058, ADR 0397)', () => 
     }
   });
 
-  it("a brewer names one of the four levels and one of Foedrum's four efforts, never an alias or a Claude Code word", () => {
-    const frontmatter = (fields: Record<string, string>) => {
-      const text = cellarman.replace('"model": "light"', `"model": "${fields.model ?? 'light'}"`);
-      const json = text.split('---')[1] ?? '';
-      return { ...JSON.parse(json), ...fields };
-    };
-    for (const model of ['light', 'standard', 'strong', 'extreme']) {
-      assert.equal(BrewerFrontmatter.safeParse(frontmatter({ model })).success, true, model);
-    }
-    for (const effort of ['small', 'moderate', 'larger', 'full']) {
-      assert.equal(BrewerFrontmatter.safeParse(frontmatter({ effort })).success, true, effort);
-    }
-    for (const model of ['builder', 'planner', 'explorer', 'sonnet']) {
-      assert.equal(BrewerFrontmatter.safeParse(frontmatter({ model })).success, false, model);
-    }
-    for (const effort of ['low', 'medium', 'high']) {
-      assert.equal(BrewerFrontmatter.safeParse(frontmatter({ effort })).success, false, effort);
+  it('a brewer file that names a model or an effort is refused: its steps name them (ADR 0397)', () => {
+    const fields = JSON.parse(cellarman.split('---')[1] ?? '');
+    assert.equal(BrewerFrontmatter.safeParse(fields).success, true, 'neither');
+    assert.equal(
+      BrewerFrontmatter.safeParse({ ...fields, model: 'standard' }).success,
+      false,
+      'a model',
+    );
+    assert.equal(
+      BrewerFrontmatter.safeParse({ ...fields, effort: 'moderate' }).success,
+      false,
+      'an effort',
+    );
+  });
+
+  it('a brewer step without a model or an effort is refused, naming the recipe file, the step and the field, alone, in a parallel group and interactive (ADR 0397)', () => {
+    const recipeOf = (name: string, steps: readonly unknown[]) => ({
+      path: `recipes/${name}.jsonc`,
+      text: JSON.stringify({
+        name,
+        type: 'brew',
+        description: 'Brews an order.',
+        guidance: testGuidance,
+        testFirst: false,
+        steps,
+      }),
+    });
+    const loaded = loadRecipes({
+      recipes: [
+        recipeOf('stout', [
+          { id: 'brew', brewer: 'cellarman', effort: 'moderate' },
+          { action: 'openPullRequest' },
+        ]),
+        recipeOf('porter', [
+          { id: 'brew', brewer: 'cellarman', model: 'standard', effort: 'moderate' },
+          {
+            id: 'taste',
+            parallel: [
+              { id: 'one', brewer: 'taster', lens: 'diff/correctness', model: 'standard' },
+              {
+                id: 'two',
+                brewer: 'taster',
+                lens: 'diff/security',
+                model: 'standard',
+                effort: 'moderate',
+              },
+            ],
+            onFindings: { goto: 'brew', maxRounds: 1 },
+          },
+          { action: 'openPullRequest' },
+        ]),
+        recipeOf('ale', [
+          { id: 'talk', brewer: 'cellarman', interactive: true, prompt: 'Talk it over.' },
+          { action: 'openPullRequest' },
+        ]),
+      ],
+      brewers: [
+        { path: 'brewers/cellarman.md', text: cellarman },
+        {
+          path: 'brewers/taster.md',
+          text: brewerText('taster', { output: { doc: 'taste.md', schema: 'tasting' } }),
+        },
+      ],
+      lenses: [
+        { path: 'lenses/diff/correctness.md', text: 'Correctness.' },
+        { path: 'lenses/diff/security.md', text: 'Security.' },
+      ],
+    });
+    assert.equal(loaded.valid, false);
+    const problems = loaded.valid ? [] : loaded.problems;
+    const line = (path: string, step: string, brewer: string, field: string) =>
+      `${path}: step "${step}" of the brewer "${brewer}" names no "${field}": every brewer step names its model level and its effort (ADR 0397)`;
+    for (const expected of [
+      line('recipes/stout.jsonc', 'brew', 'cellarman', 'model'),
+      line('recipes/porter.jsonc', 'one', 'taster', 'effort'),
+      line('recipes/ale.jsonc', 'talk', 'cellarman', 'model'),
+      line('recipes/ale.jsonc', 'talk', 'cellarman', 'effort'),
+    ]) {
+      assert.ok(problems.includes(expected), `${expected}\nnot in:\n${problems.join('\n')}`);
     }
   });
 
-  it("models.jsonc holds a claude block of models by level and efforts by Foedrum's effort, each a Claude Code word", () => {
+  it("models.jsonc holds a claude block of models by level and efforts by Foedrum's effort, each a Claude Code word, and no brewers swap (ADR 0397)", () => {
     const accepted = (value: unknown) => ModelsConfig.safeParse(value).success;
     assert.equal(
       accepted({
@@ -217,7 +267,6 @@ describe('model levels and efforts of Foedrum’s own (#1058, ADR 0397)', () => 
           models: { light: 'haiku', standard: 'claude-sonnet-5-5', strong: 'opus' },
           efforts: { small: 'low', moderate: 'medium', larger: 'high', full: 'max' },
         },
-        brewers: { taster: 'strong' },
       }),
       true,
     );
@@ -231,28 +280,17 @@ describe('model levels and efforts of Foedrum’s own (#1058, ADR 0397)', () => 
     );
     assert.equal(accepted({ claude: { efforts: { larger: 'hard' } } }), false, 'an unknown word');
     assert.equal(
-      accepted({ claude: { models: { strong: 'opus' } }, brewers: { taster: 'opus' } }),
+      accepted({ claude: { models: { strong: 'opus' } }, brewers: { taster: 'strong' } }),
       false,
-      'a swap to a model, not a level',
+      'a brewers swap',
     );
   });
 });
 
-/** The Gauger's defaults/brewers file naming `model` and `effort`, brewing recipe stout's one step. */
-function gaugerBrewery(
-  claude: Record<string, unknown>,
-  gauger: { model?: string; effort?: string },
-  steps?: readonly unknown[],
-): ServeInputs {
-  const { model = 'standard', effort = 'moderate' } = gauger;
-  const text = cellarman
-    .replace('"name": "cellarman"', '"name": "gauger"')
-    .replace('"model": "light"', `"model": "${model}"`)
-    .replace('"effort": "small"', `"effort": "${effort}"`);
-  const stout =
-    steps === undefined
-      ? recipe.replace('cellarman', 'gauger')
-      : JSON.stringify({ ...JSON.parse(recipe), steps });
+/** Recipe stout's steps, `steps`, brewed by the default Gauger, over defaults with `claude` on top. */
+function gaugerBrewery(claude: Record<string, unknown>, steps: readonly unknown[]): ServeInputs {
+  const text = cellarman.replace('"name": "cellarman"', '"name": "gauger"');
+  const stout = JSON.stringify({ ...JSON.parse(recipe), steps });
   const defaults: BreweryFile = {
     path: 'defaults/models.jsonc',
     text: JSON.stringify({

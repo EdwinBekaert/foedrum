@@ -34,10 +34,12 @@ const kettle = JSON.stringify({
   description: 'Brews an order, then has a blocking Brett mutate its change.',
   guidance: testGuidance,
   steps: [
-    { id: 'implement', brewer: 'cellarman' },
+    { id: 'implement', brewer: 'cellarman', model: 'standard', effort: 'larger' },
     {
       id: 'mutate',
       brewer: 'brett',
+      model: 'standard',
+      effort: 'moderate',
       blocking: true,
       onBlocked: { findings: { goto: 'implement', maxRounds: 1 } },
     },

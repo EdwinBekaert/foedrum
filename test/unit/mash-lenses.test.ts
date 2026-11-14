@@ -138,10 +138,12 @@ describe('the default recipes that plan (ADR 0321)', () => {
   it('gives a step of several plan lenses together the recipes too: regression test', () => {
     const files = readBreweryFiles(join(FOEDRUM_DEFAULTS, 'no-such-brewery'));
     const steps = [
-      { id: 'plan', brewer: 'brewmaster' },
+      { id: 'plan', brewer: 'brewmaster', model: 'strong', effort: 'larger' },
       {
         id: 'read',
         brewer: 'taster',
+        model: 'standard',
+        effort: 'moderate',
         lenses: ['plan/naive-reader', 'plan/sizing'],
         onFindings: { goto: 'plan', maxRounds: 1 },
       },
@@ -370,13 +372,6 @@ describe('foedrum brew on recipe:mash and recipe:deep-mash, through the default 
     const family = (stepId: string) => brewers.family({ batchId: '12-1', stepId, attempt: 1 });
     assert.equal(family('coverage'), 'Opus');
     assert.equal(family('sizing'), 'Sonnet');
-  });
-
-  it('a blind-tasting swap of the Taster moves a step that names its own model', () => {
-    const coverage = setup.brewers.find('mash', 'coverage')?.brewer ?? assert.fail('no coverage');
-    const swapped = { ...setup.models, brewers: { taster: 'standard' as const } };
-    assert.equal(modelOf(setup.models, coverage), 'opus');
-    assert.equal(modelOf(swapped, coverage), 'sonnet');
   });
 
   it("gives each plan lens's Taster the recipes a sub-order may name", async () => {
@@ -666,10 +661,12 @@ describe('foedrum brew on recipe:mash and recipe:deep-mash, through the default 
     const files = serveInputs().files;
     const brewery = readBreweryFiles(dir.path);
     const steps = [
-      { id: 'plan', brewer: 'brewmaster' },
+      { id: 'plan', brewer: 'brewmaster', model: 'strong', effort: 'larger' },
       {
         id: 'naive',
         brewer: 'taster',
+        model: 'standard',
+        effort: 'moderate',
         lens: 'plan/naive-reader',
         onFindings: { goto: 'plan', maxRounds: 1 },
       },
@@ -704,10 +701,18 @@ describe('foedrum brew on recipe:mash and recipe:deep-mash, through the default 
     const text = recipeText(
       'kettle',
       [
-        { id: 'plan', brewer: 'brewmaster' },
+        { id: 'plan', brewer: 'brewmaster', model: 'strong', effort: 'larger' },
         {
           id: 'taste',
-          parallel: [{ id: 'naive', brewer: 'taster', lens: 'plan/naive-reader', model: 'strong' }],
+          parallel: [
+            {
+              id: 'naive',
+              brewer: 'taster',
+              effort: 'moderate',
+              lens: 'plan/naive-reader',
+              model: 'strong',
+            },
+          ],
           onFindings: { goto: 'plan', maxRounds: 1 },
         },
       ],
@@ -741,7 +746,10 @@ describe('foedrum brew on recipe:mash and recipe:deep-mash, through the default 
     const files = serveInputs().files;
     const text = recipeText(
       'kettle',
-      [{ id: 'plan', brewer: 'cellarman', model: 'strong' }, { action: 'openPullRequest' }],
+      [
+        { id: 'plan', brewer: 'cellarman', effort: 'larger', model: 'strong' },
+        { action: 'openPullRequest' },
+      ],
       { testFirst: false },
     );
     const result = serveSetup(

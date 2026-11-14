@@ -53,7 +53,7 @@ const loaded = loadRecipes({
       path: 'recipes/pint.jsonc',
       text: recipeText('pint', [
         { id: 'plan', brewer: 'planner' },
-        { id: 'implement', brewer: 'coder' },
+        { id: 'implement', brewer: 'coder', effort: 'larger' },
       ]),
     },
     {
@@ -69,7 +69,6 @@ const loaded = loadRecipes({
     {
       path: 'brewers/coder.md',
       text: brewerText('coder', {
-        effort: 'larger',
         access: 'write',
         tools: { allow: ['Read', 'Edit'], deny: ['WebFetch'] },
         env: { FOEDRUM_MODE: 'coder' },
@@ -896,16 +895,16 @@ describe('foedrum resume (ADR 0126)', () => {
       recipes: [
         {
           path: 'recipes/mash.jsonc',
-          text: recipeText('mash', [{ id: 'innkeep', brewer: 'innkeeper' }]),
+          text: recipeText('mash', [{ id: 'innkeep', brewer: 'innkeeper', effort: 'small' }]),
         },
         {
           path: 'recipes/pale.jsonc',
-          text: recipeText('pale', [{ id: 'brew', brewer: 'brewmaster' }]),
+          text: recipeText('pale', [{ id: 'brew', brewer: 'brewmaster', effort: 'full' }]),
         },
       ],
       brewers: [
-        { path: 'brewers/innkeeper.md', text: brewerText('innkeeper', { effort: 'small' }) },
-        { path: 'brewers/brewmaster.md', text: brewerText('brewmaster', { effort: 'full' }) },
+        { path: 'brewers/innkeeper.md', text: brewerText('innkeeper') },
+        { path: 'brewers/brewmaster.md', text: brewerText('brewmaster') },
       ],
     });
     assert.ok(mash.valid);
@@ -992,12 +991,12 @@ describe('foedrum resume (ADR 0126)', () => {
           },
           {
             path: 'recipes/pale.jsonc',
-            text: recipeText('pale', [{ id: 'brew', brewer: 'brewmaster' }]),
+            text: recipeText('pale', [{ id: 'brew', brewer: 'brewmaster', effort: 'full' }]),
           },
         ],
         brewers: [
-          { path: 'brewers/innkeeper.md', text: brewerText('innkeeper', { effort: 'small' }) },
-          { path: 'brewers/brewmaster.md', text: brewerText('brewmaster', { effort: 'full' }) },
+          { path: 'brewers/innkeeper.md', text: brewerText('innkeeper') },
+          { path: 'brewers/brewmaster.md', text: brewerText('brewmaster') },
         ],
       });
       assert.ok(stepped.valid, stepped.valid ? '' : stepped.problems.join('\n'));

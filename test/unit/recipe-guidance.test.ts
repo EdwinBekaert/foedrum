@@ -44,7 +44,10 @@ const stout = (fields: Record<string, unknown> = {}): BreweryFile => ({
     type: 'brew',
     description: 'Brews a stout in one step and opens its pull request.',
     guidance: stoutGuidance,
-    steps: [{ id: 'brew', brewer: 'cellarman' }, { action: 'openPullRequest' }],
+    steps: [
+      { id: 'brew', brewer: 'cellarman', model: 'standard', effort: 'larger' },
+      { action: 'openPullRequest' },
+    ],
     testFirst: false,
     ...fields,
   }),
@@ -136,7 +139,7 @@ describe('a Brewery recipe and its guidance (ADR 0375)', () => {
         description: 'Brews an amber.',
         guidance: stoutGuidance,
         steps: [
-          { id: 'brew', brewer: 'cellarman' },
+          { id: 'brew', brewer: 'cellarman', model: 'standard', effort: 'larger' },
           { id: 'green', check: 'test', onFail: { goto: 'nowhere', maxRounds: 1 } },
           { action: 'openPullRequest' },
         ],
@@ -166,7 +169,15 @@ describe('a Brewery recipe and its guidance (ADR 0375)', () => {
         name: 'ask',
         type: 'mash',
         description: 'Asks which recipe brews the order.',
-        steps: [{ id: 'innkeep', brewer: 'innkeeper', chooses: 'recipe' }],
+        steps: [
+          {
+            id: 'innkeep',
+            brewer: 'innkeeper',
+            model: 'standard',
+            effort: 'small',
+            chooses: 'recipe',
+          },
+        ],
       }),
     };
     const loaded = valid(loadRecipes({ ...defaults(), recipes: [ask] }));

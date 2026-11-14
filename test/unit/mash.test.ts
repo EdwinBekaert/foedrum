@@ -105,10 +105,12 @@ describe('foedrum brew on recipe:mash, with the default Brewmaster (ADR 0234)', 
     const mash = recipeText(
       'mash',
       [
-        { id: 'plan', brewer: 'brewmaster' },
+        { id: 'plan', brewer: 'brewmaster', model: 'strong', effort: 'larger' },
         {
           id: 'lauter',
           brewer: 'brewmaster',
+          model: 'strong',
+          effort: 'larger',
           interactive: true,
           chosenBy: 'lauter',
           prompt: 'The person in this session reviews the plan in {plan} and chose to correct it.',
@@ -479,10 +481,12 @@ describe('foedrum brew on recipe:mash, with the default Brewmaster (ADR 0234)', 
       const kettle = recipeText(
         'kettle',
         [
-          { id: 'plan', brewer: 'brewmaster' },
+          { id: 'plan', brewer: 'brewmaster', model: 'strong', effort: 'larger' },
           {
             id: 'naive',
             brewer: 'taster',
+            model: 'standard',
+            effort: 'moderate',
             lens: 'plan/naive-reader',
             onFindings: { goto: 'plan', maxRounds: 1 },
           },
@@ -573,10 +577,12 @@ describe('foedrum brew on recipe:mash, with the default Brewmaster (ADR 0234)', 
       const kettle = recipeText(
         'kettle',
         [
-          { id: 'plan', brewer: 'brewmaster' },
+          { id: 'plan', brewer: 'brewmaster', model: 'strong', effort: 'larger' },
           {
             id: 'naive',
             brewer: 'taster',
+            model: 'standard',
+            effort: 'moderate',
             lens: 'plan/naive-reader',
             onFindings: { goto: 'plan', maxRounds: 2 },
           },

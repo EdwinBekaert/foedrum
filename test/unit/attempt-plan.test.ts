@@ -26,37 +26,42 @@ import {
 import { attemptSettings } from '../../src/brewers/attempt-settings.ts';
 import { type CommitsSeen, settleAttempt } from '../../src/engine/brewer-runner.ts';
 import { fold } from '../../src/engine/fold.ts';
-import type { StepBrewer } from '../../src/engine/recipe-files.ts';
+import type { BrewerOnStep, StepBrewer } from '../../src/engine/recipe-files.ts';
 import { BrewerFrontmatter } from '../../src/schemas/brewer.ts';
 import type { Event } from '../../src/schemas/events.ts';
-import type { ModelsConfig } from '../../src/schemas/models.ts';
+import { Effort, ModelLevel, type ModelsConfig } from '../../src/schemas/models.ts';
 import { OutDocFrontmatter, readOutDoc } from '../../src/schemas/out-doc.ts';
 import { BrewerAllowedTool } from '../../src/schemas/primitives.ts';
 import type { StepOutcome } from '../../src/schemas/step-outcome.ts';
 import { outDoc } from '../helpers/fake-brewer-runner.ts';
 import { claudeModels } from '../helpers/models.ts';
 
-const brewer = (fields: Record<string, unknown> = {}): BrewerFrontmatter =>
-  BrewerFrontmatter.parse({
-    name: 'brewmaster',
-    description: 'Brews.',
-    version: 1,
-    output: { doc: 'brew.md', schema: 'outDoc' },
-    produces: 'report',
-    model: 'standard',
-    effort: 'larger',
-    tools: { allow: ['Read', 'Edit(brew.md)', 'Bash(git diff*)'], deny: ['Read(.env)'] },
-    access: 'read',
-    tree: 'task',
-    deadline: '30m',
-    maxAttempts: 2,
-    ...fields,
-  });
+// A brewer as its step runs it: its file's fields, and the level and effort the step names (ADR 0397).
+const brewer = (fields: Record<string, unknown> = {}): BrewerOnStep => {
+  const { model = 'standard', effort = 'larger', ...file } = fields;
+  return {
+    ...BrewerFrontmatter.parse({
+      name: 'brewmaster',
+      description: 'Brews.',
+      version: 1,
+      output: { doc: 'brew.md', schema: 'outDoc' },
+      produces: 'report',
+      tools: { allow: ['Read', 'Edit(brew.md)', 'Bash(git diff*)'], deny: ['Read(.env)'] },
+      access: 'read',
+      tree: 'task',
+      deadline: '30m',
+      maxAttempts: 2,
+      ...file,
+    }),
+    model: ModelLevel.parse(model),
+    effort: Effort.parse(effort),
+  };
+};
 
-const models: ModelsConfig = claudeModels(
-  { standard: 'claude-sonnet-5-5', light: 'claude-haiku-5-5' },
-  { taster: 'light' },
-);
+const models: ModelsConfig = claudeModels({
+  standard: 'claude-sonnet-5-5',
+  light: 'claude-haiku-5-5',
+});
 
 const sha = 'c'.repeat(40);
 const worktreeOf = (name: string) => ({
@@ -717,10 +722,6 @@ describe('modelOf (models.jsonc)', () => {
     assert.equal(modelOf(models, brewer()), 'claude-sonnet-5-5');
   });
 
-  it("takes the level models.jsonc gives the brewer over the brewer's own", () => {
-    assert.equal(modelOf(models, brewer({ name: 'taster' })), 'claude-haiku-5-5');
-  });
-
   it("takes the brewer's own level when its name is only a property every object has", () => {
     assert.equal(modelOf(models, brewer({ name: 'constructor' })), 'claude-sonnet-5-5');
   });
@@ -734,22 +735,19 @@ describe('modelOf (models.jsonc)', () => {
 });
 
 describe('familyOfBrewer (ADR 0215)', () => {
-  const families: ModelsConfig = claudeModels(
-    { standard: 'claude-sonnet-5-5', strong: 'opus', light: 'claude-haiku-5-5' },
-    { taster: 'strong', gauger: 'light' },
-  );
+  const families: ModelsConfig = claudeModels({
+    standard: 'claude-sonnet-5-5',
+    strong: 'opus',
+    light: 'claude-haiku-5-5',
+  });
 
   it("is the family of the model behind the brewer's level", () => {
     assert.equal(familyOfBrewer(families, brewer()), 'Sonnet');
     assert.equal(familyOfBrewer(families, brewer({ model: 'strong' })), 'Opus');
   });
 
-  it('reads a blind-tasting swap as the attempt runs it', () => {
-    assert.equal(familyOfBrewer(families, brewer({ name: 'taster' })), 'Opus');
-  });
-
   it('cannot tell a family no Opus or Sonnet limit names, nor a level without a model', () => {
-    assert.equal(familyOfBrewer(families, brewer({ name: 'gauger' })), undefined);
+    assert.equal(familyOfBrewer(families, brewer({ model: 'light' })), undefined);
     assert.equal(familyOfBrewer(models, brewer({ model: 'strong' })), undefined);
   });
 });

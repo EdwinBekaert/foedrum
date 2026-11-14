@@ -301,30 +301,10 @@ describe('serveSetup', () => {
     assert.deepStrictEqual(
       refused(inputs({ files: { ...inputs().files, models: models('strong') } })),
       [
-        'brewers/cellarman.md: models.jsonc has no claude model for the level "light" of the brewer "cellarman"',
+        'recipes/stout.jsonc: step "brew" of the brewer "cellarman" names the level "light", which models.jsonc has no claude model for',
+        'recipes/porter.jsonc: step "brew" of the brewer "cellarman" names the level "light", which models.jsonc has no claude model for',
       ],
     );
-  });
-
-  it('refuses a default brewer whose model level models.jsonc does not have, unless the Brewery replaces it (ADR 0098)', () => {
-    const { brewery } = inputs().files;
-    const [own] = brewery.brewers;
-    assert.ok(own !== undefined);
-    const fromDefaults = { ...own, path: 'defaults/brewers/cellarman.md' };
-    const withDefault = (brewers: typeof brewery.brewers) => ({
-      files: {
-        ...inputs().files,
-        models: models('strong'),
-        brewery: { ...brewery, brewers, defaults: { brewers: [fromDefaults] } },
-      },
-    });
-    assert.deepStrictEqual(refused(inputs(withDefault([]))), [
-      'defaults/brewers/cellarman.md: models.jsonc has no claude model for the level "light" of the brewer "cellarman"',
-    ]);
-    // The Brewery's own cellarman is checked instead.
-    assert.deepStrictEqual(refused(inputs(withDefault([own]))), [
-      'brewers/cellarman.md: models.jsonc has no claude model for the level "light" of the brewer "cellarman"',
-    ]);
   });
 
   it("refuses recipe files that do not load, with doctor's line", () => {
@@ -539,11 +519,16 @@ describe('serveSetup: the isolation level of check steps (ADR 0076)', () => {
 // over them entry by entry (ADR 0153, ADR 0397).
 describe("serveSetup: Foedrum's default models (ADR 0153)", () => {
   // A default Gauger that names `model`, brewing the one step of a Brewery recipe.
-  const gaugerNaming = (model: string) =>
-    cellarman
-      .replace('"name": "cellarman"', '"name": "gauger"')
-      .replace('"model": "light"', `"model": "${model}"`);
-  const gaugerRecipe = recipe.replace('cellarman', 'gauger');
+  const gauger = cellarman.replace('"name": "cellarman"', '"name": "gauger"');
+  // Recipe stout's one step, the Gauger's on `model` (ADR 0397).
+  const gaugerRecipe = (model: string) =>
+    JSON.stringify({
+      ...JSON.parse(recipe),
+      steps: [
+        { id: 'brew', brewer: 'gauger', model, effort: 'small' },
+        { action: 'openPullRequest' },
+      ],
+    });
   const defaultModels = (
     claude: Record<string, unknown> = { models: { standard: 'sonnet' } },
     brewers?: Record<string, string>,
@@ -568,10 +553,10 @@ describe("serveSetup: Foedrum's default models (ADR 0153)", () => {
         ...inputs().files,
         models: own,
         brewery: {
-          recipes: [{ path: 'recipes/stout.jsonc', text: gaugerRecipe }],
+          recipes: [{ path: 'recipes/stout.jsonc', text: gaugerRecipe(model) }],
           brewers: [],
           defaults: {
-            brewers: [{ path: 'defaults/brewers/gauger.md', text: gaugerNaming(model) }],
+            brewers: [{ path: 'defaults/brewers/gauger.md', text: gauger }],
             models: defaultFile,
           },
         },
@@ -615,34 +600,9 @@ describe("serveSetup: Foedrum's default models (ADR 0153)", () => {
     assert.equal(gaugerModel(strong), 'claude-opus-5-5');
   });
 
-  it("takes the brewers part from the Brewery's file only", () => {
-    const fromDefault = defaultModels(
-      { models: { standard: 'sonnet', strong: 'opus' } },
-      { gauger: 'strong' },
-    );
-    const setup = ready(withGauger(own({ light: 'claude-haiku-5-5' }), { models: fromDefault }));
-    assert.deepStrictEqual(setup.models.brewers, {});
-    assert.equal(gaugerModel(setup), 'sonnet');
-    // The Brewery's own brewers part does apply.
-    const swapping = own({ light: 'claude-haiku-5-5' }, { gauger: 'light' });
-    const swapped = ready(withGauger(swapping, { models: fromDefault }));
-    assert.deepStrictEqual(swapped.models.brewers, { gauger: 'light' });
-    assert.equal(gaugerModel(swapped), 'claude-haiku-5-5');
-  });
-
-  it("accepts a Brewery's brewers part that names a default level, and refuses one that names a level no file maps", () => {
-    // The Gauger names `strong`, which the Brewery maps; its brewers part swaps in the default standard.
-    const swapTo = (level: string) => own({ strong: 'claude-opus-5-5' }, { gauger: level });
-    const setup = ready(withGauger(swapTo('standard'), { model: 'strong' }));
-    assert.equal(gaugerModel(setup), 'sonnet');
-    const problems = refused(withGauger(swapTo('light'), { model: 'strong' }));
-    assert.equal(problems.length, 1);
-    assert.match(problems[0] ?? '', /^models\.jsonc: .*No model has the level "light"/);
-  });
-
-  it('refuses a brewer whose level neither the default nor the Brewery maps, by its file', () => {
+  it('refuses a step whose level neither the default nor the Brewery maps, by its recipe file', () => {
     const line =
-      'defaults/brewers/gauger.md: models.jsonc has no claude model for the level "strong" of the brewer "gauger"';
+      'recipes/stout.jsonc: step "brew" of the brewer "gauger" names the level "strong", which models.jsonc has no claude model for';
     assert.deepStrictEqual(refused(withGauger(undefined, { model: 'strong' })), [line]);
     assert.deepStrictEqual(
       refused(withGauger(own({ light: 'claude-haiku-5-5' }), { model: 'strong' })),

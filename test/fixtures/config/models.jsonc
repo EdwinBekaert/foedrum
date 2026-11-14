@@ -1,4 +1,4 @@
-// What each level and effort is for claude, and a blind-tasting swap for one brewer.
+// What each level and effort is for claude.
 {
   "$schema": "../../../schemas/models.json",
   "claude": {
@@ -8,8 +8,5 @@
       "strong": "claude-opus-5-5[1m]"
     },
     "efforts": { "small": "low", "moderate": "medium", "larger": "high", "full": "max" }
-  },
-  "brewers": {
-    "cellarman": "strong"
   }
 }

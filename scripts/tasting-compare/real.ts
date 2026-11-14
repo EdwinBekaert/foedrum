@@ -327,6 +327,14 @@ const BARE_CUTS = [
  * no other change (ADR 0347). A text that does not hold each cut once stops the comparison, as
  * `highTaster` does, since a later edit could otherwise compare nothing.
  */
+/**
+ * A pinned Taster's text without the `model` and `effort` lines of its frontmatter, which a brewer
+ * file no longer has: its step names both (ADR 0397).
+ */
+export const withoutLevels = (_text: string): string => {
+  throw new Error('not implemented');
+};
+
 export const bareTaster = (reads: string): string =>
   BARE_CUTS.reduce((text, cut) => {
     if (text.split(cut).length !== 2) {

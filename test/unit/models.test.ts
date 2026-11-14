@@ -15,10 +15,9 @@ describe('ModelsConfig', () => {
     assert.equal(result.valid, true, result.valid ? '' : result.reason);
   });
 
-  it('defaults to no per-brewer overrides', () => {
+  it('defaults the claude block to no efforts, and has no per-brewer swap (ADR 0397)', () => {
     assert.deepEqual(ModelsConfig.parse({ claude: { models: { standard: 'sonnet' } } }), {
       claude: { models: { standard: 'sonnet' }, efforts: {} },
-      brewers: {},
     });
   });
 

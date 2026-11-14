@@ -11,8 +11,8 @@
   },
   "testFirst": false, // the sub-orders' own recipes write the tests
   "steps": [
-    { "id": "context", "brewer": "maltster-survey" },
-    { "id": "breakdown", "brewer": "brewmaster" },
+    { "id": "context", "brewer": "maltster-survey", "model": "standard", "effort": "moderate" },
+    { "id": "breakdown", "brewer": "brewmaster", "model": "strong", "effort": "larger" },
     {
       "id": "brew",
       "fanOut": { "recipe": "half-pint", "approval": true, "bottling": "perRepo" }

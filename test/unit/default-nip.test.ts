@@ -560,7 +560,7 @@ describe('the default Nip', () => {
     const inTheGroupOfThree = async (): Promise<Event[]> => {
       const nipText = readFileSync(join(FOEDRUM_DEFAULTS, 'recipes', 'nip.jsonc'), 'utf8');
       const threeTasters = nipText.replace(
-        /,(\s*\/\/[^\n]*)*\s*\{ "id": "design-conformance"[^}]*\}/,
+        /,(\s*\/\/[^\n]*)*\s*\{\s*"id": "design-conformance"[^}]*\}/,
         '',
       );
       const recipes = valid(

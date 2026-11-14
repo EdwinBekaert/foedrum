@@ -10,8 +10,6 @@ export const brewerText = (name: string, fields: Record<string, unknown> = {}): 
       version: 1,
       output: { doc: 'out.md', schema: 'outDoc' },
       produces: 'report',
-      model: 'standard',
-      effort: 'moderate',
       tools: { allow: ['Read', 'Grep'] },
       access: 'read',
       tree: 'task',
@@ -30,10 +28,25 @@ export const testGuidance = {
   bestUsed: 'In a test',
 };
 
-/** The text of `recipes/<name>.jsonc`, with a comment and guidance, as a Brewery writes it. */
+/**
+ * `steps` with a model level and an effort on every brewer step that names neither, its own kept,
+ * in a parallel group too: every brewer step names both (ADR 0397).
+ */
+export const withStepLevels = (steps: readonly unknown[]): unknown[] =>
+  steps.map((step) => {
+    if (typeof step !== 'object' || step === null) return step;
+    const { parallel } = step as { parallel?: unknown };
+    if (Array.isArray(parallel)) return { ...step, parallel: withStepLevels(parallel) };
+    return 'brewer' in step ? { model: 'standard', effort: 'moderate', ...step } : step;
+  });
+
+/**
+ * The text of `recipes/<name>.jsonc`, with a comment and guidance, as a Brewery writes it, every
+ * brewer step on `standard` at `moderate` unless it names its own.
+ */
 export const recipeText = (
   name: string,
   steps: readonly unknown[],
   fields: Record<string, unknown> = {},
 ): string =>
-  `// The ${name} recipe.\n${JSON.stringify({ name, type: 'brew', description: `The ${name}.`, guidance: testGuidance, steps, ...fields }, null, 2)}\n`;
+  `// The ${name} recipe.\n${JSON.stringify({ name, type: 'brew', description: `The ${name}.`, guidance: testGuidance, steps: withStepLevels(steps), ...fields }, null, 2)}\n`;

@@ -208,11 +208,4 @@ describe("nip's Tasters at high effort, without the Taster's read of the rules (
     assert.equal((await planOf('correctness', { models })).call.effort, 'xhigh');
     assert.equal((await planOf('design-conformance', { models })).call.effort, 'medium');
   });
-
-  it("a blind-tasting swap of the Taster moves its model and keeps a step's own effort", async () => {
-    const swapped: ModelsConfig = { ...MODELS, brewers: { taster: 'strong' } };
-    const { call } = await planOf('correctness', { models: swapped });
-    assert.equal(call.model, 'claude-opus-5-5');
-    assert.equal(call.effort, 'high');
-  });
 });
