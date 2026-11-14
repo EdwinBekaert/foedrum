@@ -23,6 +23,8 @@ import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 import { type Route, SYNTHETIC_LOGIN, startFakeGitHubOverGh } from './fake-github-over-gh.ts';
 import { type FakeMessagesApi, startFakeMessagesApi } from './fake-messages-api.ts';
 
+// The labels of the rack check's listing, which the intake's never names.
+const RACK_QUERY = 'labels=recipe%3Arack';
 const main = join(import.meta.dirname, '..', '..', 'src', 'cli', 'main.ts');
 const real = realClaude();
 
@@ -49,7 +51,16 @@ interface Pull {
 const brewerysIssue = (body: string, pulls: Pull[]): Route => {
   const login = 'cellar-bot';
   const comments = new Map<number, string>();
-  const commentOf = (id: number) => ({ id, user: { login }, body: comments.get(id) });
+  // When the issue was opened, labelled and commented on, as GitHub dates each (ADR 0208, ADR 0368).
+  const at = '2026-11-01T09:00:00Z';
+  const commentOf = (id: number) => ({
+    id,
+    user: { login },
+    body: comments.get(id),
+    author_association: 'NONE',
+    created_at: at,
+    updated_at: at,
+  });
   // A pull request as GitHub answers it, opened by the Brewery's login from acme/web itself.
   const opened = (pull: Pull, number: number) => ({
     html_url: `https://github.com/acme/web/pull/${number}`,
@@ -69,14 +80,45 @@ const brewerysIssue = (body: string, pulls: Pull[]): Route => {
       user: { login: 'ann' },
       labels: ['recipe:stout'],
       body,
+      created_at: at,
     };
     const bare = path.split('?')[0] ?? '';
+    // The order check's read of the issue's edits (ADR 0368): none since its approval.
+    if (bare === '/graphql' && text.includes('userContentEdits')) {
+      return answer(200, {
+        data: {
+          repository: {
+            issue: {
+              lastEditedAt: null,
+              userContentEdits: { pageInfo: { hasNextPage: false }, nodes: [] },
+            },
+          },
+        },
+      });
+    }
     // gh's own questions for its login: the API root and the viewer, which the fake answers.
     if (bare === '/' || bare === '/graphql') return undefined;
+    // ann, one of the users, added its recipe label (ADR 0359).
+    if (method === 'GET' && bare === '/repos/acme/brewery/issues/12/events') {
+      return answer(200, [
+        {
+          id: 1,
+          event: 'labeled',
+          actor: { login: 'ann' },
+          label: { name: 'recipe:stout' },
+          created_at: at,
+        },
+      ]);
+    }
     const comment = /^\/repos\/acme\/brewery\/issues\/comments\/(\d+)$/.exec(bare);
     const id = Number(comment?.[1]);
     const sent = (): string => (JSON.parse(text) as { body: string }).body;
     if (method === 'GET' && bare === '/user') return answer(200, { login });
+    // The rack check's listing (ADR 0387): a rack issue opened just now, so serve opens none.
+    const rack = { ...issue, number: 7, title: 'Rack', labels: ['recipe:rack'] };
+    if (method === 'GET' && bare === '/repos/acme/brewery/issues' && path.includes(RACK_QUERY)) {
+      return answer(200, [{ ...rack, created_at: new Date().toISOString() }]);
+    }
     if (method === 'GET' && bare === '/repos/acme/brewery/issues') return answer(200, [issue]);
     if (method === 'GET' && bare === '/repos/acme/brewery/issues/12') return answer(200, issue);
     if (bare === '/repos/acme/brewery/issues/12/comments') {
@@ -105,6 +147,9 @@ const brewerysIssue = (body: string, pulls: Pull[]): Route => {
         return answer(200, commentOf(id));
       }
     }
+    // The lane labels serve makes and puts on the order's issue (ADR 0154).
+    if (method === 'POST' && bare === '/repos/acme/brewery/labels') return answer(201, {});
+    if (bare.startsWith('/repos/acme/brewery/issues/12/labels')) return answer(200, []);
     return answer(404, { message: 'Not Found' });
   };
 };
@@ -320,7 +365,7 @@ describe('foedrum serve brews one real step', { skip: real.kind === 'skip' && re
     // The login came first, at serve's start (ADR 0072), then the listing and the order's text, all
     // through gh's own login, never the token variable; the text reached the model in nonce tags.
     const read = (github.requests ?? [])
-      .filter(({ path }) => path !== '/' && path !== '/graphql')
+      .filter(({ path }) => path !== '/' && path !== '/graphql' && !path.includes(RACK_QUERY))
       .map(({ path, authorization }) => [path.split('?')[0], authorization]);
     assert.deepStrictEqual(read[0], ['/user', `token ${SYNTHETIC_LOGIN}`]);
     assert.deepStrictEqual(
