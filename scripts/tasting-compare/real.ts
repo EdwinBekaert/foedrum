@@ -1015,6 +1015,8 @@ export interface BrewerSettings {
   model: string;
   effort: z.infer<typeof Effort>;
   orderText?: 'plan';
+  /** Whether a real `maltster-map` step maps the code before the scripted Gauger (ADR 0398). */
+  map?: true;
 }
 
 /** One order brewed by a real brewer on a model and effort: the order first, as a setup's name. */
@@ -1034,6 +1036,7 @@ export const brewerSettingsOf = (given: {
   effort?: string;
   setups?: string;
   orderText?: string;
+  map?: boolean;
 }): BrewerSettings | undefined => {
   const { real, brewer, model, effort, setups, orderText } = given;
   if (brewer === undefined) {
@@ -1188,6 +1191,7 @@ export interface BrewedHead {
 export const brewerScript = (
   head: BrewedHead,
   dryRun: boolean,
+  _map = false,
 ): Record<string, readonly Scripted[]> => ({
   gauge: [
     {
@@ -1209,13 +1213,22 @@ export const brewerScript = (
     : {}),
 });
 
-/** One step of a brewer's run: its attempts, and the tokens, turns and time of its sessions. */
+/** A step's search and read calls, by its sessions' transcripts (ADR 0398). */
+export interface Searches {
+  grep: number;
+  glob: number;
+  read: number;
+}
+
+/** One step of a brewer's run: its attempts, and the tokens, turns, time and searches of its sessions. */
 export interface StepRun {
   stepId: string;
   attempts: number;
   usage?: Usage;
   turns: number;
   durationMs: number;
+  /** Its calls of Grep, Glob and Read; none when a session of it has no transcript, as the scripted Gauger's. */
+  searches?: Searches;
 }
 
 /** What a brewer's run measured (ADR 0394). */
@@ -1227,6 +1240,8 @@ export interface BrewerRun extends BrewerSettings {
   steps: readonly StepRun[];
   /** The models the brewer's transcripts name. */
   models: readonly string[];
+  /** The models the map step's transcripts name, on a run with a map (ADR 0398). */
+  mapModels?: readonly string[];
   /** Why a transcript of the brewer cannot say its model. */
   unreadable?: string;
   /** The commit the checks read last: the brewer's code. */
