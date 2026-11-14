@@ -28,7 +28,7 @@ Decided with the maintainer on 2026-11-14 (#1058).
 - **A level or an effort with no translation refuses the start**: `serveSetup` translates every brewer in use and every step's own level and effort, and names the brewer (`models.jsonc has no claude effort for the effort "careful" of the brewer "gauger"`), as a missing alias did.
 - **No brewer changes model or how hard it thinks.** Every default brewer and step names the level and effort that translate to what it ran on before: `low` became `quick`, `medium` `steady`, `high` `careful`; nothing used `xhigh` or `max`.
   The default brewers keep their `version`: their prompts do not change.
-- **`tasting-compare --real --brewer`'s `--effort` takes Foedrum's four levels**, translated by the default efforts, so Claude Code's `max` cannot be measured by it without a Brewery of one's own that maps an effort to it.
+- **`tasting-compare --real --brewer`'s `--effort` takes Foedrum's four efforts**, translated by the default efforts, so Claude Code's `max` cannot be measured by it without a Brewery of one's own that maps an effort to it.
   The measured step names `strong`, and the run's scratch Brewery maps only `claude.models.strong` to `--model`: no other step of `real-brew-cellarman` names `strong`, `light` and `standard` stay the defaults' (so a map step stays on Haiku), and no effort is mapped.
   The planning runs' scratch Brewery (`--sub-orders`) writes no `models.jsonc`, so the Brewmaster stays on the default `strong`.
   A run's setup ends in the Foedrum effort it was given, such as `855-cellarman-claude-opus-5-5-thorough`, not Claude Code's word.
