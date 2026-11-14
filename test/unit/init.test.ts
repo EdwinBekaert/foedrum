@@ -1885,6 +1885,25 @@ describe('foedrum init finds where it is (ADR 0393)', () => {
     assert.ok(!events.some((event) => /^(create|git)/.test(event)), events.join('\n'));
   });
 
+  it('on Windows, takes a relative folder typed with a backslash', async () => {
+    const { result, git } = await init(['', 'sub\\brewery', '', '', ''], outside(), {
+      ...unplaced,
+      platform: 'win32',
+    });
+    assert.equal(result.exitCode, 0, result.stderr);
+    assert.deepStrictEqual(git[0]?.args.at(-1), 'sub/brewery');
+  });
+
+  it('elsewhere, takes a full path that starts with two slashes as the root it names', async () => {
+    const clone = outside();
+    const { result, git } = await init(['', '', ''], clone, {
+      given: { folder: '//nowhere/brewery' },
+    });
+    assert.equal(result.exitCode, 0, result.stderr);
+    assert.deepStrictEqual(git[0]?.args.at(-1), '/nowhere/brewery');
+    assert.ok(clone.files.has('/nowhere/brewery/foedrum.jsonc'));
+  });
+
   it('asks the folder again for an answer that is a file', async () => {
     const clone: Clone = { files: new Map([['docs/a.md', 'x']]), git: false };
     const { lines, questions } = await init(['', 'docs/a.md', 'new', '', '', ''], clone, unplaced);
