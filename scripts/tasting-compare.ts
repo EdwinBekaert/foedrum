@@ -414,6 +414,21 @@ const seedIn = (reportFolder: string): string => {
   return readFileSync(seedFile, 'utf8');
 };
 
+/** A head as brewed, read from this checkout: its commit, the files it changed, its subject, and a reader of their texts. */
+const brewedHeadOf = async (setup: RealSetup | BrewerSetup, git: RunGit) => {
+  const { base, head } = orderOf(setup);
+  const changed = changedFiles(
+    await git(root, ['diff', '--name-status', '-z', '--no-renames', base, head]),
+  );
+  const subject = (await git(root, ['log', '-1', '--format=%s', head])).trim();
+  const textsOf = async (paths: readonly string[]): Promise<Record<string, string>> => {
+    const texts: Record<string, string> = {};
+    for (const path of paths) texts[path] = await git(root, ['show', `${head}:${path}`]);
+    return texts;
+  };
+  return { head, changed, subject, textsOf };
+};
+
 const realMode = async (): Promise<Mode<RealSetup>> => {
   await realCommits();
   const today = await runGit(root, [
@@ -423,26 +438,19 @@ const realMode = async (): Promise<Mode<RealSetup>> => {
   if (today.code !== 0) {
     throw new Error(`the Taster of ${TODAY_COMMIT} cannot be read: ${today.stderr.trim()}`);
   }
-  const folder = realFixture;
-  const reads = readFileSync(join(folder, READS_TASTER), 'utf8');
+  const reads = readFileSync(join(realFixture, READS_TASTER), 'utf8');
   refuseSameTaster(today.stdout, reads);
   return {
     folders: realFolderOf,
     setups: realSetups,
-    order: (setup) => join(folder, `${orderOf(setup).order}.md`),
+    order: (setup) => join(realFixture, `${orderOf(setup).order}.md`),
     recipeOf: realRecipeOf,
     breweryFiles: (setup) => realBreweryFiles(setup, { today: today.stdout, reads }),
     target: realTarget,
     script: async (setup, _scratch, git) => {
-      const { base, head } = orderOf(setup);
-      const changed = changedFiles(
-        await git(root, ['diff', '--name-status', '-z', '--no-renames', base, head]),
-      );
-      const files: Record<string, string> = {};
-      for (const path of changed) files[path] = await git(root, ['show', `${head}:${path}`]);
-      const subject = (await git(root, ['log', '-1', '--format=%s', head])).trim();
+      const { head, changed, subject, textsOf } = await brewedHeadOf(setup, git);
       const implement: Scripted = {
-        files,
+        files: await textsOf(changed),
         message: subject,
         summary: `The head ${head}, committed as it was brewed.`,
       };
@@ -460,7 +468,7 @@ const realMode = async (): Promise<Mode<RealSetup>> => {
     table: realTable,
     stop: comparisonStop,
     comments: (setup, author) =>
-      realCommentsOf(setup, author, (file) => readFileSync(join(folder, file), 'utf8')),
+      realCommentsOf(setup, author, (file) => readFileSync(join(realFixture, file), 'utf8')),
     files: (records, reportFolder) => {
       const { lists, bodies, codes } = blinded(records, seedIn(reportFolder));
       return {
@@ -494,17 +502,8 @@ const brewerMode = async (settings: BrewerSettings): Promise<Mode<BrewerSetup, B
     breweryFiles: () => brewerBreweryFiles(settings, names),
     target: realTarget,
     script: async (setup, _scratch, git) => {
-      const { base, head } = orderOf(setup);
-      const changed = changedFiles(
-        await git(root, ['diff', '--name-status', '-z', '--no-renames', base, head]),
-      );
+      const { head, changed, subject, textsOf } = await brewedHeadOf(setup, git);
       const { tests, code } = splitHead(changed);
-      const textsOf = async (paths: readonly string[]): Promise<Record<string, string>> => {
-        const texts: Record<string, string> = {};
-        for (const path of paths) texts[path] = await git(root, ['show', `${head}:${path}`]);
-        return texts;
-      };
-      const subject = (await git(root, ['log', '-1', '--format=%s', head])).trim();
       return brewerScript(
         { head, subject, tests: await textsOf(tests), code: await textsOf(code) },
         dryRun,
