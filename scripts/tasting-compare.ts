@@ -446,6 +446,10 @@ const realTarget = async (
   await git(scratch, ['clone', '-q', 'web.git', 'web']);
 };
 
+/** The folder of a mode whose `folders` are these, where its records and files stay. */
+const modeFolder = (folders: readonly string[]): string =>
+  join(root, '.foedrum', 'tmp', 'tasting-compare', ...folders, ...(dryRun ? ['dry-run'] : []));
+
 /** The seed of a report folder's codes: one for the folder, so a code stays the same as more runs come in. */
 const seedIn = (reportFolder: string): string => {
   const seedFile = join(reportFolder, 'seed.txt');
@@ -533,18 +537,7 @@ const brewerMode = async (settings: BrewerSettings): Promise<Mode<BrewerSetup, B
   await realCommits();
   const setups = brewerSetups(settings, values.orders);
   const names = { brewery: BREWERY, target: TARGET, user: USER };
-  const folders = {
-    fixture: realFixture,
-    kept: join(
-      root,
-      '.foedrum',
-      'tmp',
-      'tasting-compare',
-      ...realFolderOf,
-      SUB_ORDERS,
-      ...(dryRun ? ['dry-run'] : []),
-    ),
-  };
+  const folders = { fixture: realFixture, kept: modeFolder([...realFolderOf, SUB_ORDERS]) };
   try {
     refuseMissingTexts(setups, folders.kept, existsSync);
   } catch (error) {
@@ -628,14 +621,7 @@ const plannerMode = async (): Promise<Mode<PlannerSetup, PlannerRecord>> => {
 const compare = async <Setup extends string, Run extends RunRecord<Setup>>(
   mode: Mode<Setup, Run>,
 ): Promise<void> => {
-  const folder = join(
-    root,
-    '.foedrum',
-    'tmp',
-    'tasting-compare',
-    ...mode.folders,
-    ...(dryRun ? ['dry-run'] : []),
-  );
+  const folder = modeFolder(mode.folders);
   const resultsFile = join(folder, 'results.jsonl');
   const readRecords = (): Run[] => readRecordsIn<Setup, Run>(folder);
 

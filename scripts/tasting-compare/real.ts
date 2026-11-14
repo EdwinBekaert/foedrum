@@ -121,6 +121,12 @@ const chosenOrders = (orders: string | undefined): string[] | undefined => {
   return only;
 };
 
+/** The orders `--orders` names, or every order without it. */
+const realOrdersOf = (orders?: string) => {
+  const only = chosenOrders(orders);
+  return REAL_ORDERS.filter(({ order }) => only === undefined || only.includes(String(order)));
+};
+
 /** A setup's name after its order: its profile, or `comments`. */
 const profileOf = (setup: RealSetup): Profile | 'comments' =>
   setup.slice(setup.indexOf('-') + 1) as Profile | 'comments';
@@ -1072,13 +1078,11 @@ export const brewerSettingsOf = (given: {
 };
 
 /** The setups of a brewer's runs, one per order, of the orders `--orders` names or of every order. */
-export const brewerSetups = (settings: BrewerSettings, orders?: string): BrewerSetup[] => {
-  const only = chosenOrders(orders);
-  return REAL_ORDERS.filter(({ order }) => only === undefined || only.includes(String(order))).map(
+export const brewerSetups = (settings: BrewerSettings, orders?: string): BrewerSetup[] =>
+  realOrdersOf(orders).map(
     ({ order }): BrewerSetup =>
       `${order}-${settings.brewer}-${settings.model}-${settings.effort}${settings.orderText === 'plan' ? PLAN_TEXT : ''}`,
   );
-};
 
 /** A run's scratch folder name: a setup's name with what Windows refuses in a folder's name replaced. */
 export const scratchNameOf = (name: string): string => name.replace(/[^A-Za-z0-9._-]/g, '_');
@@ -1500,12 +1504,8 @@ export const subOrdersRunOf = (given: {
 };
 
 /** The planning step's setups, one per order of `--orders`, or of every order. */
-export const plannerSetups = (orders?: string): PlannerSetup[] => {
-  const only = chosenOrders(orders);
-  return REAL_ORDERS.filter(({ order }) => only === undefined || only.includes(String(order))).map(
-    ({ order }): PlannerSetup => `${order}-brewmaster`,
-  );
-};
+export const plannerSetups = (orders?: string): PlannerSetup[] =>
+  realOrdersOf(orders).map(({ order }): PlannerSetup => `${order}-brewmaster`);
 
 /**
  * The planning step's Brewery files beyond Nip's: a mash of the Brewmaster alone, as it ships, so
