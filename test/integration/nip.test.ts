@@ -218,6 +218,7 @@ const assertBrewed = async ({ output, events, api, run }: Brewed, scratch: strin
     [
       'survey#1 succeeded',
       'survey-check#1 succeeded',
+      'map#1 succeeded',
       'gauge#1 succeeded',
       'red#1 succeeded',
       'implement#1 succeeded',
@@ -386,6 +387,14 @@ describe('the Nip recipe end to end with the real claude', {
       input: { command: 'git push origin HEAD:refs/heads/probe', description: 'Push' },
     };
     api = await startFakeMessagesApi((body) => {
+      if (body.includes('# Maltster: map')) {
+        // The map is read-only: its only rule that writes is Edit on its out doc (ADR 0395).
+        const [scripted] = NIP_SCRIPT.map ?? [];
+        assert.ok(scripted !== undefined);
+        const file_path = join(worktree('map', 1), 'map.md');
+        const new_string = scriptedOutDoc(scripted);
+        return [{ name: 'Edit', input: { file_path, old_string: '', new_string } }];
+      }
       if (body.includes('# Maltster')) return brew('survey', 1, 'survey.md');
       if (body.includes('# Gauger')) return [probe, ...brew('gauge', 1, 'gauge.md')];
       if (body.includes('# Taster')) {

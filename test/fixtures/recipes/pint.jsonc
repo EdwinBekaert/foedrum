@@ -10,7 +10,7 @@
     "bestUsed": "In a test"
   },
   "steps": [
-    { "id": "context", "brewer": "maltster" },
+    { "id": "context", "brewer": "maltster-survey" },
     { "id": "plan", "brewer": "brewmaster" },
     { "id": "approve-plan", "gate": "human", "deadline": "3d" },
     { "id": "gauge", "brewer": "gauger", "when": "recipe.testFirst" },

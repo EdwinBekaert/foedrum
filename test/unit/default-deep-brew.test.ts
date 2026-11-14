@@ -43,6 +43,7 @@ describe('the default deep-brew', () => {
     assert.deepEqual(deep.steps, [
       'survey',
       'survey-check',
+      'map',
       'gauge',
       'red',
       'implement',
@@ -127,6 +128,7 @@ describe('the default deep-brew', () => {
     const scripts: Record<string, Behaviour[]> = {
       survey: [done],
       'survey-check': [done],
+      map: [done],
       gauge: twice(),
       red: twice(),
       implement: twice(),
@@ -160,7 +162,7 @@ describe('the default deep-brew', () => {
     const creates = manager.calls.flatMap((call) =>
       call.kind === 'create' ? [`${call.ref.stepId}#${call.ref.attempt} ${call.base}`] : [],
     );
-    assert.deepEqual(creates.slice(7), [
+    assert.deepEqual(creates.slice(8), [
       'mutants#1 refs/heads/foedrum/b1/green/1',
       // Not at the code: the tests that catch the survivor come before it (ADR 0358).
       'gauge#2 refs/heads/foedrum/b1/gauge/1',

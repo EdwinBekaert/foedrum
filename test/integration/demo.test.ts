@@ -140,7 +140,7 @@ describe('npm run demo', () => {
     assert.match(statusComment, /Waiting for you\*\*: merge a pull request/);
     assert.match(
       statusComment,
-      /^ +Steps run, in order \(#n is the nth try of a step\): `survey #1` ✅ → `survey-check #1` ✅ → `gauge #1`.*\n +→ `implement #2`.*\n +→ `implement #3`/m,
+      /^ +Steps run, in order \(#n is the nth try of a step\): `survey #1` ✅ → `survey-check #1` ✅ → `map #1` ✅ → `gauge #1`.*\n +→ `implement #2`.*\n +→ `implement #3`/m,
     );
     assert.equal(
       statusComment.match(/^ +- <https:\/\/github\.com\/demo\/web\/pull\/\d+>/gm)?.length,
@@ -242,6 +242,8 @@ describe('npm run demo', () => {
       // The Maltster proposes demo/web's map, and its check runs the tests against it (ADR 0298).
       'survey#1 succeeded',
       'survey-check#1 succeeded',
+      // The Maltster maps the code the order touches, read-only (ADR 0395).
+      'map#1 succeeded',
       'gauge#1 failed',
       'gauge#2 succeeded',
       'red#1 succeeded',

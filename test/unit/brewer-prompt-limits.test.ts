@@ -2,7 +2,7 @@
 // brewer does not learn them by failing (#655).
 
 import assert from 'node:assert/strict';
-import { readdirSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import { FOEDRUM_DEFAULTS } from '../../src/engine/brewery-files.ts';
@@ -35,6 +35,7 @@ import {
   MOST_TESTS,
   MUTANTS,
   MutantsOutDoc,
+  OutDocFrontmatter,
   PULL_REQUEST,
   PullRequestOutDoc,
   SURVEY,
@@ -174,7 +175,7 @@ const brewers: Record<string, Expected> = {
     stated: handover,
     unstated: noDispositions,
   },
-  maltster: {
+  'maltster-survey': {
     name: SURVEY,
     schema: SurveyOutDoc,
     stated: [
@@ -182,6 +183,14 @@ const brewers: Record<string, Expected> = {
       ['stale', MOST_SURVEY_PATHS, 'paths'],
       ['stale', MAX_SURVEY_PATH, 'characters'],
     ],
+    unstated: noDispositions,
+  },
+  // The map is in the body: its schema is the contract's, with no limit beyond the handover's
+  // (ADR 0395).
+  'maltster-map': {
+    name: 'map',
+    schema: OutDocFrontmatter,
+    stated: handover,
     unstated: noDispositions,
   },
   taster: {
@@ -199,7 +208,9 @@ const brewers: Record<string, Expected> = {
 const folder = join(FOEDRUM_DEFAULTS, 'brewers');
 
 const promptOf = (name: string) => {
-  const doc = readDoc(readFileSync(join(folder, `${name}.md`), 'utf8'), BrewerFrontmatter);
+  const path = join(folder, `${name}.md`);
+  assert.ok(existsSync(path), `${name}.md is not in defaults/brewers/`);
+  const doc = readDoc(readFileSync(path, 'utf8'), BrewerFrontmatter);
   assert.ok(doc.valid, `${name}.md does not read`);
   return { schema: doc.frontmatter.output.schema, body: doc.body };
 };

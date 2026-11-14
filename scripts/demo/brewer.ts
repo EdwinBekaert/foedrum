@@ -257,7 +257,7 @@ const MUTANTS: Scripted = {
 };
 
 /**
- * The Nip fixture's Maltster, Gauger and Cellarman, with a Taster for each lens step of the
+ * The Nip fixture's Maltster (its survey and its map), Gauger and Cellarman, with a Taster for each lens step of the
  * demo's parallel group (ADR 0168), playing a tasting loop (ADR 0193). In round 1 the correctness lens
  * asks for changes with one finding, and the other three approve with a finding of their own, and
  * every finding sends the batch back (ADR 0354). The Cellarman's third attempt fixes correctness's
@@ -266,6 +266,7 @@ const MUTANTS: Scripted = {
  */
 export const DEMO_SCRIPT: Readonly<Record<string, readonly Scripted[]>> = {
   survey: NIP_SCRIPT.survey ?? [],
+  map: NIP_SCRIPT.map ?? [],
   gauge: NIP_SCRIPT.gauge ?? [],
   implement: [...(NIP_SCRIPT.implement ?? []), FIX_SPACES],
   fine: [...(NIP_SCRIPT.fine ?? []), ...(NIP_SCRIPT.fine ?? []).slice(0, 1)],

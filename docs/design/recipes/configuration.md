@@ -95,7 +95,7 @@ Both are JSONC with a `$schema` reference for editor autocompletion; unknown fie
 }
 ```
 
-The file is optional: Foedrum's own `defaults/models.jsonc` maps `builder` to `sonnet` and `planner`, the Brewmaster's and that of the coverage and security plan lens steps, to `opus` ([ADR 0234](../../adr/0234-the-brewmaster-writes-a-plan-on-the-planner-alias-and-mash-runs-it.md), [ADR 0321](../../adr/0321-mash-and-decoction-review-a-plan-through-the-plan-lenses-apart.md)), and the Brewery's `models` replace its entries by alias and add to them, while `brewers` comes from the Brewery's file only and may name a default alias ([ADR 0153](../../adr/0153-foedrum-s-defaults-map-their-own-model-aliases.md)).
+The file is optional: Foedrum's own `defaults/models.jsonc` maps `builder` to `sonnet`, `planner`, the Brewmaster's and that of the coverage and security plan lens steps, to `opus`, and `explorer`, the Maltster's map's, to `haiku` ([ADR 0395](../../adr/0395-the-maltster-maps-the-code-an-order-touches-before-the-gauger-on-the-explorer-alias.md), [ADR 0234](../../adr/0234-the-brewmaster-writes-a-plan-on-the-planner-alias-and-mash-runs-it.md), [ADR 0321](../../adr/0321-mash-and-decoction-review-a-plan-through-the-plan-lenses-apart.md)), and the Brewery's `models` replace its entries by alias and add to them, while `brewers` comes from the Brewery's file only and may name a default alias ([ADR 0153](../../adr/0153-foedrum-s-defaults-map-their-own-model-aliases.md)).
 
 Model ids reach the `claude` command line, so they are limited to lower-case letters, digits, `.`, `_`, `:` and `-` (plus a `[1m]` suffix), and never start with `-`.
 

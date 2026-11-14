@@ -96,6 +96,7 @@ const nip = (rounds: number): Record<string, readonly Behaviour[]> => {
   return {
     survey: [done],
     'survey-check': [done],
+    map: [done],
     gauge: [done],
     red: [done],
     implement: each(done),

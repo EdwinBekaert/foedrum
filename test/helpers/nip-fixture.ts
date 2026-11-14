@@ -98,7 +98,8 @@ export interface Scripted {
 
 /**
  * What each attempt of a step commits, by step id and then in the order the runner starts that
- * step's attempts in a batch (ADR 0139): the Maltster's test map, the Gauger's failing test,
+ * step's attempts in a batch (ADR 0139): the Maltster's test map, its map of the code, which
+ * commits nothing (ADR 0395), the Gauger's failing test,
  * the Cellarman's fix that forgets the `!` (the check reads it red), then the one that does not,
  * the Finer after each with nothing to simplify, and Nip's four Tasters side by side (ADR 0197,
  * ADR 0306, ADR 0343), each approving with no finding, which would send the batch back to the
@@ -111,6 +112,13 @@ export const NIP_SCRIPT: Readonly<Record<string, readonly Scripted[]>> = {
       message: 'Map the tests and reports of greet',
       summary: `The test map has one module, greet: its TAP report is ${NIP_TEST_REPORT}, and it has no coverage tool.`,
       doc: { map: 'new' },
+    },
+  ],
+  map: [
+    {
+      files: {},
+      message: '',
+      summary: 'greet.mjs:1-3 greets by name, and greet.test.mjs tests it.',
     },
   ],
   gauge: [
@@ -240,7 +248,7 @@ export interface ScriptedNip extends BrewerRunner {
   readonly prompts: ReadonlyMap<string, string>;
 }
 
-/** The scripted Maltster, Gauger, Cellarman, Finer and Taster of `NIP_SCRIPT` (or `script`), in serve's runner seam. */
+/** The scripted Maltster (its survey and its map), Gauger, Cellarman, Finer and Taster of `NIP_SCRIPT` (or `script`), in serve's runner seam. */
 export const scriptedNip = (options: ScriptedNipOptions): ScriptedNip => {
   const { plan, git, config, write, script = NIP_SCRIPT } = options;
   const prompts = new Map<string, string>();

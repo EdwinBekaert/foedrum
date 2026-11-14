@@ -1,1 +1,1 @@
-{ "models": { "builder": "sonnet", "planner": "opus" } }
+{ "models": { "builder": "sonnet", "planner": "opus", "explorer": "haiku" } }

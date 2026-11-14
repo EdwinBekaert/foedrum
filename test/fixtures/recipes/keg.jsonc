@@ -11,7 +11,7 @@
   },
   "testFirst": false,
   "steps": [
-    { "id": "context", "brewer": "maltster" },
+    { "id": "context", "brewer": "maltster-survey" },
     {
       "id": "refine",
       "brewer": "brewmaster",
