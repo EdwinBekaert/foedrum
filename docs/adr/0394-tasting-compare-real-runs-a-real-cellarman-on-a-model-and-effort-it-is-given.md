@@ -1,6 +1,6 @@
 # 0394. tasting-compare --real runs a real Cellarman on a model and effort it is given
 
-Date: 2026-11-14 · Status: Accepted · Amends [0332](0332-tasting-compare-real-re-tastes-brewed-heads-and-writes-blinded-lists.md) (a mode that brews the heads again with a real brewer, not only re-tastes them), [0344](0344-tasting-compare-real-measures-a-stronger-model-and-more-effort-apart.md) (a brewer's model and effort as settings of a run, its transcript's model held to the one asked for) and [0348](0348-tasting-compare-real-tastes-three-lenses-together-on-sonnet-at-high-effort.md) (no new named setup per model or effort)
+Date: 2026-11-14 · Status: Accepted · Amends [0332](0332-tasting-compare-real-re-tastes-brewed-heads-and-writes-blinded-lists.md) (a mode that brews the heads again with a real brewer, not only re-tastes them), [0344](0344-tasting-compare-real-measures-a-stronger-model-and-more-effort-apart.md) (a brewer's model and effort as settings of a run, its transcript's model held to the one asked for), [0348](0348-tasting-compare-real-tastes-three-lenses-together-on-sonnet-at-high-effort.md) (no new named setup per model or effort) and [0366](0366-deep-brew-builds-a-change-that-can-reach-a-lot-through-every-diff-lens-and-a-blocking-brett-step.md) (`--orders` also chooses the orders of a `--brewer` run, without `--setups`)
 
 ## Context
 Only the Tasters were ever measured on another model (#879, #936).
@@ -21,13 +21,14 @@ The question, answered after the merge by a run by hand: does Cellarman on Sonne
   1. `gauge`, the Gauger, scripted: it commits the head's files under `test/` as they were brewed, and its out doc names them. The head's other files are Cellarman's.
   2. `implement`, Cellarman, real: its step names the alias `measured` and the given effort, and the scratch Brewery's `models.jsonc` maps `measured` to the given id. No other brewer moves, and no brewer file changes.
   3. `green`, every check, its deadline 30 minutes, sent back to Cellarman once on a failure, as `nip`'s is.
-  4. `openPullRequest`, which a recipe that commits must have ([ADR 0084](0084-a-recipe-that-commits-opens-a-pull-request.md)).
+  4. `openPullRequest`, which a recipe that commits must have ([ADR 0084](0084-a-batch-s-commits-end-in-a-pull-request-or-on-a-kept-branch.md)).
 
   With no red proof the testsUnchanged guard keeps nothing ([ADR 0358](0358-an-older-test-changes-only-in-the-gauger-s-red-commit.md)), and the target needs no test map, which no base of the three holds.
   A head that changes no file under `test/`, or nothing else, is refused: no run would start from failing tests.
   Without the Gauger's stubs, a test may fail to load rather than on an assertion; every run starts from the same tree all the same.
 - **The checks are Foedrum's own, after its setup.**
   The scratch Brewery's `foedrum.jsonc` gives the target `setup` `npm ci` (10 minutes) and the checks `typecheck` `npm run typecheck`, `lint` `npm run lint` and `test` `npm run check`, with no build or format check.
+  The separate typecheck and lint are what Cellarman's own checks before its end run, as they do in a brew ([ADR 0381](0381-a-brewer-that-writes-code-runs-the-quick-checks-before-its-end-and-is-sent-back-once.md)), and they give the record a reading each; in the green step `npm run check` runs them again, about 17 seconds a round on #855's base.
   The setup installs the base's dependencies in the check step's worktree before its checks ([ADR 0140](0140-a-repository-s-setup-runs-before-a-check-step-s-checks-with-the-network.md)).
   `npm run check` runs the test files the change reaches from `origin/main`, which in the scratch clone is the order's base ([ADR 0241](0241-each-test-runs-at-the-stage-where-it-pays-the-check-runs-the-test-files-a-change-reaches.md)).
   A probe by hand on #855's base found `npm ci`, the typecheck, the lint and `npm run check` all passing there; it is no test.
