@@ -5,14 +5,19 @@
 
 import { createHmac } from 'node:crypto';
 import { join, resolve } from 'node:path';
+import { fold } from '../../src/engine/fold.ts';
+import { withoutSecrets } from '../../src/engine/out-doc-text.ts';
+import { planEntryText } from '../../src/engine/plan-comment.ts';
 import { pathInside } from '../../src/platform/paths.ts';
 import { Effort } from '../../src/schemas/brewer.ts';
 import { ClaudeToolResult, ClaudeToolUse } from '../../src/schemas/claude-stream.ts';
 import type { Event, GravityReading, Usage } from '../../src/schemas/events.ts';
 import { ModelId } from '../../src/schemas/models.ts';
+import { planOf } from '../../src/schemas/plan.ts';
 import { z } from '../../src/schemas/zod.ts';
 import type { FakeApiComment } from '../../test/helpers/fake-github-api.ts';
 import type { Scripted } from '../../test/helpers/nip-fixture.ts';
+import { TARGET } from '../demo/core.ts';
 import {
   backTo,
   escapeCell,
@@ -116,12 +121,20 @@ const chosenOrders = (orders: string | undefined): string[] | undefined => {
   return only;
 };
 
+/** The orders `--orders` names, or every order without it. */
+const realOrdersOf = (orders?: string) => {
+  const only = chosenOrders(orders);
+  return REAL_ORDERS.filter(({ order }) => only === undefined || only.includes(String(order)));
+};
+
 /** A setup's name after its order: its profile, or `comments`. */
 const profileOf = (setup: RealSetup): Profile | 'comments' =>
   setup.slice(setup.indexOf('-') + 1) as Profile | 'comments';
 
 /** The order `setup` tastes. */
-export const orderOf = (setup: RealSetup | BrewerSetup): (typeof REAL_ORDERS)[number] => {
+export const orderOf = (
+  setup: RealSetup | BrewerSetup | PlannerSetup,
+): (typeof REAL_ORDERS)[number] => {
   const number = Number(setup.slice(0, setup.indexOf('-')));
   const found = REAL_ORDERS.find(({ order }) => order === number);
   if (found === undefined) throw new Error(`no order for the setup ${setup}`);
@@ -993,11 +1006,15 @@ export const scriptedTranscript = (worktree: string, model: string): string =>
 export const MEASURED_BREWERS = ['cellarman'] as const;
 export type MeasuredBrewer = (typeof MEASURED_BREWERS)[number];
 
-/** A real brewer's run settings: which brewer, on which model, at which effort (ADR 0394). */
+/**
+ * A real brewer's run settings: which brewer, on which model, at which effort (ADR 0394), and
+ * `plan` when it starts from the Brewmaster's kept sub-order, not the order's own text (ADR 0396).
+ */
 export interface BrewerSettings {
   brewer: MeasuredBrewer;
   model: string;
   effort: z.infer<typeof Effort>;
+  orderText?: 'plan';
 }
 
 /** One order brewed by a real brewer on a model and effort: the order first, as a setup's name. */
@@ -1016,11 +1033,17 @@ export const brewerSettingsOf = (given: {
   model?: string;
   effort?: string;
   setups?: string;
+  orderText?: string;
 }): BrewerSettings | undefined => {
-  const { real, brewer, model, effort, setups } = given;
+  const { real, brewer, model, effort, setups, orderText } = given;
   if (brewer === undefined) {
     if (model !== undefined || effort !== undefined) {
       throw new Error('--model and --effort set the brewer --brewer names: give --brewer too');
+    }
+    if (orderText !== undefined) {
+      throw new Error(
+        '--order-text chooses the text a --brewer run starts from: give --brewer too',
+      );
     }
     return undefined;
   }
@@ -1043,16 +1066,23 @@ export const brewerSettingsOf = (given: {
   if (!level.success) {
     throw new Error(`--effort takes one of ${Effort.options.join(', ')}, not "${effort}"`);
   }
-  return { brewer: measured, model, effort: level.data };
+  if (orderText !== undefined && orderText !== 'issue' && orderText !== 'plan') {
+    throw new Error(`--order-text takes issue, plan, not "${orderText}"`);
+  }
+  return {
+    brewer: measured,
+    model,
+    effort: level.data,
+    ...(orderText === 'plan' ? { orderText } : {}),
+  };
 };
 
 /** The setups of a brewer's runs, one per order, of the orders `--orders` names or of every order. */
-export const brewerSetups = (settings: BrewerSettings, orders?: string): BrewerSetup[] => {
-  const only = chosenOrders(orders);
-  return REAL_ORDERS.filter(({ order }) => only === undefined || only.includes(String(order))).map(
-    ({ order }): BrewerSetup => `${order}-${settings.brewer}-${settings.model}-${settings.effort}`,
+export const brewerSetups = (settings: BrewerSettings, orders?: string): BrewerSetup[] =>
+  realOrdersOf(orders).map(
+    ({ order }): BrewerSetup =>
+      `${order}-${settings.brewer}-${settings.model}-${settings.effort}${settings.orderText === 'plan' ? PLAN_TEXT : ''}`,
   );
-};
 
 /** A run's scratch folder name: a setup's name with what Windows refuses in a folder's name replaced. */
 export const scratchNameOf = (name: string): string => name.replace(/[^A-Za-z0-9._-]/g, '_');
@@ -1249,36 +1279,13 @@ export const brewerRecordOf = (
 ): Pick<BrewerRecord, 'ended' | 'attempts' | 'brewer'> => {
   const { ended } = recordIn(events, new Map());
   const steps = new Map<string, StepRun>();
-  const models = new Set<string>();
-  // How many models each Cellarman attempt's transcript names, by attempt.
-  const named = new Map<number, number>();
-  let unreadable: string | undefined;
   let commit: string | undefined;
   let green: { passed: boolean; checks: string[] } = { passed: false, checks: [] };
   for (const { event } of events) {
     if (event.type === 'step.started') {
       if (event.stepId === 'green' && event.worktree !== undefined) commit = event.worktree.commit;
-      if (event.stepId !== IMPLEMENT || event.session === undefined) continue;
-      const { id, worktree } = event.session;
-      const transcript = transcriptOf(id, worktree);
-      if (transcript === undefined) {
-        unreadable ??= `${IMPLEMENT} ${event.attempt}: its transcript could not be found`;
-        continue;
-      }
-      const read = transcriptReads(transcript, worktree).models;
-      named.set(event.attempt, read.length);
-      for (const model of read) models.add(model);
     } else if (event.type === 'step.finished') {
       const { stepId, usage, receipt } = event;
-      // A Cellarman that finished on no model cannot say which wrote the code; one that failed by
-      // itself may have called none (ADR 0344).
-      if (
-        stepId === IMPLEMENT &&
-        event.outcome.kind === 'succeeded' &&
-        named.get(event.attempt) === 0
-      ) {
-        unreadable ??= `${IMPLEMENT} ${event.attempt}: its transcript names no model`;
-      }
       const step = steps.get(stepId) ?? { stepId, attempts: 0, turns: 0, durationMs: 0 };
       const summed = sumUsage(step.usage, usage);
       steps.set(stepId, {
@@ -1304,8 +1311,7 @@ export const brewerRecordOf = (
       checksPassed: green.passed,
       checks: green.checks,
       steps: [...steps.values()],
-      models: [...models],
-      ...(unreadable === undefined ? {} : { unreadable }),
+      ...stepModels(events, IMPLEMENT, transcriptOf),
       ...(commit === undefined ? {} : { commit }),
     },
   };
@@ -1379,7 +1385,7 @@ const brewerRow = (code: string, { setup, run, wallMs, brewer }: BrewerRecord): 
   const rounds = brewer.steps.map(({ stepId, attempts }) => `${stepId} ${attempts}`).join(', ');
   const turns = brewer.steps.reduce((sum, { turns }) => sum + turns, 0);
   const time = brewer.steps.reduce((sum, { durationMs }) => sum + durationMs, 0);
-  return `| ${code} | ${setup} | ${run} | ${escapeCell(brewer.model)} | ${brewer.effort} | ${brewer.checksPassed ? 'passed' : 'failed'} | ${rounds} | ${tokens} | ${turns} | ${seconds(time)} | ${seconds(wallMs)} |`;
+  return `| ${code} | ${setup} | ${run} | ${escapeCell(brewer.model)} | ${brewer.effort} | ${brewer.orderText ?? 'issue'} | ${brewer.checksPassed ? 'passed' : 'failed'} | ${rounds} | ${tokens} | ${turns} | ${seconds(time)} | ${seconds(wallMs)} |`;
 };
 
 /**
@@ -1426,8 +1432,8 @@ export const brewerBlinded = (
   const codes = [
     '# The codes of the lists',
     '',
-    '| Code | Setup | Run | Model | Effort | Checks | Rounds | Input | Output | Cache read | Cache write | Tokens | Turns | Brewers | Wall |',
-    '|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|',
+    '| Code | Setup | Run | Model | Effort | Text | Checks | Rounds | Input | Output | Cache read | Cache write | Tokens | Turns | Brewers | Wall |',
+    '|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|',
     ...rows,
     ...(failures.length === 0 ? [] : ['', ...failures]),
     '',
@@ -1450,4 +1456,274 @@ export const brewerTable = (records: readonly BrewerRecord[]): string => {
     '',
     'Score lists/<order>.md by hand against the key, then open codes.md, which says which setup each code is.',
   ].join('\n')}\n`;
+};
+
+/** The Brewmaster's recipe of the planning runs, `--sub-orders` (ADR 0396). */
+export const PLANNER_RECIPE = 'real-plan-brewmaster';
+
+/** The end of a brewer's setup that starts from the kept sub-order (ADR 0396). */
+const PLAN_TEXT = '-plan';
+
+/** The family the Brewmaster's `planner` alias names in `defaults/models.jsonc`. */
+const PLANNER_FAMILY = 'opus';
+
+/** One order planned once by the real Brewmaster. */
+export type PlannerSetup = `${OrderNumber}-brewmaster`;
+
+/** What a planning run measured: the Brewmaster's models, and its one sub-order or why it has none. */
+export interface PlannerRun {
+  models: readonly string[];
+  unreadable?: string;
+  /** The Brewmaster's out doc, as its step's output gave it. */
+  plan?: unknown;
+  /** The sub-order a brewer's run starts from: its title and its plan entry's text (ADR 0290). */
+  subOrder?: { title: string; text: string };
+  /** Why the order keeps no sub-order text: a result to report, not a failed run. */
+  why?: string;
+}
+
+export type PlannerRecord = RunRecord<PlannerSetup> & { planner: PlannerRun };
+
+/** Whether `--sub-orders` plans the orders; throws on a wrong combination. */
+export const subOrdersRunOf = (given: {
+  real?: boolean;
+  subOrders?: boolean;
+  brewer?: string;
+  setups?: string;
+}): boolean => {
+  if (given.subOrders !== true) return false;
+  if (given.real !== true)
+    throw new Error('--sub-orders plans the orders of --real: give --real too');
+  if (given.brewer !== undefined) {
+    throw new Error('--sub-orders plans the orders and --brewer builds them: give one of them');
+  }
+  if (given.setups !== undefined) {
+    throw new Error('--sub-orders plans the orders and --setups tastes them: give one of them');
+  }
+  return true;
+};
+
+/** The planning runs' setups, one per order of `--orders`, or of every order. */
+export const plannerSetups = (orders?: string): PlannerSetup[] =>
+  realOrdersOf(orders).map(({ order }): PlannerSetup => `${order}-brewmaster`);
+
+/**
+ * The planning runs' Brewery files beyond Nip's: a mash of the Brewmaster alone, as it ships, so
+ * the batch waits for its plan's review once the plan is written (ADR 0275, ADR 0396).
+ */
+export const plannerBreweryFiles = (): Record<string, string> => {
+  const recipe = {
+    name: PLANNER_RECIPE,
+    type: 'mash',
+    description: 'An order planned once by the Brewmaster as it ships, with no Taster',
+    guidance: {
+      chooseWhen: 'A brewed order, planned once to build again from its sub-order',
+      notWhen: 'Any new order',
+      bestUsed: 'Through node scripts/tasting-compare.ts --real --sub-orders',
+    },
+    testFirst: false,
+    steps: [{ id: 'plan', brewer: 'brewmaster' }],
+  };
+  return {
+    [`recipes/${PLANNER_RECIPE}.jsonc`]: `// node scripts/tasting-compare.ts --real --sub-orders' recipe (ADR 0396).\n${json(recipe)}`,
+  };
+};
+
+/**
+ * The models each attempt of `stepId` ran on, by its transcript; a transcript that cannot be found,
+ * or one of an attempt that succeeded and names no model, cannot say; one that failed by itself may
+ * have called none (ADR 0344).
+ */
+const stepModels = (
+  events: readonly { event: Event }[],
+  stepId: string,
+  transcriptOf: (sessionId: string, worktree: string) => string | undefined,
+): { models: string[]; unreadable?: string } => {
+  const models = new Set<string>();
+  const named = new Map<number, number>();
+  let unreadable: string | undefined;
+  for (const { event } of events) {
+    if (event.type === 'step.started' && event.stepId === stepId && event.session !== undefined) {
+      const { id, worktree } = event.session;
+      const transcript = transcriptOf(id, worktree);
+      if (transcript === undefined) {
+        unreadable ??= `${stepId} ${event.attempt}: its transcript could not be found`;
+        continue;
+      }
+      const read = transcriptReads(transcript, worktree).models;
+      named.set(event.attempt, read.length);
+      for (const model of read) models.add(model);
+    } else if (
+      event.type === 'step.finished' &&
+      event.stepId === stepId &&
+      event.outcome.kind === 'succeeded' &&
+      named.get(event.attempt) === 0
+    ) {
+      unreadable ??= `${stepId} ${event.attempt}: its transcript names no model`;
+    }
+  }
+  return { models: [...models], ...(unreadable === undefined ? {} : { unreadable }) };
+};
+
+const OutDocStatus = z.looseObject({ status: z.string() });
+
+/**
+ * A planning run's record from its store's events: the Brewmaster's models, its out doc, and its
+ * one sub-order's title and plan entry, read as a sub-order's brewers read it (ADR 0290), or why
+ * there is none: a plan of several sub-orders, or none (ADR 0396).
+ */
+export const plannerRecordOf = (
+  events: readonly { event: Event }[],
+  transcriptOf: (sessionId: string, worktree: string) => string | undefined,
+): Pick<PlannerRecord, 'ended' | 'attempts' | 'planner'> => {
+  const { ended } = recordIn(events, new Map());
+  const read = stepModels(events, 'plan', transcriptOf);
+  let wrote: { batchId: string; attempt: number; output: unknown } | undefined;
+  for (const { event } of events) {
+    if (event.type === 'step.finished' && event.stepId === 'plan') {
+      const { outcome } = event;
+      if (outcome.kind === 'succeeded') wrote = { ...event, output: outcome.output };
+      // The runner records a question as an outcome of its own, the out doc's status and questions.
+      if (outcome.kind === 'needs_input') {
+        wrote = { ...event, output: { status: 'needs_input', questions: outcome.questions } };
+      }
+    }
+  }
+  const planner = (more: Partial<PlannerRun> = {}) => ({
+    ended,
+    attempts: [],
+    planner: { ...read, ...more },
+  });
+  if (wrote === undefined) return planner();
+  const { batchId, attempt, output } = wrote;
+  const plan = planOf(output);
+  if (plan === undefined) {
+    const status = OutDocStatus.safeParse(output);
+    return planner({
+      plan: output,
+      why: `the Brewmaster wrote no plan: its out doc ended ${status.success ? status.data.status : 'unread'}`,
+    });
+  }
+  const [only, ...more] = plan.subOrders;
+  if (only === undefined || more.length > 0) {
+    return planner({
+      plan: output,
+      why: `the plan has ${plan.subOrders.length} sub-orders, and the head built the whole order`,
+    });
+  }
+  const origin = { batchId, stepId: 'plan', attempt, entry: only.id };
+  return planner({
+    plan: output,
+    subOrder: {
+      title: withoutSecrets(only.title, 'plan', () => false),
+      text: planEntryText(fold(events.map(({ event }) => event)), origin),
+    },
+  });
+};
+
+/** Why a planning run measured nothing, or undefined: the Brewmaster ended with no out doc. */
+export const plannerFailure = ({
+  ended,
+  planner,
+}: Pick<PlannerRecord, 'ended' | 'planner'>): string | undefined =>
+  planner.plan === undefined
+    ? `the batch ended ${ended} before the Brewmaster of its plan step wrote an out doc`
+    : undefined;
+
+/**
+ * Why the comparison must stop after a planning run, or undefined: a transcript that cannot say, or
+ * a model outside the Brewmaster's family, is the harness's (ADR 0344).
+ */
+export const plannerStop = ({
+  setup,
+  planner,
+}: Pick<PlannerRecord, 'setup' | 'planner'>): string | undefined => {
+  if (planner.unreadable !== undefined) return escapeCell(planner.unreadable);
+  const other = planner.models.find((model) => !model.includes(PLANNER_FAMILY));
+  return other === undefined
+    ? undefined
+    : escapeCell(`plan: it ran on ${other}, and ${setup} asks for ${PLANNER_FAMILY}`);
+};
+
+/**
+ * The files the planning runs keep, by path in its folder: each order's plan, and its sub-order's
+ * text, the title on its first line as an order's own file has it, only when the plan has one.
+ */
+export const keptFiles = (records: readonly PlannerRecord[]): Record<string, string> => {
+  const files: Record<string, string> = {};
+  for (const { setup, planner } of records) {
+    const order = orderOf(setup).order;
+    if (planner.plan === undefined) continue;
+    files[`${order}-plan.json`] = json(planner.plan);
+    if (planner.subOrder !== undefined) {
+      files[`${order}.md`] = `${planner.subOrder.title}\n${planner.subOrder.text}\n`;
+    }
+  }
+  return files;
+};
+
+/** What the planning runs print: each order's sub-order kept, or why it has none. */
+export const plannerTable = (records: readonly PlannerRecord[]): string =>
+  `${[
+    '| Order | Sub-order text |',
+    '|---|---|',
+    ...records.map(({ setup, planner }) => {
+      const kept = planner.subOrder === undefined ? undefined : `kept: ${planner.subOrder.title}`;
+      return `| ${orderOf(setup).order} | ${escapeCell(kept ?? planner.why ?? 'no out doc: planned again once')} |`;
+    }),
+  ].join('\n')}\n`;
+
+/** The dry run's scripted Brewmaster: a plan of one sub-order of the order `title`, touching a path every base has. */
+export const scriptedPlan = (title: string): Record<string, readonly Scripted[]> => ({
+  plan: [
+    {
+      files: {},
+      message: '',
+      summary: "The dry run's scripted plan of one sub-order.",
+      doc: {
+        assumptions: [],
+        subOrders: [
+          {
+            id: 'order',
+            title,
+            repo: TARGET,
+            size: { lines: 100, mechanism: 'the order as written' },
+            doneWhen: "the head's tests pass",
+            touches: [{ path: 'package.json' }],
+            dependencies: [],
+            recipe: 'nip',
+            why: 'scripted by the dry run',
+            ready: true,
+          },
+        ],
+      },
+    },
+  ],
+});
+
+/** The file of the text a brewer's run of `setup` starts from: the order's own, or the kept sub-order's. */
+export const orderFileOf = (
+  setup: BrewerSetup,
+  folders: { fixture: string; kept: string },
+): string =>
+  join(setup.endsWith(PLAN_TEXT) ? folders.kept : folders.fixture, `${orderOf(setup).order}.md`);
+
+/**
+ * Throws, naming every missing file, when a run of `setups` would start from a kept text that is
+ * not there: it never starts from the order's own text instead (ADR 0396).
+ */
+export const refuseMissingTexts = (
+  setups: readonly BrewerSetup[],
+  kept: string,
+  exists: (path: string) => boolean,
+): void => {
+  const missing = setups
+    .filter((setup) => setup.endsWith(PLAN_TEXT))
+    .map((setup) => orderFileOf(setup, { fixture: kept, kept }))
+    .filter((path) => !exists(path));
+  if (missing.length > 0) {
+    throw new Error(
+      `--order-text plan starts from a kept sub-order, and there is none in ${missing.join(', ')}: run --real --sub-orders first`,
+    );
+  }
 };

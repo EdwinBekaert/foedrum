@@ -46,6 +46,11 @@
 // each step's attempts, tokens, turns and time, and the commit it ended on; --orders runs only
 // those orders. One blinded list per order shows each run's code diff under
 // .foedrum/tmp/tasting-compare/real/brewers, the setups named only in codes.md.
+//
+// With --real --sub-orders (#1052, ADR 0396) it plans each order once through the real Brewmaster
+// as it ships, or scripted with --dry-run, and keeps a plan of one sub-order as that sub-order's
+// text in real/sub-orders/<order>.md; --real --brewer cellarman --order-text plan then builds
+// from that text instead of the order's own, and refuses before anything brews when it is missing.
 
 import { randomBytes } from 'node:crypto';
 import {
@@ -81,6 +86,7 @@ import {
   AFTER_ROUND_ONE,
   IMPLEMENT,
   nextRun,
+  nextRunOf,
   type RunRecord,
   readKey,
   readRecordsIn,
@@ -121,9 +127,20 @@ import {
   changedFiles,
   codeDiffArgs,
   comparisonStop,
+  keptFiles,
   nextBrewerRun,
   nextRealRun,
+  orderFileOf,
   orderOf,
+  PLANNER_RECIPE,
+  type PlannerRecord,
+  type PlannerSetup,
+  plannerBreweryFiles,
+  plannerFailure,
+  plannerRecordOf,
+  plannerSetups,
+  plannerStop,
+  plannerTable,
   READS_TASTER,
   REAL_BREWER_RECIPE,
   REAL_ORDERS,
@@ -135,12 +152,15 @@ import {
   realRecipeOf,
   realRecordOf,
   realTable,
+  refuseMissingTexts,
   refuseSameTaster,
   scratchNameOf,
+  scriptedPlan,
   scriptedRealTastings,
   scriptedTranscript,
   selectRealSetups,
   splitHead,
+  subOrdersRunOf,
   TODAY_COMMIT,
 } from './tasting-compare/real.ts';
 
@@ -166,6 +186,8 @@ const { values } = parseArgs({
     brewer: { type: 'string' },
     model: { type: 'string' },
     effort: { type: 'string' },
+    'sub-orders': { type: 'boolean' },
+    'order-text': { type: 'string' },
   },
 });
 if (values.plan === true && values.real === true) {
@@ -179,15 +201,29 @@ if (values.setups !== undefined && values.real !== true) {
 /** A real brewer's settings, when --brewer gives them (ADR 0394). */
 const brewerSettings = (() => {
   try {
-    return brewerSettingsOf(values);
+    return brewerSettingsOf({ ...values, orderText: values['order-text'] });
   } catch (error) {
     process.stderr.write(`${(error as Error).message}\n`);
     process.exit(2);
   }
 })();
-if (values.orders !== undefined && values.setups === undefined && brewerSettings === undefined) {
+/** Whether --sub-orders plans the orders (ADR 0396). */
+const subOrders = (() => {
+  try {
+    return subOrdersRunOf({ ...values, subOrders: values['sub-orders'] });
+  } catch (error) {
+    process.stderr.write(`${(error as Error).message}\n`);
+    process.exit(2);
+  }
+})();
+if (
+  values.orders !== undefined &&
+  values.setups === undefined &&
+  brewerSettings === undefined &&
+  !subOrders
+) {
   process.stderr.write(
-    '--orders chooses the orders of the setups --setups or the runs --brewer names: give one of them too\n',
+    '--orders chooses the orders of the setups --setups, the runs --brewer or the plans --sub-orders names: give one of them too\n',
   );
   process.exit(2);
 }
@@ -216,6 +252,8 @@ const realFolderNames = (): string[] => {
   }
 };
 const realFolderOf = realFolderNames();
+/** The planning runs' folder, where a brewer's run from a kept sub-order reads it (ADR 0396). */
+const SUB_ORDERS = 'sub-orders';
 const runs = Number(values.runs ?? '3');
 if (!Number.isSafeInteger(runs) || runs < 1) {
   process.stderr.write(`--runs must be a whole number of at least 1, not ${values.runs}\n`);
@@ -408,6 +446,10 @@ const realTarget = async (
   await git(scratch, ['clone', '-q', 'web.git', 'web']);
 };
 
+/** The folder of a mode whose `folders` are these, where its records and files stay. */
+const modeFolder = (folders: readonly string[]): string =>
+  join(root, '.foedrum', 'tmp', 'tasting-compare', ...folders, ...(dryRun ? ['dry-run'] : []));
+
 /** The seed of a report folder's codes: one for the folder, so a code stays the same as more runs come in. */
 const seedIn = (reportFolder: string): string => {
   const seedFile = join(reportFolder, 'seed.txt');
@@ -495,10 +537,17 @@ const brewerMode = async (settings: BrewerSettings): Promise<Mode<BrewerSetup, B
   await realCommits();
   const setups = brewerSetups(settings, values.orders);
   const names = { brewery: BREWERY, target: TARGET, user: USER };
+  const folders = { fixture: realFixture, kept: modeFolder([...realFolderOf, SUB_ORDERS]) };
+  try {
+    refuseMissingTexts(setups, folders.kept, existsSync);
+  } catch (error) {
+    process.stderr.write(`${(error as Error).message}\n`);
+    process.exit(2);
+  }
   return {
     folders: [...realFolderOf, 'brewers'],
     setups,
-    order: (setup) => join(realFixture, `${orderOf(setup).order}.md`),
+    order: (setup) => orderFileOf(setup, folders),
     recipeOf: () => REAL_BREWER_RECIPE,
     breweryFiles: () => brewerBreweryFiles(settings, names),
     target: realTarget,
@@ -537,18 +586,42 @@ const brewerMode = async (settings: BrewerSettings): Promise<Mode<BrewerSetup, B
   };
 };
 
+/**
+ * The planning runs (ADR 0396): each order's base, planned once by the Brewmaster as it ships, real
+ * or scripted with --dry-run, until its plan waits for its review; a plan of one sub-order is kept
+ * as that sub-order's text, and a run with no out doc is planned once more.
+ */
+const plannerMode = async (): Promise<Mode<PlannerSetup, PlannerRecord>> => {
+  await realCommits();
+  const setups = plannerSetups(values.orders);
+  const order = (setup: PlannerSetup) => join(realFixture, `${orderOf(setup).order}.md`);
+  return {
+    folders: [...realFolderOf, SUB_ORDERS],
+    setups,
+    order,
+    recipeOf: () => PLANNER_RECIPE,
+    breweryFiles: plannerBreweryFiles,
+    target: realTarget,
+    script: async (setup) =>
+      dryRun ? scriptedPlan(readFileSync(order(setup), 'utf8').split(/\r?\n/)[0] ?? '') : {},
+    // No step is scripted on a real run.
+    scriptedStep: '',
+    next: (records) => nextRunOf(setups, records, 1, plannerFailure),
+    recordOf: async (events, _setup, planned) =>
+      plannerRecordOf(events, (id, worktree) =>
+        dryRun ? scriptedTranscript(worktree, planned.get(id) ?? 'no plan') : transcriptOf(id),
+      ),
+    table: plannerTable,
+    stop: plannerStop,
+    files: keptFiles,
+  };
+};
+
 /** Brews every run of `mode` that has no record yet, and prints its one table. */
 const compare = async <Setup extends string, Run extends RunRecord<Setup>>(
   mode: Mode<Setup, Run>,
 ): Promise<void> => {
-  const folder = join(
-    root,
-    '.foedrum',
-    'tmp',
-    'tasting-compare',
-    ...mode.folders,
-    ...(dryRun ? ['dry-run'] : []),
-  );
+  const folder = modeFolder(mode.folders);
   const resultsFile = join(folder, 'results.jsonl');
   const readRecords = (): Run[] => readRecordsIn<Setup, Run>(folder);
 
@@ -732,10 +805,12 @@ const compare = async <Setup extends string, Run extends RunRecord<Setup>>(
   process.stdout.write(table);
 };
 
-await (brewerSettings !== undefined
-  ? compare(await brewerMode(brewerSettings))
-  : values.real === true
-    ? compare(await realMode())
-    : values.plan === true
-      ? compare(planMode())
-      : compare(diffMode()));
+await (subOrders
+  ? compare(await plannerMode())
+  : brewerSettings !== undefined
+    ? compare(await brewerMode(brewerSettings))
+    : values.real === true
+      ? compare(await realMode())
+      : values.plan === true
+        ? compare(planMode())
+        : compare(diffMode()));
