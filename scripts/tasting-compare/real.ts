@@ -1250,6 +1250,8 @@ export const brewerRecordOf = (
   const { ended } = recordIn(events, new Map());
   const steps = new Map<string, StepRun>();
   const models = new Set<string>();
+  // How many models each Cellarman attempt's transcript names, by attempt.
+  const named = new Map<number, number>();
   let unreadable: string | undefined;
   let commit: string | undefined;
   let green: { passed: boolean; checks: string[] } = { passed: false, checks: [] };
@@ -1263,9 +1265,20 @@ export const brewerRecordOf = (
         unreadable ??= `${IMPLEMENT} ${event.attempt}: its transcript could not be found`;
         continue;
       }
-      for (const model of transcriptReads(transcript, worktree).models) models.add(model);
+      const read = transcriptReads(transcript, worktree).models;
+      named.set(event.attempt, read.length);
+      for (const model of read) models.add(model);
     } else if (event.type === 'step.finished') {
       const { stepId, usage, receipt } = event;
+      // A Cellarman that finished on no model cannot say which wrote the code; one that failed by
+      // itself may have called none (ADR 0344).
+      if (
+        stepId === IMPLEMENT &&
+        event.outcome.kind === 'succeeded' &&
+        named.get(event.attempt) === 0
+      ) {
+        unreadable ??= `${IMPLEMENT} ${event.attempt}: its transcript names no model`;
+      }
       const step = steps.get(stepId) ?? { stepId, attempts: 0, turns: 0, durationMs: 0 };
       const summed = sumUsage(step.usage, usage);
       steps.set(stepId, {
@@ -1323,12 +1336,14 @@ export const brewerStop = ({
 }: Pick<BrewerRecord, 'setup' | 'brewer'>): string | undefined => {
   if (brewer.unreadable !== undefined) return escapeCell(brewer.unreadable);
   const asked = brewer.model.replace(/\[1m\]$/, '');
+  // A dry run's scripted transcript names the model as planned, `[1m]` and all.
+  const nameOf = (model: string): string => model.replace(/\[1m\]$/, '');
   const isAsked = (model: string): boolean =>
     asked.includes('-')
       ? model === asked ||
         (model.startsWith(`${asked}-`) && /^\d{8}$/.test(model.slice(asked.length + 1)))
       : model.includes(asked);
-  const other = brewer.models.find((model) => !isAsked(model));
+  const other = brewer.models.find((model) => !isAsked(nameOf(model)));
   return other === undefined
     ? undefined
     : escapeCell(`${IMPLEMENT}: it ran on ${other}, and ${setup} asks for ${asked}`);
