@@ -1122,6 +1122,14 @@ describe('tasting-compare --real --brewer (ADR 0394)', () => {
       assert.deepEqual(brewer.steps.find(({ stepId }) => stepId === 'map')?.usage, usage(100));
     });
 
+    it('a step whose first attempt has no transcript gets no count, though a later one has: a count never stands for part of its attempts', () => {
+      const { 'implement-1': _, ...later } = transcripts;
+      const { brewer } = brewerRecordOf(mapped, MAP_RUN, (id) => later[id]);
+      const implement = brewer.steps.find(({ stepId }) => stepId === 'implement');
+      assert.equal(implement?.attempts, 2);
+      assert.equal(implement?.searches, undefined);
+    });
+
     it('a step whose transcript has a line it cannot read gets no count', () => {
       const broken: Record<string, string> = {
         ...transcripts,
