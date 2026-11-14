@@ -300,7 +300,8 @@ interface Chosen {
 /**
  * The folder a Brewery goes in, as answered (ADR 0393): a Brewery's clone is used at its top; a
  * folder in another repository, a missing one whose nearest folder is in one, a file and a folder
- * with files are refused, so init never writes into another project.
+ * with files are refused, so init never writes into another project; on Windows, so is a network
+ * or device path (ADR 0401).
  */
 const chooseFolder = async (ports: InitPorts, answer: string): Promise<Parsed<Chosen>> => {
   const { files } = ports;
