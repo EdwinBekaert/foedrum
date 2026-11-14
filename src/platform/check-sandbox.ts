@@ -1,11 +1,13 @@
 // The OS sandbox a check step's command line runs in (ADR 0076): bwrap on Linux and WSL2,
 // sandbox-exec on macOS, with no network, the home folder hidden and writes only in the worktree
 // and a temporary folder. A repository's setup runs in the same sandbox with the network kept
-// (ADR 0158), on Linux through a network namespace of its own that slirp4netns or pasta joins
-// (ADR 0218). Native Windows has none (ADR 0010). A process runner that wraps another, so the
-// deadline, the stop and the output limit stay the process runner's (ADR 0035).
+// (ADR 0158), on Linux through a network namespace of its own that pasta or slirp4netns joins
+// (ADR 0218), pasta first where its resolver works, since it isolates itself (ADR 0400). Native
+// Windows has none (ADR 0010). A process runner that wraps another, so the deadline, the stop and
+// the output limit stay the process runner's (ADR 0035).
 
 import { mkdtempSync, readFileSync } from 'node:fs';
+import { BlockList, isIP } from 'node:net';
 import { homedir, tmpdir } from 'node:os';
 import { basename, dirname, join, posix, resolve } from 'node:path';
 import type { Duplex } from 'node:stream';
@@ -316,8 +318,20 @@ export interface SandboxedChecksOptions {
 /** The user-mode network stacks a Linux setup's namespace gets the network from (ADR 0218). */
 export type NetworkStackTool = 'pasta' | 'slirp4netns';
 
-/** In the order they are looked for: slirp4netns first, whose resolver works where pasta's has none. */
-const stackTools: readonly NetworkStackTool[] = ['slirp4netns', 'pasta'];
+/** The addresses a host's resolver is pasta's own loopback at, never forwarded to (ADR 0400). */
+const LOOPBACK = new BlockList();
+LOOPBACK.addSubnet('127.0.0.0', 8, 'ipv4');
+LOOPBACK.addAddress('::1', 'ipv6');
+
+/** The host's /etc/resolv.conf, or undefined when it cannot be read. */
+const readResolvConfFile = (): string | undefined => {
+  try {
+    return readFileSync(RESOLV_CONF, 'utf8');
+  } catch {
+    // pastaResolverGap says so, and slirp4netns comes first.
+    return undefined;
+  }
+};
 
 /**
  * Why pasta has no resolver to forward a setup's 10.0.2.3 to, or undefined when it has one: it
@@ -325,8 +339,17 @@ const stackTools: readonly NetworkStackTool[] = ['slirp4netns', 'pasta'];
  * systemd-resolved's stub, gave it none (ADR 0218, ADR 0400). `resolvConf` is undefined when the
  * file cannot be read.
  */
-export const pastaResolverGap = (_resolvConf: string | undefined): string | undefined => {
-  throw new Error('not implemented');
+export const pastaResolverGap = (resolvConf: string | undefined): string | undefined => {
+  if (resolvConf === undefined) return `${RESOLV_CONF} cannot be read`;
+  const first = /^nameserver[ \t]+(\S+)/m.exec(resolvConf)?.[1];
+  if (first === undefined) return `${RESOLV_CONF} names no nameserver`;
+  // An IPv6 address may carry its interface's zone.
+  const address = first.replace(/%.*$/, '');
+  const family = isIP(address);
+  if (family === 0) return `${RESOLV_CONF}'s first nameserver ${first} is not an address`;
+  return LOOPBACK.check(address, family === 6 ? 'ipv6' : 'ipv4')
+    ? `${RESOLV_CONF}'s first nameserver ${first} is a loopback address`
+    : undefined;
 };
 
 /**
@@ -335,10 +358,12 @@ export const pastaResolverGap = (_resolvConf: string | undefined): string | unde
  * neither.
  */
 export const setupStack = (
-  _found: Readonly<Record<NetworkStackTool, boolean>>,
-  _resolvConf: string | undefined,
+  found: Readonly<Record<NetworkStackTool, boolean>>,
+  resolvConf: string | undefined,
 ): NetworkStackTool | undefined => {
-  throw new Error('not implemented');
+  if (found.pasta && pastaResolverGap(resolvConf) === undefined) return 'pasta';
+  if (found.slirp4netns) return 'slirp4netns';
+  return found.pasta ? 'pasta' : undefined;
 };
 
 /**
@@ -553,6 +578,7 @@ export function sandboxedChecks(options: SandboxedChecksOptions): ExecProcess {
   const findBwrap = options.findBwrap ?? (() => resolveExecutable('bwrap', { platform }));
   const findStackTool =
     options.findStackTool ?? ((tool: NetworkStackTool) => resolveExecutable(tool, { platform }));
+  const readResolvConf = options.readResolvConf ?? readResolvConfFile;
   const hasSandboxExec =
     options.hasSandboxExec ?? (() => resolveExecutable(SANDBOX_EXEC, { platform }) !== undefined);
   return async (file, args, call) => {
@@ -589,12 +615,13 @@ export function sandboxedChecks(options: SandboxedChecksOptions): ExecProcess {
           await exec(bwrap, bwrapArgs(paths, file), { ...call, shell: false }),
         );
       }
-      const stack = stackTools
-        .map((tool) => ({ tool, path: findStackTool(tool) }))
-        .find(
-          (found): found is { tool: NetworkStackTool; path: string } => found.path !== undefined,
-        );
-      if (stack === undefined) {
+      const found = { pasta: findStackTool('pasta'), slirp4netns: findStackTool('slirp4netns') };
+      const tool = setupStack(
+        { pasta: found.pasta !== undefined, slirp4netns: found.slirp4netns !== undefined },
+        found.pasta === undefined ? undefined : readResolvConf(),
+      );
+      const path = tool === undefined ? undefined : found[tool];
+      if (tool === undefined || path === undefined) {
         return unstarted(
           "neither slirp4netns nor pasta (passt) is on PATH: a repository's setup runs only in a network namespace of its own here; install slirp4netns",
           '0218',
@@ -604,7 +631,7 @@ export function sandboxedChecks(options: SandboxedChecksOptions): ExecProcess {
       return inOwnNamespace(
         exec,
         bwrap,
-        stack,
+        { tool, path },
         bwrapArgs(paths, file, { network, resolver }),
         call,
       );
