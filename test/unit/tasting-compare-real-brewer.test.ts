@@ -1015,5 +1015,11 @@ describe('tasting-compare --real --brewer (ADR 0394)', () => {
       assert.match(table, /^\| 864 \| the plan has 2 sub-orders.* \|$/m);
       assert.match(table, /^\| 867 \| no out doc: planned again once \|$/m);
     });
+
+    it("a run's record says it started from the kept sub-order, which codes.md reads", () => {
+      const { brewer } = brewerRecordOf(twoRounds, PLAN_RUN, opusTranscript);
+      assert.equal(brewer.orderText, 'plan');
+      assert.equal(brewerRecordOf(twoRounds, OPUS, opusTranscript).brewer.orderText, undefined);
+    });
   });
 });
