@@ -937,9 +937,20 @@ describe('pastaResolverGap', () => {
     assert.equal(pastaResolverGap(text), undefined);
   });
 
-  it('finds no gap for an IPv6 nameserver off the loopback, with its zone, in a file with CRLF', () => {
-    const text = 'nameserver fe80::1%eth0\r\nnameserver 127.0.0.53\r\n';
-    assert.equal(pastaResolverGap(text), undefined);
+  // pasta runs with -4, so it forwards the setup's resolver to an IPv4 nameserver only.
+  it('finds a gap when the first nameserver is IPv6, since pasta runs IPv4 only', () => {
+    assert.equal(
+      pastaResolverGap('nameserver fe80::1%eth0\nnameserver 192.168.1.1\n'),
+      "/etc/resolv.conf's first nameserver fe80::1%eth0 is not an IPv4 address",
+    );
+  });
+
+  it('reads the first nameserver of a file with a byte order mark and CRLF', () => {
+    const bom = String.fromCodePoint(0xfeff);
+    assert.equal(
+      pastaResolverGap(`${bom}nameserver 127.0.0.53\r\nnameserver 192.168.1.1\r\n`),
+      "/etc/resolv.conf's first nameserver 127.0.0.53 is a loopback address",
+    );
   });
 
   it("finds a gap when the first nameserver is systemd-resolved's stub", () => {
@@ -956,7 +967,7 @@ describe('pastaResolverGap', () => {
     );
     assert.equal(
       pastaResolverGap('nameserver ::1\n'),
-      "/etc/resolv.conf's first nameserver ::1 is a loopback address",
+      "/etc/resolv.conf's first nameserver ::1 is not an IPv4 address",
     );
   });
 
@@ -974,7 +985,7 @@ describe('pastaResolverGap', () => {
     );
     assert.equal(
       pastaResolverGap('nameserver resolver.lan\n'),
-      "/etc/resolv.conf's first nameserver resolver.lan is not an address",
+      "/etc/resolv.conf's first nameserver resolver.lan is not an IPv4 address",
     );
     assert.equal(pastaResolverGap(undefined), '/etc/resolv.conf cannot be read');
   });
