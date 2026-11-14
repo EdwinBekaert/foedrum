@@ -1122,6 +1122,18 @@ describe('tasting-compare --real --brewer (ADR 0394)', () => {
       assert.deepEqual(brewer.steps.find(({ stepId }) => stepId === 'map')?.usage, usage(100));
     });
 
+    it('counts a session that a retry resumes once: its transcript holds both attempts', () => {
+      const resumed = [
+        started('implement', 1, session('implement-1')),
+        finished('implement', 1, { outcome: { kind: 'failed', retryable: true, reason: 'turns' } }),
+        started('implement', 2, session('implement-1')),
+        finished('implement', 2),
+      ];
+      const { brewer } = brewerRecordOf(resumed, MAP_RUN, transcriptOf);
+      const implement = brewer.steps.find(({ stepId }) => stepId === 'implement');
+      assert.deepEqual(implement?.searches, { grep: 1, glob: 0, read: 2 });
+    });
+
     it("counts only the model's own calls: a tool_use block on a line of another type is no call", () => {
       const logged = JSON.stringify({
         type: 'user',
