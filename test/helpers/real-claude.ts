@@ -1,7 +1,7 @@
 import { resolveExecutable } from '../../src/platform/executables.ts';
 
 // Tests against the installed `claude` are opt-in (ADR 0057): they depend on whichever version
-// is installed, and CI, which has no `claude`, never runs them.
+// is installed. CI's real-claude job opts in with the claude pinned in ci/claude/ (ADR 0399).
 
 /** The variable that opts in, set to `1`. */
 export const REAL_CLAUDE = 'FOEDRUM_REAL_CLAUDE';
