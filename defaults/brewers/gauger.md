@@ -3,8 +3,8 @@
   "name": "gauger",
   "description": "Writes failing tests, and stubs that throw, from the order; no implementation.",
   "version": 14,
-  "model": "builder",
-  "effort": "high",
+  "model": "standard",
+  "effort": "careful",
   "inputs": [
     { "name": "order", "from": "order" },
     { "name": "map", "from": "step:map" },

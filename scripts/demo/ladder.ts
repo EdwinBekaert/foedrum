@@ -169,7 +169,9 @@ export const ladderBreweryFiles = (): Record<string, string> => ({
       [WEB]: { alias: ALIASES[WEB], checks: NO_CHECKS },
     },
   }),
-  'models.jsonc': json({ models: { builder: 'claude-haiku-5-5', planner: 'claude-haiku-5-5' } }),
+  'models.jsonc': json({
+    claude: { models: { standard: 'claude-haiku-5-5', strong: 'claude-haiku-5-5' } },
+  }),
   '.gitignore': '.foedrum/\n',
   [`recipes/${LADDER_RECIPE}.jsonc`]: ladderRecipeText(),
 });

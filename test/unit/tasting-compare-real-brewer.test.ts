@@ -39,7 +39,7 @@ import {
   splitHead,
   subOrdersRunOf,
 } from '../../scripts/tasting-compare/real.ts';
-import { modelOf } from '../../src/brewers/attempt-plan.ts';
+import { effortOf, modelOf } from '../../src/brewers/attempt-plan.ts';
 import { claudeArgs } from '../../src/brewers/claude-command.ts';
 import { serveSetup } from '../../src/cli/serve-config.ts';
 import { readBreweryFiles } from '../../src/engine/brewery-files.ts';
@@ -50,7 +50,7 @@ import { Recipe } from '../../src/schemas/recipe.ts';
 import { nipBreweryFiles } from '../helpers/nip-fixture.ts';
 import { makeTempDir } from '../helpers/temp-dir.ts';
 
-const OPUS: BrewerSettings = { brewer: 'cellarman', model: 'claude-opus-5-5', effort: 'xhigh' };
+const OPUS: BrewerSettings = { brewer: 'cellarman', model: 'claude-opus-5-5', effort: 'thorough' };
 const NAMES = { brewery: BREWERY, target: TARGET, user: USER };
 const SESSION = '00000000-0000-4000-8000-000000000001';
 
@@ -110,7 +110,7 @@ const commandLine = (
       assert.ok(step !== undefined, stepId);
       return claudeArgs({
         model: modelOf(ready.setup.models, step.brewer),
-        effort: step.brewer.effort,
+        effort: effortOf(ready.setup.models, step.brewer),
         settingsFile: 'settings.json',
         tools: ['Read'],
         session: { kind: 'new', id: SESSION },
@@ -227,7 +227,7 @@ describe('tasting-compare --real --brewer (ADR 0394)', () => {
           real: true,
           brewer: 'cellarman',
           model: 'claude-opus-5-5',
-          effort: 'xhigh',
+          effort: 'thorough',
         }),
         OPUS,
       );
@@ -239,19 +239,19 @@ describe('tasting-compare --real --brewer (ADR 0394)', () => {
 
     it('--brewer without --real is refused', () => {
       assert.throws(
-        () => brewerSettingsOf({ brewer: 'cellarman', model: 'opus', effort: 'high' }),
+        () => brewerSettingsOf({ brewer: 'cellarman', model: 'opus', effort: 'careful' }),
         /--brewer.*--real/,
       );
     });
 
     it('--model or --effort without --brewer is refused', () => {
       assert.throws(() => brewerSettingsOf({ real: true, model: 'opus' }), /--brewer/);
-      assert.throws(() => brewerSettingsOf({ real: true, effort: 'high' }), /--brewer/);
+      assert.throws(() => brewerSettingsOf({ real: true, effort: 'careful' }), /--brewer/);
     });
 
     it('--brewer without a model or an effort is refused', () => {
       assert.throws(
-        () => brewerSettingsOf({ real: true, brewer: 'cellarman', effort: 'high' }),
+        () => brewerSettingsOf({ real: true, brewer: 'cellarman', effort: 'careful' }),
         /--model/,
       );
       assert.throws(
@@ -260,10 +260,17 @@ describe('tasting-compare --real --brewer (ADR 0394)', () => {
       );
     });
 
+    it('--brewer without an effort asks for an effort, not a model level (ADR 0397)', () => {
+      assert.throws(
+        () => brewerSettingsOf({ real: true, brewer: 'cellarman', model: 'opus' }),
+        /needs --effort <effort>$/,
+      );
+    });
+
     it('a model id models.jsonc refuses stops the run before anything is brewed', () => {
       assert.throws(
         () =>
-          brewerSettingsOf({ real: true, brewer: 'cellarman', model: 'Opus 5', effort: 'high' }),
+          brewerSettingsOf({ real: true, brewer: 'cellarman', model: 'Opus 5', effort: 'careful' }),
         /--model.*"Opus 5"/,
       );
     });
@@ -278,7 +285,7 @@ describe('tasting-compare --real --brewer (ADR 0394)', () => {
 
     it('a brewer it does not run for real is refused, and the Gauger is not one', () => {
       assert.throws(
-        () => brewerSettingsOf({ real: true, brewer: 'gauger', model: 'opus', effort: 'high' }),
+        () => brewerSettingsOf({ real: true, brewer: 'gauger', model: 'opus', effort: 'careful' }),
         /--brewer.*cellarman.*"gauger"/,
       );
     });
@@ -290,7 +297,7 @@ describe('tasting-compare --real --brewer (ADR 0394)', () => {
             real: true,
             brewer: 'cellarman',
             model: 'opus',
-            effort: 'high',
+            effort: 'careful',
             setups: 'reads',
           }),
         /--setups.*--brewer/,
@@ -299,13 +306,13 @@ describe('tasting-compare --real --brewer (ADR 0394)', () => {
 
     it('names a setup per order by its brewer, model and effort, of the orders --orders names', () => {
       assert.deepEqual(brewerSetups(OPUS), [
-        '855-cellarman-claude-opus-5-5-xhigh',
-        '864-cellarman-claude-opus-5-5-xhigh',
-        '867-cellarman-claude-opus-5-5-xhigh',
+        '855-cellarman-claude-opus-5-5-thorough',
+        '864-cellarman-claude-opus-5-5-thorough',
+        '867-cellarman-claude-opus-5-5-thorough',
       ]);
       assert.deepEqual(brewerSetups(OPUS, '867,855'), [
-        '855-cellarman-claude-opus-5-5-xhigh',
-        '867-cellarman-claude-opus-5-5-xhigh',
+        '855-cellarman-claude-opus-5-5-thorough',
+        '867-cellarman-claude-opus-5-5-thorough',
       ]);
       assert.throws(() => brewerSetups(OPUS, '999'), /--orders.*"999"/);
     });
@@ -341,7 +348,7 @@ describe('tasting-compare --real --brewer (ADR 0394)', () => {
 
     it('a second model and effort move only the Cellarman', () => {
       const line = commandLine(
-        { ...OPUS, model: 'claude-sonnet-5-5', effort: 'medium' },
+        { ...OPUS, model: 'claude-sonnet-5-5', effort: 'steady' },
         'implement',
       );
       assert.equal(optionValue(line, '--model'), 'claude-sonnet-5-5');
@@ -484,26 +491,29 @@ describe('tasting-compare --real --brewer (ADR 0394)', () => {
       );
       assert.deepEqual(brewer.models, ['claude-opus-5-5', 'claude-sonnet-5-5']);
       assert.match(
-        brewerStop({ setup: '855-cellarman-claude-opus-5-5-xhigh', brewer }) ?? '',
+        brewerStop({ setup: '855-cellarman-claude-opus-5-5-thorough', brewer }) ?? '',
         /claude-sonnet-5-5/,
       );
     });
 
     it('a run on the model it asked for stops nothing', () => {
       const { brewer } = brewerRecordOf(twoRounds, OPUS, opusTranscript);
-      assert.equal(brewerStop({ setup: '855-cellarman-claude-opus-5-5-xhigh', brewer }), undefined);
+      assert.equal(
+        brewerStop({ setup: '855-cellarman-claude-opus-5-5-thorough', brewer }),
+        undefined,
+      );
     });
 
     it('a family asks for any model of it', () => {
       const { brewer } = brewerRecordOf(twoRounds, { ...OPUS, model: 'opus' }, opusTranscript);
-      assert.equal(brewerStop({ setup: '855-cellarman-opus-xhigh', brewer }), undefined);
+      assert.equal(brewerStop({ setup: '855-cellarman-opus-thorough', brewer }), undefined);
     });
 
     it('an id asks for itself: one whose name starts another id does not accept that other model', () => {
       const asked = { ...OPUS, model: 'claude-opus-5' };
       const { brewer } = brewerRecordOf(twoRounds, asked, opusTranscript);
       assert.match(
-        brewerStop({ setup: '855-cellarman-claude-opus-5-xhigh', brewer }) ?? '',
+        brewerStop({ setup: '855-cellarman-claude-opus-5-thorough', brewer }) ?? '',
         /claude-opus-5-5.*asks for claude-opus-5/,
       );
     });
@@ -512,13 +522,16 @@ describe('tasting-compare --real --brewer (ADR 0394)', () => {
       const dated = (_id: string, tree: string) =>
         scriptedTranscript(tree, 'claude-opus-5-5-20261101');
       const { brewer } = brewerRecordOf(twoRounds, OPUS, dated);
-      assert.equal(brewerStop({ setup: '855-cellarman-claude-opus-5-5-xhigh', brewer }), undefined);
+      assert.equal(
+        brewerStop({ setup: '855-cellarman-claude-opus-5-5-thorough', brewer }),
+        undefined,
+      );
     });
 
     it('a Cellarman whose transcript cannot be found stops the comparison', () => {
       const { brewer } = brewerRecordOf(twoRounds, OPUS, () => undefined);
       assert.match(
-        brewerStop({ setup: '855-cellarman-claude-opus-5-5-xhigh', brewer }) ?? '',
+        brewerStop({ setup: '855-cellarman-claude-opus-5-5-thorough', brewer }) ?? '',
         /transcript/,
       );
     });
@@ -529,7 +542,7 @@ describe('tasting-compare --real --brewer (ADR 0394)', () => {
         scriptedTranscript(tree, '<synthetic>'),
       );
       assert.match(
-        brewerStop({ setup: '855-cellarman-claude-opus-5-5-xhigh', brewer }) ?? '',
+        brewerStop({ setup: '855-cellarman-claude-opus-5-5-thorough', brewer }) ?? '',
         /implement 1: its transcript names no model/,
       );
     });
@@ -546,7 +559,10 @@ describe('tasting-compare --real --brewer (ADR 0394)', () => {
       const { brewer } = brewerRecordOf(failedAlone, OPUS, (_id, tree) =>
         scriptedTranscript(tree, '<synthetic>'),
       );
-      assert.equal(brewerStop({ setup: '855-cellarman-claude-opus-5-5-xhigh', brewer }), undefined);
+      assert.equal(
+        brewerStop({ setup: '855-cellarman-claude-opus-5-5-thorough', brewer }),
+        undefined,
+      );
     });
 
     it('a dry run on a [1m] model passes its own check: its scripted transcript names the model as planned', () => {
@@ -555,7 +571,7 @@ describe('tasting-compare --real --brewer (ADR 0394)', () => {
         scriptedTranscript(tree, 'claude-opus-5-5[1m]'),
       );
       assert.equal(
-        brewerStop({ setup: '855-cellarman-claude-opus-5-5_1m_-xhigh', brewer }),
+        brewerStop({ setup: '855-cellarman-claude-opus-5-5_1m_-thorough', brewer }),
         undefined,
       );
     });
@@ -576,7 +592,7 @@ describe('tasting-compare --real --brewer (ADR 0394)', () => {
     });
 
     it('runs a run that measured nothing once more, and records of other models are their own setups', () => {
-      const setup = '855-cellarman-claude-opus-5-5-xhigh' as const;
+      const setup = '855-cellarman-claude-opus-5-5-thorough' as const;
       const other = '855-cellarman-claude-sonnet-5-5-high' as const;
       const lost = withoutCommit(brewerRecord(setup, 1));
       assert.deepEqual(nextBrewerRun([brewerRecord(other, 1), lost], 1, [setup]), {
@@ -589,12 +605,12 @@ describe('tasting-compare --real --brewer (ADR 0394)', () => {
   });
 
   describe('the blinded lists', () => {
-    const SONNET = '855-cellarman-claude-sonnet-5-5-high' as const;
-    const OPUS_SETUP = '855-cellarman-claude-opus-5-5-xhigh' as const;
+    const SONNET = '855-cellarman-claude-sonnet-5-5-careful' as const;
+    const OPUS_SETUP = '855-cellarman-claude-opus-5-5-thorough' as const;
     const records = [
-      brewerRecord(SONNET, 1, { model: 'claude-sonnet-5-5', effort: 'high' }),
+      brewerRecord(SONNET, 1, { model: 'claude-sonnet-5-5', effort: 'careful' }),
       brewerRecord(OPUS_SETUP, 1),
-      brewerRecord('867-cellarman-claude-opus-5-5-xhigh', 1),
+      brewerRecord('867-cellarman-claude-opus-5-5-thorough', 1),
     ];
 
     it("lists each run's code diff under its code, one list per order, and names no setup or model", () => {
@@ -605,7 +621,7 @@ describe('tasting-compare --real --brewer (ADR 0394)', () => {
         assert.match(list, new RegExp(`## Run ${codeOf('a seed', setup, 1)}`));
         assert.ok(list.includes(`the code of ${setup} run 1`));
       }
-      assert.doesNotMatch(list.replaceAll(/the code of .*/g, ''), /sonnet|opus|xhigh|cellarman/);
+      assert.doesNotMatch(list.replaceAll(/the code of .*/g, ''), /sonnet|opus|thorough|cellarman/);
     });
 
     it('keeps a diff that holds a fence from closing its block', () => {
@@ -621,7 +637,7 @@ describe('tasting-compare --real --brewer (ADR 0394)', () => {
       const row = codes.split('\n').find((line) => line.includes(codeOf('a seed', SONNET, 1)));
       assert.equal(
         row,
-        `| ${codeOf('a seed', SONNET, 1)} | ${SONNET} | 1 | claude-sonnet-5-5 | high | issue | passed | implement 1 | 10 | 2 | 3 | 4 | 19 | 7 | 1 s | 9 s |`,
+        `| ${codeOf('a seed', SONNET, 1)} | ${SONNET} | 1 | claude-sonnet-5-5 | careful | issue | passed | implement 1 | 10 | 2 | 3 | 4 | 19 | 7 | 1 s | 9 s |`,
       );
     });
 
@@ -645,7 +661,7 @@ describe('tasting-compare --real --brewer (ADR 0394)', () => {
   });
 
   describe('what the first review found untested', () => {
-    const SETUP = '855-cellarman-claude-opus-5-5-xhigh' as const;
+    const SETUP = '855-cellarman-claude-opus-5-5-thorough' as const;
 
     it("reads no transcript but Cellarman's: the scripted Gauger's session has none", () => {
       const { brewer } = brewerRecordOf(twoRounds, OPUS, (id, tree) =>
@@ -699,7 +715,7 @@ describe('tasting-compare --real --brewer (ADR 0394)', () => {
     });
 
     it('the table counts the failed goes and the retries of a setup', () => {
-      const SONNET = '855-cellarman-claude-sonnet-5-5-high' as const;
+      const SONNET = '855-cellarman-claude-sonnet-5-5-careful' as const;
       const lost = { ...withoutCommit(brewerRecord(SONNET, 2)), ended: 'cancelled' };
       const again = { ...brewerRecord(SONNET, 2), retry: true as const };
       const table = brewerTable([brewerRecord(SONNET, 1), lost, again]);
@@ -743,7 +759,7 @@ describe('tasting-compare --real --brewer (ADR 0394)', () => {
         scriptedTranscript(tree, 'claude-sonnet-5-5'),
       );
       assert.match(
-        brewerStop({ setup: '855-cellarman-opus-xhigh', brewer }) ?? '',
+        brewerStop({ setup: '855-cellarman-opus-thorough', brewer }) ?? '',
         /claude-sonnet-5-5.*asks for opus/,
       );
     });
@@ -753,13 +769,13 @@ describe('tasting-compare --real --brewer (ADR 0394)', () => {
         scriptedTranscript(tree, 'claude-opus-5-5-202611019'),
       );
       assert.match(
-        brewerStop({ setup: '855-cellarman-claude-opus-5-5-xhigh', brewer }) ?? '',
+        brewerStop({ setup: '855-cellarman-claude-opus-5-5-thorough', brewer }) ?? '',
         /claude-opus-5-5-202611019/,
       );
     });
 
     it("codes.md sums each step's tokens, turns and time", () => {
-      const SETUP = '867-cellarman-claude-opus-5-5-xhigh' as const;
+      const SETUP = '867-cellarman-claude-opus-5-5-thorough' as const;
       const steps = [
         { stepId: 'gauge', attempts: 1, turns: 0, durationMs: 0 },
         { stepId: 'implement', attempts: 2, usage: usage(10), turns: 7, durationMs: 1_000 },
@@ -770,7 +786,7 @@ describe('tasting-compare --real --brewer (ADR 0394)', () => {
       const row = codes.split('\n').find((line) => line.includes(codeOf('a seed', SETUP, 1)));
       assert.equal(
         row,
-        `| ${codeOf('a seed', SETUP, 1)} | ${SETUP} | 1 | claude-opus-5-5 | xhigh | issue | passed | gauge 1, implement 2, fine 1, green 2 | 30 | 4 | 6 | 8 | 48 | 10 | 3 s | 9 s |`,
+        `| ${codeOf('a seed', SETUP, 1)} | ${SETUP} | 1 | claude-opus-5-5 | thorough | issue | passed | gauge 1, implement 2, fine 1, green 2 | 30 | 4 | 6 | 8 | 48 | 10 | 3 s | 9 s |`,
       );
     });
 
@@ -832,13 +848,15 @@ describe('tasting-compare --real --brewer (ADR 0394)', () => {
 
     it('--order-text plan gives runs of their own: each setup ends in -plan', () => {
       assert.deepEqual(brewerSettingsOf({ real: true, ...OPUS, orderText: 'plan' }), PLAN_RUN);
-      assert.deepEqual(brewerSetups(PLAN_RUN, '855'), ['855-cellarman-claude-opus-5-5-xhigh-plan']);
+      assert.deepEqual(brewerSetups(PLAN_RUN, '855'), [
+        '855-cellarman-claude-opus-5-5-thorough-plan',
+      ]);
     });
 
     it("a run without --order-text, or with issue, is today's run: the same settings and setups", () => {
       assert.deepEqual(brewerSettingsOf({ real: true, ...OPUS }), OPUS);
       assert.deepEqual(brewerSettingsOf({ real: true, ...OPUS, orderText: 'issue' }), OPUS);
-      assert.deepEqual(brewerSetups(OPUS, '855'), ['855-cellarman-claude-opus-5-5-xhigh']);
+      assert.deepEqual(brewerSetups(OPUS, '855'), ['855-cellarman-claude-opus-5-5-thorough']);
     });
 
     it('--order-text without --brewer, or with another text, is refused', () => {
@@ -854,14 +872,14 @@ describe('tasting-compare --real --brewer (ADR 0394)', () => {
 
     it('a run with --order-text plan brews from the kept sub-order text', () => {
       assert.equal(
-        orderFileOf('855-cellarman-claude-opus-5-5-xhigh-plan', FOLDERS),
+        orderFileOf('855-cellarman-claude-opus-5-5-thorough-plan', FOLDERS),
         join(FOLDERS.kept, '855.md'),
       );
     });
 
     it("a run without --order-text brews from the order's own text, as before", () => {
       assert.equal(
-        orderFileOf('855-cellarman-claude-opus-5-5-xhigh', FOLDERS),
+        orderFileOf('855-cellarman-claude-opus-5-5-thorough', FOLDERS),
         join(FOLDERS.fixture, '855.md'),
       );
     });
@@ -994,15 +1012,15 @@ describe('tasting-compare --real --brewer (ADR 0394)', () => {
     });
 
     it('codes.md says which text each run started from', () => {
-      const setup = '855-cellarman-claude-opus-5-5-xhigh-plan' as const;
+      const setup = '855-cellarman-claude-opus-5-5-thorough-plan' as const;
       const { codes } = brewerBlinded([brewerRecord(setup, 1, { orderText: 'plan' })], 'a seed');
       assert.match(codes, /\| Effort \| Text \| Checks \|/);
       const row = codes.split('\n').find((line) => line.includes(codeOf('a seed', setup, 1)));
-      assert.match(row ?? '', /\| xhigh \| plan \| passed \|/);
+      assert.match(row ?? '', /\| thorough \| plan \| passed \|/);
     });
 
     it('the lists show no text a run started from: regression test', () => {
-      const setup = '855-cellarman-claude-opus-5-5-xhigh-plan' as const;
+      const setup = '855-cellarman-claude-opus-5-5-thorough-plan' as const;
       const { lists } = brewerBlinded([brewerRecord(setup, 1, { orderText: 'plan' })], 'a seed');
       assert.doesNotMatch(
         (lists['855'] ?? '').replaceAll(/the code of .*/g, ''),

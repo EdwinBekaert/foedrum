@@ -1,16 +1,16 @@
 // The `claude` command line of a brewer attempt (ADR 0042, ADR 0046). The prompt is not part of
 // it: it goes on stdin, so the line stays short enough for the Job Object helper (ADR 0039).
 
-import type { BrewerFrontmatter } from '../schemas/brewer.ts';
-import { ModelId } from '../schemas/models.ts';
+import { type ClaudeEffort, ModelId } from '../schemas/models.ts';
 
 /** A session the attempt starts with the id the runner chose, or one it resumes. */
 export type ClaudeSession = { kind: 'new'; id: string } | { kind: 'resume'; id: string };
 
 export interface ClaudeCall {
-  /** The model id behind the brewer's alias (models.jsonc). */
+  /** The model id behind the brewer's level (models.jsonc). */
   model: string;
-  effort: BrewerFrontmatter['effort'];
+  /** Claude Code's word for the brewer's effort (models.jsonc, ADR 0397). */
+  effort: ClaudeEffort;
   maxTurns?: number | undefined;
   /** The attempt's settings file, written by the runner. */
   settingsFile: string;
@@ -36,7 +36,7 @@ const refuse = (what: string, value: unknown): never => {
 /** An attempt's session as an engineer opens it (ADR 0126): its model and guards, interactive. */
 export interface ResumeCall {
   model: string;
-  effort: BrewerFrontmatter['effort'];
+  effort: ClaudeEffort;
   settingsFile: string;
   tools: readonly string[];
   sessionId: string;

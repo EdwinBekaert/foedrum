@@ -38,6 +38,7 @@ import { createBrewing, defaultLimits } from '../helpers/brewing.ts';
 import { type Behaviour, behave, fakeBrewerRunner, outDoc } from '../helpers/fake-brewer-runner.ts';
 import { fakeLock } from '../helpers/fake-lock.ts';
 import { fakeWorktrees } from '../helpers/fake-worktrees.ts';
+import { claudeModels } from '../helpers/models.ts';
 
 // A Brewery with no recipes/, brewers/ or lenses/ of its own: a folder that does not exist has
 // none, so only Foedrum's defaults load.
@@ -1294,7 +1295,7 @@ describe('the default Gauger', () => {
     const plans = createAttemptPlans({
       state: () => fold(events),
       brewers: valid(loadRecipes(noFiles)).brewers,
-      models: { models: { builder: 'claude-sonnet-5-5' }, brewers: {} },
+      models: claudeModels({ standard: 'claude-sonnet-5-5' }),
       repoTools: () => [],
       clone: (repo) => join('/clones', repo),
       sandbox: false,
@@ -1443,7 +1444,7 @@ describe("a sub-order's plan entry in the default brewers' prompts (ADR 0290)", 
     const plans = createAttemptPlans({
       state: () => fold(eventsOf(stepId, subOrder)),
       brewers,
-      models: { models: { builder: 'claude-sonnet-5-5' }, brewers: {} },
+      models: claudeModels({ standard: 'claude-sonnet-5-5' }),
       repoTools: () => [],
       clone: (repo) => join('/clones', repo),
       sandbox: false,
@@ -1568,7 +1569,7 @@ describe("the release a sub-order waited for in the default brewers' prompts (AD
     const plans = createAttemptPlans({
       state: () => fold(eventsOf(stepId)),
       brewers: brewers(),
-      models: { models: { builder: 'claude-sonnet-5-5' }, brewers: {} },
+      models: claudeModels({ standard: 'claude-sonnet-5-5' }),
       repoTools: () => [],
       clone: (repo) => join('/clones', repo),
       sandbox: false,

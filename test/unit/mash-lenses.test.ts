@@ -17,7 +17,7 @@ import type { AttemptStart, BrewerRunner } from '../../src/engine/brewer-runner.
 import { FOEDRUM_DEFAULTS, readBreweryFiles } from '../../src/engine/brewery-files.ts';
 import { createCommandLog } from '../../src/engine/command-log.ts';
 import type { EventStore } from '../../src/engine/event-store.ts';
-import { loadRecipes } from '../../src/engine/recipe-files.ts';
+import { type BreweryFiles, loadRecipes } from '../../src/engine/recipe-files.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import { code, plain } from '../../src/engine/status-comment.ts';
 import { recipeText } from '../helpers/brewery-files.ts';
@@ -35,7 +35,7 @@ const defaults = () => {
   return loaded;
 };
 
-/** Each lens of a recipe's group: whether it blocks, where its findings go, and its model alias. */
+/** Each lens of a recipe's group: whether it blocks, where its findings go, and its model level. */
 const lensesOf = (recipeName: string) => {
   const loaded = defaults();
   const recipe = loaded.recipes.find(recipeName) ?? assert.fail(`no recipe ${recipeName}`);
@@ -64,9 +64,9 @@ const blocks = (id: string, model: string) => ({
 describe('the default recipes that plan (ADR 0321)', () => {
   it("mash tastes its plan through coverage, sizing and naive reader side by side, every lens's findings sent back (ADR 0354)", () => {
     assert.deepStrictEqual(lensesOf('mash'), [
-      blocks('coverage', 'planner'),
-      blocks('sizing', 'builder'),
-      blocks('naive-reader', 'builder'),
+      blocks('coverage', 'strong'),
+      blocks('sizing', 'standard'),
+      blocks('naive-reader', 'standard'),
     ]);
     const mash = defaults().recipes.find('mash');
     assert.deepStrictEqual(mash?.steps, ['plan', 'coverage', 'sizing', 'naive-reader', 'lauter']);
@@ -75,13 +75,13 @@ describe('the default recipes that plan (ADR 0321)', () => {
 
   it('deep-mash tastes its plan through all seven plan lenses', () => {
     assert.deepStrictEqual(lensesOf('deep-mash'), [
-      blocks('coverage', 'planner'),
-      blocks('sizing', 'builder'),
-      blocks('naive-reader', 'builder'),
-      blocks('order-and-overlap', 'builder'),
-      blocks('testability', 'builder'),
-      blocks('recipe-fit', 'builder'),
-      blocks('security', 'planner'),
+      blocks('coverage', 'strong'),
+      blocks('sizing', 'standard'),
+      blocks('naive-reader', 'standard'),
+      blocks('order-and-overlap', 'standard'),
+      blocks('testability', 'standard'),
+      blocks('recipe-fit', 'standard'),
+      blocks('security', 'strong'),
     ]);
     const deepMash = defaults().recipes.find('deep-mash');
     assert.equal(deepMash?.firstStep, 'plan');
@@ -167,7 +167,7 @@ describe('the default recipes that plan (ADR 0321)', () => {
     const security = loaded.brewers.find('nip', 'security');
     assert.equal(security?.lens, 'diff/security');
     assert.equal(security?.lenses?.get('diff/security')?.path, 'defaults/lenses/diff/security.md');
-    assert.equal(security?.brewer.model, 'builder');
+    assert.equal(security?.brewer.model, 'standard');
     assert.equal(loaded.brewers.find('nip', 'correctness')?.blocking, true);
   });
 });
@@ -374,7 +374,7 @@ describe('foedrum brew on recipe:mash and recipe:deep-mash, through the default 
 
   it('a blind-tasting swap of the Taster moves a step that names its own model', () => {
     const coverage = setup.brewers.find('mash', 'coverage')?.brewer ?? assert.fail('no coverage');
-    const swapped = { ...setup.models, brewers: { taster: 'builder' } };
+    const swapped = { ...setup.models, brewers: { taster: 'standard' as const } };
     assert.equal(modelOf(setup.models, coverage), 'opus');
     assert.equal(modelOf(swapped, coverage), 'sonnet');
   });
@@ -697,7 +697,9 @@ describe('foedrum brew on recipe:mash and recipe:deep-mash, through the default 
     assert.deepStrictEqual(stuckReason(), { kind: 'plan_review', stepId: 'plan', attempt: 1 });
   });
 
-  it("refuses a parallel group's child whose model alias models.jsonc has no model for: regression test", () => {
+  it("refuses a parallel group's child whose model level models.jsonc has no model for: regression test", () => {
+    // Foedrum's default models map every level: only the Brewery's own file counts here.
+    const withoutModels = ({ models: _, ...rest }: NonNullable<BreweryFiles['defaults']>) => rest;
     const files = serveInputs().files;
     const text = recipeText(
       'kettle',
@@ -705,9 +707,7 @@ describe('foedrum brew on recipe:mash and recipe:deep-mash, through the default 
         { id: 'plan', brewer: 'brewmaster' },
         {
           id: 'taste',
-          parallel: [
-            { id: 'naive', brewer: 'taster', lens: 'plan/naive-reader', model: 'nowhere' },
-          ],
+          parallel: [{ id: 'naive', brewer: 'taster', lens: 'plan/naive-reader', model: 'strong' }],
           onFindings: { goto: 'plan', maxRounds: 1 },
         },
       ],
@@ -721,7 +721,9 @@ describe('foedrum brew on recipe:mash and recipe:deep-mash, through the default 
           brewery: {
             ...files.brewery,
             recipes: [...files.brewery.recipes, { path: 'recipes/kettle.jsonc', text }],
-            ...(brewery.defaults === undefined ? {} : { defaults: brewery.defaults }),
+            ...(brewery.defaults === undefined
+              ? {}
+              : { defaults: withoutModels(brewery.defaults) }),
           },
         },
       }),
@@ -729,17 +731,17 @@ describe('foedrum brew on recipe:mash and recipe:deep-mash, through the default 
     assert.ok(result.kind === 'refused', result.kind);
     assert.ok(
       result.problems.includes(
-        'recipes/kettle.jsonc: step "naive" names the model alias "nowhere", which models.jsonc has no model for',
+        'recipes/kettle.jsonc: step "naive" of the brewer "taster" names the level "strong", which models.jsonc has no claude model for',
       ),
       result.problems.join('\n'),
     );
   });
 
-  it("refuses a recipe's step whose model alias models.jsonc has no model for", () => {
+  it("refuses a recipe's step whose model level models.jsonc has no model for", () => {
     const files = serveInputs().files;
     const text = recipeText(
       'kettle',
-      [{ id: 'plan', brewer: 'cellarman', model: 'nowhere' }, { action: 'openPullRequest' }],
+      [{ id: 'plan', brewer: 'cellarman', model: 'strong' }, { action: 'openPullRequest' }],
       { testFirst: false },
     );
     const result = serveSetup(
@@ -756,7 +758,7 @@ describe('foedrum brew on recipe:mash and recipe:deep-mash, through the default 
     assert.ok(result.kind === 'refused', result.kind);
     assert.ok(
       result.problems.includes(
-        'recipes/kettle.jsonc: step "plan" names the model alias "nowhere", which models.jsonc has no model for',
+        'recipes/kettle.jsonc: step "plan" of the brewer "cellarman" names the level "strong", which models.jsonc has no claude model for',
       ),
       result.problems.join('\n'),
     );

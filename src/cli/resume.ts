@@ -7,6 +7,7 @@ import { dirname, join } from 'node:path';
 import {
   attemptPermissions,
   attemptSystemPrompt,
+  effortOf,
   modelOf,
   settingsFileOf,
   toolsOf,
@@ -485,7 +486,7 @@ export const runResume = async (input: ResumeInput, shell: ResumeShell): Promise
       shell.writeSystemPrompt(systemPrompt.file, systemPrompt.text);
       const args = resumeArgs({
         model: modelOf(setup.models, found.brewer),
-        effort: found.brewer.effort,
+        effort: effortOf(setup.models, found.brewer),
         settingsFile,
         tools: toolsOf(permissions.allow),
         sessionId: session,

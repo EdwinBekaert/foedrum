@@ -30,7 +30,7 @@ import { familyOf, type ModelFamily } from '../engine/usage-window.ts';
 import { findSecrets } from '../formats/secrets.ts';
 import type { BrewerFrontmatter } from '../schemas/brewer.ts';
 import type { GravityReading, HeadCheck, ScheduleRoute } from '../schemas/events.ts';
-import type { ModelsConfig } from '../schemas/models.ts';
+import type { ClaudeEffort, ModelsConfig } from '../schemas/models.ts';
 import {
   type Disposition,
   FINING,
@@ -179,25 +179,37 @@ export function attemptLimits(
   };
 }
 
-/** The model id behind the brewer's alias; throws when models.jsonc has none. */
+/** The model id behind the brewer's level for `claude`; throws when models.jsonc has none. */
 export function modelOf(models: ModelsConfig, brewer: BrewerFrontmatter): string {
-  // Blind tasting swaps the alias of a brewer in models.jsonc (brewers-and-recipes §5).
-  // Own entries only: a name such as "constructor" is a property of every object.
-  const own = (record: Readonly<Record<string, string>>, key: string): string | undefined =>
-    Object.hasOwn(record, key) ? record[key] : undefined;
-  const alias = own(models.brewers, brewer.name) ?? brewer.model;
-  const model = own(models.models, alias);
+  // Blind tasting swaps the level of a brewer in models.jsonc (brewers-and-recipes §5).
+  const level = own(models.brewers, brewer.name) ?? brewer.model;
+  const model = own(models.claude.models, level);
   if (model === undefined) {
     throw new Error(
-      `models.jsonc has no model for the alias "${alias}" of the brewer "${brewer.name}"`,
+      `models.jsonc has no claude model for the level "${level}" of the brewer "${brewer.name}"`,
     );
   }
   return model;
 }
 
+/** The word `claude --effort` gets for the brewer's effort; throws when models.jsonc has none (ADR 0397). */
+export function effortOf(models: ModelsConfig, brewer: BrewerFrontmatter): ClaudeEffort {
+  const effort = own(models.claude.efforts, brewer.effort);
+  if (effort === undefined) {
+    throw new Error(
+      `models.jsonc has no claude effort for the effort "${brewer.effort}" of the brewer "${brewer.name}"`,
+    );
+  }
+  return effort;
+}
+
+// Own entries only: a name such as "constructor" is a property of every object.
+const own = <V>(record: Readonly<Partial<Record<string, V>>>, key: string): V | undefined =>
+  Object.hasOwn(record, key) ? record[key] : undefined;
+
 /**
  * The model family the brewer runs on, read as its attempt runs it, a blind-tasting swap included;
- * undefined when it cannot be told, also when models.jsonc has no model for its alias (ADR 0215).
+ * undefined when it cannot be told, also when models.jsonc has no model for its level (ADR 0215).
  */
 export function familyOfBrewer(
   models: ModelsConfig,
@@ -1639,7 +1651,7 @@ export function planAttempt(facts: PlanFacts): ClaudeAttemptPlan {
     prompt: assembled.prompt,
     call: {
       model: modelOf(models, brewer),
-      effort: brewer.effort,
+      effort: effortOf(models, brewer),
       ...(maxTurns === undefined ? {} : { maxTurns }),
       tools: toolsOf(allow),
       session: { kind: resumes === undefined ? 'new' : 'resume', id: sessionId },

@@ -18,6 +18,7 @@ import type { Event } from '../../src/schemas/events.ts';
 import { MOST_MUTANTS, MutantsOutDoc } from '../../src/schemas/out-doc.ts';
 import type { Git } from '../../src/workspace/git.ts';
 import { recipeText } from '../helpers/brewery-files.ts';
+import { claudeModels } from '../helpers/models.ts';
 
 // A Brewery with no files of its own: Brett and the Cellarman come from Foedrum's defaults.
 const noFiles = readBreweryFiles(join(FOEDRUM_DEFAULTS, 'no-such-brewery'));
@@ -145,7 +146,7 @@ describe('the default Brett (defaults/brewers/brett.md)', () => {
     const plans = createAttemptPlans({
       state: () => fold(events),
       brewers: valid(loadRecipes(room)).brewers,
-      models: { models: { builder: 'claude-sonnet-5-5' }, brewers: {} },
+      models: claudeModels({ standard: 'claude-sonnet-5-5' }),
       repoTools: () => [],
       clone: (repo) => join('/clones', repo),
       sandbox: false,

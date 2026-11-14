@@ -27,6 +27,7 @@ import type { AttemptSettings } from '../../src/schemas/attempt-settings.ts';
 import type { AttemptRef } from '../../src/workspace/attempt-worktrees.ts';
 import { brewerText, recipeText } from '../helpers/brewery-files.ts';
 import { fakeRecipe, fakeRecipes } from '../helpers/fake-recipes.ts';
+import { CLAUDE_EFFORTS, claudeModels } from '../helpers/models.ts';
 
 const cwd = join(sep, 'brewery');
 const workRoot = join(sep, 'work-root');
@@ -68,7 +69,7 @@ const loaded = loadRecipes({
     {
       path: 'brewers/coder.md',
       text: brewerText('coder', {
-        effort: 'high',
+        effort: 'careful',
         access: 'write',
         tools: { allow: ['Read', 'Edit'], deny: ['WebFetch'] },
         env: { FOEDRUM_MODE: 'coder' },
@@ -88,7 +89,7 @@ const repository = {
 const setup: ResumeSetup = {
   workRoot,
   repositories: [repository],
-  models: { models: { builder: 'claude-sonnet-5-5' }, brewers: {} },
+  models: claudeModels({ standard: 'claude-sonnet-5-5' }),
   brewers: loaded.brewers,
   claude: join(sep, 'bin', 'claude'),
   sandbox: true,
@@ -903,8 +904,8 @@ describe('foedrum resume (ADR 0126)', () => {
         },
       ],
       brewers: [
-        { path: 'brewers/innkeeper.md', text: brewerText('innkeeper', { effort: 'low' }) },
-        { path: 'brewers/brewmaster.md', text: brewerText('brewmaster', { effort: 'max' }) },
+        { path: 'brewers/innkeeper.md', text: brewerText('innkeeper', { effort: 'quick' }) },
+        { path: 'brewers/brewmaster.md', text: brewerText('brewmaster', { effort: 'thorough' }) },
       ],
     });
     assert.ok(mash.valid);
@@ -978,7 +979,7 @@ describe('foedrum resume (ADR 0126)', () => {
       const brew = pathOf({ ...innkeep, stepId: 'brew' });
       assert.deepEqual(
         [started.length, args.slice(0, 2), args[args.indexOf('--effort') + 1], started[0]?.cwd],
-        [1, ['--resume', S2], 'max', brew],
+        [1, ['--resume', S2], 'xhigh', brew],
       );
     });
 
@@ -987,7 +988,7 @@ describe('foedrum resume (ADR 0126)', () => {
         recipes: [
           {
             path: 'recipes/mash.jsonc',
-            text: recipeText('mash', [{ id: 'innkeep', brewer: 'innkeeper', effort: 'xhigh' }]),
+            text: recipeText('mash', [{ id: 'innkeep', brewer: 'innkeeper', effort: 'thorough' }]),
           },
           {
             path: 'recipes/pale.jsonc',
@@ -995,8 +996,8 @@ describe('foedrum resume (ADR 0126)', () => {
           },
         ],
         brewers: [
-          { path: 'brewers/innkeeper.md', text: brewerText('innkeeper', { effort: 'low' }) },
-          { path: 'brewers/brewmaster.md', text: brewerText('brewmaster', { effort: 'max' }) },
+          { path: 'brewers/innkeeper.md', text: brewerText('innkeeper', { effort: 'quick' }) },
+          { path: 'brewers/brewmaster.md', text: brewerText('brewmaster', { effort: 'thorough' }) },
         ],
       });
       assert.ok(stepped.valid, stepped.valid ? '' : stepped.problems.join('\n'));
@@ -1010,6 +1011,20 @@ describe('foedrum resume (ADR 0126)', () => {
         [started.length, args.slice(0, 2), args[args.indexOf('--effort') + 1]],
         [1, ['--resume', S1], 'xhigh'],
       );
+    });
+
+    it("opens an attempt at the effort a Brewery's models.jsonc translates its brewer's to (ADR 0397)", async () => {
+      const models = {
+        ...setup.models,
+        claude: { ...setup.models.claude, efforts: { ...CLAUDE_EFFORTS, quick: 'max' as const } },
+      };
+      const result = await resumeOf('12-1', 'innkeep', {
+        setup: async () =>
+          ({ kind: 'ready', setup: { ...setup, brewers: mash.brewers, models } }) as const,
+      });
+      assert.deepEqual(result, { exitCode: 0, stdout: '', stderr: '' });
+      const args = started[0]?.args ?? [];
+      assert.equal(args[args.indexOf('--effort') + 1], 'max');
     });
 
     it("opens an attempt that recorded no recipe with the brewer of its batch's recipe", async () => {

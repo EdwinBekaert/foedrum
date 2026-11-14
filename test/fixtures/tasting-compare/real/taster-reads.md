@@ -3,8 +3,8 @@
   "name": "taster",
   "description": "Reviews the batch's change, or its plan, through the one lens its step names, and answers with findings and a verdict; read-only.",
   "version": 10,
-  "model": "builder",
-  "effort": "medium",
+  "model": "standard",
+  "effort": "steady",
   "inputs": [
     { "name": "order", "from": "order" },
     { "name": "planEntry", "from": "plan-entry" },

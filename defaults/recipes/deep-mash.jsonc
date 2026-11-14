@@ -28,14 +28,14 @@
           "brewer": "taster",
           "lens": "plan/coverage",
           // It reads the code as well as the plan, to tell what the code already does.
-          "model": "planner"
+          "model": "strong"
         },
         { "id": "sizing", "brewer": "taster", "lens": "plan/sizing" },
         { "id": "naive-reader", "brewer": "taster", "lens": "plan/naive-reader" },
         { "id": "order-and-overlap", "brewer": "taster", "lens": "plan/order-and-overlap" },
         { "id": "testability", "brewer": "taster", "lens": "plan/testability" },
         { "id": "recipe-fit", "brewer": "taster", "lens": "plan/recipe-fit" },
-        { "id": "security", "brewer": "taster", "lens": "plan/security", "model": "planner" }
+        { "id": "security", "brewer": "taster", "lens": "plan/security", "model": "strong" }
       ],
       "onFindings": { "goto": "plan", "maxRounds": 2 }
     },

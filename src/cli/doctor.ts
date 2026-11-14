@@ -887,9 +887,9 @@ export const formatDiagnosis = ({
           defaults.length === 0
             ? 'Defaults in use: none'
             : `Defaults in use: ${defaults.join(', ')} (a Brewery file of the same name replaces one${
-                // The Brewery's models.jsonc merges over Foedrum's by alias (ADR 0153).
+                // The Brewery's models.jsonc merges over Foedrum's entry by entry (ADR 0153, ADR 0397).
                 defaults.includes('defaults/models.jsonc')
-                  ? '; models.jsonc merges over defaults/models.jsonc by alias'
+                  ? '; models.jsonc merges over defaults/models.jsonc entry by entry'
                   : ''
               })`,
         ]),

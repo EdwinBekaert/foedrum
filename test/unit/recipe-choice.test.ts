@@ -28,8 +28,8 @@ const innkeeperFields = {
   name: 'innkeeper',
   description: 'Suggests a recipe and asks.',
   version: 1,
-  model: 'builder',
-  effort: 'low',
+  model: 'standard',
+  effort: 'quick',
   inputs: [
     { name: 'order', from: 'order' },
     { name: 'recipes', from: 'recipes' },

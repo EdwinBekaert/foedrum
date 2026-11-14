@@ -16,6 +16,7 @@ import { removeTree } from '../../src/platform/remove.ts';
 import type { Event } from '../../src/schemas/events.ts';
 import { runGit } from '../../src/workspace/git.ts';
 import { recipeText } from '../helpers/brewery-files.ts';
+import { claudeModels } from '../helpers/models.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 
 const git = (cwd: string, args: string[], input?: Buffer | string): string =>
@@ -167,7 +168,7 @@ describe('createAttemptPlans: a repository’s house-yeast rules with real git',
     const plans = createAttemptPlans({
       state: () => fold(events),
       brewers: loaded.valid ? loaded.brewers : assert.fail(),
-      models: { models: { builder: 'claude-sonnet-5-5' }, brewers: {} },
+      models: claudeModels({ standard: 'claude-sonnet-5-5' }),
       repoTools: () => [],
       clone: () => repo,
       sandbox: false,

@@ -320,7 +320,10 @@ describe('foedrum init (ADR 0199)', () => {
     assert.equal(web.source, 'managed');
     assert.equal(web.base, 'trunk');
     assert.deepStrictEqual(web.setup, { command: 'npm ci', timeout: '10m' });
-    assert.deepStrictEqual(parsed(clone, 'models.jsonc', ModelsConfig).models, {});
+    assert.deepStrictEqual(parsed(clone, 'models.jsonc', ModelsConfig).claude, {
+      models: {},
+      efforts: {},
+    });
     assert.deepStrictEqual(parsed(clone, '.claude/settings.json', BreweryClaudeSettings), {
       enabledPlugins: { 'foedrum@foedrum': true },
     });

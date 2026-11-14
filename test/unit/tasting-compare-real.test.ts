@@ -35,7 +35,7 @@ import {
   selectRealSetups,
   transcriptReads,
 } from '../../scripts/tasting-compare/real.ts';
-import { modelOf } from '../../src/brewers/attempt-plan.ts';
+import { effortOf, modelOf } from '../../src/brewers/attempt-plan.ts';
 import { claudeArgs } from '../../src/brewers/claude-command.ts';
 import { serveSetup } from '../../src/cli/serve-config.ts';
 import { readBreweryFiles } from '../../src/engine/brewery-files.ts';
@@ -1300,7 +1300,7 @@ describe('tasting-compare --real: the opus and high setups (ADR 0344)', () => {
       assert.ok(step !== undefined, stepId);
       return claudeArgs({
         model: modelOf(ready.setup.models, step.brewer),
-        effort: step.brewer.effort,
+        effort: effortOf(ready.setup.models, step.brewer),
         settingsFile: 'settings.json',
         tools: ['Read'],
         session: { kind: 'new', id: SESSION },
@@ -1318,13 +1318,13 @@ describe('tasting-compare --real: the opus and high setups (ADR 0344)', () => {
     const { 'models.jsonc': models, ...others } = realBreweryFiles('855-opus', REAL_TASTERS);
     assert.deepEqual(others, reads);
     assert.ok(models !== undefined);
-    assert.deepEqual(JSON.parse(models), { models: { opus: 'opus' }, brewers: { taster: 'opus' } });
+    assert.deepEqual(JSON.parse(models), { brewers: { taster: 'strong' } });
 
     const line = commandLine('855-opus');
     assert.equal(line[line.indexOf('--model') + 1], 'opus');
     assert.equal(line[line.indexOf('--effort') + 1], 'medium');
     assert.deepEqual(withValue(line, '--model', 'sonnet'), commandLine('855-reads'));
-    // Only the Taster moves: another brewer of the same alias stays where it was.
+    // Only the Taster moves: another brewer of the same level stays where it was.
     assert.deepEqual(commandLine('855-opus', 'implement'), commandLine('855-reads', 'implement'));
   });
 
@@ -1332,7 +1332,7 @@ describe('tasting-compare --real: the opus and high setups (ADR 0344)', () => {
     const { 'brewers/taster.md': _, ...reads } = realBreweryFiles('855-reads', REAL_TASTERS);
     const { 'brewers/taster.md': taster, ...others } = realBreweryFiles('855-high', REAL_TASTERS);
     assert.deepEqual(others, reads);
-    assert.equal(taster, READS_TASTER.replace('"effort": "medium"', '"effort": "high"'));
+    assert.equal(taster, READS_TASTER.replace('"effort": "steady"', '"effort": "careful"'));
     assert.notEqual(taster, READS_TASTER);
 
     const line = commandLine('855-high');
@@ -1377,17 +1377,17 @@ describe('tasting-compare --real: the opus and high setups (ADR 0344)', () => {
 
   describe('the high Taster', () => {
     it('refuses a default Taster that does not hold medium effort', () => {
-      assert.throws(() => highTaster('{ "effort": "low" }'), /effort/);
+      assert.throws(() => highTaster('{ "effort": "quick" }'), /effort/);
     });
 
     it('refuses a default Taster that says it twice, as it could not tell which', () => {
-      assert.throws(() => highTaster('"effort": "medium"\n"effort": "medium"\n'), /effort/);
+      assert.throws(() => highTaster('"effort": "steady"\n"effort": "steady"\n'), /effort/);
     });
 
     it('changes that one value and no other text', () => {
       assert.equal(
-        highTaster('before\n  "effort": "medium",\nafter $& medium\n'),
-        'before\n  "effort": "high",\nafter $& medium\n',
+        highTaster('before\n  "effort": "steady",\nafter $& medium\n'),
+        'before\n  "effort": "careful",\nafter $& medium\n',
       );
     });
   });

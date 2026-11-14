@@ -9,7 +9,7 @@
 // ADR 0197, ADR 0306, ADR 0343), every finding of theirs sends the batch back to Cellarman
 // (ADR 0354), after which correctness and the Tasters that had findings run again (ADR 0357), and
 // the pull request opens with what came of them (ADR 0161). Correctness,
-// acceptance and security run at high effort, and design conformance at the Taster's own medium
+// acceptance and security run at careful effort, and design conformance at the Taster's own steady
 // (ADR 0352).
 {
   "$schema": "../../schemas/recipe.json",
@@ -70,13 +70,13 @@
           "id": "correctness",
           "brewer": "taster",
           "lens": "diff/correctness",
-          "effort": "high",
+          "effort": "careful",
           "everyRound": true
         },
         // Whether the change builds each item of the order's checklist, and nothing else.
-        { "id": "acceptance", "brewer": "taster", "lens": "diff/acceptance", "effort": "high" },
+        { "id": "acceptance", "brewer": "taster", "lens": "diff/acceptance", "effort": "careful" },
         // Untrusted input the change handles, and where it goes (ADR 0306).
-        { "id": "security", "brewer": "taster", "lens": "diff/security", "effort": "high" },
+        { "id": "security", "brewer": "taster", "lens": "diff/security", "effort": "careful" },
         // The repository's decisions and documents the change contradicts or leaves stale
         // (ADR 0343), judged by the rules its lens has it read (ADR 0352).
         { "id": "design-conformance", "brewer": "taster", "lens": "diff/design-conformance" }

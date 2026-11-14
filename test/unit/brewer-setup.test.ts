@@ -20,6 +20,7 @@ import type { Event } from '../../src/schemas/events.ts';
 import { OutDocFrontmatter } from '../../src/schemas/out-doc.ts';
 import { brewerText, recipeText } from '../helpers/brewery-files.ts';
 import { outDoc } from '../helpers/fake-brewer-runner.ts';
+import { claudeModels } from '../helpers/models.ts';
 
 const worktree = join('/work', 'brew-1');
 const sessionId = '0f8fad5b-d9cb-469f-a165-70867728950e';
@@ -106,7 +107,7 @@ describe('createAttemptPlans: the setup of a brewer attempt (ADR 0163)', () => {
     createAttemptPlans({
       state: () => fold(events),
       brewers,
-      models: { models: { builder: 'claude-sonnet-5-5' }, brewers: {} },
+      models: claudeModels({ standard: 'claude-sonnet-5-5' }),
       repoTools: () => tools,
       repoSetup: (repo) => (repo === 'acme/api' && setup !== null ? setup : undefined),
       clone: (repo) => join('/clones', repo),

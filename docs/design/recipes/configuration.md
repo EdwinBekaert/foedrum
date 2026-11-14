@@ -85,17 +85,22 @@ Both are JSONC with a `$schema` reference for editor autocompletion; unknown fie
 - `defaultRecipe` (optional, default `mash-in`) names the recipe `foedrum brew` runs for an issue with no recipe label; it must be a recipe of the Brewery of type `mash`, or `foedrum serve`, `foedrum brew` and `foedrum doctor` refuse it in one line ([ADR 0370](../../adr/0370-foedrum-brew-runs-the-brewery-s-default-recipe-on-an-issue-with-no-recipe-label.md)).
 - Durations (`timeout`, `deadline`) are a whole number with `s`, `m`, `h` or `d`: `"90s"`, `"30m"`, `"3d"`.
 
-**`models.jsonc`** (`src/schemas/models.ts`, `schemas/models.json`) maps the aliases brewers and brewer steps name in `model` to a model id or family, and optionally gives one brewer another alias, as blind tasting does:
+**`models.jsonc`** (`src/schemas/models.ts`, `schemas/models.json`) translates the model level (`light`, `standard`, `strong`) and the effort (`quick`, `steady`, `careful`, `thorough`) a brewer or a brewer step names into an agent's terms, in one block per agent; today one, `claude`, whose `models` give a model id or family for each level and whose `efforts` give Claude Code's `--effort` word (`low`, `medium`, `high`, `xhigh` or `max`) for each effort.
+It can also give one brewer another level, as blind tasting does ([ADR 0397](../../adr/0397-brewers-name-a-model-level-and-an-effort-of-foedrum-s-own-which-models-jsonc-translates.md)):
 
 ```jsonc
 {
   "$schema": "./.foedrum/schemas/models.json",
-  "models": { "builder": "claude-sonnet-5-5", "reviewer": "opus", "candidate": "claude-opus-5-5[1m]" },
-  "brewers": { "cellarman": "candidate" }                       // must name an alias above
+  "claude": {
+    "models": { "strong": "claude-opus-5-5[1m]" },
+    "efforts": { "careful": "xhigh" }
+  },
+  "brewers": { "cellarman": "strong" }                          // must name a level with a model
 }
 ```
 
-The file is optional: Foedrum's own `defaults/models.jsonc` maps `builder` to `sonnet`, `planner`, the Brewmaster's and that of the coverage and security plan lens steps, to `opus`, and `explorer`, the Maltster's map's, to `haiku` ([ADR 0395](../../adr/0395-the-maltster-maps-the-code-an-order-touches-before-the-gauger-on-the-explorer-alias.md), [ADR 0234](../../adr/0234-the-brewmaster-writes-a-plan-on-the-planner-alias-and-mash-runs-it.md), [ADR 0321](../../adr/0321-mash-and-decoction-review-a-plan-through-the-plan-lenses-apart.md)), and the Brewery's `models` replace its entries by alias and add to them, while `brewers` comes from the Brewery's file only and may name a default alias ([ADR 0153](../../adr/0153-foedrum-s-defaults-map-their-own-model-aliases.md)).
+The file is optional: Foedrum's own `defaults/models.jsonc` maps `standard` to `sonnet`, `strong`, the Brewmaster's and that of the coverage and security plan lens steps, to `opus`, and `light`, the Maltster's map's, to `haiku`, and the efforts `quick`, `steady`, `careful` and `thorough` to `low`, `medium`, `high` and `xhigh` ([ADR 0395](../../adr/0395-the-maltster-maps-the-code-an-order-touches-before-the-gauger-on-the-explorer-alias.md), [ADR 0234](../../adr/0234-the-brewmaster-writes-a-plan-on-the-planner-alias-and-mash-runs-it.md), [ADR 0321](../../adr/0321-mash-and-decoction-review-a-plan-through-the-plan-lenses-apart.md), [ADR 0397](../../adr/0397-brewers-name-a-model-level-and-an-effort-of-foedrum-s-own-which-models-jsonc-translates.md)), and the Brewery's `claude.models` and `claude.efforts` replace its entries one by one, so a Brewery writes only what it changes, while `brewers` comes from the Brewery's file only and may name a level only the defaults map ([ADR 0153](../../adr/0153-foedrum-s-defaults-map-their-own-model-aliases.md)).
+A level or an effort that a brewer or a step in use names, and the merged file does not translate, refuses the start with a line naming the brewer.
 
 Model ids reach the `claude` command line, so they are limited to lower-case letters, digits, `.`, `_`, `:` and `-` (plus a `[1m]` suffix), and never start with `-`.
 

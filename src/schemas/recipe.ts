@@ -1,8 +1,7 @@
 // Recipes: brewers, checks and actions in order, with loops (brewers-and-recipes §3).
 
-import { Effort } from './brewer.ts';
 import { LensName, PathSafeId } from './ids.ts';
-import { ModelAlias } from './models.ts';
+import { Effort, ModelLevel } from './models.ts';
 import { CheckName, CommandObject, Duration } from './primitives.ts';
 import { NonEmpty } from './step-outcome.ts';
 import { z } from './zod.ts';
@@ -88,11 +87,11 @@ const BrewerStep = z
         "A Taster's step in a parallel group with onFindings: runs again after every round back, whatever it found; the group's other children run again only when they had findings (ADR 0357)",
       ),
     deadline: Duration.optional().describe("Overrides the brewer's deadline"),
-    model: ModelAlias.optional().describe(
-      "Overrides the brewer's model: an alias of models.jsonc; a blind-tasting swap of the brewer still wins (ADR 0321)",
+    model: ModelLevel.optional().describe(
+      "Overrides the brewer's model level; a blind-tasting swap of the brewer still wins (ADR 0321, ADR 0397)",
     ),
     effort: Effort.optional().describe(
-      "Overrides the brewer's effort on this step; a blind-tasting swap of the brewer's model keeps it (ADR 0352)",
+      "Overrides the brewer's effort on this step, one of Foedrum's own; a blind-tasting swap of the brewer's model keeps it (ADR 0352, ADR 0397)",
     ),
     interactive: z
       .literal(true)

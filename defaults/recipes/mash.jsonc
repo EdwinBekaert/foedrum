@@ -30,7 +30,7 @@
           "brewer": "taster",
           "lens": "plan/coverage",
           // It reads the code as well as the plan, to tell what the code already does.
-          "model": "planner"
+          "model": "strong"
         },
         { "id": "sizing", "brewer": "taster", "lens": "plan/sizing" },
         { "id": "naive-reader", "brewer": "taster", "lens": "plan/naive-reader" }

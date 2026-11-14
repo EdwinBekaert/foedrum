@@ -1,8 +1,8 @@
 // Deep-brew, the build stage of the full recipe, for a change that can reach a lot, whatever its
 // size (ADR 0366): Nip's steps from the Maltster's survey to green (ADR 0017, ADR 0166, ADR 0298),
 // then a blocking Brett step whose surviving mutants go back to the Gauger, who adds the tests that
-// catch them before the code is written again (ADR 0319, ADR 0358), then one Taster on the planner
-// alias through all seven diff lenses together (ADR 0220), every finding of it going back to
+// catch them before the code is written again (ADR 0319, ADR 0358), then one Taster on the strong
+// level through all seven diff lenses together (ADR 0220), every finding of it going back to
 // Cellarman (ADR 0354), and the pull request. Brett comes before the Taster, so a survivor round,
 // which writes the code again from the red proof's tip, never throws away a Taster's fixes
 // (ADR 0366).
@@ -14,7 +14,7 @@
   "guidance": {
     "chooseWhen": "A change that can reach a lot, whatever its size: a loop over every item, a shared path, a public interface, a credential, a migration or what other repositories read.",
     "notWhen": "A change whose effect stays inside the code it changes: nip builds it for less. An order that needs a plan first, because it is unclear or spans repositories: choose a mash recipe.",
-    "bestUsed": "On an order clear enough to build in one repository. Brett's surviving mutants go back to the Gauger, and one Taster on the planner model reads every diff lens, so it costs more than nip."
+    "bestUsed": "On an order clear enough to build in one repository. Brett's surviving mutants go back to the Gauger, and one Taster on the strong model reads every diff lens, so it costs more than nip."
   },
   "steps": [
     // Without a session when the base's map is fresh, or the Brewery keeps it (ADR 0298).
@@ -70,7 +70,7 @@
       // still open (ADR 0192, ADR 0354, ADR 0369).
       "id": "taste",
       "brewer": "taster",
-      "model": "planner",
+      "model": "strong",
       "lenses": [
         "diff/correctness",
         "diff/acceptance",

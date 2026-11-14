@@ -15,6 +15,7 @@ import { loadRecipes, MAX_INPUT_BYTES } from '../../src/engine/recipe-files.ts';
 import type { Event } from '../../src/schemas/events.ts';
 import type { Git, GitOptions } from '../../src/workspace/git.ts';
 import { brewerText, recipeText } from '../helpers/brewery-files.ts';
+import { claudeModels } from '../helpers/models.ts';
 
 // No files of the Brewery's own but the recipe: the default Taster and Cellarman.
 const loaded = loadRecipes({
@@ -168,7 +169,7 @@ const planOf = (
   const plans = createAttemptPlans({
     state: () => fold(events),
     brewers,
-    models: { models: { builder: 'claude-sonnet-5-5' }, brewers: {} },
+    models: claudeModels({ standard: 'claude-sonnet-5-5' }),
     repoTools: () => [],
     clone: (repo) => join('/clones', repo),
     sandbox: false,

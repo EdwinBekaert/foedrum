@@ -978,7 +978,7 @@ describe("formatDiagnosis: Foedrum's defaults in use (ADR 0098)", () => {
             lenses: [replaced],
             models: {
               path: 'defaults/models.jsonc',
-              text: '{ "models": { "builder": "sonnet" } }',
+              text: '{ "claude": { "models": { "standard": "sonnet" } } }',
             },
           },
         },
@@ -995,12 +995,15 @@ describe("formatDiagnosis: Foedrum's defaults in use (ADR 0098)", () => {
       lenses: [{ path: 'lenses/diff/correctness.md', text: 'Our bugs.' }],
       defaults,
     });
-    const models = { path: 'defaults/models.jsonc', text: '{ "models": { "builder": "sonnet" } }' };
+    const models = {
+      path: 'defaults/models.jsonc',
+      text: '{ "claude": { "models": { "standard": "sonnet" } } }',
+    };
     assert.match(
       formatDiagnosis(
         diagnose({ ...linux(), brewery: brewery({ lenses: [replaced, lens], models }) }),
       ),
-      /\nDefaults in use: defaults\/lenses\/diff\/security\.md, defaults\/models\.jsonc \(a Brewery file of the same name replaces one; models\.jsonc merges over defaults\/models\.jsonc by alias\)\n/,
+      /\nDefaults in use: defaults\/lenses\/diff\/security\.md, defaults\/models\.jsonc \(a Brewery file of the same name replaces one; models\.jsonc merges over defaults\/models\.jsonc entry by entry\)\n/,
     );
     assert.match(
       formatDiagnosis(diagnose({ ...linux(), brewery: brewery({ lenses: [replaced, lens] }) })),
