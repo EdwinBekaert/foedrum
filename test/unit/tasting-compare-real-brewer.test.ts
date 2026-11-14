@@ -1122,6 +1122,20 @@ describe('tasting-compare --real --brewer (ADR 0394)', () => {
       assert.deepEqual(brewer.steps.find(({ stepId }) => stepId === 'map')?.usage, usage(100));
     });
 
+    it("counts only the model's own calls: a tool_use block on a line of another type is no call", () => {
+      const logged = JSON.stringify({
+        type: 'user',
+        message: { content: [{ type: 'tool_use', id: 'logged', name: 'Grep', input: {} }] },
+      });
+      const withLog: Record<string, string> = {
+        ...transcripts,
+        'map-1': `${mapTranscript}\n${logged}`,
+      };
+      const { brewer } = brewerRecordOf(mapped, MAP_RUN, (id) => withLog[id]);
+      const map = brewer.steps.find(({ stepId }) => stepId === 'map');
+      assert.deepEqual(map?.searches, { grep: 2, glob: 1, read: 3 });
+    });
+
     it('a step whose first attempt has no transcript gets no count, though a later one has: a count never stands for part of its attempts', () => {
       const { 'implement-1': _, ...later } = transcripts;
       const { brewer } = brewerRecordOf(mapped, MAP_RUN, (id) => later[id]);
