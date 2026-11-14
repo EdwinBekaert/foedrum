@@ -80,7 +80,7 @@
       "onBlocked": { "findings": { "goto": "gauge", "maxRounds": 2 } }
     },
     {
-      // One Taster on Opus through every diff lens, at the Taster's own effort, the setup three
+      // One Taster on Opus through every diff lens, at moderate effort, the setup three
       // lenses together were measured in (ADR 0347, ADR 0366). Every finding goes back to Cellarman, through the Finer,
       // green and Brett again: two rounds in each run, then the batch is Stuck with the findings
       // still open (ADR 0192, ADR 0354, ADR 0369).

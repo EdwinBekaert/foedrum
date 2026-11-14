@@ -200,7 +200,7 @@ const DEEP = {
 } as const;
 /**
  * The `apart7` setup's Tasters: `nip`'s as it ships, then the three diff lenses `nip` has not, each a
- * Taster of its own at the Taster's own effort (ADR 0366).
+ * Taster of its own at `moderate`, as `nip`'s design conformance (ADR 0366, ADR 0397).
  */
 const APART7_TASTERS = [
   ...SHIPPED_NIP_TASTERS,
