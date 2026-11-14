@@ -200,19 +200,22 @@
               "pattern": "^[1-9][0-9]*[smhd]$"
             },
             "model": {
-              "description": "Overrides the brewer's model: an alias of models.jsonc; a blind-tasting swap of the brewer still wins (ADR 0321)",
-              "type": "string",
-              "pattern": "^[a-z][a-z0-9-]{0,63}$"
-            },
-            "effort": {
-              "description": "Overrides the brewer's effort on this step; a blind-tasting swap of the brewer's model keeps it (ADR 0352)",
+              "description": "Overrides the brewer's model level; a blind-tasting swap of the brewer still wins (ADR 0321, ADR 0397)",
               "type": "string",
               "enum": [
-                "low",
-                "medium",
-                "high",
-                "xhigh",
-                "max"
+                "light",
+                "standard",
+                "strong"
+              ]
+            },
+            "effort": {
+              "description": "Overrides the brewer's effort on this step, one of Foedrum's own; a blind-tasting swap of the brewer's model keeps it (ADR 0352, ADR 0397)",
+              "type": "string",
+              "enum": [
+                "quick",
+                "steady",
+                "careful",
+                "thorough"
               ]
             },
             "interactive": {
@@ -608,19 +611,22 @@
                     "pattern": "^[1-9][0-9]*[smhd]$"
                   },
                   "model": {
-                    "description": "Overrides the brewer's model: an alias of models.jsonc; a blind-tasting swap of the brewer still wins (ADR 0321)",
-                    "type": "string",
-                    "pattern": "^[a-z][a-z0-9-]{0,63}$"
-                  },
-                  "effort": {
-                    "description": "Overrides the brewer's effort on this step; a blind-tasting swap of the brewer's model keeps it (ADR 0352)",
+                    "description": "Overrides the brewer's model level; a blind-tasting swap of the brewer still wins (ADR 0321, ADR 0397)",
                     "type": "string",
                     "enum": [
-                      "low",
-                      "medium",
-                      "high",
-                      "xhigh",
-                      "max"
+                      "light",
+                      "standard",
+                      "strong"
+                    ]
+                  },
+                  "effort": {
+                    "description": "Overrides the brewer's effort on this step, one of Foedrum's own; a blind-tasting swap of the brewer's model keeps it (ADR 0352, ADR 0397)",
+                    "type": "string",
+                    "enum": [
+                      "quick",
+                      "steady",
+                      "careful",
+                      "thorough"
                     ]
                   },
                   "interactive": {

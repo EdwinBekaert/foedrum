@@ -5,6 +5,7 @@
 // files.
 
 import { BrewerFrontmatter } from '../schemas/brewer.ts';
+import type { Effort, ModelLevel } from '../schemas/models.ts';
 import { MUTANTS, SURVEY, TASTING } from '../schemas/out-doc.ts';
 import { PLAN } from '../schemas/plan.ts';
 import { durationMs } from '../schemas/primitives.ts';
@@ -117,8 +118,20 @@ export interface Catalog {
     lenses: ReadonlySet<string>;
     reviewLenses: ReadonlySet<string>;
   };
-  /** The model aliases the recipes' steps name, each with its step and recipe file (ADR 0321). */
-  stepModels: readonly { path: string; stepId: string; alias: string }[];
+  /**
+   * The steps that override their brewer's model level or effort, each with its brewer and recipe
+   * file (ADR 0321, ADR 0352, ADR 0397).
+   */
+  stepOverrides: readonly StepOverride[];
+}
+
+/** A step's own model level or effort, which models.jsonc must translate (ADR 0397). */
+export interface StepOverride {
+  path: string;
+  stepId: string;
+  brewer: string;
+  model?: ModelLevel;
+  effort?: Effort;
 }
 
 /** The brewers of the loaded recipes' steps. */
@@ -1310,7 +1323,7 @@ export function loadRecipes(breweryFiles: BreweryFiles): LoadedRecipes {
   const namedBrewers = new Set<string>();
   // The lenses the recipes' lens steps name (ADR 0161).
   const stepLenses = new Set<string>();
-  const stepModels: { path: string; stepId: string; alias: string }[] = [];
+  const stepOverrides: StepOverride[] = [];
   const recipes = new Map<string, Recipe>();
   // By recipe, then step id.
   const stepBrewers = new Map<string, ReadonlyMap<string, StepBrewer>>();
@@ -1349,9 +1362,16 @@ export function loadRecipes(breweryFiles: BreweryFiles): LoadedRecipes {
     const brewerOf = (name: string) => brewers.get(name)?.brewer;
     const order = [...walk(value.steps, ['steps'])].map(({ step }) => step);
     for (const step of order) {
-      if ('brewer' in step && step.model !== undefined) {
-        stepModels.push({ path, stepId: stepId(step), alias: step.model });
-      }
+      if (!('brewer' in step)) continue;
+      const { model, effort } = step;
+      if (model === undefined && effort === undefined) continue;
+      stepOverrides.push({
+        path,
+        stepId: stepId(step),
+        brewer: step.brewer,
+        ...(model === undefined ? {} : { model }),
+        ...(effort === undefined ? {} : { effort }),
+      });
     }
     const named = order.map((step) => stepBrewerName(step));
     for (const name of named) if (name !== undefined) namedBrewers.add(name);
@@ -1457,7 +1477,7 @@ export function loadRecipes(breweryFiles: BreweryFiles): LoadedRecipes {
         ]),
         reviewLenses: stepLenses,
       },
-      stepModels,
+      stepOverrides,
     },
     recipes: { find: (name) => recipes.get(name) },
     testFirst: testFirstRecipes,

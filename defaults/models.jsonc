@@ -1,1 +1,7 @@
-{ "models": { "builder": "sonnet", "planner": "opus", "explorer": "haiku" } }
+// What Foedrum's model levels and efforts are for each agent (ADR 0153, ADR 0397).
+{
+  "claude": {
+    "models": { "light": "haiku", "standard": "sonnet", "strong": "opus" },
+    "efforts": { "quick": "low", "steady": "medium", "careful": "high", "thorough": "xhigh" }
+  }
+}

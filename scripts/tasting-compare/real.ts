@@ -9,10 +9,9 @@ import { fold } from '../../src/engine/fold.ts';
 import { withoutSecrets } from '../../src/engine/out-doc-text.ts';
 import { planEntryText } from '../../src/engine/plan-comment.ts';
 import { pathInside } from '../../src/platform/paths.ts';
-import { Effort } from '../../src/schemas/brewer.ts';
 import { ClaudeToolResult, ClaudeToolUse } from '../../src/schemas/claude-stream.ts';
 import type { Event, GravityReading, Usage } from '../../src/schemas/events.ts';
-import { ModelId } from '../../src/schemas/models.ts';
+import { Effort, ModelId } from '../../src/schemas/models.ts';
 import { planOf } from '../../src/schemas/plan.ts';
 import { z } from '../../src/schemas/zod.ts';
 import type { FakeApiComment } from '../../test/helpers/fake-github-api.ts';
@@ -176,19 +175,19 @@ const TOGETHER = {
  * all; a test holds them to that file (ADR 0366).
  */
 const SHIPPED_NIP_TASTERS = [
-  { ...LENS_TASTERS[0], effort: 'high', everyRound: true },
-  { ...LENS_TASTERS[1], effort: 'high' },
-  { ...LENS_TASTERS[2], effort: 'high' },
+  { ...LENS_TASTERS[0], effort: 'careful', everyRound: true },
+  { ...LENS_TASTERS[1], effort: 'careful' },
+  { ...LENS_TASTERS[2], effort: 'careful' },
   LENS_TASTERS[3],
 ] as const;
 /**
  * The `deep` setup's one Taster: `defaults/recipes/deep-brew.jsonc`'s taste step as it ships, every
- * diff lens on the planner alias; a test holds it to that file (ADR 0366).
+ * diff lens on the strong level; a test holds it to that file (ADR 0366).
  */
 const DEEP = {
   id: 'deep',
   brewer: 'taster',
-  model: 'planner',
+  model: 'strong',
   lenses: [
     'diff/correctness',
     'diff/acceptance',
@@ -297,7 +296,7 @@ export interface Tasters {
   reads: string;
 }
 
-const MEDIUM_EFFORT = '"effort": "medium"';
+const MEDIUM_EFFORT = '"effort": "steady"';
 
 /** The `high` setup's Taster: the reading Taster's text at another effort, and no other change. */
 export const highTaster = (reads: string): string => {
@@ -306,7 +305,7 @@ export const highTaster = (reads: string): string => {
       `the reading Taster does not say ${MEDIUM_EFFORT} once: high would compare nothing`,
     );
   }
-  return reads.replace(MEDIUM_EFFORT, () => '"effort": "high"');
+  return reads.replace(MEDIUM_EFFORT, () => '"effort": "careful"');
 };
 
 /**
@@ -361,12 +360,12 @@ export const realFolders = (comparison: string | undefined): string[] => {
   return ['real', 'comparisons', comparison];
 };
 
-/** The `opus` setup's models.jsonc: over the default's aliases, it moves the Taster and no other brewer. */
-const OPUS_MODELS = `${JSON.stringify({ models: { opus: 'opus' }, brewers: { taster: 'opus' } })}\n`;
+/** The `opus` setup's models.jsonc: it swaps the Taster to the default's strong level, Opus, and no other brewer. */
+const OPUS_MODELS = `${JSON.stringify({ brewers: { taster: 'strong' } })}\n`;
 
 /** The setups that put the Taster on Opus. */
 const ON_OPUS: ReadonlySet<Profile | 'comments'> = new Set(['opus', 'opus-bare', 'opus-together']);
-/** The setups whose Taster asks for Opus, by models.jsonc or by its step's own alias (ADR 0366). */
+/** The setups whose Taster asks for Opus, by models.jsonc or by its step's own level (ADR 0366). */
 const ASKS_OPUS: ReadonlySet<Profile | 'comments'> = new Set([...ON_OPUS, 'deep']);
 /** The setups that taste with the default Taster as it ships, not a pinned text (ADR 0366). */
 const SHIPPED: ReadonlySet<Profile | 'comments'> = new Set(['nip', 'deep', 'apart7']);
@@ -721,7 +720,7 @@ export const realRecordOf = (
 
 /**
  * Why a run on a model its setup did not ask for must stop the comparison, or undefined: it is the
- * harness's fault, and every later run would be on it too (ADR 0344). An alias asks for a family, so
+ * harness's fault, and every later run would be on it too (ADR 0344). A family such as opus asks for any id that holds it, so
  * an id of that family is what was asked. A Taster that finished with no model named cannot say. An
  * attempt that failed by itself may have called no model, and is a failed run.
  */
@@ -1013,7 +1012,7 @@ export type MeasuredBrewer = (typeof MEASURED_BREWERS)[number];
 export interface BrewerSettings {
   brewer: MeasuredBrewer;
   model: string;
-  effort: z.infer<typeof Effort>;
+  effort: Effort;
   orderText?: 'plan';
 }
 
@@ -1023,8 +1022,11 @@ export type BrewerSetup = `${OrderNumber}-${MeasuredBrewer}-${string}`;
 /** The recipe of a real Cellarman's run (ADR 0394). */
 export const REAL_BREWER_RECIPE = 'real-brew-cellarman';
 
-/** The alias the measured brewer's step names, which models.jsonc maps to the given model. */
-const MEASURED = 'measured';
+/**
+ * The level the measured brewer's step names, which the run's models.jsonc maps to the given model:
+ * no other step of its recipe runs on it (ADR 0397).
+ */
+const MEASURED = 'strong';
 
 /** The settings `--brewer`, `--model` and `--effort` give, or undefined without them; throws on a wrong combination. */
 export const brewerSettingsOf = (given: {
@@ -1115,7 +1117,7 @@ const GREEN_CHECKS = ['build', 'typecheck', 'lint', 'format', 'test'] as const;
 
 /**
  * The recipe of a real Cellarman's runs: the scripted Gauger's tests, Cellarman on the measured
- * alias and effort, the repository's checks, sent back to Cellarman once, and the pull request a
+ * level and the given effort, the repository's checks, sent back to Cellarman once, and the pull request a
  * recipe that commits must open (ADR 0084). Not test-first, so no red proof runs and the
  * repository needs no test map (ADR 0394).
  */
@@ -1168,7 +1170,7 @@ export const brewerBreweryFiles = (
   names: { brewery: string; target: string; user: string },
 ): Record<string, string> => ({
   [`recipes/${REAL_BREWER_RECIPE}.jsonc`]: brewerRecipeText(settings),
-  'models.jsonc': json({ models: { [MEASURED]: settings.model } }),
+  'models.jsonc': json({ claude: { models: { [MEASURED]: settings.model } } }),
   'foedrum.jsonc': json({
     brewery: names.brewery,
     users: [names.user],
@@ -1464,8 +1466,8 @@ export const PLANNER_RECIPE = 'real-plan-brewmaster';
 /** The end of a brewer's setup that starts from the kept sub-order (ADR 0396). */
 const PLAN_TEXT = '-plan';
 
-/** The family the Brewmaster's `planner` alias names in `defaults/models.jsonc`. */
-const PLANNER_FAMILY = 'opus';
+/** The family the Brewmaster's `strong` level names in `defaults/models.jsonc`. */
+const STRONG_FAMILY = 'opus';
 
 /** One order planned once by the real Brewmaster. */
 export type PlannerSetup = `${OrderNumber}-brewmaster`;
@@ -1639,10 +1641,10 @@ export const plannerStop = ({
   planner,
 }: Pick<PlannerRecord, 'setup' | 'planner'>): string | undefined => {
   if (planner.unreadable !== undefined) return escapeCell(planner.unreadable);
-  const other = planner.models.find((model) => !model.includes(PLANNER_FAMILY));
+  const other = planner.models.find((model) => !model.includes(STRONG_FAMILY));
   return other === undefined
     ? undefined
-    : escapeCell(`plan: it ran on ${other}, and ${setup} asks for ${PLANNER_FAMILY}`);
+    : escapeCell(`plan: it ran on ${other}, and ${setup} asks for ${STRONG_FAMILY}`);
 };
 
 /**

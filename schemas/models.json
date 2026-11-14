@@ -6,21 +6,61 @@
       "description": "The JSON Schema of this file, for editors",
       "type": "string"
     },
-    "models": {
+    "claude": {
+      "default": {
+        "models": {},
+        "efforts": {}
+      },
+      "description": "What Foedrum's levels and efforts are for the claude agent (ADR 0397)",
       "type": "object",
-      "propertyNames": {
-        "type": "string",
-        "pattern": "^[a-z][a-z0-9-]{0,63}$"
+      "properties": {
+        "models": {
+          "default": {},
+          "description": "The model id or family `claude --model` gets for each level",
+          "type": "object",
+          "propertyNames": {
+            "type": "string",
+            "enum": [
+              "light",
+              "standard",
+              "strong"
+            ]
+          },
+          "additionalProperties": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}(?:\\[1m\\])?$"
+          }
+        },
+        "efforts": {
+          "default": {},
+          "description": "The word `claude --effort` gets for each of Foedrum's efforts",
+          "type": "object",
+          "propertyNames": {
+            "type": "string",
+            "enum": [
+              "quick",
+              "steady",
+              "careful",
+              "thorough"
+            ]
+          },
+          "additionalProperties": {
+            "type": "string",
+            "enum": [
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "max"
+            ]
+          }
+        }
       },
-      "additionalProperties": {
-        "type": "string",
-        "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}(?:\\[1m\\])?$"
-      },
-      "description": "The model id or family behind each alias that brewers name"
+      "additionalProperties": false
     },
     "brewers": {
       "default": {},
-      "description": "An alias per brewer, replacing the brewer's own (blind tasting)",
+      "description": "A level per brewer, replacing the brewer's own (blind tasting)",
       "type": "object",
       "propertyNames": {
         "type": "string",
@@ -28,12 +68,13 @@
       },
       "additionalProperties": {
         "type": "string",
-        "pattern": "^[a-z][a-z0-9-]{0,63}$"
+        "enum": [
+          "light",
+          "standard",
+          "strong"
+        ]
       }
     }
   },
-  "required": [
-    "models"
-  ],
   "additionalProperties": false
 }

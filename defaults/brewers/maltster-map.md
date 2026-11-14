@@ -3,8 +3,8 @@
   "name": "maltster-map",
   "description": "The Maltster's map: reads the order and the code, and lists the files and lines it touches, one line each saying why; read-only.",
   "version": 1,
-  "model": "explorer",
-  "effort": "medium",
+  "model": "light",
+  "effort": "steady",
   "inputs": [
     { "name": "order", "from": "order" },
     { "name": "planEntry", "from": "plan-entry" }

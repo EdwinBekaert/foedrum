@@ -42,8 +42,8 @@ const SEVEN = [
 /** `mash`'s three lenses (ADR 0321). */
 const MASH = ['plan/coverage', 'plan/sizing', 'plan/naive-reader'] as const;
 
-/** The lenses `deep-mash` runs on `planner`; the others are on the Taster's own alias (ADR 0321). */
-const ON_PLANNER: readonly string[] = ['plan/coverage', 'plan/security'];
+/** The lenses `deep-mash` runs on `strong`; the others are on the Taster's own level (ADR 0321). */
+const ON_STRONG: readonly string[] = ['plan/coverage', 'plan/security'];
 
 /** The setups that run, and their lenses. */
 export const PLAN_SETUPS = {
@@ -87,7 +87,7 @@ export const planRecipeText = (setup: PlanSetupName): string => {
           id: stepIdOf(lens),
           brewer: 'taster',
           lens,
-          ...(ON_PLANNER.includes(lens) ? { model: 'planner' } : {}),
+          ...(ON_STRONG.includes(lens) ? { model: 'strong' } : {}),
         })),
         ...backTo(PLAN_STEP),
       }

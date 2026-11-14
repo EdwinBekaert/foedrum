@@ -3,7 +3,7 @@
 // line per problem. serve.ts runs it; main.ts reads the files.
 
 import { join } from 'node:path';
-import { modelOf } from '../brewers/attempt-plan.ts';
+import { effortOf, modelOf } from '../brewers/attempt-plan.ts';
 import { type ConfigDirs, configDirsOf } from '../brewers/attempt-settings.ts';
 import type { RepositorySetup } from '../checks/check-runner.ts';
 import type { RepositoryChecks } from '../checks/gravity.ts';
@@ -211,16 +211,17 @@ const read = <T>(
 };
 
 /**
- * The models a brewer can resolve (ADR 0153): Foedrum's default `models` with the Brewery's over
- * them, by alias, and the `brewers` of the Brewery's file only. Every `brewers` alias must have a
- * model among the merged ones. Undefined, with the problems added, when a file does not pass.
+ * The models and efforts a brewer can resolve (ADR 0153, ADR 0397): Foedrum's default `claude`
+ * models and efforts with the Brewery's over them, entry by entry, and the `brewers` of the
+ * Brewery's file only. Every `brewers` level must have a model among the merged ones. Undefined,
+ * with the problems added, when a file does not pass.
  */
 const mergedModels = (
   own: string | undefined,
   defaults: BreweryFile | undefined,
   problems: string[],
 ): ModelsConfig | undefined => {
-  const none: ModelsConfig = { models: {}, brewers: {} };
+  const none: ModelsConfig = { claude: { models: {}, efforts: {} }, brewers: {} };
   // A default that does not load is Foedrum's defect, named by its defaults/ path (ADR 0098).
   const readDefaults = (): ModelsConfig | undefined => {
     if (defaults === undefined) return none;
@@ -234,15 +235,18 @@ const mergedModels = (
   const fromBrewery =
     own === undefined ? none : read('models.jsonc', own, ModelsFile, undefined, problems);
   if (fromDefaults === undefined || fromBrewery === undefined) return undefined;
-  const merged = {
-    models: { ...fromDefaults.models, ...fromBrewery.models },
+  const merged: ModelsConfig = {
+    claude: {
+      models: { ...fromDefaults.claude.models, ...fromBrewery.claude.models },
+      efforts: { ...fromDefaults.claude.efforts, ...fromBrewery.claude.efforts },
+    },
     brewers: fromBrewery.brewers,
   };
   const unmapped = Object.entries(merged.brewers).filter(
-    ([, alias]) => !Object.hasOwn(merged.models, alias),
+    ([, level]) => !Object.hasOwn(merged.claude.models, level),
   );
-  for (const [brewer, alias] of unmapped) {
-    problems.push(`models.jsonc: brewers.${brewer}: No model has the alias "${alias}"`);
+  for (const [brewer, level] of unmapped) {
+    problems.push(`models.jsonc: brewers.${brewer}: No model has the level "${level}"`);
   }
   return unmapped.length === 0 ? merged : undefined;
 };
@@ -376,23 +380,31 @@ export const serveSetup = (inputs: ServeInputs): ServeSetupResult => {
     ? defaultRecipeProblem(config?.defaultRecipe, loaded.recipes)
     : undefined;
   if (defaulted !== undefined) problems.push(`${defaulted.what}: ${defaulted.fix}`);
-  // Every brewer's alias has a model, so no attempt finds out only when it starts.
+  // Every brewer's level and effort has a translation, so no attempt finds out only when it starts.
   if (models !== undefined) {
     for (const file of filesInUse(files.brewery).brewers) {
       if (!('text' in file)) continue;
       const brewer = readDoc(file.text, BrewerFrontmatter);
       if (!brewer.valid) continue;
-      try {
-        modelOf(models, brewer.frontmatter);
-      } catch (error) {
-        problems.push(`${file.path}: ${messageOf(error)}`);
+      for (const translate of [modelOf, effortOf]) {
+        try {
+          translate(models, brewer.frontmatter);
+        } catch (error) {
+          problems.push(`${file.path}: ${messageOf(error)}`);
+        }
       }
     }
-    // And every alias a step names (ADR 0321).
-    for (const { path, stepId, alias } of loaded.valid ? loaded.catalog.stepModels : []) {
-      if (!Object.hasOwn(models.models, alias)) {
+    // And every level and effort a step names (ADR 0321, ADR 0352).
+    for (const step of loaded.valid ? loaded.catalog.stepOverrides : []) {
+      const named = `${step.path}: step "${step.stepId}" of the brewer "${step.brewer}" names`;
+      if (step.model !== undefined && !Object.hasOwn(models.claude.models, step.model)) {
         problems.push(
-          `${path}: step "${stepId}" names the model alias "${alias}", which models.jsonc has no model for`,
+          `${named} the level "${step.model}", which models.jsonc has no claude model for`,
+        );
+      }
+      if (step.effort !== undefined && !Object.hasOwn(models.claude.efforts, step.effort)) {
+        problems.push(
+          `${named} the effort "${step.effort}", which models.jsonc has no claude effort for`,
         );
       }
     }
