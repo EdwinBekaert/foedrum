@@ -713,4 +713,49 @@ describe('tasting-compare --real --brewer (ADR 0394)', () => {
       ]);
     });
   });
+
+  describe('what the second review found untested', () => {
+    it('a family stops a run on a model of another family', () => {
+      const { brewer } = brewerRecordOf(twoRounds, { ...OPUS, model: 'opus' }, (_id, tree) =>
+        scriptedTranscript(tree, 'claude-sonnet-5-5'),
+      );
+      assert.match(
+        brewerStop({ setup: '855-cellarman-opus-xhigh', brewer }) ?? '',
+        /claude-sonnet-5-5.*asks for opus/,
+      );
+    });
+
+    it('an id takes a snapshot of eight digits only, not a longer suffix', () => {
+      const { brewer } = brewerRecordOf(twoRounds, OPUS, (_id, tree) =>
+        scriptedTranscript(tree, 'claude-opus-5-5-202611019'),
+      );
+      assert.match(
+        brewerStop({ setup: '855-cellarman-claude-opus-5-5-xhigh', brewer }) ?? '',
+        /claude-opus-5-5-202611019/,
+      );
+    });
+
+    it("codes.md sums each step's tokens, turns and time", () => {
+      const SETUP = '867-cellarman-claude-opus-5-5-xhigh' as const;
+      const steps = [
+        { stepId: 'gauge', attempts: 1, turns: 0, durationMs: 0 },
+        { stepId: 'implement', attempts: 2, usage: usage(10), turns: 7, durationMs: 1_000 },
+        { stepId: 'fine', attempts: 1, usage: usage(20), turns: 3, durationMs: 2_000 },
+        { stepId: 'green', attempts: 2, turns: 0, durationMs: 0 },
+      ];
+      const { codes } = brewerBlinded([brewerRecord(SETUP, 1, { steps })], 'a seed');
+      const row = codes.split('\n').find((line) => line.includes(codeOf('a seed', SETUP, 1)));
+      assert.equal(
+        row,
+        `| ${codeOf('a seed', SETUP, 1)} | ${SETUP} | 1 | claude-opus-5-5 | xhigh | passed | gauge 1, implement 2, fine 1, green 2 | 30 | 4 | 6 | 8 | 48 | 10 | 3 s | 9 s |`,
+      );
+    });
+
+    it('the green step has 30 minutes, for the setup and the checks on its worktree', () => {
+      const recipe = Recipe.parse(parseJsonc(brewerRecipeText(OPUS)));
+      const green = recipe.steps.find((step) => 'id' in step && step.id === 'green');
+      assert.ok(green !== undefined && 'check' in green);
+      assert.equal(green.deadline, '30m');
+    });
+  });
 });
