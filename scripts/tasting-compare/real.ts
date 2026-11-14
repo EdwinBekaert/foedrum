@@ -1458,7 +1458,7 @@ export const brewerTable = (records: readonly BrewerRecord[]): string => {
   ].join('\n')}\n`;
 };
 
-/** The Brewmaster's recipe of the planning step, `--sub-orders` (ADR 0396). */
+/** The Brewmaster's recipe of the planning runs, `--sub-orders` (ADR 0396). */
 export const PLANNER_RECIPE = 'real-plan-brewmaster';
 
 /** The end of a brewer's setup that starts from the kept sub-order (ADR 0396). */
@@ -1503,12 +1503,12 @@ export const subOrdersRunOf = (given: {
   return true;
 };
 
-/** The planning step's setups, one per order of `--orders`, or of every order. */
+/** The planning runs' setups, one per order of `--orders`, or of every order. */
 export const plannerSetups = (orders?: string): PlannerSetup[] =>
   realOrdersOf(orders).map(({ order }): PlannerSetup => `${order}-brewmaster`);
 
 /**
- * The planning step's Brewery files beyond Nip's: a mash of the Brewmaster alone, as it ships, so
+ * The planning runs' Brewery files beyond Nip's: a mash of the Brewmaster alone, as it ships, so
  * the batch waits for its plan's review once the plan is written (ADR 0275, ADR 0396).
  */
 export const plannerBreweryFiles = (): Record<string, string> => {
@@ -1646,7 +1646,7 @@ export const plannerStop = ({
 };
 
 /**
- * The files a planning step keeps, by path in its folder: each order's plan, and its sub-order's
+ * The files the planning runs keep, by path in its folder: each order's plan, and its sub-order's
  * text, the title on its first line as an order's own file has it, only when the plan has one.
  */
 export const keptFiles = (records: readonly PlannerRecord[]): Record<string, string> => {
@@ -1662,7 +1662,7 @@ export const keptFiles = (records: readonly PlannerRecord[]): Record<string, str
   return files;
 };
 
-/** What the planning step prints: each order's sub-order kept, or why it has none. */
+/** What the planning runs print: each order's sub-order kept, or why it has none. */
 export const plannerTable = (records: readonly PlannerRecord[]): string =>
   `${[
     '| Order | Sub-order text |',

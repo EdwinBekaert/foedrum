@@ -223,7 +223,7 @@ if (
   !subOrders
 ) {
   process.stderr.write(
-    '--orders chooses the orders of the setups --setups or the runs --brewer names: give one of them too\n',
+    '--orders chooses the orders of the setups --setups, the runs --brewer or the plans --sub-orders names: give one of them too\n',
   );
   process.exit(2);
 }
@@ -252,7 +252,7 @@ const realFolderNames = (): string[] => {
   }
 };
 const realFolderOf = realFolderNames();
-/** The planning step's folder, where a brewer's run from a kept sub-order reads it (ADR 0396). */
+/** The planning runs' folder, where a brewer's run from a kept sub-order reads it (ADR 0396). */
 const SUB_ORDERS = 'sub-orders';
 const runs = Number(values.runs ?? '3');
 if (!Number.isSafeInteger(runs) || runs < 1) {
@@ -587,7 +587,7 @@ const brewerMode = async (settings: BrewerSettings): Promise<Mode<BrewerSetup, B
 };
 
 /**
- * The planning step (ADR 0396): each order's base, planned once by the Brewmaster as it ships, real
+ * The planning runs (ADR 0396): each order's base, planned once by the Brewmaster as it ships, real
  * or scripted with --dry-run, until its plan waits for its review; a plan of one sub-order is kept
  * as that sub-order's text, and a run with no out doc is planned once more.
  */
