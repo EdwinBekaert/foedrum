@@ -39,7 +39,7 @@
 // codes.md, or under real/comparisons/<name> with --comparison <name>, whose records, runs and
 // lists are its own. It scores nothing. Its decisions are scripts/tasting-compare/real.ts.
 //
-// With --real --brewer cellarman --model <id> --effort <level> (#995, ADR 0394) it builds the three
+// With --real --brewer cellarman --model <id> --effort <effort> (#995, ADR 0394) it builds the three
 // heads again instead: a scripted Gauger commits each head's test files as brewed, Cellarman runs
 // on the real claude on the given model and effort, or scripted with --dry-run, and the
 // repository's checks run on its code after `npm ci`. Each run records whether the checks passed,

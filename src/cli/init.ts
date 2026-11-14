@@ -75,7 +75,7 @@ const PUSH = ['push', '-u', 'origin', 'HEAD'];
 const IGNORED = '.foedrum/';
 /** A name Windows keeps for a device, before any dot: no folder can have it (CON, NUL, COM1, …). */
 const WINDOWS_DEVICE = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i;
-/** No aliases of its own: every alias is Foedrum's default (ADR 0153). */
+/** No levels or efforts of its own: every one is Foedrum's default (ADR 0153, ADR 0397). */
 const MODELS = `// What a model level or an effort runs as, over Foedrum's defaults (ADR 0153, ADR 0397),
 // such as { "claude": { "efforts": { "careful": "xhigh" } } }.
 { "claude": {} }

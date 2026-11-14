@@ -1064,8 +1064,8 @@ export const brewerSettingsOf = (given: {
       `--model takes a model id models.jsonc accepts, such as claude-sonnet-5-5, not "${model}"`,
     );
   }
-  const level = Effort.safeParse(effort);
-  if (!level.success) {
+  const parsed = Effort.safeParse(effort);
+  if (!parsed.success) {
     throw new Error(`--effort takes one of ${Effort.options.join(', ')}, not "${effort}"`);
   }
   if (orderText !== undefined && orderText !== 'issue' && orderText !== 'plan') {
@@ -1074,7 +1074,7 @@ export const brewerSettingsOf = (given: {
   return {
     brewer: measured,
     model,
-    effort: level.data,
+    effort: parsed.data,
     ...(orderText === 'plan' ? { orderText } : {}),
   };
 };
