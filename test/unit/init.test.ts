@@ -1925,6 +1925,17 @@ describe('foedrum init finds where it is (ADR 0393)', () => {
     assert.deepStrictEqual(git[0]?.args.at(-1), 'sub/brewery');
   });
 
+  it('on Windows, takes a folder typed from the root of the drive with one backslash', async () => {
+    const clone = outside();
+    const { result, git } = await init(['', '', ''], clone, {
+      given: { folder: '\\brewery' },
+      platform: 'win32',
+    });
+    assert.equal(result.exitCode, 0, result.stderr);
+    assert.deepStrictEqual(git[0]?.args.at(-1), '/brewery');
+    assert.ok(clone.files.has('/brewery/foedrum.jsonc'));
+  });
+
   it('elsewhere, takes a full path that starts with two slashes as the root it names', async () => {
     const clone = outside();
     const { result, git } = await init(['', '', ''], clone, {
