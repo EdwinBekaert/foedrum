@@ -500,6 +500,43 @@ describe('tasting-compare --real --brewer (ADR 0394)', () => {
       );
     });
 
+    it('a Cellarman that finished with a transcript that names no model stops the comparison', () => {
+      // claude's own line for a failed call names `<synthetic>`, which is no model (ADR 0344).
+      const { brewer } = brewerRecordOf(twoRounds, OPUS, (_id, tree) =>
+        scriptedTranscript(tree, '<synthetic>'),
+      );
+      assert.match(
+        brewerStop({ setup: '855-cellarman-claude-opus-5-5-xhigh', brewer }) ?? '',
+        /implement 1: its transcript names no model/,
+      );
+    });
+
+    it('a Cellarman attempt that failed by itself, naming no model, stops nothing: regression test', () => {
+      const failedAlone = [
+        started('gauge', 1, session('gauge-1')),
+        finished('gauge', 1),
+        started('implement', 1, session('implement-1')),
+        finished('implement', 1, {
+          outcome: { kind: 'failed', retryable: false, reason: 'the session could not start' },
+        }),
+      ];
+      const { brewer } = brewerRecordOf(failedAlone, OPUS, (_id, tree) =>
+        scriptedTranscript(tree, '<synthetic>'),
+      );
+      assert.equal(brewerStop({ setup: '855-cellarman-claude-opus-5-5-xhigh', brewer }), undefined);
+    });
+
+    it('a dry run on a [1m] model passes its own check: its scripted transcript names the model as planned', () => {
+      const asked = { ...OPUS, model: 'claude-opus-5-5[1m]' };
+      const { brewer } = brewerRecordOf(twoRounds, asked, (_id, tree) =>
+        scriptedTranscript(tree, 'claude-opus-5-5[1m]'),
+      );
+      assert.equal(
+        brewerStop({ setup: '855-cellarman-claude-opus-5-5_1m_-xhigh', brewer }),
+        undefined,
+      );
+    });
+
     it('a run whose Cellarman left no code the checks read measured nothing', () => {
       const lost = [
         started('gauge', 1),
