@@ -15,7 +15,6 @@ import {
   readFileSync,
   readlinkSync,
   realpathSync,
-  statSync,
   writeFileSync,
 } from 'node:fs';
 import { createServer, type Server } from 'node:net';
@@ -428,12 +427,20 @@ describe('a setup in the real sandbox, the network kept', {
 const mountDevices = (mountinfo: string): Set<string> =>
   new Set(mountinfo.split('\n').flatMap((line) => line.split(' ')[2] ?? []));
 
-/** A path's device as mountinfo writes it: Linux's dev_t split into its major and minor. */
+/**
+ * The device of the mount that holds `path`, as the test's own mountinfo writes it: the line whose
+ * mount point (the fifth field) is the longest that contains the path, the last of equals. Read
+ * from mountinfo, not from stat, whose device is a btrfs subvolume's own.
+ */
 const deviceOf = (path: string): string => {
-  const { dev } = statSync(path, { bigint: true });
-  const major = ((dev >> 8n) & 0xfffn) | ((dev >> 32n) & ~0xfffn);
-  const minor = (dev & 0xffn) | ((dev >> 12n) & ~0xffn);
-  return `${major}:${minor}`;
+  const real = realpathSync(path);
+  const holds = (point: string) => point === '/' || real === point || real.startsWith(`${point}/`);
+  const mounts = readFileSync('/proc/self/mountinfo', 'utf8')
+    .split('\n')
+    .map((line) => line.split(' '))
+    .filter((fields) => fields[4] !== undefined && holds(fields[4]));
+  const longest = Math.max(...mounts.map((fields) => (fields[4] ?? '').length));
+  return mounts.findLast((fields) => (fields[4] ?? '').length === longest)?.[2] ?? '';
 };
 
 /**
