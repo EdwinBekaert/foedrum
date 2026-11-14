@@ -28,6 +28,7 @@ import {
   plannerRecordOf,
   plannerSetups,
   plannerStop,
+  plannerTable,
   REAL_BREWER_RECIPE,
   REAL_SETUPS,
   realBreweryFiles,
@@ -990,6 +991,18 @@ describe('tasting-compare --real --brewer (ADR 0394)', () => {
         (lists['855'] ?? '').replaceAll(/the code of .*/g, ''),
         /plan|issue|cellarman/,
       );
+    });
+
+    it('the table it prints says, per order, the sub-order kept, or why none is', () => {
+      const lost = plannerRecord(planned({}).slice(0, -1));
+      const table = plannerTable([
+        plannerRecord(done('notes')),
+        { ...plannerRecord(done('api', 'ui')), setup: '864-brewmaster' },
+        { ...lost, setup: '867-brewmaster' },
+      ]);
+      assert.match(table, /^\| 855 \| kept: Build notes \|$/m);
+      assert.match(table, /^\| 864 \| the plan has 2 sub-orders.* \|$/m);
+      assert.match(table, /^\| 867 \| no out doc: planned again once \|$/m);
     });
   });
 });
