@@ -9,18 +9,19 @@ The effort words are one agent's: a second agent (#691, #839) has its own words 
 Decided with the maintainer on 2026-11-14 (#1058).
 
 ## Decision
-- **Three model levels replace the aliases**: `light` (was `explorer`), `standard` (was `builder`) and `strong` (was `planner`).
-  The set is closed: a brewer, a step and a blind-tasting swap name one of the three, and the schema refuses any other name.
+- **Four model levels replace the aliases**: `light` (was `explorer`), `standard` (was `builder`), `strong` (was `planner`) and `extreme`, above `strong`, which no default brewer or step names (decided with the maintainer on 2026-11-14).
+  The set is closed: a brewer, a step and a blind-tasting swap name one of the four, and the schema refuses any other name.
 - **Four efforts of Foedrum's own** replace Claude Code's five words in the brewer schema and on a recipe step: `small`, `moderate`, `larger` and `full`.
 - **`models.jsonc` holds one block per agent**, today one, `claude`, with `models` (a model id or family per level) and `efforts` (Claude Code's word per effort):
 
   ```jsonc
   { "claude": {
-      "models": { "light": "haiku", "standard": "sonnet", "strong": "opus" },
+      "models": { "light": "haiku", "standard": "sonnet", "strong": "opus", "extreme": "fable" },
       "efforts": { "small": "low", "moderate": "medium", "larger": "high", "full": "xhigh" } } }
   ```
 
   That is `defaults/models.jsonc`.
+  `extreme` is the family `fable`, which `claude --model` takes as an alias for the latest Fable model (its `--help` names it), as `opus` is for the latest Opus.
   `brewers`, the blind-tasting swap, stays at the top level and names a level, since a level belongs to no agent.
 - **The merge stays entry by entry** (ADR 0153): the merged `claude.models` is the defaults' with the Brewery's over them, level by level, and `claude.efforts` the same, effort by effort; `brewers` comes from the Brewery's file only.
   A Brewery that wants the same effort everywhere writes `{ "claude": { "efforts": { "small": "medium", "moderate": "medium", "larger": "medium", "full": "medium" } } }` and nothing else.
@@ -43,5 +44,5 @@ Nothing: no Brewery runs Foedrum before its first publish, so the rename has no 
 - A Brewery can no longer invent a model name of its own; a fourth level is a change of Foedrum.
 
 ## Alternatives considered
-- **Free level names with the three as defaults**: keeps the role-name problem the change removes, since a Brewery could again name a level after a role.
+- **Free level names with the four as defaults**: keeps the role-name problem the change removes, since a Brewery could again name a level after a role.
 - **The `--brewer` run's step on `standard`**: would move the scripted Gauger's model too, which the comparison holds to its own.

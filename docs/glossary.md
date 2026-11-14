@@ -20,7 +20,7 @@ Foedrum borrows its vocabulary from Belgian brewing. A *foeder* is the large oak
 | **Triage source** | Issues in target repositories configured for triage, read by Infection check and turned into Brewery orders |
 | **Rewind** | Continuing a batch from an earlier step; branches reset to that step's commits |
 | **Brewer** | A reusable agent role: prompt, in-docs, out doc, model, effort, tools, permissions, budget, guards |
-| **Model level** | How strong a model a brewer or a step runs on, in Foedrum's words: `light`, `standard` or `strong`; `models.jsonc` names the model each is for each agent ([ADR 0397](adr/0397-brewers-name-a-model-level-and-an-effort-of-foedrum-s-own-which-models-jsonc-translates.md)) |
+| **Model level** | How strong a model a brewer or a step runs on, in Foedrum's words: `light`, `standard`, `strong` or `extreme`; `models.jsonc` names the model each is for each agent ([ADR 0397](adr/0397-brewers-name-a-model-level-and-an-effort-of-foedrum-s-own-which-models-jsonc-translates.md)) |
 | **Effort** | How hard a brewer or a step thinks, in Foedrum's words: `small`, `moderate`, `larger` or `full`; `models.jsonc` translates each into the agent's own word, such as `claude --effort high` for `larger` ([ADR 0397](adr/0397-brewers-name-a-model-level-and-an-effort-of-foedrum-s-own-which-models-jsonc-translates.md)) |
 | **Recipe** | A pipeline: brewers, checks and actions in order, with loops. Its `type` says what kind of work it does: `mash` chooses a recipe or makes a plan and builds nothing (Mash-in, Mash, Deep-mash); `brew` builds (Nip); a sub-order runs a `brew` recipe ([ADR 0365](adr/0365-a-recipe-has-a-type-mash-or-brew.md)) |
 | **Batch** | One execution of a recipe for one order |

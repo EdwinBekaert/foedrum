@@ -45,7 +45,7 @@ The setup command is not a brewer field: it depends on the repository, so it is 
 
 | Field | Purpose |
 |---|---|
-| `model` | Model level, `light`, `standard` or `strong`, which `models.jsonc` translates into a model of the agent, so evaluations can swap it |
+| `model` | Model level, `light`, `standard`, `strong` or `extreme`, which `models.jsonc` translates into a model of the agent, so evaluations can swap it |
 | `effort` | Reasoning effort, `small`, `moderate`, `larger` or `full`, which `models.jsonc` translates into the agent's own word; constant across retries to keep the prompt cache valid ([ADR 0397](../../adr/0397-brewers-name-a-model-level-and-an-effort-of-foedrum-s-own-which-models-jsonc-translates.md)) |
 
 **Tools and context**
