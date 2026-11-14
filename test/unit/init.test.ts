@@ -1885,6 +1885,37 @@ describe('foedrum init finds where it is (ADR 0393)', () => {
     assert.ok(!events.some((event) => /^(create|git)/.test(event)), events.join('\n'));
   });
 
+  it('on Windows, asks the folder again for a network path typed with backslashes, never using the current drive', async () => {
+    const answers = ['', '\\\\server\\share\\brewery', 'brewery', '', '', ''];
+    const { result, lines, questions, git } = await init(answers, outside(), {
+      ...unplaced,
+      platform: 'win32',
+    });
+    assert.equal(result.exitCode, 0, result.stderr);
+    assert.ok(
+      lines.includes(
+        '  \\\\server\\share\\brewery is a network or device path; these are not supported: give a folder on a drive',
+      ),
+      lines.join('\n'),
+    );
+    assert.equal(questions[1], questions[2]);
+    assert.deepStrictEqual(git[0]?.args.at(-1), 'brewery');
+  });
+
+  it('on Windows, refuses a network path given as --folder with slashes, creating nothing', async () => {
+    const { result, events } = await init([], outside(), {
+      given: { create: 'y', folder: '//server/share/brewery' },
+      platform: 'win32',
+    });
+    assert.deepStrictEqual(result, {
+      exitCode: 2,
+      stdout: '',
+      stderr:
+        'foedrum init: --folder //server/share/brewery: //server/share/brewery is a network or device path; these are not supported: give a folder on a drive\n',
+    });
+    assert.deepStrictEqual(events, []);
+  });
+
   it('on Windows, takes a relative folder typed with a backslash', async () => {
     const { result, git } = await init(['', 'sub\\brewery', '', '', ''], outside(), {
       ...unplaced,
