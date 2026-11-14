@@ -300,11 +300,19 @@ interface Chosen {
 /**
  * The folder a Brewery goes in, as answered (ADR 0393): a Brewery's clone is used at its top; a
  * folder in another repository, a missing one whose nearest folder is in one, a file and a folder
- * with files are refused, so init never writes into another project.
+ * with files are refused, so init never writes into another project; on Windows, so is a network
+ * or device path (ADR 0401).
  */
 const chooseFolder = async (ports: InitPorts, answer: string): Promise<Parsed<Chosen>> => {
   const { files } = ports;
-  const typed = ports.shim.platform === 'win32' ? answer.replaceAll('\\', '/') : answer;
+  const windows = ports.shim.platform === 'win32';
+  const typed = windows ? answer.replaceAll('\\', '/') : answer;
+  // A network or device path would fold into a folder on the current drive (ADR 0401).
+  if (windows && typed.startsWith('//')) {
+    return {
+      refused: `${answer} is a network or device path; these are not supported: give a folder on a drive`,
+    };
+  }
   const folder = folderPath(typed);
   const entries = files.entries(folder);
   if (entries === undefined && files.exists(folder)) {
