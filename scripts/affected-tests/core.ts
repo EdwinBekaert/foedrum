@@ -11,14 +11,6 @@ export type Affected = { kind: 'all'; why: string } | { kind: 'some'; files: str
 export const isTestFile = (path: string): boolean =>
   /^test\/(?:unit|property|chaos)\/.+\.test\.ts$/.test(path);
 
-/**
- * Whether a file, by its path and text, is a test against the installed `claude` (ADR 0057): an
- * integration test that imports the real-claude helper.
- */
-export const isRealClaudeTest = (_path: string, _text: string): boolean => {
-  throw new Error('not implemented');
-};
-
 // Files that set how every test runs.
 const reachesEverything = (path: string): boolean =>
   ['package.json', 'package-lock.json', 'tsconfig.json'].includes(path) ||
@@ -36,6 +28,14 @@ const importsOf = (path: string, text: string): string[] =>
   [...text.matchAll(SPECIFIER)].map((match) => posix.join(posix.dirname(path), match[2] as string));
 
 /**
+ * Whether a file, by its path and text, is a test against the installed `claude` (ADR 0057): an
+ * integration test that imports the real-claude helper.
+ */
+export const isRealClaudeTest = (path: string, text: string): boolean =>
+  /^test\/integration\/.+\.test\.ts$/.test(path) &&
+  importsOf(path, text).includes('test/helpers/real-claude.ts');
+
+/**
  * The test files a change reaches: `changed` are the changed paths, relative to the checkout with
  * `/`; `texts` holds every TypeScript file of the working tree by such a path; `isTest` says which
  * of them are the test files to reach, npm run check's by default.
@@ -43,7 +43,7 @@ const importsOf = (path: string, text: string): string[] =>
 export const affectedTests = (
   changed: readonly string[],
   texts: ReadonlyMap<string, string>,
-  _isTest: (path: string, text: string) => boolean = isTestFile,
+  isTest: (path: string, text: string) => boolean = isTestFile,
 ): Affected => {
   const everything = changed.find(reachesEverything);
   if (everything !== undefined) return { kind: 'all', why: `${everything} changed` };
@@ -69,6 +69,9 @@ export const affectedTests = (
     for (const importer of importers.get(path) ?? []) reached.add(importer);
   }
   // A deleted or moved test file is no longer there to run.
-  const files = [...reached].filter((path) => isTestFile(path) && texts.has(path));
+  const files = [...reached].filter((path) => {
+    const text = texts.get(path);
+    return text !== undefined && isTest(path, text);
+  });
   return { kind: 'some', files: files.sort() };
 };
