@@ -1306,16 +1306,21 @@ const sumSearches = (a: Searches, b: Searches): Searches => ({
 
 /**
  * Each step's searches over its sessions' transcripts; a step with a session whose transcript cannot
- * be found or read whole has none, so a count never stands for part of its attempts.
+ * be found or read whole has none, so a count never stands for part of its attempts. A session a
+ * retry resumes (ADR 0175) is read once: its transcript holds both attempts.
  */
 const searchesOf = (
   events: readonly { event: Event }[],
   transcriptOf: (sessionId: string, worktree: string) => string | undefined,
 ): Map<string, Searches | undefined> => {
   const steps = new Map<string, Searches | undefined>();
+  const read = new Set<string>();
   for (const { event } of events) {
     if (event.type !== 'step.started' || event.session === undefined) continue;
     const { stepId } = event;
+    const session = `${stepId}\0${event.session.id}`;
+    if (read.has(session)) continue;
+    read.add(session);
     const transcript = transcriptOf(event.session.id, event.session.worktree);
     const counted = transcript === undefined ? undefined : searchesIn(transcript);
     const known = steps.has(stepId) ? steps.get(stepId) : { grep: 0, glob: 0, read: 0 };
