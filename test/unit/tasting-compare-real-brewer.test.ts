@@ -936,11 +936,22 @@ describe('tasting-compare --real --brewer (ADR 0394)', () => {
     });
 
     it('a Brewmaster that asked a question keeps no text and says why', () => {
-      const asked = planned({ status: 'needs_input', summary: 'A question', questions: [] });
+      // The runner records a question as an outcome of its own, not as a succeeded out doc.
+      const question = {
+        q: 'Which cut?',
+        options: ['one', 'two'],
+        recommended: 'one',
+        whyBlocking: 'the cut',
+      };
+      const asked = [
+        ...planned({}).slice(0, -1),
+        finished('plan', 1, { outcome: { kind: 'needs_input', questions: [question] } }),
+      ];
       const record = plannerRecord(asked);
       assert.equal(record.planner.subOrder, undefined);
       assert.match(record.planner.why ?? '', /needs_input/);
       assert.equal(plannerFailure(record), undefined);
+      assert.match(keptFiles([record])['855-plan.json'] ?? '', /Which cut\?/);
     });
 
     it('a planning run whose Brewmaster wrote no out doc measured nothing', () => {
