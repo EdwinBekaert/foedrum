@@ -306,6 +306,11 @@ export interface SandboxedChecksOptions {
    * `resolveExecutable`.
    */
   findStackTool?: (name: NetworkStackTool) => string | undefined;
+  /**
+   * The host's /etc/resolv.conf, or undefined when it cannot be read, for whether pasta can forward
+   * the setup's resolver (ADR 0400); default read from the file.
+   */
+  readResolvConf?: () => string | undefined;
 }
 
 /** The user-mode network stacks a Linux setup's namespace gets the network from (ADR 0218). */
@@ -313,6 +318,28 @@ export type NetworkStackTool = 'pasta' | 'slirp4netns';
 
 /** In the order they are looked for: slirp4netns first, whose resolver works where pasta's has none. */
 const stackTools: readonly NetworkStackTool[] = ['slirp4netns', 'pasta'];
+
+/**
+ * Why pasta has no resolver to forward a setup's 10.0.2.3 to, or undefined when it has one: it
+ * forwards to the first nameserver of the host's /etc/resolv.conf, and a loopback one, such as
+ * systemd-resolved's stub, gave it none (ADR 0218, ADR 0400). `resolvConf` is undefined when the
+ * file cannot be read.
+ */
+export const pastaResolverGap = (_resolvConf: string | undefined): string | undefined => {
+  throw new Error('not implemented');
+};
+
+/**
+ * The stack a setup's namespace gets the network from (ADR 0400): pasta, which isolates itself,
+ * where its resolver works; else slirp4netns; else pasta with its resolver gap; undefined with
+ * neither.
+ */
+export const setupStack = (
+  _found: Readonly<Record<NetworkStackTool, boolean>>,
+  _resolvConf: string | undefined,
+): NetworkStackTool | undefined => {
+  throw new Error('not implemented');
+};
 
 /**
  * Where the setup's resolver's file goes: the real path of /etc/resolv.conf, which may link into

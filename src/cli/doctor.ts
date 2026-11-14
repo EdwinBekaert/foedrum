@@ -56,6 +56,11 @@ export interface DoctorFacts {
    * `undefined` elsewhere.
    */
   jobObject?: { exitCode: number | null; output: string } | undefined;
+  /**
+   * On Linux, the host's /etc/resolv.conf, for whether pasta can forward a setup's resolver
+   * (ADR 0400); absent when it cannot be read.
+   */
+  resolvConf?: string | undefined;
   /** The text of foedrum.jsonc in the working directory; absent when there is none. */
   config?: string | undefined;
   /** Why foedrum.jsonc could not be read, when it is there and could not be. */
@@ -128,6 +133,8 @@ type ContainerName = 'podman' | 'docker';
 
 export interface Diagnosis {
   tools: readonly ToolLine[];
+  /** On Linux with a stack, which one a setup's network comes from and whether it is isolated (ADR 0400). */
+  setupNetwork?: string;
   /** How this machine is kept awake while an attempt runs (ADR 0195); never a problem. */
   keepAwake?: AwakeMechanism;
   isolation: { level: IsolationLevel; why: string };

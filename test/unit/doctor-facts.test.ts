@@ -144,6 +144,22 @@ describe('gatherDoctorFacts', () => {
     });
   });
 
+  // Whether pasta can forward a setup's resolver (ADR 0400).
+  it("reads the host's /etc/resolv.conf on Linux, and nothing for it elsewhere", async () => {
+    const { shell } = fakeShell();
+    const read: string[] = [];
+    const readFile = (path: string) => {
+      read.push(path);
+      return path === '/etc/resolv.conf' ? 'nameserver 127.0.0.53\n' : undefined;
+    };
+    const facts = await gatherDoctorFacts({ ...shell, readFile });
+    assert.equal(facts.resolvConf, 'nameserver 127.0.0.53\n');
+    read.length = 0;
+    const mac = await gatherDoctorFacts({ ...shell, platform: 'darwin', readFile });
+    assert.equal(mac.resolvConf, undefined);
+    assert.ok(!read.includes('/etc/resolv.conf'));
+  });
+
   // Brewers run only in a Job Object on Windows (ADR 0039), so doctor tries one: node, doing
   // nothing, held in a job by the runner.
   it('on Windows, holds node in a Job Object and records how it answered', async () => {

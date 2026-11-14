@@ -11,10 +11,12 @@ import {
   borrowedStores,
   insideFolders,
   type NetworkStackTool,
+  pastaResolverGap,
   SANDBOX_EXEC,
   type SandboxedChecksOptions,
   sandboxedChecks,
   seatbeltProfile,
+  setupStack,
   worktreeGitDir,
 } from '../../src/platform/check-sandbox.ts';
 import type { ExecOptions, ExecProcess, ExecResult } from '../../src/platform/processes.ts';
@@ -52,6 +54,8 @@ const options = (exec: ExecProcess, more: Partial<SandboxedChecksOptions> = {}) 
   hasSandboxExec: () => true,
   // No user-mode network stack unless a test gives one (ADR 0218).
   findStackTool: () => undefined,
+  // No /etc/resolv.conf unless a test gives one, so pasta's resolver is not known to work (ADR 0400).
+  readResolvConf: () => undefined,
   realPath: (path: string) => path,
   gitDirOf: (path: string) => (path === worktree ? gitDir : undefined),
   ...more,
@@ -691,12 +695,21 @@ describe('sandboxedChecks with the network kept, for a setup', () => {
     assert.deepEqual(calls[1]?.args, PASTA_ARGS);
   });
 
-  // Ubuntu confines pasta under passt's AppArmor profile, and lets slirp4netns into user
-  // namespaces (ADR 0218).
+  // Where no /etc/resolv.conf says pasta can forward the setup's resolver (ADR 0218, ADR 0400).
   it('prefers slirp4netns when both are there', async () => {
     const { calls, exec } = fakeSetup();
     await linuxSetup(exec)(line, [], call);
     assert.equal(calls[1]?.file, '/usr/bin/slirp4netns');
+  });
+
+  // pasta detaches into namespaces of its own on an empty root, and slirp4netns keeps the home
+  // folder and /run/user in reach (ADR 0400).
+  it('prefers pasta, which isolates itself, when the host names a resolver it can forward to', async () => {
+    const { calls, exec } = fakeSetup();
+    const readResolvConf = () => 'nameserver 192.168.1.1\n';
+    await linuxSetup(exec, { readResolvConf })(line, [], call);
+    assert.equal(calls[1]?.file, '/usr/bin/pasta');
+    assert.deepEqual(calls[1]?.args, PASTA_ARGS);
   });
 
   it('does not start without slirp4netns or pasta, and says so', async () => {
@@ -906,6 +919,84 @@ describe('sandboxedChecks with the network kept, for a setup', () => {
     const { calls, exec } = fake();
     await sandboxedChecks(options(exec, { platform: 'win32', network: true }))(line, [], call);
     assert.deepEqual(calls, [{ file: line, args: [], options: call }]);
+  });
+});
+
+// pasta forwards the setup's 10.0.2.3 to the first nameserver of the host's /etc/resolv.conf,
+// and had none behind systemd-resolved's stub (ADR 0218, ADR 0400).
+describe('pastaResolverGap', () => {
+  it('finds no gap when the first nameserver is an address off the loopback', () => {
+    const text = '# by NetworkManager\nsearch lan\nnameserver 192.168.1.1\n';
+    assert.equal(pastaResolverGap(text), undefined);
+  });
+
+  it('finds no gap for an IPv6 nameserver off the loopback, with its zone, in a file with CRLF', () => {
+    const text = 'nameserver fe80::1%eth0\r\nnameserver 127.0.0.53\r\n';
+    assert.equal(pastaResolverGap(text), undefined);
+  });
+
+  it("finds a gap when the first nameserver is systemd-resolved's stub", () => {
+    assert.equal(
+      pastaResolverGap('nameserver 127.0.0.53\noptions edns0 trust-ad\n'),
+      "/etc/resolv.conf's first nameserver 127.0.0.53 is a loopback address",
+    );
+  });
+
+  it('finds a gap for any address in 127.0.0.0/8, and for ::1', () => {
+    assert.equal(
+      pastaResolverGap('nameserver 127.1.2.3\n'),
+      "/etc/resolv.conf's first nameserver 127.1.2.3 is a loopback address",
+    );
+    assert.equal(
+      pastaResolverGap('nameserver ::1\n'),
+      "/etc/resolv.conf's first nameserver ::1 is a loopback address",
+    );
+  });
+
+  it('reads the first nameserver only, since pasta forwards to it', () => {
+    assert.equal(
+      pastaResolverGap('nameserver 127.0.0.53\nnameserver 192.168.1.1\n'),
+      "/etc/resolv.conf's first nameserver 127.0.0.53 is a loopback address",
+    );
+  });
+
+  it('finds a gap when the file names no nameserver, names one that is not an address, or cannot be read', () => {
+    assert.equal(
+      pastaResolverGap('search lan\n# nameserver 1.1.1.1\n'),
+      '/etc/resolv.conf names no nameserver',
+    );
+    assert.equal(
+      pastaResolverGap('nameserver resolver.lan\n'),
+      "/etc/resolv.conf's first nameserver resolver.lan is not an address",
+    );
+    assert.equal(pastaResolverGap(undefined), '/etc/resolv.conf cannot be read');
+  });
+});
+
+// pasta isolates itself; slirp4netns does not, and keeps working behind a loopback resolver
+// (ADR 0400).
+describe('setupStack', () => {
+  const lan = 'nameserver 192.168.1.1\n';
+  const stub = 'nameserver 127.0.0.53\n';
+
+  it('chooses pasta when its resolver works, also beside slirp4netns', () => {
+    assert.equal(setupStack({ pasta: true, slirp4netns: true }, lan), 'pasta');
+  });
+
+  it("chooses slirp4netns when pasta's resolver does not work", () => {
+    assert.equal(setupStack({ pasta: true, slirp4netns: true }, stub), 'slirp4netns');
+  });
+
+  it('chooses slirp4netns where pasta is not there', () => {
+    assert.equal(setupStack({ pasta: false, slirp4netns: true }, lan), 'slirp4netns');
+  });
+
+  it('chooses pasta with its resolver gap where slirp4netns is not there', () => {
+    assert.equal(setupStack({ pasta: true, slirp4netns: false }, stub), 'pasta');
+  });
+
+  it('chooses none where neither is there', () => {
+    assert.equal(setupStack({ pasta: false, slirp4netns: false }, lan), undefined);
   });
 });
 
