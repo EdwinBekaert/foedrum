@@ -51,6 +51,11 @@
 // as it ships, or scripted with --dry-run, and keeps a plan of one sub-order as that sub-order's
 // text in real/sub-orders/<order>.md; --real --brewer cellarman --order-text plan then builds
 // from that text instead of the order's own, and refuses before anything brews when it is missing.
+//
+// With --real --brewer cellarman --map (#1055, ADR 0398) a real Maltster's map step, on its own
+// model and effort as it ships, comes before the scripted Gauger, and Cellarman reads its map, as in
+// nip; scripted with --dry-run. Every brewer's run records each step's Grep, Glob and Read calls by
+// its transcripts, and codes.md shows them, whether the run had a map and the map step's tokens.
 
 import { randomBytes } from 'node:crypto';
 import {
@@ -188,6 +193,7 @@ const { values } = parseArgs({
     effort: { type: 'string' },
     'sub-orders': { type: 'boolean' },
     'order-text': { type: 'string' },
+    map: { type: 'boolean' },
   },
 });
 if (values.plan === true && values.real === true) {
@@ -557,6 +563,7 @@ const brewerMode = async (settings: BrewerSettings): Promise<Mode<BrewerSetup, B
       return brewerScript(
         { head, subject, tests: await textsOf(tests), code: await textsOf(code) },
         dryRun,
+        settings.map === true,
       );
     },
     scriptedStep: 'gauge',
