@@ -442,13 +442,20 @@ describe('tasting-compare --real --brewer (ADR 0394)', () => {
       assert.deepEqual(brewer.checks, ['typecheck: exited 0', 'test: exited 0']);
       assert.equal(brewer.commit, SECOND);
       assert.deepEqual(brewer.steps, [
-        { stepId: 'gauge', attempts: 1, turns: 0, durationMs: 0 },
+        {
+          stepId: 'gauge',
+          attempts: 1,
+          turns: 0,
+          durationMs: 0,
+          searches: { grep: 0, glob: 0, read: 1 },
+        },
         {
           stepId: 'implement',
           attempts: 2,
           usage: { inputTokens: 30, outputTokens: 4, cacheReadTokens: 6, cacheWriteTokens: 8 },
           turns: 10,
           durationMs: 1_500,
+          searches: { grep: 0, glob: 0, read: 2 },
         },
         { stepId: 'green', attempts: 2, turns: 0, durationMs: 0 },
       ]);
@@ -996,9 +1003,9 @@ describe('tasting-compare --real --brewer (ADR 0394)', () => {
     it('codes.md says which text each run started from', () => {
       const setup = '855-cellarman-claude-opus-5-5-xhigh-plan' as const;
       const { codes } = brewerBlinded([brewerRecord(setup, 1, { orderText: 'plan' })], 'a seed');
-      assert.match(codes, /\| Effort \| Text \| Checks \|/);
+      assert.match(codes, /\| Effort \| Text \| Map \| Checks \|/);
       const row = codes.split('\n').find((line) => line.includes(codeOf('a seed', setup, 1)));
-      assert.match(row ?? '', /\| xhigh \| plan \| passed \|/);
+      assert.match(row ?? '', /\| xhigh \| plan \| no \| passed \|/);
     });
 
     it('the lists show no text a run started from: regression test', () => {
