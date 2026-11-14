@@ -16,6 +16,7 @@ import {
   brewerSetups,
   brewerStop,
   brewerTable,
+  codeDiffArgs,
   codeOf,
   nextBrewerRun,
   REAL_BREWER_RECIPE,
@@ -580,6 +581,99 @@ describe('tasting-compare --real --brewer (ADR 0394)', () => {
       assert.match(table, new RegExp(`\\| ${SONNET} \\| 2 \\| 0 \\| 0 \\| 1 of 2 \\|`));
       assert.match(table, new RegExp(`\\| ${OPUS_SETUP} \\| 1 \\| 0 \\| 0 \\| 1 of 1 \\|`));
       assert.doesNotMatch(table, new RegExp(codeOf('a seed', SONNET, 1)));
+    });
+  });
+
+  describe('what the first review found untested', () => {
+    const SETUP = '855-cellarman-claude-opus-5-5-xhigh' as const;
+
+    it("reads no transcript but Cellarman's: the scripted Gauger's session has none", () => {
+      const { brewer } = brewerRecordOf(twoRounds, OPUS, (id, tree) =>
+        id === 'gauge-1' ? undefined : scriptedTranscript(tree, 'claude-opus-5-5'),
+      );
+      assert.equal(brewer.unreadable, undefined);
+      assert.equal(brewerStop({ setup: SETUP, brewer }), undefined);
+    });
+
+    it('a list shows its runs in code order, whatever order their records came in', () => {
+      const setups = ['a', 'b', 'c', 'd', 'e'].map(
+        (model) => `855-cellarman-${model}-high` as const,
+      );
+      const code = (setup: string) => codeOf('a seed', setup, 1);
+      const records = setups
+        .map((setup) => brewerRecord(setup, 1))
+        .sort((a, b) => (code(a.setup) < code(b.setup) ? 1 : -1));
+      const list = brewerBlinded(records, 'a seed').lists['855'] ?? '';
+      const shown = [...list.matchAll(/^## Run (\w+)$/gm)].map(([, each]) => each);
+      assert.notDeepEqual(
+        records.map(({ setup }) => code(setup)),
+        shown,
+      );
+      assert.deepEqual(shown, [...shown].sort());
+      assert.equal(shown.length, setups.length);
+    });
+
+    it('a model asked with [1m] accepts the name its transcript gives, which has none', () => {
+      const { brewer } = brewerRecordOf(
+        twoRounds,
+        { ...OPUS, model: 'claude-opus-5-5[1m]' },
+        opusTranscript,
+      );
+      assert.equal(brewerStop({ setup: SETUP, brewer }), undefined);
+    });
+
+    it("the code's diff leaves out the folder of the test files the scripted Gauger commits", () => {
+      const args = codeDiffArgs('base-sha', 'end-sha');
+      assert.deepEqual(args, [
+        'diff',
+        '--no-renames',
+        'base-sha',
+        'end-sha',
+        '--',
+        '.',
+        ':(exclude)test/',
+      ]);
+      const excluded = (args.at(-1) ?? '').slice(':(exclude)'.length);
+      const { tests } = splitHead(['src/a.ts', 'test/unit/a.test.ts', 'test/helpers/h.ts']);
+      assert.ok(tests.every((path) => path.startsWith(excluded)));
+    });
+
+    it('the table counts the failed goes and the retries of a setup', () => {
+      const SONNET = '855-cellarman-claude-sonnet-5-5-high' as const;
+      const lost = { ...withoutCommit(brewerRecord(SONNET, 2)), ended: 'cancelled' };
+      const again = { ...brewerRecord(SONNET, 2), retry: true as const };
+      const table = brewerTable([brewerRecord(SONNET, 1), lost, again]);
+      assert.match(table, new RegExp(`\\| ${SONNET} \\| 2 \\| 1 \\| 1 \\| 2 of 2 \\|`));
+    });
+
+    it("records each reading of the last green attempt by what ended it, the setup's by its name", () => {
+      const readings = [
+        { result: 'exited', setup: true, command: 'npm ci', exitCode: 0, tail: '' },
+        { result: 'skipped', check: 'build' },
+        { result: 'unstarted', check: 'typecheck', command: 'npm run typecheck', tail: '' },
+        { result: 'signaled', check: 'lint', command: 'npm run lint', signal: 'SIGKILL', tail: '' },
+        {
+          result: 'killed',
+          check: 'test',
+          command: 'npm run check',
+          killed: 'timed-out',
+          tail: '',
+        },
+      ];
+      const events = [
+        ...twoRounds.slice(0, -2),
+        finished('green', 2, {
+          outcome: { kind: 'failed', retryable: false, reason: 'the checks failed' },
+          readings,
+        }),
+      ];
+      assert.deepEqual(brewerRecordOf(events, OPUS, opusTranscript).brewer.checks, [
+        'setup: exited 0',
+        'build: skipped',
+        'typecheck: unstarted',
+        'lint: ended on SIGKILL',
+        'test: killed, timed-out',
+      ]);
     });
   });
 });
