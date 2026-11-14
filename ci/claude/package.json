@@ -1,0 +1,8 @@
+{
+  "name": "foedrum-ci-claude",
+  "private": true,
+  "description": "The claude CLI CI runs the tests against the installed claude with (ADR 0399); never published.",
+  "dependencies": {
+    "@anthropic-ai/claude-code": "2.1.310"
+  }
+}

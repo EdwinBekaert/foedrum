@@ -97,6 +97,12 @@ jobs:
             '  include if exists <local/bwrap>' '}' | sudo tee /etc/apparmor.d/bwrap > /dev/null
           sudo systemctl reload apparmor
 
+      # Short (8.3) names are off on the runner's checkout drive, and read-guard's test of a short
+      # name inside the checkout needs one for the folder it makes (ADR 0399).
+      - name: Short names on the checkout drive
+        if: ${{ matrix.os == 'windows-latest' }}
+        run: fsutil 8dot3name set "${GITHUB_WORKSPACE:0:2}" 0
+
       # Tests against the real tools, kept out of npm run check (ADR 0021). The nightly run is
       # this same job, so they run there on every leg too.
       - name: npm run test:integration
@@ -136,6 +142,62 @@ jobs:
             sed -n '/start of coverage report/,/end of coverage report/p' "$RUNNER_TEMP/check.log" | sed 's/^ℹ //'
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+
+  # The tests against the installed claude (ADR 0057), with the claude pinned in ci/claude/ and
+  # the fake Messages API: no login, no token (ADR 0399). Every one in the nightly run and by hand;
+  # on a pull request, the ones its change reaches (scripts/affected-tests.ts --real-claude, which
+  # lists every one when the change reaches every test file); none on a push to main.
+  real-claude:
+    name: real claude (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    defaults:
+      run:
+        shell: bash
+    steps:
+      # The whole history, so the change is read against the merge base with origin/main.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24"
+          check-latest: true
+
+      - name: Tests the change reaches
+        id: tests
+        env:
+          EVENT: ${{ github.event_name }}
+        run: |
+          all=""
+          if [ "$EVENT" = schedule ] || [ "$EVENT" = workflow_dispatch ]; then all=--all; fi
+          node scripts/affected-tests.ts --real-claude $all | tee "$RUNNER_TEMP/real-claude.txt"
+          if [ -s "$RUNNER_TEMP/real-claude.txt" ]; then echo "any=true" >> "$GITHUB_OUTPUT"; fi
+
+      - if: ${{ steps.tests.outputs.any == 'true' }}
+        run: npm ci
+
+      # ignore-scripts (ci/claude/.npmrc) keeps the package's postinstall from running; it would
+      # only copy the platform package's binary over a stub, so that binary goes on PATH instead.
+      - name: Install the pinned claude
+        if: ${{ steps.tests.outputs.any == 'true' }}
+        run: |
+          npm ci --prefix ci/claude
+          node -p "require('node:path').resolve('ci/claude/node_modules/@anthropic-ai', require('node:fs').readdirSync('ci/claude/node_modules/@anthropic-ai').find((name) => name.startsWith('claude-code-')))" >> "$GITHUB_PATH"
+
+      - name: Tests against the installed claude
+        if: ${{ steps.tests.outputs.any == 'true' }}
+        env:
+          FOEDRUM_REAL_CLAUDE: "1"
+        run: |
+          claude --version
+          xargs node scripts/with-checkout-tmp.ts --test < "$RUNNER_TEMP/real-claude.txt"
 
   # npm audit --omit=dev asks the advisory endpoint about the lockfile, which is the same on every
   # leg, so it runs once per run (ADR 0119). A server error or no answer gets one retry after 30 s;
@@ -191,26 +253,29 @@ jobs:
           CLA_OWNER: ${{ github.event.repository.owner.login }}
         run: node scripts/cla-check.ts
 
-  # The single required status check: green only when every platform, the package and the audit
-  # passed, and on a pull request the CLA check.
+  # The single required status check: green only when every platform, the tests against the
+  # installed claude, the package and the audit passed, and on a pull request the CLA check.
   ci-ok:
     if: ${{ always() }}
-    needs: [check, package, audit, cla]
+    needs: [check, real-claude, package, audit, cla]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - name: All checks passed
         env:
           CHECK: ${{ needs.check.result }}
+          REAL_CLAUDE: ${{ needs.real-claude.result }}
           PACKAGE: ${{ needs.package.result }}
           AUDIT: ${{ needs.audit.result }}
           CLA: ${{ needs.cla.result }}
           EVENT: ${{ github.event_name }}
         run: |
           echo "check: $CHECK"
+          echo "real claude: $REAL_CLAUDE"
           echo "package: $PACKAGE"
           echo "audit: $AUDIT"
           echo "cla: $CLA"
           # The CLA job runs only on a pull request; on a push or the nightly run it is skipped.
-          test "$CHECK" = success && test "$PACKAGE" = success && test "$AUDIT" = success &&
+          test "$CHECK" = success && test "$REAL_CLAUDE" = success &&
+            test "$PACKAGE" = success && test "$AUDIT" = success &&
             { test "$CLA" = success || { test "$EVENT" != pull_request && test "$CLA" = skipped; }; }

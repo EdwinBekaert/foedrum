@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
-import { affectedByChange } from '../../scripts/affected-tests.ts';
+import { affectedByChange, realClaudeByChange } from '../../scripts/affected-tests.ts';
 import type { OkGit, OkGitResult } from '../../src/workspace/worktree-removal-git.ts';
 
 const cwd = join('/work', 'tree');
@@ -81,5 +81,72 @@ describe('affectedByChange', () => {
     const affected = await affectedByChange({ cwd, git, read });
     assert.equal(affected.kind, 'all');
     assert.match((affected as { why: string }).why, /git diff failed: fatal: bad object/);
+  });
+});
+
+// The tests against the installed claude (ADR 0057) CI runs: the ones the change reaches, or all.
+describe('realClaudeByChange', () => {
+  const INTEGRATION = 'ls-files -z -- test/integration/*.test.ts';
+  const helper = "import { realClaude } from '../helpers/real-claude.ts';\n";
+  const opted: Record<string, string> = {
+    ...files,
+    'test/integration/runner.test.ts': `${helper}import '../../src/cli/status.ts';\n`,
+    'test/integration/nip.test.ts': helper,
+    'test/integration/doctor.test.ts': "import '../../src/cli/status.ts';\n",
+  };
+  const readOpted = async (path: string): Promise<string | undefined> =>
+    Object.entries(opted).find(([name]) => join(cwd, name) === path)?.[1];
+  const integration = ok(
+    z(
+      'test/integration/runner.test.ts',
+      'test/integration/nip.test.ts',
+      'test/integration/doctor.test.ts',
+    ),
+  );
+
+  it('lists the ones the change reaches', async () => {
+    const { git } = fakeGit({
+      [MERGE_BASE]: ok(`${base}\n`),
+      [DIFF]: ok(z('src/cli/format.ts')),
+      [UNTRACKED]: ok(''),
+      [TYPESCRIPT]: ok(z(...Object.keys(opted))),
+    });
+    assert.deepEqual(await realClaudeByChange({ cwd, git, read: readOpted }), [
+      'test/integration/runner.test.ts',
+    ]);
+  });
+
+  it('lists none when the change reaches only tests that do not opt in, so the job skips', async () => {
+    // No answer for the full listing: falling back to every opt-in test fails here.
+    const { git } = fakeGit({
+      [MERGE_BASE]: ok(`${base}\n`),
+      [DIFF]: ok(z('src/cli/new.ts')),
+      [UNTRACKED]: ok(''),
+      [TYPESCRIPT]: ok(z(...Object.keys(opted))),
+    });
+    assert.deepEqual(await realClaudeByChange({ cwd, git, read: readOpted }), []);
+  });
+
+  it('lists every one, sorted, when the change reaches every test file', async () => {
+    const { git } = fakeGit({
+      [MERGE_BASE]: ok(`${base}\n`),
+      [DIFF]: ok(z('package.json')),
+      [UNTRACKED]: ok(''),
+      [TYPESCRIPT]: ok(z(...Object.keys(opted))),
+      [INTEGRATION]: integration,
+    });
+    assert.deepEqual(await realClaudeByChange({ cwd, git, read: readOpted }), [
+      'test/integration/nip.test.ts',
+      'test/integration/runner.test.ts',
+    ]);
+  });
+
+  it('lists every one, asking git for no change, when asked for all', async () => {
+    const { git, calls } = fakeGit({ [INTEGRATION]: integration });
+    assert.deepEqual(await realClaudeByChange({ cwd, git, read: readOpted }, true), [
+      'test/integration/nip.test.ts',
+      'test/integration/runner.test.ts',
+    ]);
+    assert.deepEqual(calls, [INTEGRATION]);
   });
 });
