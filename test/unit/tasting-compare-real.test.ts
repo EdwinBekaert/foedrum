@@ -14,7 +14,6 @@ import {
   changedFiles,
   codeOf,
   comparisonStop,
-  highTaster,
   modelStop,
   nextRealRun,
   orderOf,
@@ -34,8 +33,9 @@ import {
   scriptedTranscript,
   selectRealSetups,
   transcriptReads,
+  withoutLevels,
 } from '../../scripts/tasting-compare/real.ts';
-import { modelOf } from '../../src/brewers/attempt-plan.ts';
+import { effortOf, modelOf } from '../../src/brewers/attempt-plan.ts';
 import { claudeArgs } from '../../src/brewers/claude-command.ts';
 import { serveSetup } from '../../src/cli/serve-config.ts';
 import { readBreweryFiles } from '../../src/engine/brewery-files.ts';
@@ -45,6 +45,21 @@ import type { Event } from '../../src/schemas/events.ts';
 import { Recipe } from '../../src/schemas/recipe.ts';
 import { nipBreweryFiles } from '../helpers/nip-fixture.ts';
 import { makeTempDir } from '../helpers/temp-dir.ts';
+
+/**
+ * A recipe file of the real setups with every Taster step on the reading Taster's level and effort,
+ * `standard` at `moderate`: what tells setups apart that differ only by their Tasters' level or
+ * effort (ADR 0397).
+ */
+const onReadsLevels = (text: string): string => {
+  const recipe = JSON.parse(text.slice(text.indexOf('{')));
+  const reads = (step: Record<string, unknown>) =>
+    step.brewer === 'taster' ? { ...step, model: 'standard', effort: 'moderate' } : step;
+  recipe.steps = recipe.steps.map((step: Record<string, unknown>) =>
+    Array.isArray(step.parallel) ? { ...step, parallel: step.parallel.map(reads) } : reads(step),
+  );
+  return JSON.stringify(recipe);
+};
 
 const root = resolve(import.meta.dirname, '..', '..');
 const WORKTREE = resolve('scratch', 'attempts', 'correctness', '1');
@@ -793,7 +808,10 @@ describe('tasting-compare --real', () => {
 
     it('the today setup replaces the Taster with its old text, and the reads setup with the Taster that reads the rules (ADR 0352)', () => {
       assert.equal(realBreweryFiles('864-today', TASTERS)['brewers/taster.md'], 'the old text');
-      assert.equal(realBreweryFiles('864-reads', TASTERS)['brewers/taster.md'], READS);
+      assert.equal(
+        realBreweryFiles('864-reads', TASTERS)['brewers/taster.md'],
+        withoutLevels(READS),
+      );
     });
 
     describe('the lens setup (#889, ADR 0337)', () => {
@@ -853,7 +871,7 @@ describe('tasting-compare --real', () => {
 
       it("its recipe is named as an order's label and loads as a Brewery file, on the Taster that reads the rules (ADR 0352)", () => {
         const files = realBreweryFiles('855-lens', TASTERS);
-        assert.equal(files['brewers/taster.md'], READS);
+        assert.equal(files['brewers/taster.md'], withoutLevels(READS));
         assert.equal(Recipe.parse(parseJsonc(lensRecipe())).name, 'real-nip-lens');
         const brewery = makeTempDir('tasting-compare-real');
         try {
@@ -1300,7 +1318,7 @@ describe('tasting-compare --real: the opus and high setups (ADR 0344)', () => {
       assert.ok(step !== undefined, stepId);
       return claudeArgs({
         model: modelOf(ready.setup.models, step.brewer),
-        effort: step.brewer.effort,
+        effort: effortOf(ready.setup.models, step.brewer),
         settingsFile: 'settings.json',
         tools: ['Read'],
         session: { kind: 'new', id: SESSION },
@@ -1313,27 +1331,42 @@ describe('tasting-compare --real: the opus and high setups (ADR 0344)', () => {
   const withValue = (args: readonly string[], option: string, value: string): string[] =>
     args.map((arg, at) => (args[at - 1] === option ? value : arg));
 
-  it("the opus setup differs from reads by the Taster's model alone", () => {
-    const reads = realBreweryFiles('855-reads', REAL_TASTERS);
-    const { 'models.jsonc': models, ...others } = realBreweryFiles('855-opus', REAL_TASTERS);
+  const asReads = (setup: RealSetup): string =>
+    onReadsLevels(realBreweryFiles(setup, REAL_TASTERS)[`recipes/${REAL_RECIPE}.jsonc`] ?? '');
+
+  it("the opus setup differs from reads by its Taster steps' level alone (ADR 0397)", () => {
+    const { [`recipes/${REAL_RECIPE}.jsonc`]: recipe, ...others } = realBreweryFiles(
+      '855-opus',
+      REAL_TASTERS,
+    );
+    const { [`recipes/${REAL_RECIPE}.jsonc`]: readsRecipe, ...reads } = realBreweryFiles(
+      '855-reads',
+      REAL_TASTERS,
+    );
     assert.deepEqual(others, reads);
-    assert.ok(models !== undefined);
-    assert.deepEqual(JSON.parse(models), { models: { opus: 'opus' }, brewers: { taster: 'opus' } });
+    assert.notEqual(recipe, readsRecipe);
+    assert.equal(asReads('855-opus'), onReadsLevels(readsRecipe ?? ''));
 
     const line = commandLine('855-opus');
     assert.equal(line[line.indexOf('--model') + 1], 'opus');
     assert.equal(line[line.indexOf('--effort') + 1], 'medium');
     assert.deepEqual(withValue(line, '--model', 'sonnet'), commandLine('855-reads'));
-    // Only the Taster moves: another brewer of the same alias stays where it was.
+    // Only the Taster moves: another brewer of the same level stays where it was.
     assert.deepEqual(commandLine('855-opus', 'implement'), commandLine('855-reads', 'implement'));
   });
 
-  it("the high setup differs from reads by the Taster's effort alone", () => {
-    const { 'brewers/taster.md': _, ...reads } = realBreweryFiles('855-reads', REAL_TASTERS);
-    const { 'brewers/taster.md': taster, ...others } = realBreweryFiles('855-high', REAL_TASTERS);
+  it("the high setup differs from reads by its Taster steps' effort alone (ADR 0397)", () => {
+    const { [`recipes/${REAL_RECIPE}.jsonc`]: recipe, ...others } = realBreweryFiles(
+      '855-high',
+      REAL_TASTERS,
+    );
+    const { [`recipes/${REAL_RECIPE}.jsonc`]: readsRecipe, ...reads } = realBreweryFiles(
+      '855-reads',
+      REAL_TASTERS,
+    );
     assert.deepEqual(others, reads);
-    assert.equal(taster, READS_TASTER.replace('"effort": "medium"', '"effort": "high"'));
-    assert.notEqual(taster, READS_TASTER);
+    assert.notEqual(recipe, readsRecipe);
+    assert.equal(asReads('855-high'), onReadsLevels(readsRecipe ?? ''));
 
     const line = commandLine('855-high');
     assert.equal(line[line.indexOf('--effort') + 1], 'high');
@@ -1346,11 +1379,7 @@ describe('tasting-compare --real: the opus and high setups (ADR 0344)', () => {
       const reads = `${setup.slice(0, 3)}-reads` as RealSetup;
       assert.equal(orderOf(setup), orderOf(reads), setup);
       assert.equal(realRecipeOf(setup), REAL_RECIPE, setup);
-      assert.equal(
-        realBreweryFiles(setup, REAL_TASTERS)[`recipes/${REAL_RECIPE}.jsonc`],
-        realBreweryFiles(reads, REAL_TASTERS)[`recipes/${REAL_RECIPE}.jsonc`],
-        setup,
-      );
+      assert.equal(asReads(setup), asReads(reads), setup);
       assert.deepEqual(
         realCommentsOf(setup, 'the-maintainer', () => 'a comment'),
         [],
@@ -1365,7 +1394,11 @@ describe('tasting-compare --real: the opus and high setups (ADR 0344)', () => {
     }
     assert.equal(realBreweryFiles('855-today', REAL_TASTERS)['brewers/taster.md'], 'the old text');
     for (const setup of ['855-reads', '855-lens', '867-comments'] as const) {
-      assert.equal(realBreweryFiles(setup, REAL_TASTERS)['brewers/taster.md'], READS_TASTER, setup);
+      assert.equal(
+        realBreweryFiles(setup, REAL_TASTERS)['brewers/taster.md'],
+        withoutLevels(READS_TASTER),
+        setup,
+      );
     }
   });
 
@@ -1375,19 +1408,20 @@ describe('tasting-compare --real: the opus and high setups (ADR 0344)', () => {
     assert.doesNotThrow(() => bareTaster(READS_TASTER));
   });
 
-  describe('the high Taster', () => {
-    it('refuses a default Taster that does not hold medium effort', () => {
-      assert.throws(() => highTaster('{ "effort": "low" }'), /effort/);
-    });
-
-    it('refuses a default Taster that says it twice, as it could not tell which', () => {
-      assert.throws(() => highTaster('"effort": "medium"\n"effort": "medium"\n'), /effort/);
-    });
-
-    it('changes that one value and no other text', () => {
+  describe("a pinned Taster's text, without its model and effort (ADR 0397)", () => {
+    it('drops the model and effort lines of its frontmatter and no other text', () => {
       assert.equal(
-        highTaster('before\n  "effort": "medium",\nafter $& medium\n'),
-        'before\n  "effort": "high",\nafter $& medium\n',
+        withoutLevels(
+          '---\n{\n  "version": 3,\n  "model": "builder",\n  "effort": "medium",\n  "access": "read"\n}\n---\nmodel: and "effort": stay in the body\n',
+        ),
+        '---\n{\n  "version": 3,\n  "access": "read"\n}\n---\nmodel: and "effort": stay in the body\n',
+      );
+    });
+
+    it('drops them from a text with Windows line ends too', () => {
+      assert.equal(
+        withoutLevels('{\r\n  "model": "builder",\r\n  "tree": "task"\r\n'),
+        '{\r\n  "tree": "task"\r\n',
       );
     });
   });
@@ -1624,9 +1658,27 @@ describe('tasting-compare --real: the opus and high setups (ADR 0344)', () => {
       assert.ok('parallel' in taste && 'parallel' in shipped);
       assert.deepEqual(taste.parallel, [
         ...shipped.parallel,
-        { id: 'test-design', brewer: 'taster', lens: 'diff/test-design' },
-        { id: 'cross-platform', brewer: 'taster', lens: 'diff/cross-platform' },
-        { id: 'necessity', brewer: 'taster', lens: 'diff/necessity' },
+        {
+          id: 'test-design',
+          brewer: 'taster',
+          model: 'standard',
+          effort: 'moderate',
+          lens: 'diff/test-design',
+        },
+        {
+          id: 'cross-platform',
+          brewer: 'taster',
+          model: 'standard',
+          effort: 'moderate',
+          lens: 'diff/cross-platform',
+        },
+        {
+          id: 'necessity',
+          brewer: 'taster',
+          model: 'standard',
+          effort: 'moderate',
+          lens: 'diff/necessity',
+        },
       ]);
       assert.deepEqual(taste.onFindings, back);
     });
@@ -1716,7 +1768,7 @@ describe('tasting-compare --real: the opus and high setups (ADR 0344)', () => {
   });
 
   describe('the bare and together setups (ADR 0347)', () => {
-    const BARE = () => bareTaster(READS_TASTER);
+    const BARE = () => withoutLevels(bareTaster(READS_TASTER));
     const NIP_LENSES = ['diff/correctness', 'diff/acceptance', 'diff/security'];
 
     it("the opus-bare setup differs from opus by the Taster's read of the rules alone", () => {
@@ -1742,7 +1794,7 @@ describe('tasting-compare --real: the opus and high setups (ADR 0344)', () => {
       );
       assert.deepEqual(others, highOthers);
       // high's effort and bare's cut, whichever comes first.
-      assert.equal(taster, highTaster(BARE()));
+      assert.equal(taster, BARE());
       assert.equal(taster, bareTaster(high ?? ''));
       assert.notEqual(taster, high);
       assert.deepEqual(commandLine('855-high-bare'), commandLine('855-high'));
@@ -1756,7 +1808,14 @@ describe('tasting-compare --real: the opus and high setups (ADR 0344)', () => {
       // Its findings go back to the scripted step, whose next turn ends the run (ADR 0354).
       const back = { goto: 'implement', maxRounds: 1 };
       assert.deepEqual(tasters, [
-        { id: 'together', brewer: 'taster', lenses: NIP_LENSES, onFindings: back },
+        {
+          id: 'together',
+          brewer: 'taster',
+          model: 'strong',
+          effort: 'moderate',
+          lenses: NIP_LENSES,
+          onFindings: back,
+        },
       ]);
       assert.equal(
         recipe.steps.some((step) => 'parallel' in step),
@@ -1810,7 +1869,7 @@ describe('tasting-compare --real: the opus and high setups (ADR 0344)', () => {
 
     it('the bare Taster keeps every other line of the default byte for byte', () => {
       const bare = BARE().split('\n');
-      const all = READS_TASTER.split('\n');
+      const all = withoutLevels(READS_TASTER).split('\n');
       assert.equal(bare.length, all.length - 6);
       const changed = bare.filter((line) => !all.includes(line));
       assert.equal(changed.length, 1, changed.join('\n'));
@@ -2035,7 +2094,14 @@ describe('tasting-compare --real: the opus and high setups (ADR 0344)', () => {
       // Its findings go back to the scripted step, whose next turn ends the run (ADR 0354).
       const back = { goto: 'implement', maxRounds: 1 };
       assert.deepEqual(tasters, [
-        { id: 'together', brewer: 'taster', lenses: NIP_LENSES, onFindings: back },
+        {
+          id: 'together',
+          brewer: 'taster',
+          model: 'standard',
+          effort: 'larger',
+          lenses: NIP_LENSES,
+          onFindings: back,
+        },
       ]);
       assert.equal(
         files['brewers/taster.md'],
@@ -2053,10 +2119,13 @@ describe('tasting-compare --real: the opus and high setups (ADR 0344)', () => {
       assert.deepEqual(line, commandLine('855-high-bare'));
     });
 
-    it('the high-together setup tastes the recipe opus-together tastes', () => {
+    it("the high-together setup tastes the recipe opus-together tastes, its Taster step's level and effort apart (ADR 0397)", () => {
+      const recipeOf = (setup: RealSetup) =>
+        realBreweryFiles(setup, REAL_TASTERS)['recipes/real-nip-together.jsonc'] ?? '';
+      assert.notEqual(recipeOf('864-high-together'), recipeOf('864-opus-together'));
       assert.equal(
-        realBreweryFiles('864-high-together', REAL_TASTERS)['recipes/real-nip-together.jsonc'],
-        realBreweryFiles('864-opus-together', REAL_TASTERS)['recipes/real-nip-together.jsonc'],
+        onReadsLevels(recipeOf('864-high-together')),
+        onReadsLevels(recipeOf('864-opus-together')),
       );
     });
 

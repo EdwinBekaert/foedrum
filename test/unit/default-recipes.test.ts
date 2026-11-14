@@ -31,7 +31,7 @@ describe('the recipes under defaults/', () => {
 });
 
 describe('mash-in and the Innkeeper (ADR 0232)', () => {
-  it("asks at its one step, through a read-only Innkeeper on builder, offering Foedrum's other recipes", () => {
+  it("asks at its one step, through a read-only Innkeeper on standard, offering Foedrum's other recipes", () => {
     const loaded = loadRecipes(readBreweryFiles(join(root, '..', 'no-brewery')));
     assert.ok(loaded.valid, loaded.valid ? '' : loaded.problems.join('\n'));
     const mashIn = loaded.recipes.find('mash-in');
@@ -44,7 +44,7 @@ describe('mash-in and the Innkeeper (ADR 0232)', () => {
       { name, model, access, allow: tools?.allow, schema: output?.schema },
       {
         name: 'innkeeper',
-        model: 'builder',
+        model: 'standard',
         access: 'read',
         allow: ['Read', 'Grep', 'Glob', 'Edit(mash-in.md)'],
         schema: 'recipeChoice',
@@ -58,7 +58,7 @@ describe('mash-in and the Innkeeper (ADR 0232)', () => {
 
   it('the Innkeeper offers deep-mash as the deep plan', () => {
     const text = readFileSync(join(root, 'brewers', 'innkeeper.md'), 'utf8');
-    assert.match(text, /"version": 8,/);
+    assert.match(text, /"version": 9,/);
     assert.match(text, /`deep-mash` for a deep one/);
   });
 
@@ -106,10 +106,12 @@ describe('the default plan lens (ADR 0312)', () => {
   it('a step after plan that names plan/naive-reader loads it from defaults/lenses/plan/', () => {
     const files = readBreweryFiles(join(root, '..', 'no-brewery'));
     const steps = [
-      { id: 'plan', brewer: 'brewmaster' },
+      { id: 'plan', brewer: 'brewmaster', model: 'strong', effort: 'larger' },
       {
         id: 'naive',
         brewer: 'taster',
+        model: 'standard',
+        effort: 'moderate',
         lens: 'plan/naive-reader',
         onFindings: { goto: 'plan', maxRounds: 1 },
       },

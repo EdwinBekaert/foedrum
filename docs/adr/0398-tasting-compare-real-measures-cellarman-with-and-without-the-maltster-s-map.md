@@ -10,10 +10,10 @@ The question, answered after the merge by a run by hand: does Cellarman with the
 
 ## Decision
 - **`--map` on a `--brewer cellarman` run puts a real `map` step first**, `{ "id": "map", "brewer": "maltster-map" }`, before the scripted Gauger.
-  The step names no model or effort, so it runs on the Maltster's own as it ships, as `nip`'s does; the scratch Brewery's `models.jsonc` only adds the measured brewer's alias over the default ones.
+  The step names the `light` level and `moderate` effort, as `nip`'s map step does ([ADR 0397](0397-recipe-steps-name-a-model-level-and-an-effort-of-foedrum-s-own-which-models-jsonc-translates-for-the-agent.md)); the scratch Brewery's `models.jsonc` sets only the measured `strong` level over the default ones, so `light` stays the default model.
   Cellarman reads the map through the input its file already has; no brewer, recipe or Brewery file changes.
   `--map` without `--brewer` is refused in one line. It combines with `--order-text plan`, `--orders` and `--comparison` as any brewer run does; with `--order-text plan` the map reads the kept sub-order text as its order.
-- **A run with a map is a setup of its own**: its name gains `-map` before any `-plan`, such as `855-cellarman-claude-sonnet-5-5-high-map-plan`, so runs with and without a map share one comparison folder and their lists are blinded together.
+- **A run with a map is a setup of its own**: its name gains `-map` before any `-plan`, such as `855-cellarman-claude-sonnet-5-5-larger-map-plan`, so runs with and without a map share one comparison folder and their lists are blinded together.
   Its settings carry `map: true`, and its record the models its map step's transcripts name.
 - **The map's model stops nothing.** Unlike Cellarman's ([ADR 0344](0344-tasting-compare-real-measures-a-stronger-model-and-more-effort-apart.md)), it is not the setting measured; `codes.md` shows it, so a map on another model shows when the scores are read.
 - **Every brewer's run counts each step's `Grep`, `Glob` and `Read` calls** from its sessions' transcripts: each call once by its id, whatever came of it, summed over the step's attempts, and a session a retry resumes ([ADR 0175](0175-a-turn-overrun-is-retried-by-resuming-its-session-and-keeps-its-out-doc.md)) read once, since its transcript holds both attempts.

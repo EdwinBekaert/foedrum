@@ -28,6 +28,7 @@ import type { Git } from '../../src/workspace/git.ts';
 import { recipeText } from '../helpers/brewery-files.ts';
 import { createBrewing, defaultLimits } from '../helpers/brewing.ts';
 import { type Behaviour, behave, fakeBrewerRunner, outDoc } from '../helpers/fake-brewer-runner.ts';
+import { claudeModels } from '../helpers/models.ts';
 
 // A Brewery with no files of its own but one recipe: the Taster, Cellarman and the default lenses
 // come from Foedrum's defaults.
@@ -378,7 +379,7 @@ describe('the default Taster (defaults/brewers/taster.md)', () => {
       // `more` happens before the Taster is scheduled.
       state: () => fold([...events.slice(0, -2), ...more, ...events.slice(-2)]),
       brewers: valid(loadRecipes(files)).brewers,
-      models: { models: { builder: 'claude-sonnet-5-5' }, brewers: {} },
+      models: claudeModels({ standard: 'claude-sonnet-5-5' }),
       repoTools: () => [],
       clone: (repo) => join('/clones', repo),
       sandbox: false,

@@ -17,7 +17,7 @@
   // It commits nothing, so there is no test to write first.
   "testFirst": false,
   "steps": [
-    { "id": "plan", "brewer": "brewmaster" },
+    { "id": "plan", "brewer": "brewmaster", "model": "strong", "effort": "larger" },
     {
       // Every lens's findings send the plan back to the Brewmaster once all of them ended, two
       // rounds in each run, then the batch is Stuck with them open (ADR 0192, ADR 0354, ADR 0369).
@@ -26,22 +26,61 @@
         {
           "id": "coverage",
           "brewer": "taster",
+          "effort": "moderate",
           "lens": "plan/coverage",
           // It reads the code as well as the plan, to tell what the code already does.
-          "model": "planner"
+          "model": "strong"
         },
-        { "id": "sizing", "brewer": "taster", "lens": "plan/sizing" },
-        { "id": "naive-reader", "brewer": "taster", "lens": "plan/naive-reader" },
-        { "id": "order-and-overlap", "brewer": "taster", "lens": "plan/order-and-overlap" },
-        { "id": "testability", "brewer": "taster", "lens": "plan/testability" },
-        { "id": "recipe-fit", "brewer": "taster", "lens": "plan/recipe-fit" },
-        { "id": "security", "brewer": "taster", "lens": "plan/security", "model": "planner" }
+        {
+          "id": "sizing",
+          "brewer": "taster",
+          "model": "standard",
+          "effort": "moderate",
+          "lens": "plan/sizing"
+        },
+        {
+          "id": "naive-reader",
+          "brewer": "taster",
+          "model": "standard",
+          "effort": "moderate",
+          "lens": "plan/naive-reader"
+        },
+        {
+          "id": "order-and-overlap",
+          "brewer": "taster",
+          "model": "standard",
+          "effort": "moderate",
+          "lens": "plan/order-and-overlap"
+        },
+        {
+          "id": "testability",
+          "brewer": "taster",
+          "model": "standard",
+          "effort": "moderate",
+          "lens": "plan/testability"
+        },
+        {
+          "id": "recipe-fit",
+          "brewer": "taster",
+          "model": "standard",
+          "effort": "moderate",
+          "lens": "plan/recipe-fit"
+        },
+        {
+          "id": "security",
+          "brewer": "taster",
+          "effort": "moderate",
+          "lens": "plan/security",
+          "model": "strong"
+        }
       ],
       "onFindings": { "goto": "plan", "maxRounds": 2 }
     },
     {
       "id": "lauter",
       "brewer": "brewmaster",
+      "model": "strong",
+      "effort": "larger",
       "interactive": true,
       "chosenBy": "lauter",
       "prompt": "The person in this session reviews the plan in {plan} and chose to correct it with you. Greet them, sum the plan up in a few lines, and ask what they want to change. Then correct it together, as your instructions say, and end with the whole corrected plan as your out doc."

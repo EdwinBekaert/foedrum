@@ -14,6 +14,7 @@ import { loadRecipes } from '../../src/engine/recipe-files.ts';
 import type { Event } from '../../src/schemas/events.ts';
 import { OutDocFrontmatter, readOutDoc } from '../../src/schemas/out-doc.ts';
 import { PlanOutDoc, planOf } from '../../src/schemas/plan.ts';
+import { claudeModels } from '../helpers/models.ts';
 
 const at = '2026-11-05T10:00:00.000Z';
 const securityMark = "the issue's title reaches the file path the writer saves to";
@@ -114,7 +115,7 @@ const promptOf = async (stepId: string, plan: unknown): Promise<string> => {
   const plans = createAttemptPlans({
     state: () => fold(events),
     brewers: brewers(),
-    models: { models: { builder: 'claude-sonnet-5-5' }, brewers: {} },
+    models: claudeModels({ standard: 'claude-sonnet-5-5' }),
     repoTools: () => [],
     clone: (repo) => join('/clones', repo),
     sandbox: false,

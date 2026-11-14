@@ -10,7 +10,13 @@
     "bestUsed": "In a test"
   },
   "steps": [
-    { "id": "gauge", "brewer": "gauger", "when": "recipe.testFirst" },
+    {
+      "id": "gauge",
+      "brewer": "gauger",
+      "model": "standard",
+      "effort": "larger",
+      "when": "recipe.testFirst"
+    },
     {
       "id": "red",
       "check": "test",
@@ -19,13 +25,13 @@
       "when": "recipe.testFirst",
       "onFail": { "goto": "gauge", "maxRounds": 1 }
     },
-    { "id": "implement", "brewer": "cellarman" },
+    { "id": "implement", "brewer": "cellarman", "model": "standard", "effort": "larger" },
     {
       "id": "green",
       "check": ["build", "typecheck", "lint", "format", "test"],
       "onFail": { "goto": "implement", "maxRounds": 1 }
     },
-    { "brewer": "taster", "lens": "diff/correctness" },
+    { "brewer": "taster", "model": "standard", "effort": "moderate", "lens": "diff/correctness" },
     { "action": "openPullRequest" }
   ]
 }

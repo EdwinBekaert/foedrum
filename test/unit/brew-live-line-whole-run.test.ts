@@ -344,10 +344,16 @@ describe('runBrew', () => {
           guidance: testGuidance,
           testFirst: false,
           steps: [
-            { id: 'brew', brewer: 'cellarman' },
+            { id: 'brew', brewer: 'cellarman', model: 'light', effort: 'small' },
             {
               id: 'taste',
-              parallel: TASTERS.map((id) => ({ id, brewer: 'taster', lens: `diff/${id}` })),
+              parallel: TASTERS.map((id) => ({
+                id,
+                brewer: 'taster',
+                model: 'light',
+                effort: 'small',
+                lens: `diff/${id}`,
+              })),
               onFindings: { goto: 'brew', maxRounds: 1 },
             },
             { action: 'openPullRequest' },

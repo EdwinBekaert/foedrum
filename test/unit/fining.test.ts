@@ -23,6 +23,7 @@ import type { Git } from '../../src/workspace/git.ts';
 import { recipeText } from '../helpers/brewery-files.ts';
 import { createBrewing, defaultLimits } from '../helpers/brewing.ts';
 import { type Behaviour, behave, fakeBrewerRunner, outDoc } from '../helpers/fake-brewer-runner.ts';
+import { claudeModels } from '../helpers/models.ts';
 
 // A Brewery with no files of its own: the Finer, Nip and its brewers come from Foedrum's defaults.
 const noFiles = readBreweryFiles(join(FOEDRUM_DEFAULTS, 'no-such-brewery'));
@@ -105,12 +106,12 @@ const duplicate = {
 };
 
 describe('the default Finer (defaults/brewers/finer.md)', () => {
-  it('commits on the builder alias, with the fining schema, and keeps the red proof tests', () => {
+  it('commits on the standard level, with the fining schema, and keeps the red proof tests', () => {
     const found = valid(loadRecipes(room)).brewers.find('amber', 'fine');
     assert.ok(found !== undefined, 'the recipe has no fine step');
     const { brewer } = found;
     assert.equal(brewer.name, 'finer');
-    assert.equal(brewer.model, 'builder');
+    assert.equal(brewer.model, 'standard');
     assert.equal(brewer.produces, 'commits');
     assert.equal(brewer.access, 'write');
     assert.equal(brewer.output.schema, 'fining');
@@ -190,7 +191,7 @@ describe('the default Finer (defaults/brewers/finer.md)', () => {
     const plans = createAttemptPlans({
       state: () => fold(events),
       brewers: valid(loadRecipes(room)).brewers,
-      models: { models: { builder: 'claude-sonnet-5-5' }, brewers: {} },
+      models: claudeModels({ standard: 'claude-sonnet-5-5' }),
       repoTools: () => [],
       clone: (repo) => join('/clones', repo),
       sandbox: false,

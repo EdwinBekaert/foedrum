@@ -149,7 +149,13 @@ describe('a test-first recipe with real git and a real test run', () => {
         {
           path: 'recipes/nip.jsonc',
           text: recipeText('nip', [
-            { id: 'gauge', brewer: 'gauger', when: 'recipe.testFirst' },
+            {
+              id: 'gauge',
+              brewer: 'gauger',
+              model: 'standard',
+              effort: 'larger',
+              when: 'recipe.testFirst',
+            },
             {
               id: 'red',
               check: 'test',
@@ -158,7 +164,7 @@ describe('a test-first recipe with real git and a real test run', () => {
               when: 'recipe.testFirst',
               onFail: { goto: 'gauge', maxRounds: 1 },
             },
-            { id: 'implement', brewer: 'cellarman' },
+            { id: 'implement', brewer: 'cellarman', model: 'standard', effort: 'larger' },
             { id: 'green', check: 'test', onFail: { goto: 'implement', maxRounds: 1 } },
             // This driver has no code host, so the batch goes Stuck here (ADR 0084).
             { action: 'openPullRequest' },

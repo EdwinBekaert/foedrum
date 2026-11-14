@@ -111,6 +111,10 @@ const brewNip = async (
     const clone = join(scratch, name);
     await run(scratch, ['init', '-q', '--bare', '--initial-branch=main', `${name}.git`]);
     await run(scratch, ['clone', '-q', `${name}.git`, name]);
+    // An identity of the clone's own for the commits a real claude's brewers make: their git
+    // reads no GIT_CONFIG_GLOBAL (ADR 0028), only the clone's and the user's configuration.
+    await run(clone, ['config', 'user.name', 'Brewer']);
+    await run(clone, ['config', 'user.email', 'brewer@example.com']);
     for (const [path, text] of Object.entries(files)) write(join(clone, path), text);
     await run(clone, ['add', '--all']);
     await run(clone, ['commit', '-q', '-m', `Start ${name}`]);

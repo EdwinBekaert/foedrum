@@ -27,10 +27,34 @@ export const RECIPE = 'nip-parallel';
  * (ADR 0193, ADR 0354).
  */
 const LENS_STEPS = [
-  { id: 'correctness', brewer: 'taster', lens: 'diff/correctness' },
-  { id: 'security', brewer: 'taster', lens: 'diff/security' },
-  { id: 'test-design', brewer: 'taster', lens: 'diff/test-design' },
-  { id: 'design-conformance', brewer: 'taster', lens: 'diff/design-conformance' },
+  {
+    id: 'correctness',
+    brewer: 'taster',
+    model: 'standard',
+    effort: 'moderate',
+    lens: 'diff/correctness',
+  },
+  {
+    id: 'security',
+    brewer: 'taster',
+    model: 'standard',
+    effort: 'moderate',
+    lens: 'diff/security',
+  },
+  {
+    id: 'test-design',
+    brewer: 'taster',
+    model: 'standard',
+    effort: 'moderate',
+    lens: 'diff/test-design',
+  },
+  {
+    id: 'design-conformance',
+    brewer: 'taster',
+    model: 'standard',
+    effort: 'moderate',
+    lens: 'diff/design-conformance',
+  },
 ] as const;
 
 /**
@@ -52,7 +76,13 @@ export const recipeText = (): string =>
         bestUsed: 'With one clear outcome a test can show',
       },
       steps: [
-        { id: 'survey', brewer: 'maltster-survey', when: 'recipe.testFirst' },
+        {
+          id: 'survey',
+          brewer: 'maltster-survey',
+          model: 'standard',
+          effort: 'moderate',
+          when: 'recipe.testFirst',
+        },
         {
           id: 'survey-check',
           check: 'test',
@@ -60,8 +90,14 @@ export const recipeText = (): string =>
           when: 'recipe.testFirst',
           onFail: { goto: 'survey', maxRounds: 1 },
         },
-        { id: 'map', brewer: 'maltster-map' },
-        { id: 'gauge', brewer: 'gauger', when: 'recipe.testFirst' },
+        { id: 'map', brewer: 'maltster-map', model: 'light', effort: 'moderate' },
+        {
+          id: 'gauge',
+          brewer: 'gauger',
+          model: 'standard',
+          effort: 'larger',
+          when: 'recipe.testFirst',
+        },
         {
           id: 'red',
           check: 'test',
@@ -73,9 +109,11 @@ export const recipeText = (): string =>
         {
           id: 'implement',
           brewer: 'cellarman',
+          model: 'standard',
+          effort: 'larger',
           onBlocked: { findings: { goto: 'gauge', maxRounds: 1 } },
         },
-        { id: 'fine', brewer: 'finer' },
+        { id: 'fine', brewer: 'finer', model: 'standard', effort: 'larger' },
         {
           id: 'green',
           check: ['build', 'typecheck', 'lint', 'format', 'test'],
@@ -86,7 +124,7 @@ export const recipeText = (): string =>
           parallel: LENS_STEPS,
           onFindings: { goto: 'implement', maxRounds: 1 },
         },
-        { id: 'mutants', brewer: 'brett' },
+        { id: 'mutants', brewer: 'brett', model: 'standard', effort: 'moderate' },
         { action: 'openPullRequest', onPullRequestFail: { goto: 'implement', maxRounds: 2 } },
       ],
     },

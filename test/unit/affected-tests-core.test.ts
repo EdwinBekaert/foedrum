@@ -2,7 +2,7 @@
 
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { affectedTests, isTestFile } from '../../scripts/affected-tests/core.ts';
+import { affectedTests, isRealClaudeTest, isTestFile } from '../../scripts/affected-tests/core.ts';
 
 // A small tree: a CLI file imported by a command module, which one test imports; a schema
 // module another test imports; a test that imports nothing of the tree.
@@ -185,5 +185,49 @@ describe('affectedTests', () => {
       'test/unit/a.test.ts': "import '../../src/a.ts';\n",
     });
     assert.deepEqual(affectedTests(['src/b.ts'], texts), some('test/unit/a.test.ts'));
+  });
+});
+
+// The tests against the installed claude (ADR 0057), which CI runs on a pull request when the
+// change reaches them.
+describe('isRealClaudeTest', () => {
+  const opted = "import { realClaude } from '../helpers/real-claude.ts';\n";
+
+  it('is an integration test that imports the real-claude helper, at any depth', () => {
+    assert.equal(isRealClaudeTest('test/integration/nip.test.ts', opted), true);
+    assert.equal(
+      isRealClaudeTest(
+        'test/integration/runner/settings.test.ts',
+        "import { realClaude } from '../../helpers/real-claude.ts';\n",
+      ),
+      true,
+    );
+  });
+
+  it('is not a test outside test/integration, nor one that does not import the helper', () => {
+    assert.equal(isRealClaudeTest('test/unit/real-claude.test.ts', opted), false);
+    assert.equal(isRealClaudeTest('test/integration/real-claude.ts', opted), false);
+    assert.equal(
+      isRealClaudeTest(
+        'test/integration/demo.test.ts',
+        "import { load } from '../helpers/real-claude-load.ts';\n// real-claude.ts\n",
+      ),
+      false,
+    );
+  });
+});
+
+describe('affectedTests with another kind of test file', () => {
+  it('reaches the integration tests that import the real-claude helper, and only those', () => {
+    const helper = "import { realClaude } from '../helpers/real-claude.ts';\n";
+    const texts = tree({
+      'test/integration/runner.test.ts': `${helper}import '../../src/cli/status.ts';\n`,
+      'test/integration/doctor.test.ts': "import '../../src/cli/status.ts';\n",
+      'test/integration/serve.test.ts': `${helper}import '../../src/schemas/order.ts';\n`,
+    });
+    assert.deepEqual(
+      affectedTests(['src/cli/format.ts'], texts, isRealClaudeTest),
+      some('test/integration/runner.test.ts'),
+    );
   });
 });

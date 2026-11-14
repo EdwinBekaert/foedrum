@@ -31,7 +31,7 @@ const recipe = JSON.stringify({
   description: 'Proves its tests red, brews, and reads its tests again.',
   guidance: testGuidance,
   steps: [
-    { id: 'gauge', brewer: 'gauger' },
+    { id: 'gauge', brewer: 'gauger', model: 'standard', effort: 'larger' },
     {
       id: 'red',
       check: 'test',
@@ -39,7 +39,7 @@ const recipe = JSON.stringify({
       of: 'gauge',
       onFail: { goto: 'gauge', maxRounds: 1 },
     },
-    { id: 'brew', brewer: 'cellarman' },
+    { id: 'brew', brewer: 'cellarman', model: 'light', effort: 'small' },
     { id: 'green', check: 'test', onFail: { goto: 'brew', maxRounds: 1 } },
     { action: 'openPullRequest' },
   ],

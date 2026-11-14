@@ -193,9 +193,9 @@ describe('the plan setups', () => {
     }
   });
 
-  it('each apart step names the model deep-mash gives its lens, and a together step none', () => {
+  it("each apart step names the model deep-mash gives its lens, and a together step the Taster's standard (ADR 0397)", () => {
     const [plan, group] = stepsOf('plan-apart-7');
-    assert.deepEqual(plan, { id: 'plan', brewer: 'brewmaster' });
+    assert.deepEqual(plan, { id: 'plan', brewer: 'brewmaster', model: 'strong', effort: 'larger' });
     assert.ok(group !== undefined && 'parallel' in group);
     const models = (children: typeof group.parallel) =>
       children.map(({ lens, model }) => [lens, model]).sort();
@@ -203,7 +203,7 @@ describe('the plan setups', () => {
     for (const setup of ['plan-together-7', 'plan-together-mash'] as const) {
       const step = stepsOf(setup)[1];
       assert.ok(step !== undefined && 'brewer' in step);
-      assert.equal(step.model, undefined, setup);
+      assert.equal(step.model, 'standard', setup);
     }
   });
 });
@@ -640,11 +640,19 @@ describe('the diff mode beside plan mode', () => {
           },
           testFirst: false,
           steps: [
-            { id: 'gauge', brewer: 'gauger', when: 'recipe.testFirst' },
-            { id: 'implement', brewer: 'cellarman' },
+            {
+              id: 'gauge',
+              brewer: 'gauger',
+              model: 'standard',
+              effort: 'larger',
+              when: 'recipe.testFirst',
+            },
+            { id: 'implement', brewer: 'cellarman', model: 'standard', effort: 'larger' },
             {
               id: 'taste',
               brewer: 'taster',
+              model: 'standard',
+              effort: 'moderate',
               lenses: ['diff/correctness', 'diff/acceptance', 'diff/security'],
               onFindings: { goto: 'implement', maxRounds: 1 },
             },

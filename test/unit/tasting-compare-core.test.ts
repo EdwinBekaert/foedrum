@@ -221,8 +221,14 @@ describe('the setups', () => {
       assert.deepEqual(
         recipe.steps.slice(0, 2),
         [
-          { id: 'gauge', brewer: 'gauger', when: 'recipe.testFirst' },
-          { id: 'implement', brewer: 'cellarman' },
+          {
+            id: 'gauge',
+            brewer: 'gauger',
+            model: 'standard',
+            effort: 'larger',
+            when: 'recipe.testFirst',
+          },
+          { id: 'implement', brewer: 'cellarman', model: 'standard', effort: 'larger' },
         ],
         name,
       );

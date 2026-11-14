@@ -15,6 +15,7 @@ import {
   replacedDefaults,
 } from '../engine/recipe-files.ts';
 import { mapLines } from '../engine/system-map.ts';
+import { pastaResolverGap, setupStack } from '../platform/check-sandbox.ts';
 import type { AwakeMechanism } from '../platform/keep-awake.ts';
 import { BreweryConfig } from '../schemas/brewery-config.ts';
 import { readJsonc } from '../schemas/read.ts';
@@ -56,6 +57,11 @@ export interface DoctorFacts {
    * `undefined` elsewhere.
    */
   jobObject?: { exitCode: number | null; output: string } | undefined;
+  /**
+   * On Linux, the host's /etc/resolv.conf, for whether pasta can forward a setup's resolver
+   * (ADR 0400); absent when it cannot be read.
+   */
+  resolvConf?: string | undefined;
   /** The text of foedrum.jsonc in the working directory; absent when there is none. */
   config?: string | undefined;
   /** Why foedrum.jsonc could not be read, when it is there and could not be. */
@@ -128,6 +134,8 @@ type ContainerName = 'podman' | 'docker';
 
 export interface Diagnosis {
   tools: readonly ToolLine[];
+  /** On Linux with a stack, which one a setup's network comes from and whether it is isolated (ADR 0400). */
+  setupNetwork?: string;
   /** How this machine is kept awake while an attempt runs (ADR 0195); never a problem. */
   keepAwake?: AwakeMechanism;
   isolation: { level: IsolationLevel; why: string };
@@ -267,18 +275,47 @@ const toolLine = (name: ToolName, run: ToolRun | undefined): ToolLine => ({
   path: run?.path,
 });
 
+/** The stack a Linux setup's namespace gets the network from, as a setup chooses it (ADR 0400). */
+const stackOf = ({ tools, resolvConf }: DoctorFacts) =>
+  setupStack(
+    { pasta: tools.pasta !== undefined, slirp4netns: tools.slirp4netns !== undefined },
+    resolvConf,
+  );
+
 /**
- * The user-mode network stack a Linux setup's namespace gets the network from (ADR 0218):
- * slirp4netns, else pasta, else slirp4netns as missing. pasta prints its version as its first
- * line's second word (`pasta 2024_09_06.6b38f07`), not a dotted number; Ubuntu 24.04's says
- * `pasta unknown version`.
+ * The user-mode network stack a Linux setup's namespace gets the network from (ADR 0218,
+ * ADR 0400), or slirp4netns as missing. pasta prints its version as its first line's second word
+ * (`pasta 2024_09_06.6b38f07`), not a dotted number; Ubuntu 24.04's says `pasta unknown version`.
  */
-const stackLine = (tools: DoctorFacts['tools']): ToolLine => {
-  if (tools.slirp4netns !== undefined || tools.pasta === undefined) {
-    return toolLine('slirp4netns', tools.slirp4netns);
+const stackLine = (facts: DoctorFacts): ToolLine => {
+  const { pasta, slirp4netns } = facts.tools;
+  if (stackOf(facts) !== 'pasta' || pasta === undefined)
+    return toolLine('slirp4netns', slirp4netns);
+  const said = pasta.exitCode === 0 ? firstLine(pasta)?.split(/\s+/)[1] : undefined;
+  return { name: 'pasta', version: said === 'unknown' ? undefined : said, path: pasta.path };
+};
+
+/** Which stack a Linux setup's network comes from, and whether it is isolated (ADR 0400). */
+const setupNetworkLine = (facts: DoctorFacts): string | undefined => {
+  if (facts.platform !== 'linux') return undefined;
+  const gap = pastaResolverGap(facts.resolvConf);
+  const stack = stackOf(facts);
+  switch (stack) {
+    case undefined:
+      return undefined;
+    case 'pasta':
+      return gap === undefined
+        ? 'Setup network: pasta, isolated (a mount namespace of its own on an empty root, ADR 0400)'
+        : `Setup network: pasta, isolated, but ${gap}: a setup cannot look names up; install slirp4netns (ADR 0218, ADR 0400)`;
+    case 'slirp4netns': {
+      const passedOver = facts.tools.pasta === undefined ? '' : `; pasta is here, but ${gap}`;
+      return `Setup network: slirp4netns, not isolated: a taken-over slirp4netns reaches the home folder and /run/user (ADR 0400)${passedOver}`;
+    }
+    default: {
+      const never: never = stack;
+      throw new Error(`no network stack ${String(never)}`);
+    }
   }
-  const said = tools.pasta.exitCode === 0 ? firstLine(tools.pasta)?.split(/\s+/)[1] : undefined;
-  return { name: 'pasta', version: said === 'unknown' ? undefined : said, path: tools.pasta.path };
 };
 
 /** A setup does not start on Linux without a stack; a Brewery without one needs neither. */
@@ -786,6 +823,7 @@ export const diagnose = (facts: DoctorFacts): Diagnosis => {
     },
   );
   const container = containers.find((found) => found.usable) ?? containers[0];
+  const setupNetwork = setupNetworkLine(facts);
   return {
     tools: [
       { name: 'node', version: facts.node, path: undefined },
@@ -795,9 +833,10 @@ export const diagnose = (facts: DoctorFacts): Diagnosis => {
       toolLine('claude', tools.claude),
       // The sandbox's own tools matter on Linux only.
       ...(facts.platform === 'linux'
-        ? [toolLine('bwrap', tools.bwrap), toolLine('socat', tools.socat), stackLine(tools)]
+        ? [toolLine('bwrap', tools.bwrap), toolLine('socat', tools.socat), stackLine(facts)]
         : []),
     ],
+    ...(setupNetwork === undefined ? {} : { setupNetwork }),
     isolation,
     container,
     advice,
@@ -851,6 +890,7 @@ const keepAwakeLine = (mechanism: AwakeMechanism): string => {
 /** The report `foedrum doctor` prints. */
 export const formatDiagnosis = ({
   tools,
+  setupNetwork,
   isolation,
   container,
   advice,
@@ -874,6 +914,7 @@ export const formatDiagnosis = ({
       ]),
     ),
     '',
+    ...(setupNetwork === undefined ? [] : [setupNetwork]),
     `Isolation: ${isolation.level} (${isolation.why})`,
     ...advice.map((line) => `  ${line}`),
     container === undefined
@@ -887,9 +928,9 @@ export const formatDiagnosis = ({
           defaults.length === 0
             ? 'Defaults in use: none'
             : `Defaults in use: ${defaults.join(', ')} (a Brewery file of the same name replaces one${
-                // The Brewery's models.jsonc merges over Foedrum's by alias (ADR 0153).
+                // The Brewery's models.jsonc merges over Foedrum's entry by entry (ADR 0153, ADR 0397).
                 defaults.includes('defaults/models.jsonc')
-                  ? '; models.jsonc merges over defaults/models.jsonc by alias'
+                  ? '; models.jsonc merges over defaults/models.jsonc entry by entry'
                   : ''
               })`,
         ]),

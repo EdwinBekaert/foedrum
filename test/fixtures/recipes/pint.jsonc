@@ -10,10 +10,16 @@
     "bestUsed": "In a test"
   },
   "steps": [
-    { "id": "context", "brewer": "maltster-survey" },
-    { "id": "plan", "brewer": "brewmaster" },
+    { "id": "context", "brewer": "maltster-survey", "model": "standard", "effort": "moderate" },
+    { "id": "plan", "brewer": "brewmaster", "model": "strong", "effort": "larger" },
     { "id": "approve-plan", "gate": "human", "deadline": "3d" },
-    { "id": "gauge", "brewer": "gauger", "when": "recipe.testFirst" },
+    {
+      "id": "gauge",
+      "brewer": "gauger",
+      "model": "standard",
+      "effort": "larger",
+      "when": "recipe.testFirst"
+    },
     {
       "id": "red",
       "check": "test",
@@ -25,6 +31,8 @@
     {
       "id": "implement",
       "brewer": "cellarman",
+      "model": "standard",
+      "effort": "larger",
       "deadline": "45m",
       "onBlocked": { "findings": { "goto": "gauge", "maxRounds": 1 } }
     },
@@ -42,15 +50,57 @@
           {
             "id": "tasting",
             "parallel": [
-              { "id": "correctness", "brewer": "taster", "lens": "diff/correctness" },
-              { "id": "security", "brewer": "taster", "lens": "diff/security" },
-              { "id": "cross-platform", "brewer": "taster", "lens": "diff/cross-platform" },
-              { "id": "design", "brewer": "taster", "lens": "diff/design-conformance" },
-              { "id": "test-design", "brewer": "taster", "lens": "diff/test-design" },
-              { "id": "mutants", "brewer": "brett", "blocking": false }
+              {
+                "id": "correctness",
+                "brewer": "taster",
+                "model": "standard",
+                "effort": "moderate",
+                "lens": "diff/correctness"
+              },
+              {
+                "id": "security",
+                "brewer": "taster",
+                "model": "standard",
+                "effort": "moderate",
+                "lens": "diff/security"
+              },
+              {
+                "id": "cross-platform",
+                "brewer": "taster",
+                "model": "standard",
+                "effort": "moderate",
+                "lens": "diff/cross-platform"
+              },
+              {
+                "id": "design",
+                "brewer": "taster",
+                "model": "standard",
+                "effort": "moderate",
+                "lens": "diff/design-conformance"
+              },
+              {
+                "id": "test-design",
+                "brewer": "taster",
+                "model": "standard",
+                "effort": "moderate",
+                "lens": "diff/test-design"
+              },
+              {
+                "id": "mutants",
+                "brewer": "brett",
+                "model": "standard",
+                "effort": "moderate",
+                "blocking": false
+              }
             ]
           },
-          { "id": "fix", "brewer": "cooper", "when": "tasting.verdict != 'approve'" },
+          {
+            "id": "fix",
+            "brewer": "cooper",
+            "model": "standard",
+            "effort": "moderate",
+            "when": "tasting.verdict != 'approve'"
+          },
           {
             "id": "recheck",
             "check": ["build", "typecheck", "lint", "test"],

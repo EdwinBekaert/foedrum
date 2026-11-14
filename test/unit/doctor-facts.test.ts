@@ -144,6 +144,31 @@ describe('gatherDoctorFacts', () => {
     });
   });
 
+  // Whether pasta can forward a setup's resolver (ADR 0400).
+  it("reads the host's /etc/resolv.conf on Linux, and nothing for it elsewhere", async () => {
+    const { shell } = fakeShell();
+    const read: string[] = [];
+    const readFile = (path: string) => {
+      read.push(path);
+      return path === '/etc/resolv.conf' ? 'nameserver 127.0.0.53\n' : undefined;
+    };
+    const facts = await gatherDoctorFacts({ ...shell, readFile });
+    assert.equal(facts.resolvConf, 'nameserver 127.0.0.53\n');
+    read.length = 0;
+    const mac = await gatherDoctorFacts({ ...shell, platform: 'darwin', readFile });
+    assert.equal(mac.resolvConf, undefined);
+    assert.ok(!read.includes('/etc/resolv.conf'));
+  });
+
+  it('reads no /etc/resolv.conf when it cannot be read', async () => {
+    const { shell } = fakeShell();
+    const readFile = (path: string) => {
+      if (path === '/etc/resolv.conf') throw new Error('EACCES: permission denied');
+      return undefined;
+    };
+    assert.equal((await gatherDoctorFacts({ ...shell, readFile })).resolvConf, undefined);
+  });
+
   // Brewers run only in a Job Object on Windows (ADR 0039), so doctor tries one: node, doing
   // nothing, held in a job by the runner.
   it('on Windows, holds node in a Job Object and records how it answered', async () => {
@@ -366,7 +391,8 @@ describe('gatherDoctorFacts: the Brewery config', () => {
         return '{ "repositories": {} }';
       },
     });
-    assert.deepEqual(read, [join('/work/brewery', 'foedrum.jsonc')]);
+    // And on Linux the host's resolver's file, for pasta (ADR 0400).
+    assert.deepEqual(read, [join('/work/brewery', 'foedrum.jsonc'), '/etc/resolv.conf']);
     assert.equal(facts.config, '{ "repositories": {} }');
   });
 

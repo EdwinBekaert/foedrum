@@ -1,8 +1,8 @@
 // Deep-brew, the build stage of the full recipe, for a change that can reach a lot, whatever its
 // size (ADR 0366): Nip's steps from the Maltster's survey to green (ADR 0017, ADR 0166, ADR 0298),
 // then a blocking Brett step whose surviving mutants go back to the Gauger, who adds the tests that
-// catch them before the code is written again (ADR 0319, ADR 0358), then one Taster on the planner
-// alias through all seven diff lenses together (ADR 0220), every finding of it going back to
+// catch them before the code is written again (ADR 0319, ADR 0358), then one Taster on the strong
+// level through all seven diff lenses together (ADR 0220), every finding of it going back to
 // Cellarman (ADR 0354), and the pull request. Brett comes before the Taster, so a survivor round,
 // which writes the code again from the red proof's tip, never throws away a Taster's fixes
 // (ADR 0366).
@@ -14,11 +14,17 @@
   "guidance": {
     "chooseWhen": "A change that can reach a lot, whatever its size: a loop over every item, a shared path, a public interface, a credential, a migration or what other repositories read.",
     "notWhen": "A change whose effect stays inside the code it changes: nip builds it for less. An order that needs a plan first, because it is unclear or spans repositories: choose a mash recipe.",
-    "bestUsed": "On an order clear enough to build in one repository. Brett's surviving mutants go back to the Gauger, and one Taster on the planner model reads every diff lens, so it costs more than nip."
+    "bestUsed": "On an order clear enough to build in one repository. Brett's surviving mutants go back to the Gauger, and one Taster on the strong model reads every diff lens, so it costs more than nip."
   },
   "steps": [
     // Without a session when the base's map is fresh, or the Brewery keeps it (ADR 0298).
-    { "id": "survey", "brewer": "maltster-survey", "when": "recipe.testFirst" },
+    {
+      "id": "survey",
+      "brewer": "maltster-survey",
+      "model": "standard",
+      "effort": "moderate",
+      "when": "recipe.testFirst"
+    },
     {
       // A run that disagrees with the proposed map goes back to the Maltster once, then the batch
       // is Stuck on its environment (ADR 0298).
@@ -30,8 +36,14 @@
     },
     // The Maltster maps the code the order touches, read-only, for the Gauger, Cellarman and the
     // Finer to start from, also with test-first off (ADR 0395).
-    { "id": "map", "brewer": "maltster-map" },
-    { "id": "gauge", "brewer": "gauger", "when": "recipe.testFirst" },
+    { "id": "map", "brewer": "maltster-map", "model": "light", "effort": "moderate" },
+    {
+      "id": "gauge",
+      "brewer": "gauger",
+      "model": "standard",
+      "effort": "larger",
+      "when": "recipe.testFirst"
+    },
     {
       "id": "red",
       "check": "test",
@@ -43,10 +55,12 @@
     {
       "id": "implement",
       "brewer": "cellarman",
+      "model": "standard",
+      "effort": "larger",
       // A test Cellarman finds wrong goes back to the Gauger, once (ADR 0017, ADR 0064).
       "onBlocked": { "findings": { "goto": "gauge", "maxRounds": 1 } }
     },
-    { "id": "fine", "brewer": "finer" },
+    { "id": "fine", "brewer": "finer", "model": "standard", "effort": "larger" },
     {
       // A failure goes back to Cellarman, whichever step broke it; the Finer then runs again.
       "id": "green",
@@ -60,17 +74,20 @@
       // run, then the batch is Stuck with the survivors open (ADR 0319, ADR 0369).
       "id": "mutants",
       "brewer": "brett",
+      "model": "standard",
+      "effort": "moderate",
       "blocking": true,
       "onBlocked": { "findings": { "goto": "gauge", "maxRounds": 2 } }
     },
     {
-      // One Taster on Opus through every diff lens, at the Taster's own effort, the setup three
+      // One Taster on Opus through every diff lens, at moderate effort, the setup three
       // lenses together were measured in (ADR 0347, ADR 0366). Every finding goes back to Cellarman, through the Finer,
       // green and Brett again: two rounds in each run, then the batch is Stuck with the findings
       // still open (ADR 0192, ADR 0354, ADR 0369).
       "id": "taste",
       "brewer": "taster",
-      "model": "planner",
+      "effort": "moderate",
+      "model": "strong",
       "lenses": [
         "diff/correctness",
         "diff/acceptance",

@@ -545,7 +545,7 @@ export const wireDriver = async (
     // A brewer that only reads plans a Brewery order in a checkout of every repository, in the
     // recipe its attempt was scheduled under (ADR 0301).
     reads: attempts.reads,
-    // The family of the model the brewer runs on, a blind-tasting swap included, says which
+    // The family of the model the brewer's step runs on says which
     // closed usage window holds it (ADR 0215).
     family: attempts.family,
     // A retry or an answer continues the session of a brewer that resumes (ADR 0117, ADR 0118),

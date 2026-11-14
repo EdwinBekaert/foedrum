@@ -9,11 +9,9 @@ import { loadRecipes } from '../../src/engine/recipe-files.ts';
 import type { Event } from '../../src/schemas/events.ts';
 import type { ModelsConfig } from '../../src/schemas/models.ts';
 import { brewerText, recipeText } from '../helpers/brewery-files.ts';
+import { claudeModels } from '../helpers/models.ts';
 
-const models: ModelsConfig = {
-  models: { builder: 'claude-sonnet-5-5', deep: 'opus' },
-  brewers: {},
-};
+const models: ModelsConfig = claudeModels({ standard: 'claude-sonnet-5-5', strong: 'opus' });
 
 // Step brew of recipe first is a Maltster-like brewer: on Opus, resuming, surveying, testMapOnly.
 // Step brew of recipe second is a plain brewer on Sonnet that starts fresh, testsUnchanged.
@@ -21,7 +19,7 @@ const loaded = loadRecipes({
   recipes: [
     {
       path: 'recipes/first.jsonc',
-      text: recipeText('first', [{ id: 'brew', brewer: 'maltster' }]),
+      text: recipeText('first', [{ id: 'brew', brewer: 'maltster', model: 'strong' }]),
     },
     {
       path: 'recipes/second.jsonc',
@@ -30,7 +28,13 @@ const loaded = loadRecipes({
     {
       path: 'recipes/talk.jsonc',
       text: recipeText('talk', [
-        { id: 'brew', brewer: 'maltster', interactive: true, prompt: 'Talk it over.' },
+        {
+          id: 'brew',
+          brewer: 'maltster',
+          model: 'strong',
+          interactive: true,
+          prompt: 'Talk it over.',
+        },
       ]),
     },
   ],
@@ -38,7 +42,6 @@ const loaded = loadRecipes({
     {
       path: 'brewers/maltster.md',
       text: brewerText('maltster', {
-        model: 'deep',
         retryMode: 'resume',
         output: { doc: 'survey.md', schema: 'survey' },
         guards: ['testMapOnly'],
@@ -47,7 +50,6 @@ const loaded = loadRecipes({
     {
       path: 'brewers/builder.md',
       text: brewerText('builder', {
-        model: 'builder',
         retryMode: 'fresh',
         access: 'write',
         guards: ['testsUnchanged'],
