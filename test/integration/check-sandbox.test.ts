@@ -436,16 +436,21 @@ const deviceOf = (path: string): string => {
   return `${major}:${minor}`;
 };
 
-/** The pids of `tool`'s processes started for a setup: their arguments name the namespace. */
-const stackPids = (tool: NetworkStackTool): number[] =>
+/**
+ * The pids of `tool`'s processes started for the setup whose line holds `marker`: the stack's
+ * arguments name the pid of bwrap's child, whose own arguments hold the line.
+ */
+const stackPids = (tool: NetworkStackTool, marker: string): number[] =>
   readdirSync('/proc')
     .filter((entry) => /^\d+$/.test(entry))
     .filter((entry) => {
       try {
         const args = readFileSync(`/proc/${entry}/cmdline`, 'utf8').split('\0');
         // Ubuntu's pasta runs as pasta.avx2 where the processor has it.
-        const named = basename(args[0] ?? '').startsWith(tool);
-        return named && args.includes(tool === 'pasta' ? '10.0.2.100' : 'tap0');
+        if (!basename(args[0] ?? '').startsWith(tool)) return false;
+        // pasta ends with the pid, slirp4netns with the pid and its tap device.
+        const target = args.filter((arg) => arg !== '').at(tool === 'pasta' ? -1 : -2);
+        return readFileSync(`/proc/${target}/cmdline`, 'utf8').includes(marker);
       } catch {
         // Ended while it was read.
         return false;
@@ -494,9 +499,10 @@ describe("what a setup's network stack can see of the host's files", {
       findStackTool: (name) => (name === tool ? resolveExecutable(name) : undefined),
     });
     const { NODE_TEST_CONTEXT: _, ...env } = process.env;
-    const earlier = new Set(stackPids(tool));
+    const marker = `stack-sees-${tool}-${process.pid}`;
     let ended = false;
-    const running = run('touch started; while [ ! -e release ]; do sleep 0.1; done', [], {
+    const line = `: ${marker}; touch started; while [ ! -e release ]; do sleep 0.1; done`;
+    const running = run(line, [], {
       cwd: worktree,
       env,
       shell: true,
@@ -508,7 +514,7 @@ describe("what a setup's network stack can see of the host's files", {
       'the setup line to start',
       () => ended || existsSync(join(worktree, 'started')),
     );
-    const pids = stackPids(tool).filter((pid) => !earlier.has(pid));
+    const pids = stackPids(tool, marker);
     const seen = pids.map((pid) => ({
       mountinfo: readFileSync(`/proc/${pid}/mountinfo`, 'utf8'),
       namespace: namespaceOf(pid),
@@ -527,12 +533,14 @@ describe("what a setup's network stack can see of the host's files", {
 
   it('runs pasta in a mount namespace of its own, without the home folder or /run/user', {
     skip: stackSkip('pasta'),
-  }, async () => {
+  }, async (t) => {
     const { seen, devices } = await whileStackRuns('pasta');
     const mounted = mountDevices(seen?.mountinfo ?? '');
     assert.notEqual(seen?.mountinfo.trim(), '');
     for (const device of devices) assert.ok(!mounted.has(device), seen?.mountinfo);
-    if (seen?.namespace !== undefined) assert.notEqual(seen.namespace, namespaceOf('self'));
+    // pasta makes itself undumpable, which may keep its namespace link from the test.
+    t.diagnostic(`pasta's mount namespace: ${seen?.namespace ?? 'cannot be read'}`);
+    assert.notEqual(seen?.namespace, namespaceOf('self'));
   });
 
   // The gap ADR 0400 accepts for now: a taken-over slirp4netns reaches what the user does.
