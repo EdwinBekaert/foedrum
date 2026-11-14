@@ -104,7 +104,7 @@ describe('readBreweryFiles', () => {
     assert.equal(found.path, 'defaults/models.jsonc');
     const read = readJsonc(found.text, ModelsConfig);
     assert.ok(read.valid, read.valid ? '' : read.reason);
-    assert.deepEqual(read.value.models, { builder: 'sonnet', planner: 'opus' });
+    assert.deepEqual(read.value.models, { builder: 'sonnet', planner: 'opus', explorer: 'haiku' });
     assert.deepEqual(read.value.brewers, {});
   });
 

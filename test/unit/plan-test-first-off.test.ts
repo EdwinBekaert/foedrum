@@ -122,16 +122,18 @@ const routed = (events: Event[]) => {
   };
 };
 
-const testFirstSteps = ['survey', 'survey-check', 'gauge', 'red'];
+// The test-first steps routing reaches: the Gauger's and the red proof's skips come after the
+// Maltster's map, which runs with test-first off too (ADR 0395).
+const testFirstSteps = ['survey', 'survey-check'];
 
 describe("a plan entry's testFirst false is what its sub-order's batch does (ADR 0371)", () => {
-  it('a sub-order approved with testFirst false runs with its four test-first steps skipped and says why', () => {
+  it('a sub-order approved with testFirst false skips the test-first steps before its map and says why', () => {
     const plan = done(subOrder('help', { testFirst: false, testFirstOff: reason }));
     const events = [...planned(plan), ordered('help')];
     const { recorded, steps } = routed(events);
     assert.deepStrictEqual(steps, [
       ...testFirstSteps.map((stepId) => `step.skipped ${stepId}`),
-      'step.scheduled implement',
+      'step.scheduled map',
     ]);
     const batch = fold([...events, ...recorded]).batches.get('12-1');
     assert.ok(batch);
@@ -154,7 +156,7 @@ describe("a plan entry's testFirst false is what its sub-order's batch does (ADR
     const off = subOrder('help', { testFirst: false, testFirstOff: reason });
     const skips = [
       ...testFirstSteps.map((stepId) => `step.skipped ${stepId}`),
-      'step.scheduled implement',
+      'step.scheduled map',
     ];
     // The entry turned off first, then second, so neither the first entry nor the first off one
     // stands in for the one the batch names.

@@ -42,6 +42,7 @@ const sessions: Record<string, string> = {
   gauge: '0f8fad5b-d9cb-469f-a165-70867728950a',
   implement: '0f8fad5b-d9cb-469f-a165-70867728950b',
   fine: '0f8fad5b-d9cb-469f-a165-70867728950c',
+  map: '0f8fad5b-d9cb-469f-a165-70867728950d',
 };
 const at = (stepId: string): AttemptRef => ({ batchId: '12-1', stepId, attempt: 1 });
 const started = (stepId: string, commit: string): Event[] => [
@@ -61,6 +62,13 @@ const ordered: Event[] = [
     routeBy: '2026-10-18T14:00:00.000Z',
   },
   { type: 'batch.recipe_chosen', batchId: '12-1', recipe: 'nip', reason: 'l', source: 'label' },
+  // The Maltster's map, which the Gauger, Cellarman and the Finer read (ADR 0395).
+  ...started('map', gaugeStart),
+  {
+    type: 'step.finished',
+    ...at('map'),
+    outcome: { kind: 'succeeded', output: { status: 'done', summary: 'Mapped', assumptions: [] } },
+  },
 ];
 const gauged: Event[] = [
   ...started('gauge', gaugeStart),

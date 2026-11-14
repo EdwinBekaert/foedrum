@@ -16,6 +16,7 @@ import {
   routeOf,
 } from '../../src/brewers/attempt-plan.ts';
 import { createAttemptPlans } from '../../src/brewers/attempt-plans.ts';
+import type { OutDocRead } from '../../src/brewers/claude-runner.ts';
 import type { PromptInput } from '../../src/brewers/prompt.ts';
 import type { AttemptRef } from '../../src/engine/attempt-key.ts';
 import type { AttemptLimits } from '../../src/engine/brewer-runner.ts';
@@ -47,6 +48,43 @@ const valid = (result: LoadedRecipes) => {
   return result;
 };
 
+/**
+ * The Maltster's map step of batch `batchId` finished, its out doc in its worktree (ADR 0395): the
+ * Gauger, Cellarman and the Finer read it as an input.
+ */
+const mapped = (batchId: string): Event[] => {
+  const ref = { batchId, stepId: 'map', attempt: 1 };
+  const path = join('/work', 'map-1');
+  return [
+    { type: 'step.scheduled', ...ref, deadlineAt: '2026-10-21T13:00:00.000Z' },
+    {
+      type: 'step.started',
+      ...ref,
+      session: { id: '7c9e6679-7425-40de-944b-e07fc1f90ae7', worktree: path },
+      worktree: {
+        repo: 'acme/api',
+        path,
+        branch: `foedrum/${batchId}/map/1`,
+        commit: 'c'.repeat(40),
+      },
+    },
+    {
+      type: 'step.finished',
+      ...ref,
+      outcome: {
+        kind: 'succeeded',
+        output: { status: 'done', summary: 'Mapped', assumptions: [] },
+      },
+    },
+  ];
+};
+
+/** The out doc `mapped` leaves in the map step's worktree; no other file is there. */
+const MAP_DOC =
+  '---\n{ "status": "done", "summary": "Mapped", "assumptions": [] }\n---\n## Code\n- src/cli/status.ts:40-72 \u2014 prints each batch\n';
+const readMap = (file: string): OutDocRead =>
+  file === join('/work', 'map-1', 'map.md') ? { kind: 'text', text: MAP_DOC } : { kind: 'missing' };
+
 /** The events of an order brewed with the default Nip, as the fake runner plays its steps. */
 const brewNipEvents = async (
   scripts: Record<string, readonly Behaviour[]>,
@@ -56,7 +94,7 @@ const brewNipEvents = async (
   try {
     const brewing = createBrewing({
       store,
-      runner: fakeBrewerRunner(scripts),
+      runner: fakeBrewerRunner({ map: [behave.succeed()], ...scripts }),
       recipes: valid(loadRecipes(noFiles)).recipes,
       clock: () => new Date('2026-10-21T12:00:00.000Z'),
       ...(limits === undefined ? {} : { limits }),
@@ -94,6 +132,7 @@ describe('the default Nip', () => {
     const started = await brewNip({
       survey: [done],
       'survey-check': [done],
+      map: [done],
       gauge: [done],
       red: [done],
       implement: [done],
@@ -105,7 +144,7 @@ describe('the default Nip', () => {
       'design-conformance': [done],
       'open-pull-request': [done],
     });
-    assert.deepEqual(started.slice(0, 3), ['survey', 'survey-check', 'gauge']);
+    assert.deepEqual(started.slice(0, 4), ['survey', 'survey-check', 'map', 'gauge']);
     // The survey's check read the map before the Gauger, and the batch brewed to its pull request.
     assert.equal(started.at(-1), 'open-pull-request');
   });
@@ -123,6 +162,7 @@ describe('the default Nip', () => {
       const brewing = createBrewing({
         store,
         runner: fakeBrewerRunner({
+          map: [done],
           implement: [done],
           fine: [done],
           green: [done],
@@ -147,6 +187,7 @@ describe('the default Nip', () => {
       assert.deepEqual(
         events.flatMap((event) => (event.type === 'step.started' ? [event.stepId] : [])),
         [
+          'map',
           'implement',
           'fine',
           'green',
@@ -167,6 +208,7 @@ describe('the default Nip', () => {
     const started = await brewNip({
       survey: [done],
       'survey-check': [done],
+      map: [done],
       gauge: [done, done],
       red: [done, done],
       implement: [behave.blocked('findings', 'The test expects the wrong slug'), done],
@@ -181,6 +223,7 @@ describe('the default Nip', () => {
     assert.deepEqual(started, [
       'survey',
       'survey-check',
+      'map',
       'gauge',
       'red',
       'implement',
@@ -202,6 +245,7 @@ describe('the default Nip', () => {
     const started = await brewNip({
       survey: [done],
       'survey-check': [done],
+      map: [done],
       gauge: [done],
       red: [done],
       implement: [done, done],
@@ -216,6 +260,7 @@ describe('the default Nip', () => {
     assert.deepEqual(started, [
       'survey',
       'survey-check',
+      'map',
       'gauge',
       'red',
       'implement',
@@ -246,6 +291,7 @@ describe('the default Nip', () => {
       const scripts: Record<string, Behaviour[]> = {
         survey: [done],
         'survey-check': [done],
+        map: [done],
         gauge: [done],
         red: [done],
         implement: [done, done],
@@ -307,12 +353,13 @@ describe('the default Nip', () => {
     const started = await brewNip({
       survey: [done],
       'survey-check': [done],
+      map: [done],
       gauge: [done, done, done],
       red: [behave.fail(false), behave.fail(false), done],
       implement: [done],
       fine: [done, done],
     });
-    assert.deepEqual(started, ['survey', 'survey-check', 'gauge', 'red', 'gauge', 'red']);
+    assert.deepEqual(started, ['survey', 'survey-check', 'map', 'gauge', 'red', 'gauge', 'red']);
   });
 
   it('sends a Gauger whose tests the red proof refuses back to write them again, once', async () => {
@@ -320,6 +367,7 @@ describe('the default Nip', () => {
     const started = await brewNip({
       survey: [done],
       'survey-check': [done],
+      map: [done],
       gauge: [done, done],
       red: [behave.fail(false), done],
       implement: [done],
@@ -334,6 +382,7 @@ describe('the default Nip', () => {
     assert.deepEqual(started, [
       'survey',
       'survey-check',
+      'map',
       'gauge',
       'red',
       'gauge',
@@ -391,6 +440,7 @@ describe('the default Nip', () => {
     assert.deepEqual(loaded.recipes.find('nip')?.steps, [
       'survey',
       'survey-check',
+      'map',
       'gauge',
       'red',
       'implement',
@@ -469,6 +519,7 @@ describe('the default Nip', () => {
     const events = await brewNipEvents({
       survey: [done],
       'survey-check': [done],
+      map: [done],
       gauge: [done],
       red: [done],
       implement: [done],
@@ -529,6 +580,7 @@ describe('the default Nip', () => {
               [
                 'survey',
                 'survey-check',
+                'map',
                 'gauge',
                 'red',
                 'implement',
@@ -716,6 +768,7 @@ describe('the default Nip', () => {
     const started = await brewNip({
       survey: [done],
       'survey-check': [done],
+      map: [done],
       gauge: [done],
       red: [done],
       implement: [done, done],
@@ -730,6 +783,7 @@ describe('the default Nip', () => {
     assert.deepEqual(started, [
       'survey',
       'survey-check',
+      'map',
       'gauge',
       'red',
       'implement',
@@ -754,6 +808,7 @@ describe('the default Nip', () => {
     const events = await brewNipEvents({
       survey: [done],
       'survey-check': [done],
+      map: [done],
       gauge: [done],
       red: [done],
       implement: [done, done, done],
@@ -799,7 +854,13 @@ describe('the default Nip', () => {
       events.flatMap((event) => (event.type === 'step.started' ? [event.stepId] : []));
     const ROUND = ['correctness', 'acceptance', 'security', 'design-conformance'];
     const BACK = ['implement', 'fine', 'green'];
-    const before = { survey: [done], 'survey-check': [done], gauge: [done], red: [done] };
+    const before = {
+      survey: [done],
+      'survey-check': [done],
+      map: [done],
+      gauge: [done],
+      red: [done],
+    };
 
     it('sends a batch whose design conformance alone approves with a minor finding back to Cellarman, then tastes again', async () => {
       const events = await brewNipEvents(
@@ -818,7 +879,7 @@ describe('the default Nip', () => {
       );
       // Correctness every round, and the Taster that had findings; acceptance and security keep
       // their approval (ADR 0357).
-      assert.deepEqual(startedOf(events).slice(4), [
+      assert.deepEqual(startedOf(events).slice(5), [
         ...BACK,
         ...ROUND,
         ...BACK,
@@ -945,6 +1006,7 @@ describe('the default Nip', () => {
             [
               'survey',
               'survey-check',
+              'map',
               'gauge',
               'red',
               'implement',
@@ -978,6 +1040,7 @@ describe('the default Nip', () => {
       assert.deepEqual(started, [
         'survey',
         'survey-check',
+        'map',
         'gauge',
         'red',
         'implement',
@@ -1085,6 +1148,7 @@ describe('the default Cellarman', () => {
       const scripts: Record<string, Behaviour[]> = {
         survey: [done],
         'survey-check': [done],
+        map: [done],
         gauge: [done, done],
         red: [done, done],
         implement: [behave.writes(blocked), done],
@@ -1155,7 +1219,7 @@ describe('the default Cellarman', () => {
         event.type === 'step.started' ? [event.stepId] : [],
       );
       // An out doc the Cellarman's schema refused would retry implement instead of going to gauge.
-      assert.deepEqual(started.slice(2, 6), ['gauge', 'red', 'implement', 'gauge']);
+      assert.deepEqual(started.slice(3, 7), ['gauge', 'red', 'implement', 'gauge']);
       assert.equal(told.length, 2);
       assert.deepEqual(told[1]?.source, {
         kind: 'route',
@@ -1213,6 +1277,7 @@ describe('the default Gauger', () => {
         reason: 'label',
         source: 'label',
       },
+      ...mapped('12-1'),
       { type: 'step.scheduled', ...ref, deadlineAt: '2026-10-21T13:00:00.000Z' },
       {
         type: 'step.started',
@@ -1239,7 +1304,7 @@ describe('the default Gauger', () => {
       orderText: async () => 'Add a --json flag to status.',
       orderComments: async () => [],
       files: {
-        read: () => ({ kind: 'missing' }),
+        read: readMap,
         makeFolder: () => {},
       },
       random: () => Buffer.from('0123456789abcdef0123456789abcdef', 'hex'),
@@ -1341,6 +1406,7 @@ describe("a sub-order's plan entry in the default brewers' prompts (ADR 0290)", 
             } satisfies Event,
           ]
         : []),
+      ...mapped('12-1'),
       { type: 'step.scheduled', ...ref, deadlineAt: '2026-10-21T13:00:00.000Z' },
       {
         type: 'step.started',
@@ -1388,7 +1454,7 @@ describe("a sub-order's plan entry in the default brewers' prompts (ADR 0290)", 
       orderComments: async () => [],
       // The Taster's change: one commit, no diff to show.
       git: async () => ({ code: 0, stdout: '', stderr: '' }),
-      files: { read: () => ({ kind: 'missing' }), makeFolder: () => {} },
+      files: { read: readMap, makeFolder: () => {} },
       random: () => Buffer.from('0123456789abcdef0123456789abcdef', 'hex'),
     });
     const ref = { batchId: '12-1', stepId, attempt: 1 };
@@ -1482,6 +1548,7 @@ describe("the release a sub-order waited for in the default brewers' prompts (AD
         reason: 'label',
         source: 'label',
       },
+      ...mapped('12-1'),
       { type: 'step.scheduled', ...ref, deadlineAt: routeBy },
       {
         type: 'step.started',
@@ -1511,7 +1578,7 @@ describe("the release a sub-order waited for in the default brewers' prompts (AD
       orderText: async () => 'Use the new parser of acme/lib.',
       orderComments: async () => [],
       git: async () => ({ code: 0, stdout: '', stderr: '' }),
-      files: { read: () => ({ kind: 'missing' }), makeFolder: () => {} },
+      files: { read: readMap, makeFolder: () => {} },
       random: () => Buffer.from('0123456789abcdef0123456789abcdef', 'hex'),
     });
     const ref = { batchId: '12-1', stepId, attempt: 1 };
@@ -1596,6 +1663,7 @@ describe("the default Nip's round back to the Cellarman carries every Taster's f
       const scripts: Record<string, Behaviour[]> = {
         survey: [done],
         'survey-check': [done],
+        map: [done],
         gauge: [done],
         red: [done],
         implement: [done, { kind: 'settle', facts: { ...facts, outDoc: fixed } }],
