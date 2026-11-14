@@ -475,6 +475,22 @@ describe('tasting-compare --real --brewer (ADR 0394)', () => {
       assert.equal(brewerStop({ setup: '855-cellarman-opus-xhigh', brewer }), undefined);
     });
 
+    it('an id asks for itself: one whose name starts another id does not accept that other model', () => {
+      const asked = { ...OPUS, model: 'claude-opus-5' };
+      const { brewer } = brewerRecordOf(twoRounds, asked, opusTranscript);
+      assert.match(
+        brewerStop({ setup: '855-cellarman-claude-opus-5-xhigh', brewer }) ?? '',
+        /claude-opus-5-5.*asks for claude-opus-5/,
+      );
+    });
+
+    it('an id accepts a dated snapshot of itself: regression test', () => {
+      const dated = (_id: string, tree: string) =>
+        scriptedTranscript(tree, 'claude-opus-5-5-20261101');
+      const { brewer } = brewerRecordOf(twoRounds, OPUS, dated);
+      assert.equal(brewerStop({ setup: '855-cellarman-claude-opus-5-5-xhigh', brewer }), undefined);
+    });
+
     it('a Cellarman whose transcript cannot be found stops the comparison', () => {
       const { brewer } = brewerRecordOf(twoRounds, OPUS, () => undefined);
       assert.match(
