@@ -137,6 +137,19 @@ describe('the default Nip and Deep-brew map the code before the Gauger (ADR 0395
     assert.ok(read.success, JSON.stringify(read.error));
   });
 
+  it("refuses a map out doc without the contract's status", () => {
+    const found = loaded().brewers.find('nip', 'map') ?? assert.fail('nip has no map step');
+    const { schema } = attemptLimits(found.brewer).outDoc;
+    assert.equal(schema.safeParse({ summary: 'Mapped greet', assumptions: [] }).success, false);
+  });
+
+  it("deep-brew's map step runs the same Maltster's map brewer as nip's", () => {
+    const found = loaded().brewers.find('deep-brew', 'map') ?? assert.fail('no map step');
+    assert.equal(found.brewer.name, 'maltster-map');
+    assert.equal(found.brewer.access, 'read');
+    assert.equal(found.brewer.model, 'explorer');
+  });
+
   it("keeps the first map when the Tasters' findings send the batch back to Cellarman", async () => {
     const nit = behave.succeedWith({
       verdict: 'approve',
