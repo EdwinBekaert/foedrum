@@ -3,16 +3,30 @@
 // server on 127.0.0.1. It tests our arguments and profile with the real tools, not the tools
 // themselves; it runs where the sandbox runs (macOS, Linux with a working bwrap) and skips elsewhere.
 // A setup's sandbox keeps the network and nothing else (ADR 0158): on Linux through a network
-// namespace of its own that pasta or slirp4netns joins, which must be there on CI (ADR 0218).
+// namespace of its own that pasta or slirp4netns joins, which must be there on CI (ADR 0218); and
+// what each stack can see of the host's files (ADR 0400).
 
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  readlinkSync,
+  realpathSync,
+  writeFileSync,
+} from 'node:fs';
 import { createServer, type Server } from 'node:net';
 import { networkInterfaces } from 'node:os';
-import { join, relative } from 'node:path';
+import { basename, join, relative } from 'node:path';
 import { after, before, describe, it } from 'node:test';
-import { bwrapArgs, SANDBOX_EXEC, sandboxedChecks } from '../../src/platform/check-sandbox.ts';
+import {
+  bwrapArgs,
+  type NetworkStackTool,
+  SANDBOX_EXEC,
+  sandboxedChecks,
+} from '../../src/platform/check-sandbox.ts';
 import { resolveExecutable } from '../../src/platform/executables.ts';
 import { type ExecOptions, execProcess } from '../../src/platform/processes.ts';
 import { waitUntil } from '../helpers/load.ts';
@@ -406,5 +420,143 @@ describe('a setup in the real sandbox, the network kept', {
     // Only the folder of the stack's resolver file, where /etc/resolv.conf links into /run
     // (ADR 0218): systemd-resolved, resolvconf or NetworkManager, as the machine has it.
     assert.equal(result.output.trim(), resolverFolder() ?? '');
+  });
+});
+
+/** The devices of a line of /proc/<pid>/mountinfo: its third field, `major:minor`. */
+const mountDevices = (mountinfo: string): Set<string> =>
+  new Set(mountinfo.split('\n').flatMap((line) => line.split(' ')[2] ?? []));
+
+/**
+ * The device of the mount that holds `path`, as the test's own mountinfo writes it: the line whose
+ * mount point (the fifth field) is the longest that contains the path, the last of equals. Read
+ * from mountinfo, not from stat, whose device is a btrfs subvolume's own.
+ */
+const deviceOf = (path: string): string => {
+  const real = realpathSync(path);
+  const holds = (point: string) => point === '/' || real === point || real.startsWith(`${point}/`);
+  const mounts = readFileSync('/proc/self/mountinfo', 'utf8')
+    .split('\n')
+    .map((line) => line.split(' '))
+    .filter((fields) => fields[4] !== undefined && holds(fields[4]));
+  const longest = Math.max(...mounts.map((fields) => (fields[4] ?? '').length));
+  return mounts.findLast((fields) => (fields[4] ?? '').length === longest)?.[2] ?? '';
+};
+
+/**
+ * The pids of `tool`'s processes started for the setup whose line holds `marker`: the stack's
+ * arguments name the pid of bwrap's child, whose own arguments hold the line.
+ */
+const stackPids = (tool: NetworkStackTool, marker: string): number[] =>
+  readdirSync('/proc')
+    .filter((entry) => /^\d+$/.test(entry))
+    .filter((entry) => {
+      try {
+        const args = readFileSync(`/proc/${entry}/cmdline`, 'utf8').split('\0');
+        // Ubuntu's pasta runs as pasta.avx2 where the processor has it.
+        if (!basename(args[0] ?? '').startsWith(tool)) return false;
+        // pasta ends with the pid, slirp4netns with the pid and its tap device.
+        const target = args.filter((arg) => arg !== '').at(tool === 'pasta' ? -1 : -2);
+        return readFileSync(`/proc/${target}/cmdline`, 'utf8').includes(marker);
+      } catch {
+        // Ended while it was read.
+        return false;
+      }
+    })
+    .map(Number);
+
+/** The link a process's namespace has under /proc, or undefined when it cannot be read. */
+const namespaceOf = (pid: number | 'self'): string | undefined => {
+  try {
+    return readlinkSync(`/proc/${pid}/ns/mnt`);
+  } catch {
+    // A process that made itself undumpable keeps its namespaces from other users' processes.
+    return undefined;
+  }
+};
+
+// What a setup's stack can see of the host's files as Foedrum starts it (ADR 0400): pasta
+// detaches into a mount namespace of its own on an empty root, and slirp4netns keeps the user's,
+// with the home folder and /run/user in it. Each stack is the only one found, so the run goes
+// through the same code as a setup's. On CI's Linux leg a missing stack fails instead of skipping.
+describe("what a setup's network stack can see of the host's files", {
+  skip: process.platform !== 'linux' ? 'the stacks are Linux only' : (skip ?? false),
+}, () => {
+  let dir: TempDir;
+
+  before(() => {
+    dir = makeTempDir('stack-sees');
+  });
+
+  after(() => dir.remove());
+
+  /**
+   * Runs a setup whose line waits for the test, and reads the mounts of the stack's process
+   * while it does; the line ends once the test has read them.
+   */
+  const whileStackRuns = async (tool: NetworkStackTool) => {
+    const home = join(dir.path, tool, 'home');
+    const worktree = join(dir.path, tool, 'worktree');
+    for (const folder of [home, worktree]) mkdirSync(folder, { recursive: true });
+    writeFileSync(join(home, 'secret.txt'), 'planted-login\n');
+    const run = sandboxedChecks({
+      exec: execProcess,
+      home,
+      network: true,
+      findStackTool: (name) => (name === tool ? resolveExecutable(name) : undefined),
+    });
+    const { NODE_TEST_CONTEXT: _, ...env } = process.env;
+    const marker = `stack-sees-${tool}-${process.pid}`;
+    let ended = false;
+    const line = `: ${marker}; touch started; while [ ! -e release ]; do sleep 0.1; done`;
+    const running = run(line, [], {
+      cwd: worktree,
+      env,
+      shell: true,
+      timeoutMs: 60_000,
+    }).finally(() => {
+      ended = true;
+    });
+    await waitUntil(
+      'the setup line to start',
+      () => ended || existsSync(join(worktree, 'started')),
+    );
+    const pids = stackPids(tool, marker);
+    const seen = pids.map((pid) => ({
+      mountinfo: readFileSync(`/proc/${pid}/mountinfo`, 'utf8'),
+      namespace: namespaceOf(pid),
+    }));
+    writeFileSync(join(worktree, 'release'), '');
+    const result = await running;
+    assert.equal(result.exitCode, 0, result.output);
+    assert.equal(seen.length, 1, `${tool}'s processes for this setup: ${pids.join(', ')}`);
+    const userRun = `/run/user/${process.getuid?.()}`;
+    const hidden = [join(home, 'secret.txt'), existsSync(userRun) ? userRun : '/run'];
+    return { seen: seen[0], devices: hidden.map(deviceOf) };
+  };
+
+  const stackSkip = (tool: NetworkStackTool) =>
+    inCi || resolveExecutable(tool) !== undefined ? false : `${tool} is not on PATH`;
+
+  it('runs pasta in a mount namespace of its own, without the home folder or /run/user', {
+    skip: stackSkip('pasta'),
+  }, async (t) => {
+    const { seen, devices } = await whileStackRuns('pasta');
+    const mounted = mountDevices(seen?.mountinfo ?? '');
+    assert.notEqual(seen?.mountinfo.trim(), '');
+    for (const device of devices) assert.ok(!mounted.has(device), seen?.mountinfo);
+    // pasta makes itself undumpable, which may keep its namespace link from the test.
+    t.diagnostic(`pasta's mount namespace: ${seen?.namespace ?? 'cannot be read'}`);
+    assert.notEqual(seen?.namespace, namespaceOf('self'));
+  });
+
+  // The gap ADR 0400 accepts for now: a taken-over slirp4netns reaches what the user does.
+  it("runs slirp4netns in the user's mount namespace, with the home folder and /run/user", {
+    skip: stackSkip('slirp4netns'),
+  }, async () => {
+    const { seen, devices } = await whileStackRuns('slirp4netns');
+    const mounted = mountDevices(seen?.mountinfo ?? '');
+    for (const device of devices) assert.ok(mounted.has(device), seen?.mountinfo);
+    assert.equal(seen?.namespace, namespaceOf('self'));
   });
 });

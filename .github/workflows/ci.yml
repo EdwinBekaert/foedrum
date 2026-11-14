@@ -77,12 +77,12 @@ jobs:
           exit "$status"
 
       # The sandbox check steps run in on Linux (ADR 0076), so its integration test runs against
-      # the real bwrap here instead of skipping; and slirp4netns, the user-mode network stack a
-      # setup's network namespace gets the network from first, whose cases fail on CI without it
-      # (ADR 0218).
-      - name: Install bubblewrap and slirp4netns
+      # the real bwrap here instead of skipping; and slirp4netns and pasta (passt), the user-mode
+      # network stacks a setup's network namespace gets the network from, whose cases fail on CI
+      # without them (ADR 0218), what each can see of the host's files among them (ADR 0400).
+      - name: Install bubblewrap, slirp4netns and passt
         if: ${{ matrix.os == 'ubuntu-latest' }}
-        run: sudo apt-get install -y bubblewrap slirp4netns
+        run: sudo apt-get install -y bubblewrap slirp4netns passt
 
       # Ubuntu 24.04 and later restrict unprivileged user namespaces, which bwrap needs; the
       # profile below is the one Claude Code's sandbox docs give for it ("Ubuntu 24.04 and later:
