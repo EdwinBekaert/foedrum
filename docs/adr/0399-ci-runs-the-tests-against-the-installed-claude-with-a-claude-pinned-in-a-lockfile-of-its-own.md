@@ -18,14 +18,15 @@ On the Windows leg two other tests never ran: `below-normal-priority.test.ts`, b
   - `npm ci --prefix ci/claude` installs it with install scripts off. The package's `postinstall` (`install.cjs`) downloads nothing: it only copies the binary of the platform package npm already installed over a stub. So the job puts that platform package's folder on `PATH` instead, and no script runs.
   - Dependabot proposes each new version as a pull request (`/ci/claude`, the same 7-day cooldown).
   - It is not part of the package: `package.json`'s `files` names none of `ci/`.
-- **It is a CI-only tool, not an admitted package.** `DEPENDENCIES.md` records it under "CI-only tools": the pin, the lockfile's place, and why the admission checklist's points on install scripts, provenance and the licence do not apply to a tool that no user installs, that Foedrum does not ship and whose script never runs. Each Dependabot bump gets a diff review. `scripts/check-deps.ts` reads the root lockfile only, as before.
+- **It is a CI-only tool, not an admitted package.** `DEPENDENCIES.md` records it under "CI-only tools": the pin, the lockfile's place, and why the admission checklist's points on install scripts, provenance and the licence do not apply to a tool that no user installs, that Foedrum does not ship and whose script never runs. Each Dependabot bump gets a diff review. Of ADR 0004's CI controls, the job keeps `npm ci` with the lockfile's sha512 integrity and leaves out the lockfile checker (`scripts/check-deps.ts` reads the root lockfile only, as before) and `npm audit signatures`: the package carries no provenance to check, and the integrity hashes pin the bytes the reviewed bump accepted.
 - **The two Windows skips:**
   - The priority test raises its own process back to normal on Windows, which needs no privilege there, and lowers it again after; it skips only where that is refused.
-  - CI turns short names on for the checkout drive (`fsutil 8dot3name set`) before the tests that make a folder and read it by its short name, in the `check` job and in `real-claude`.
+  - CI turns short names on for the checkout drive (`fsutil 8dot3name set`) before the tests that make a folder and read it by its short name, in the `check` job, which runs read-guard's short-name test; in `real-claude` that test, which needs no `claude`, skips.
 - **On a developer's machine nothing changes.** The tests stay opt-in there, against whichever `claude` is installed.
 - **No Brewery migration.** Nothing a Brewery holds or does changes.
 
 ## Consequences
+- The job runs whole files, so the tests in `nip.test.ts` and `read-guard.test.ts` that need no `claude` run there a second time, about 10 s per leg; picking the opt-in tests out by name would tie CI to their names.
 - A change that breaks one of these tests fails its pull request when it reaches the test, and the nightly run catches the rest.
 - CI downloads a platform binary of about 300 MB per leg when the job runs; a nightly leg takes about 6 to 10 minutes.
 - A new `claude` version reaches CI only through a reviewed Dependabot pull request, which runs every one of these tests, since it changes a non-TypeScript file.

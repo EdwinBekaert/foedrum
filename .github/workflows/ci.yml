@@ -191,10 +191,6 @@ jobs:
           npm ci --prefix ci/claude
           node -p "require('node:path').resolve('ci/claude/node_modules/@anthropic-ai', require('node:fs').readdirSync('ci/claude/node_modules/@anthropic-ai').find((name) => name.startsWith('claude-code-')))" >> "$GITHUB_PATH"
 
-      - name: Short names on the checkout drive
-        if: ${{ steps.tests.outputs.any == 'true' && matrix.os == 'windows-latest' }}
-        run: fsutil 8dot3name set "${GITHUB_WORKSPACE:0:2}" 0
-
       - name: Tests against the installed claude
         if: ${{ steps.tests.outputs.any == 'true' }}
         env:
