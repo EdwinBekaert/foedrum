@@ -7,7 +7,7 @@
       "standard": "claude-sonnet-5-5",
       "strong": "claude-opus-5-5[1m]"
     },
-    "efforts": { "quick": "low", "steady": "medium", "careful": "high", "thorough": "max" }
+    "efforts": { "small": "low", "moderate": "medium", "larger": "high", "full": "max" }
   },
   "brewers": {
     "cellarman": "strong"

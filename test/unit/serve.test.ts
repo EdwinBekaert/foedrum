@@ -728,7 +728,7 @@ describe('runServe', () => {
         JSON.stringify({
           claude: {
             models: { light: 'claude-opus-5-5', standard: 'claude-sonnet-5-5' },
-            efforts: { quick: 'low' },
+            efforts: { small: 'low' },
           },
           brewers: { cellarman: 'standard' },
         }),
@@ -739,7 +739,7 @@ describe('runServe', () => {
     it('holds the cellarman on Opus', async () => {
       await servedWhileOpusClosed(
         JSON.stringify({
-          claude: { models: { light: 'claude-opus-5-5' }, efforts: { quick: 'low' } },
+          claude: { models: { light: 'claude-opus-5-5' }, efforts: { small: 'low' } },
         }),
       );
       assert.deepStrictEqual(f.plans, []);
@@ -756,7 +756,7 @@ describe('runServe', () => {
             models: JSON.stringify({
               claude: {
                 models: { light: 'claude-sonnet-5-5', strong: 'claude-opus-5-5' },
-                efforts: { quick: 'low' },
+                efforts: { small: 'low' },
               },
             }),
             brewery: {
@@ -971,7 +971,7 @@ ${JSON.stringify({
   output: { doc: 'plan.md', schema: 'plan' },
   produces: 'report',
   model: 'light',
-  effort: 'quick',
+  effort: 'small',
   tools: { allow: ['Read'] },
   access: 'read',
   tree: 'task',
@@ -1063,7 +1063,7 @@ Plan the order in {order}.
       output: { doc: 'plan.md', schema: 'plan' },
       produces: 'report',
       model: 'light',
-      effort: 'quick',
+      effort: 'small',
       tools: { allow: ['Read'] },
       access: 'read',
       tree: 'task',

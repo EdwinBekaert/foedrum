@@ -4,10 +4,10 @@ import type { ModelLevel, ModelsConfig } from '../../src/schemas/models.ts';
 
 /** Foedrum's default translation of its efforts into Claude Code's (`defaults/models.jsonc`). */
 export const CLAUDE_EFFORTS: ModelsConfig['claude']['efforts'] = {
-  quick: 'low',
-  steady: 'medium',
-  careful: 'high',
-  thorough: 'xhigh',
+  small: 'low',
+  moderate: 'medium',
+  larger: 'high',
+  full: 'xhigh',
 };
 
 /** Models whose `claude` block maps `models` and Foedrum's default efforts, with `brewers` swaps. */

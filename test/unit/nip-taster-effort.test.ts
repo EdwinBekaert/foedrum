@@ -30,7 +30,7 @@ const valid = (result: LoadedRecipes) => {
 const HIGH = new Set(['nip/correctness', 'nip/acceptance', 'nip/security']);
 
 describe("the default recipes' Taster steps (#935)", () => {
-  it("every Taster step of the default recipes but nip's three keeps its brewer's steady effort: regression test", () => {
+  it("every Taster step of the default recipes but nip's three keeps its brewer's moderate effort: regression test", () => {
     const { recipes, brewers } = valid(loadRecipes(noFiles));
     const others: string[] = [];
     for (const name of ['nip', 'mash', 'deep-mash', 'mash-in']) {
@@ -39,7 +39,7 @@ describe("the default recipes' Taster steps (#935)", () => {
         if (found?.brewer.output.schema !== 'tasting') continue;
         if (HIGH.has(`${name}/${stepId}`)) continue;
         others.push(`${name}/${stepId}`);
-        assert.equal(found.brewer.effort, 'steady', `${name}/${stepId}`);
+        assert.equal(found.brewer.effort, 'moderate', `${name}/${stepId}`);
       }
     }
     // The plan Tasters of mash and deep-mash, and nip's design conformance, are among them.
@@ -147,7 +147,7 @@ describe("nip's Tasters at high effort, without the Taster's read of the rules (
                 id: 'deep',
                 brewer: 'taster',
                 lens: 'diff/correctness',
-                effort: 'thorough',
+                effort: 'full',
                 onFindings: { goto: 'implement', maxRounds: 1 },
               },
               {
@@ -197,13 +197,13 @@ describe("nip's Tasters at high effort, without the Taster's read of the rules (
       refused.valid ? '' : refused.problems.join('\n'),
       /recipes\/amber\.jsonc: .* at steps\[1\]/,
     );
-    assert.ok(loadRecipes(files('careful')).valid);
+    assert.ok(loadRecipes(files('larger')).valid);
   });
 
-  it("a Brewery's models.jsonc that maps careful to xhigh starts a careful step at --effort xhigh (ADR 0397)", async () => {
+  it("a Brewery's models.jsonc that maps larger to xhigh starts a larger step at --effort xhigh (ADR 0397)", async () => {
     const models: ModelsConfig = {
       ...MODELS,
-      claude: { ...MODELS.claude, efforts: { ...CLAUDE_EFFORTS, careful: 'xhigh' } },
+      claude: { ...MODELS.claude, efforts: { ...CLAUDE_EFFORTS, larger: 'xhigh' } },
     };
     assert.equal((await planOf('correctness', { models })).call.effort, 'xhigh');
     assert.equal((await planOf('design-conformance', { models })).call.effort, 'medium');

@@ -29,7 +29,7 @@ const innkeeperFields = {
   description: 'Suggests a recipe and asks.',
   version: 1,
   model: 'standard',
-  effort: 'quick',
+  effort: 'small',
   inputs: [
     { name: 'order', from: 'order' },
     { name: 'recipes', from: 'recipes' },

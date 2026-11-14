@@ -11,7 +11,7 @@ export const brewerText = (name: string, fields: Record<string, unknown> = {}): 
       output: { doc: 'out.md', schema: 'outDoc' },
       produces: 'report',
       model: 'standard',
-      effort: 'steady',
+      effort: 'moderate',
       tools: { allow: ['Read', 'Grep'] },
       access: 'read',
       tree: 'task',

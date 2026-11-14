@@ -66,7 +66,7 @@ const brewer = `---
   "output": { "doc": "brew.md", "schema": "outDoc" },
   "produces": "commits",
   "model": "light",
-  "effort": "quick",
+  "effort": "small",
   "tools": { "allow": ["Read", "Write"] },
   "access": "write",
   "tree": "task",

@@ -30,7 +30,7 @@ export const local = (fields: Record<string, unknown> = {}) =>
   JSON.stringify({ clones: { 'acme/web': clone }, ...fields });
 export const models = (level = 'light') =>
   JSON.stringify({
-    claude: { models: { [level]: 'claude-haiku-5-5' }, efforts: { quick: 'low' } },
+    claude: { models: { [level]: 'claude-haiku-5-5' }, efforts: { small: 'low' } },
   });
 
 // Its brewer commits with no red proof before it, so it says testFirst: false (ADR 0064), and
@@ -68,7 +68,7 @@ export const brewer = `---
   "output": { "doc": "brew.md", "schema": "outDoc" },
   "produces": "commits",
   "model": "light",
-  "effort": "quick",
+  "effort": "small",
   "tools": { "allow": ["Read", "Write"] },
   "access": "write",
   "tree": "task",

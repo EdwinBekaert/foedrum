@@ -106,7 +106,7 @@ describe('readBreweryFiles', () => {
     assert.ok(read.valid, read.valid ? '' : read.reason);
     assert.deepEqual(read.value.claude, {
       models: { light: 'haiku', standard: 'sonnet', strong: 'opus' },
-      efforts: { quick: 'low', steady: 'medium', careful: 'high', thorough: 'xhigh' },
+      efforts: { small: 'low', moderate: 'medium', larger: 'high', full: 'xhigh' },
     });
     assert.deepEqual(read.value.brewers, {});
   });

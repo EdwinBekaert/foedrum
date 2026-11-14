@@ -82,7 +82,7 @@ describe('the default deep-brew', () => {
     assert.equal(taste.brewer.name, 'taster');
     assert.equal(taste.brewer.model, 'strong');
     // The Taster's own effort, as three lenses together were measured (ADR 0347).
-    assert.equal(taste.brewer.effort, 'steady');
+    assert.equal(taste.brewer.effort, 'moderate');
     const diffLenses = readdirSync(join(FOEDRUM_DEFAULTS, 'lenses', 'diff'))
       .filter((file) => file.endsWith('.md'))
       .map((file) => `diff/${file.replace(/\.md$/, '')}`);

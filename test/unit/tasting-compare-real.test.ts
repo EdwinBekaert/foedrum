@@ -1332,7 +1332,7 @@ describe('tasting-compare --real: the opus and high setups (ADR 0344)', () => {
     const { 'brewers/taster.md': _, ...reads } = realBreweryFiles('855-reads', REAL_TASTERS);
     const { 'brewers/taster.md': taster, ...others } = realBreweryFiles('855-high', REAL_TASTERS);
     assert.deepEqual(others, reads);
-    assert.equal(taster, READS_TASTER.replace('"effort": "steady"', '"effort": "careful"'));
+    assert.equal(taster, READS_TASTER.replace('"effort": "moderate"', '"effort": "larger"'));
     assert.notEqual(taster, READS_TASTER);
 
     const line = commandLine('855-high');
@@ -1377,17 +1377,17 @@ describe('tasting-compare --real: the opus and high setups (ADR 0344)', () => {
 
   describe('the high Taster', () => {
     it('refuses a default Taster that does not hold medium effort', () => {
-      assert.throws(() => highTaster('{ "effort": "quick" }'), /effort/);
+      assert.throws(() => highTaster('{ "effort": "small" }'), /effort/);
     });
 
     it('refuses a default Taster that says it twice, as it could not tell which', () => {
-      assert.throws(() => highTaster('"effort": "steady"\n"effort": "steady"\n'), /effort/);
+      assert.throws(() => highTaster('"effort": "moderate"\n"effort": "moderate"\n'), /effort/);
     });
 
     it('changes that one value and no other text', () => {
       assert.equal(
-        highTaster('before\n  "effort": "steady",\nafter $& medium\n'),
-        'before\n  "effort": "careful",\nafter $& medium\n',
+        highTaster('before\n  "effort": "moderate",\nafter $& medium\n'),
+        'before\n  "effort": "larger",\nafter $& medium\n',
       );
     });
   });

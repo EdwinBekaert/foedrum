@@ -69,7 +69,7 @@ const loaded = loadRecipes({
     {
       path: 'brewers/coder.md',
       text: brewerText('coder', {
-        effort: 'careful',
+        effort: 'larger',
         access: 'write',
         tools: { allow: ['Read', 'Edit'], deny: ['WebFetch'] },
         env: { FOEDRUM_MODE: 'coder' },
@@ -904,8 +904,8 @@ describe('foedrum resume (ADR 0126)', () => {
         },
       ],
       brewers: [
-        { path: 'brewers/innkeeper.md', text: brewerText('innkeeper', { effort: 'quick' }) },
-        { path: 'brewers/brewmaster.md', text: brewerText('brewmaster', { effort: 'thorough' }) },
+        { path: 'brewers/innkeeper.md', text: brewerText('innkeeper', { effort: 'small' }) },
+        { path: 'brewers/brewmaster.md', text: brewerText('brewmaster', { effort: 'full' }) },
       ],
     });
     assert.ok(mash.valid);
@@ -988,7 +988,7 @@ describe('foedrum resume (ADR 0126)', () => {
         recipes: [
           {
             path: 'recipes/mash.jsonc',
-            text: recipeText('mash', [{ id: 'innkeep', brewer: 'innkeeper', effort: 'thorough' }]),
+            text: recipeText('mash', [{ id: 'innkeep', brewer: 'innkeeper', effort: 'full' }]),
           },
           {
             path: 'recipes/pale.jsonc',
@@ -996,8 +996,8 @@ describe('foedrum resume (ADR 0126)', () => {
           },
         ],
         brewers: [
-          { path: 'brewers/innkeeper.md', text: brewerText('innkeeper', { effort: 'quick' }) },
-          { path: 'brewers/brewmaster.md', text: brewerText('brewmaster', { effort: 'thorough' }) },
+          { path: 'brewers/innkeeper.md', text: brewerText('innkeeper', { effort: 'small' }) },
+          { path: 'brewers/brewmaster.md', text: brewerText('brewmaster', { effort: 'full' }) },
         ],
       });
       assert.ok(stepped.valid, stepped.valid ? '' : stepped.problems.join('\n'));
@@ -1016,7 +1016,7 @@ describe('foedrum resume (ADR 0126)', () => {
     it("opens an attempt at the effort a Brewery's models.jsonc translates its brewer's to (ADR 0397)", async () => {
       const models = {
         ...setup.models,
-        claude: { ...setup.models.claude, efforts: { ...CLAUDE_EFFORTS, quick: 'max' as const } },
+        claude: { ...setup.models.claude, efforts: { ...CLAUDE_EFFORTS, small: 'max' as const } },
       };
       const result = await resumeOf('12-1', 'innkeep', {
         setup: async () =>

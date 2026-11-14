@@ -44,7 +44,7 @@ const brewer = (fields: Record<string, unknown> = {}): BrewerFrontmatter =>
     output: { doc: 'brew.md', schema: 'outDoc' },
     produces: 'report',
     model: 'standard',
-    effort: 'careful',
+    effort: 'larger',
     tools: { allow: ['Read', 'Edit(brew.md)', 'Bash(git diff*)'], deny: ['Read(.env)'] },
     access: 'read',
     tree: 'task',

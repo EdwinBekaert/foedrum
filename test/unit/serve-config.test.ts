@@ -68,7 +68,7 @@ describe('serveSetup', () => {
     });
     assert.deepStrictEqual(setup.models.claude, {
       models: { light: 'claude-haiku-5-5' },
-      efforts: { quick: 'low' },
+      efforts: { small: 'low' },
     });
     assert.notEqual(setup.recipes.find('stout'), undefined);
     assert.equal(setup.brewers.find('stout', 'brew')?.brewer.name, 'cellarman');
@@ -550,7 +550,7 @@ describe("serveSetup: Foedrum's default models (ADR 0153)", () => {
   ): BreweryFile => ({
     path: 'defaults/models.jsonc',
     text: JSON.stringify({
-      claude: { efforts: { quick: 'low' }, ...claude },
+      claude: { efforts: { small: 'low' }, ...claude },
       ...(brewers === undefined ? {} : { brewers }),
     }),
   });
