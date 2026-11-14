@@ -1,6 +1,6 @@
 # 0396. tasting-compare --real starts a Cellarman run from the Brewmaster's kept sub-order
 
-Date: 2026-11-14 · Status: Accepted · Amends [0394](0394-tasting-compare-real-runs-a-real-cellarman-on-a-model-and-effort-it-is-given.md) (a `--brewer` run can start from the Brewmaster's sub-order, not only the order's issue text, and `codes.md` says which)
+Date: 2026-11-14 · Status: Accepted · Amends [0394](0394-tasting-compare-real-runs-a-real-cellarman-on-a-model-and-effort-it-is-given.md) (a `--brewer` run can start from the Brewmaster's sub-order, not only the order's issue text, and `codes.md` says which), [0332](0332-tasting-compare-real-re-tastes-brewed-heads-and-writes-blinded-lists.md) (a mode of `--real` that plans the orders and keeps their sub-orders), [0344](0344-tasting-compare-real-measures-a-stronger-model-and-more-effort-apart.md) (its model stop holds the Brewmaster too) and [0366](0366-deep-brew-builds-a-change-that-can-reach-a-lot-through-every-diff-lens-and-a-blocking-brett-step.md) (`--orders` also chooses the orders `--sub-orders` plans)
 
 ## Context
 Since ADR 0394 a real Cellarman builds each of #879's three orders from the order's own issue text and the head's failing tests.
