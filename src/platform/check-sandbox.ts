@@ -321,10 +321,10 @@ export type NetworkStackTool = 'pasta' | 'slirp4netns';
 /** A byte order mark, which a text file may start with. */
 const BOM = String.fromCodePoint(0xfeff);
 
-/** The host's /etc/resolv.conf, or undefined when it cannot be read. */
-const readResolvConfFile = (): string | undefined => {
+/** The host's /etc/resolv.conf (or the file at `path`), or undefined when it cannot be read. */
+export const readResolvConfFile = (path = RESOLV_CONF): string | undefined => {
   try {
-    return readFileSync(RESOLV_CONF, 'utf8');
+    return readFileSync(path, 'utf8');
   } catch {
     // pastaResolverGap says so, and slirp4netns comes first.
     return undefined;
