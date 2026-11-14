@@ -39,9 +39,9 @@ What pasta's resolver did on CI's ubuntu leg (ADR 0218, run of #425): the runner
 | there | missing | does not work | pasta, with the resolver gap (ADR 0218's consequence, as before) |
 | missing | missing | any | none: the setup is unstarted, as before |
 
-- **"Its resolver works"** (`pastaResolverGap`): the first `nameserver` line of the host's `/etc/resolv.conf` names an IP address that is not a loopback address (127.0.0.0/8, `::1`; an IPv6 zone such as `%eth0` is left out).
-  That is the address pasta forwards 10.0.2.3 to by default.
-  A file that cannot be read, that names no nameserver, or whose first one is not an address does not work.
+- **"Its resolver works"** (`pastaResolverGap`): the first `nameserver` line of the host's `/etc/resolv.conf` names an IPv4 address outside 127.0.0.0/8.
+  That is the address pasta forwards 10.0.2.3 to by default, and Foedrum starts pasta with `-4`, so an IPv6 one leaves it nothing to forward to.
+  A file that cannot be read, that names no nameserver, or whose first one is not an IPv4 address does not work; a byte order mark at its start is read past.
   The test is read on the text before each setup's stack starts; it asks no resolver.
 - **Isolated** is pasta's by design, as its documentation says (Context), and is not checked at run time.
   The integration test proves it for Foedrum's arguments on CI's ubuntu leg (Consequences).
