@@ -45,7 +45,10 @@ describe('runServe', () => {
       type: 'brew',
       description: 'Brews an order in one step and opens its pull request.',
       guidance: testGuidance,
-      steps: [{ id: 'brew', brewer: 'cellarman' }, { action: 'openPullRequest' }],
+      steps: [
+        { id: 'brew', brewer: 'cellarman', model: 'light', effort: 'small' },
+        { action: 'openPullRequest' },
+      ],
       testFirst: false,
     });
     const result = serveSetup(
@@ -107,7 +110,10 @@ describe('runServe', () => {
       type: 'brew',
       description: 'The Cellarman, then the pull request, with no Gauger.',
       guidance: testGuidance,
-      steps: [{ id: 'implement', brewer: 'cellarman' }, { action: 'openPullRequest' }],
+      steps: [
+        { id: 'implement', brewer: 'cellarman', model: 'light', effort: 'small' },
+        { action: 'openPullRequest' },
+      ],
       testFirst: false,
     });
     const result = serveSetup(
@@ -151,7 +157,10 @@ describe('runServe', () => {
       type: 'brew',
       description: 'Brews an order in one step and opens its pull request.',
       guidance: testGuidance,
-      steps: [{ id: 'brew', brewer: 'cellarman' }, { action: 'openPullRequest' }],
+      steps: [
+        { id: 'brew', brewer: 'cellarman', model: 'light', effort: 'small' },
+        { action: 'openPullRequest' },
+      ],
       testFirst: false,
     });
     const result = serveSetup(
@@ -223,7 +232,10 @@ describe('runServe', () => {
       type: 'brew',
       description: 'Brews an order in one step and opens its pull request.',
       guidance: testGuidance,
-      steps: [{ id: 'brew', brewer: 'cellarman' }, { action: 'openPullRequest' }],
+      steps: [
+        { id: 'brew', brewer: 'cellarman', model: 'light', effort: 'small' },
+        { action: 'openPullRequest' },
+      ],
       testFirst: false,
     });
     const result = serveSetup(
@@ -338,7 +350,7 @@ describe('runServe', () => {
       guidance: testGuidance,
       // With `passed`, a red proof its `when` skips, which the brief names (ADR 0225).
       steps: [
-        { id: 'brew', brewer: 'cellarman' },
+        { id: 'brew', brewer: 'cellarman', model: 'light', effort: 'small' },
         ...(passed
           ? [{ id: 'red', check: 'test', expect: 'fail', of: 'brew', when: 'recipe.testFirst' }]
           : []),
@@ -490,7 +502,10 @@ describe('runServe', () => {
       type: 'brew',
       description: 'Brews an order in one step and opens its pull request.',
       guidance: testGuidance,
-      steps: [{ id: 'brew', brewer: 'cellarman' }, { action: 'openPullRequest' }],
+      steps: [
+        { id: 'brew', brewer: 'cellarman', model: 'light', effort: 'small' },
+        { action: 'openPullRequest' },
+      ],
       testFirst: false,
     });
     const result = serveSetup(
@@ -723,18 +738,12 @@ describe('runServe', () => {
       assert.equal(await runServe(f.setup, shell()), 0);
     };
 
-    it('starts the cellarman models.jsonc swaps to a Sonnet alias, though its own alias runs Opus', async () => {
+    it('holds the cellarman on Opus', async () => {
       await servedWhileOpusClosed(
         JSON.stringify({
-          models: { quick: 'claude-opus-5-5', middle: 'claude-sonnet-5-5' },
-          brewers: { cellarman: 'middle' },
+          claude: { models: { light: 'claude-opus-5-5' }, efforts: { small: 'low' } },
         }),
       );
-      assert.equal(f.plans.length, 1);
-    });
-
-    it('holds the cellarman on Opus', async () => {
-      await servedWhileOpusClosed(JSON.stringify({ models: { quick: 'claude-opus-5-5' } }));
       assert.deepStrictEqual(f.plans, []);
     });
 
@@ -747,7 +756,10 @@ describe('runServe', () => {
             ...files,
             local: local({ workRoot: f.dir.path }),
             models: JSON.stringify({
-              models: { quick: 'claude-sonnet-5-5', deep: 'claude-opus-5-5' },
+              claude: {
+                models: { light: 'claude-sonnet-5-5', strong: 'claude-opus-5-5' },
+                efforts: { small: 'low' },
+              },
             }),
             brewery: {
               recipes: [
@@ -763,7 +775,7 @@ describe('runServe', () => {
                   path: 'brewers/deepman.md',
                   text: brewer
                     .replace('"name": "cellarman"', '"name": "deepman"')
-                    .replace('"model": "quick"', '"model": "deep"'),
+                    .replace('"model": "light"', '"model": "strong"'),
                 },
               ],
             },
@@ -960,8 +972,6 @@ ${JSON.stringify({
   inputs: [{ name: 'order', from: 'order' }],
   output: { doc: 'plan.md', schema: 'plan' },
   produces: 'report',
-  model: 'quick',
-  effort: 'low',
   tools: { allow: ['Read'] },
   access: 'read',
   tree: 'task',
@@ -976,7 +986,7 @@ Plan the order in {order}.
       type: 'mash',
       description: 'Plans an order.',
       guidance: testGuidance,
-      steps: [{ id: 'plan', brewer: 'brewmaster' }],
+      steps: [{ id: 'plan', brewer: 'brewmaster', model: 'light', effort: 'small' }],
       testFirst: false,
     });
     const result = serveSetup(
@@ -1052,8 +1062,6 @@ Plan the order in {order}.
       inputs: [{ name: 'order', from: 'order' }],
       output: { doc: 'plan.md', schema: 'plan' },
       produces: 'report',
-      model: 'quick',
-      effort: 'low',
       tools: { allow: ['Read'] },
       access: 'read',
       tree: 'task',
@@ -1065,7 +1073,7 @@ Plan the order in {order}.
       type: 'mash',
       description: 'Plans an order.',
       guidance: testGuidance,
-      steps: [{ id: 'plan', brewer: 'brewmaster' }],
+      steps: [{ id: 'plan', brewer: 'brewmaster', model: 'light', effort: 'small' }],
       testFirst: false,
     });
     const result = serveSetup(

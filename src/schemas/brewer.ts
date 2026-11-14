@@ -1,13 +1,9 @@
 // Brewer frontmatter: a reusable agent role (brewers-and-recipes §1).
 
 import { LensName, PathSafeId } from './ids.ts';
-import { ModelAlias } from './models.ts';
 import { BrewerAllowedTool, BrewerDeniedTool, Duration, RelativePath } from './primitives.ts';
 import { NonEmpty } from './step-outcome.ts';
 import { z } from './zod.ts';
-
-/** A brewer's reasoning effort, or a step's that overrides it (ADR 0352). */
-export const Effort = z.enum(['low', 'medium', 'high', 'xhigh', 'max']);
 
 const Count = z.int().positive();
 
@@ -93,8 +89,6 @@ const shared = {
   toolbox: NonEmpty.optional(),
   output: z.strictObject({ doc: PathSafeId, schema: Identifier }),
   produces: z.enum(['commits', 'report', 'comment', 'none']),
-  model: ModelAlias,
-  effort: Effort,
   // Role-level tools only; the repository adds its toolchain commands (ADR 0023).
   tools: z.strictObject({
     allow: z.array(BrewerAllowedTool),

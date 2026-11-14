@@ -29,9 +29,9 @@ describe('runServe', () => {
       description: 'Proves the tests red, then brews.',
       guidance: testGuidance,
       steps: [
-        { id: 'gauge', brewer: 'gauger' },
+        { id: 'gauge', brewer: 'gauger', model: 'light', effort: 'small' },
         { id: 'red', check: 'test', expect: 'fail', of: 'gauge' },
-        { id: 'implement', brewer: 'cellarman' },
+        { id: 'implement', brewer: 'cellarman', model: 'light', effort: 'small' },
         { action: 'openPullRequest' },
       ],
     });
@@ -47,16 +47,16 @@ describe('runServe', () => {
       description: 'Surveys the test map, proves the tests red, then brews.',
       guidance: testGuidance,
       steps: [
-        { id: 'survey', brewer: 'maltster' },
+        { id: 'survey', brewer: 'maltster', model: 'light', effort: 'small' },
         {
           id: 'survey-check',
           check: 'test',
           of: 'survey',
           onFail: { goto: 'survey', maxRounds: 1 },
         },
-        { id: 'gauge', brewer: 'gauger' },
+        { id: 'gauge', brewer: 'gauger', model: 'light', effort: 'small' },
         { id: 'red', check: 'test', expect: 'fail', of: 'gauge' },
-        { id: 'implement', brewer: 'cellarman' },
+        { id: 'implement', brewer: 'cellarman', model: 'light', effort: 'small' },
         { action: 'openPullRequest' },
       ],
     });
@@ -415,7 +415,7 @@ describe('runServe', () => {
         description: 'Proves the tests red, once more after a failure, then brews.',
         guidance: testGuidance,
         steps: [
-          { id: 'gauge', brewer: 'gauger' },
+          { id: 'gauge', brewer: 'gauger', model: 'light', effort: 'small' },
           {
             id: 'red',
             check: 'test',
@@ -423,7 +423,7 @@ describe('runServe', () => {
             of: 'gauge',
             onFail: { goto: 'gauge', maxRounds: 1 },
           },
-          { id: 'implement', brewer: 'cellarman' },
+          { id: 'implement', brewer: 'cellarman', model: 'light', effort: 'small' },
           { action: 'openPullRequest' },
         ],
       });
@@ -560,9 +560,15 @@ describe('runServe', () => {
         description: 'Proves the tests red only when test-first.',
         guidance: testGuidance,
         steps: [
-          { id: 'gauge', brewer: 'gauger', when: 'recipe.testFirst' },
+          {
+            id: 'gauge',
+            brewer: 'gauger',
+            model: 'light',
+            effort: 'small',
+            when: 'recipe.testFirst',
+          },
           { id: 'red', check: 'test', expect: 'fail', of: 'gauge', when: 'recipe.testFirst' },
-          { id: 'implement', brewer: 'cellarman' },
+          { id: 'implement', brewer: 'cellarman', model: 'light', effort: 'small' },
           { action: 'openPullRequest' },
         ],
         testFirst: false,
@@ -580,7 +586,7 @@ describe('runServe', () => {
         description: 'Proves the tests red, once more after a failure, then brews.',
         guidance: testGuidance,
         steps: [
-          { id: 'gauge', brewer: 'gauger' },
+          { id: 'gauge', brewer: 'gauger', model: 'light', effort: 'small' },
           {
             id: 'red',
             check: 'test',
@@ -588,7 +594,7 @@ describe('runServe', () => {
             of: 'gauge',
             onFail: { goto: 'gauge', maxRounds: 1 },
           },
-          { id: 'implement', brewer: 'cellarman' },
+          { id: 'implement', brewer: 'cellarman', model: 'light', effort: 'small' },
           { action: 'openPullRequest' },
         ],
       });
@@ -618,7 +624,7 @@ describe('runServe', () => {
         description: 'Proves the tests red, once more after a failure, then brews.',
         guidance: testGuidance,
         steps: [
-          { id: 'gauge', brewer: 'gauger' },
+          { id: 'gauge', brewer: 'gauger', model: 'light', effort: 'small' },
           {
             id: 'red',
             check: 'test',
@@ -626,7 +632,7 @@ describe('runServe', () => {
             of: 'gauge',
             onFail: { goto: 'gauge', maxRounds: 1 },
           },
-          { id: 'implement', brewer: 'cellarman' },
+          { id: 'implement', brewer: 'cellarman', model: 'light', effort: 'small' },
           { action: 'openPullRequest' },
         ],
       });

@@ -28,8 +28,10 @@ export const config = (fields: Record<string, unknown> = {}, web: Record<string,
   });
 export const local = (fields: Record<string, unknown> = {}) =>
   JSON.stringify({ clones: { 'acme/web': clone }, ...fields });
-export const models = (alias = 'quick') =>
-  JSON.stringify({ models: { [alias]: 'claude-haiku-5-5' } });
+export const models = (level = 'light') =>
+  JSON.stringify({
+    claude: { models: { [level]: 'claude-haiku-5-5' }, efforts: { small: 'low' } },
+  });
 
 // Its brewer commits with no red proof before it, so it says testFirst: false (ADR 0064), and
 // the commits go into a pull request (ADR 0084).
@@ -38,7 +40,10 @@ export const recipe = JSON.stringify({
   type: 'brew',
   description: 'Brews an order in one step and opens its pull request.',
   guidance: testGuidance,
-  steps: [{ id: 'brew', brewer: 'cellarman' }, { action: 'openPullRequest' }],
+  steps: [
+    { id: 'brew', brewer: 'cellarman', model: 'light', effort: 'small' },
+    { action: 'openPullRequest' },
+  ],
   testFirst: false,
 });
 // The cellarman brews, then the repository's test check reads the task tree; a failing test sends
@@ -49,7 +54,7 @@ export const porter = JSON.stringify({
   description: 'Brews an order and reads its tests.',
   guidance: testGuidance,
   steps: [
-    { id: 'brew', brewer: 'cellarman' },
+    { id: 'brew', brewer: 'cellarman', model: 'light', effort: 'small' },
     { id: 'green', check: 'test', onFail: { goto: 'brew', maxRounds: 1 } },
     { action: 'openPullRequest' },
   ],
@@ -65,8 +70,6 @@ export const brewer = `---
   "inputs": [{ "name": "order", "from": "order" }],
   "output": { "doc": "brew.md", "schema": "outDoc" },
   "produces": "commits",
-  "model": "quick",
-  "effort": "low",
   "tools": { "allow": ["Read", "Write"] },
   "access": "write",
   "tree": "task",

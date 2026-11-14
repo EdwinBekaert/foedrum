@@ -91,37 +91,35 @@ describe('readBreweryFiles', () => {
     const defaults = join(brewery.path, 'foedrum', 'defaults');
     write('models.jsonc', "the Brewery's own, which is not read here");
     assert.equal(readBreweryFiles(brewery.path, defaults).defaults?.models, undefined);
-    write('foedrum/defaults/models.jsonc', '{ "models": { "builder": "sonnet" } }');
+    write('foedrum/defaults/models.jsonc', '{ "claude": { "models": { "standard": "sonnet" } } }');
     assert.deepEqual(readBreweryFiles(brewery.path, defaults).defaults?.models, {
       path: 'defaults/models.jsonc',
-      text: '{ "models": { "builder": "sonnet" } }',
+      text: '{ "claude": { "models": { "standard": "sonnet" } } }',
     });
   });
 
-  it("has a defaults/models.jsonc in Foedrum's install that maps builder to the family sonnet and planner to opus (ADR 0153, ADR 0234)", () => {
+  it("has a defaults/models.jsonc in Foedrum's install whose claude block maps each level to a family and each effort to Claude Code's word (ADR 0153, ADR 0397)", () => {
     const found = readBreweryFiles(brewery.path).defaults?.models;
     assert.ok(found !== undefined && 'text' in found, 'no defaults/models.jsonc was read');
     assert.equal(found.path, 'defaults/models.jsonc');
     const read = readJsonc(found.text, ModelsConfig);
     assert.ok(read.valid, read.valid ? '' : read.reason);
-    assert.deepEqual(read.value.models, { builder: 'sonnet', planner: 'opus', explorer: 'haiku' });
-    assert.deepEqual(read.value.brewers, {});
+    assert.deepEqual(read.value.claude, {
+      models: { light: 'haiku', standard: 'sonnet', strong: 'opus', extreme: 'fable' },
+      efforts: { small: 'low', moderate: 'medium', larger: 'high', full: 'xhigh' },
+    });
   });
 
-  it('maps every alias that a default brewer names in its defaults/models.jsonc (ADR 0153)', () => {
-    const { brewers = [], models } = readBreweryFiles(brewery.path).defaults ?? {};
-    assert.ok(models !== undefined && 'text' in models, 'no defaults/models.jsonc was read');
-    const mapped = readJsonc(models.text, ModelsConfig);
-    assert.ok(mapped.valid, mapped.valid ? '' : mapped.reason);
+  it('has default brewers that name no model level or effort: their recipe steps do (ADR 0397)', () => {
+    const { brewers = [] } = readBreweryFiles(brewery.path).defaults ?? {};
     assert.ok(brewers.length > 0, 'no default brewers were read');
     for (const file of brewers) {
       assert.ok('text' in file, file.path);
+      const frontmatter = JSON.parse(file.text.split('\n---\n')[0]?.replace(/^---\n/, '') ?? '');
+      assert.equal('model' in frontmatter, false, file.path);
+      assert.equal('effort' in frontmatter, false, file.path);
       const doc = readDoc(file.text, BrewerFrontmatter);
-      assert.ok(doc.valid, file.path);
-      assert.ok(
-        Object.hasOwn(mapped.value.models, doc.frontmatter.model),
-        `${file.path} names the alias "${doc.frontmatter.model}", which defaults/models.jsonc does not map`,
-      );
+      assert.ok(doc.valid, `${file.path}: ${doc.valid ? '' : doc.reason}`);
     }
   });
 

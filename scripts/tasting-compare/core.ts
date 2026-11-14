@@ -87,10 +87,23 @@ export const recipeText = (setup: SetupName): string => {
     setup === 'apart-7'
       ? {
           id: TASTE,
-          parallel: lenses.map((lens) => ({ id: stepIdOf(lens), brewer: 'taster', lens })),
+          parallel: lenses.map((lens) => ({
+            id: stepIdOf(lens),
+            brewer: 'taster',
+            model: 'standard',
+            effort: 'moderate',
+            lens,
+          })),
           ...backTo(IMPLEMENT),
         }
-      : { id: TASTE, brewer: 'taster', lenses, ...backTo(IMPLEMENT) };
+      : {
+          id: TASTE,
+          brewer: 'taster',
+          model: 'standard',
+          effort: 'moderate',
+          lenses,
+          ...backTo(IMPLEMENT),
+        };
   const recipe = {
     name: setup,
     type: 'brew',
@@ -102,8 +115,14 @@ export const recipeText = (setup: SetupName): string => {
     },
     testFirst: false,
     steps: [
-      { id: 'gauge', brewer: 'gauger', when: 'recipe.testFirst' },
-      { id: IMPLEMENT, brewer: 'cellarman' },
+      {
+        id: 'gauge',
+        brewer: 'gauger',
+        model: 'standard',
+        effort: 'larger',
+        when: 'recipe.testFirst',
+      },
+      { id: IMPLEMENT, brewer: 'cellarman', model: 'standard', effort: 'larger' },
       taste,
       { action: 'openPullRequest' },
     ],

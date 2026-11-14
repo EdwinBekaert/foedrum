@@ -27,7 +27,14 @@ describe('runBrew', () => {
       description: 'Refines an order with a person, then opens its pull request.',
       guidance: testGuidance,
       steps: [
-        { id: 'refine', brewer: 'steward', interactive: true, prompt: 'Refine it with me.' },
+        {
+          id: 'refine',
+          brewer: 'steward',
+          model: 'light',
+          effort: 'small',
+          interactive: true,
+          prompt: 'Refine it with me.',
+        },
         { action: 'openPullRequest' },
       ],
       testFirst: false,

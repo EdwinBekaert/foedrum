@@ -36,8 +36,8 @@ const tasting = JSON.stringify({
   description: 'Brews an order, then has Brett mutate its change.',
   guidance: testGuidance,
   steps: [
-    { id: 'brew', brewer: 'cellarman' },
-    { id: 'brett', brewer: 'brett' },
+    { id: 'brew', brewer: 'cellarman', model: 'light', effort: 'small' },
+    { id: 'brett', brewer: 'brett', model: 'standard', effort: 'moderate' },
     { action: 'openPullRequest' },
   ],
   testFirst: false,
@@ -292,10 +292,12 @@ describe('runServe: a Brett step (ADR 0313)', () => {
       description: 'Brews an order, then has a blocking Brett mutate its change.',
       guidance: testGuidance,
       steps: [
-        { id: 'brew', brewer: 'cellarman' },
+        { id: 'brew', brewer: 'cellarman', model: 'light', effort: 'small' },
         {
           id: 'brett',
           brewer: 'brett',
+          model: 'standard',
+          effort: 'moderate',
           blocking: true,
           onBlocked: { findings: { goto: 'brew', maxRounds: 1 } },
         },

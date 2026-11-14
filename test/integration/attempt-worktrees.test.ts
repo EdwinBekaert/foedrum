@@ -411,7 +411,7 @@ describe('the driver and attempt worktrees with real git', () => {
           text: recipeText(
             'porter',
             [
-              { id: 'brew', brewer: 'cellarman' },
+              { id: 'brew', brewer: 'cellarman', model: 'standard', effort: 'larger' },
               { id: 'green', check: 'test', onFail: { goto: 'brew', maxRounds: 1 } },
             ],
             { testFirst: false },

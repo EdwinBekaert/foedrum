@@ -21,7 +21,7 @@ import { removeTree } from '../../src/platform/remove.ts';
 import { outDoc } from '../helpers/fake-brewer-runner.ts';
 import { hangGuardMs } from '../helpers/load.ts';
 import { realClaude } from '../helpers/real-claude.ts';
-import { brewer, recipe } from '../helpers/serve-brewery.ts';
+import { brewer, models, recipe } from '../helpers/serve-brewery.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 import { type Route, SYNTHETIC_LOGIN, startFakeGitHubOverGh } from './fake-github-over-gh.ts';
 import { type FakeMessagesApi, startFakeMessagesApi } from './fake-messages-api.ts';
@@ -206,7 +206,7 @@ describe('foedrum serve brews one real step', { skip: real.kind === 'skip' && re
       },
     };
     writeFileSync(join(files, 'foedrum.jsonc'), JSON.stringify(config, null, 2));
-    writeFileSync(join(files, 'models.jsonc'), '{ "models": { "quick": "claude-haiku-5-5" } }');
+    writeFileSync(join(files, 'models.jsonc'), models());
     writeFileSync(join(files, '.gitignore'), '.foedrum/\n');
     mkdirSync(join(files, 'recipes'));
     mkdirSync(join(files, 'brewers'));

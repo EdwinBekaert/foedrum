@@ -9,7 +9,7 @@
 // ADR 0197, ADR 0306, ADR 0343), every finding of theirs sends the batch back to Cellarman
 // (ADR 0354), after which correctness and the Tasters that had findings run again (ADR 0357), and
 // the pull request opens with what came of them (ADR 0161). Correctness,
-// acceptance and security run at high effort, and design conformance at the Taster's own medium
+// acceptance and security run at larger effort, and design conformance at moderate, as the other Taster steps
 // (ADR 0352).
 {
   "$schema": "../../schemas/recipe.json",
@@ -23,7 +23,13 @@
   },
   "steps": [
     // Without a session when the base's map is fresh, or the Brewery keeps it (ADR 0298).
-    { "id": "survey", "brewer": "maltster-survey", "when": "recipe.testFirst" },
+    {
+      "id": "survey",
+      "brewer": "maltster-survey",
+      "model": "standard",
+      "effort": "moderate",
+      "when": "recipe.testFirst"
+    },
     {
       // A run that disagrees with the proposed map goes back to the Maltster once, then the batch
       // is Stuck on its environment (ADR 0298).
@@ -35,8 +41,14 @@
     },
     // The Maltster maps the code the order touches, read-only, for the Gauger, Cellarman and the
     // Finer to start from, also with test-first off (ADR 0395).
-    { "id": "map", "brewer": "maltster-map" },
-    { "id": "gauge", "brewer": "gauger", "when": "recipe.testFirst" },
+    { "id": "map", "brewer": "maltster-map", "model": "light", "effort": "moderate" },
+    {
+      "id": "gauge",
+      "brewer": "gauger",
+      "model": "standard",
+      "effort": "larger",
+      "when": "recipe.testFirst"
+    },
     {
       "id": "red",
       "check": "test",
@@ -48,10 +60,12 @@
     {
       "id": "implement",
       "brewer": "cellarman",
+      "model": "standard",
+      "effort": "larger",
       // A test Cellarman finds wrong goes back to the Gauger, once (ADR 0017, ADR 0064).
       "onBlocked": { "findings": { "goto": "gauge", "maxRounds": 1 } }
     },
-    { "id": "fine", "brewer": "finer" },
+    { "id": "fine", "brewer": "finer", "model": "standard", "effort": "larger" },
     {
       // A failure goes back to Cellarman, whichever step broke it; the Finer then runs again.
       "id": "green",
@@ -69,17 +83,36 @@
         {
           "id": "correctness",
           "brewer": "taster",
+          "model": "standard",
           "lens": "diff/correctness",
-          "effort": "high",
+          "effort": "larger",
           "everyRound": true
         },
         // Whether the change builds each item of the order's checklist, and nothing else.
-        { "id": "acceptance", "brewer": "taster", "lens": "diff/acceptance", "effort": "high" },
+        {
+          "id": "acceptance",
+          "brewer": "taster",
+          "model": "standard",
+          "lens": "diff/acceptance",
+          "effort": "larger"
+        },
         // Untrusted input the change handles, and where it goes (ADR 0306).
-        { "id": "security", "brewer": "taster", "lens": "diff/security", "effort": "high" },
+        {
+          "id": "security",
+          "brewer": "taster",
+          "model": "standard",
+          "lens": "diff/security",
+          "effort": "larger"
+        },
         // The repository's decisions and documents the change contradicts or leaves stale
         // (ADR 0343), judged by the rules its lens has it read (ADR 0352).
-        { "id": "design-conformance", "brewer": "taster", "lens": "diff/design-conformance" }
+        {
+          "id": "design-conformance",
+          "brewer": "taster",
+          "model": "standard",
+          "effort": "moderate",
+          "lens": "diff/design-conformance"
+        }
       ],
       "onFindings": { "goto": "implement", "maxRounds": 2 }
     },

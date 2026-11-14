@@ -399,12 +399,24 @@ describe('runBrew', () => {
         guidance: testGuidance,
         testFirst: false,
         steps: [
-          { id: 'note', brewer: 'scribe' },
+          { id: 'note', brewer: 'scribe', model: 'light', effort: 'small' },
           {
             id: 'tasting',
             parallel: [
-              { id: 'security', brewer: 'taster', lens: 'plan/security' },
-              { id: 'correctness', brewer: 'taster', lens: 'plan/correctness' },
+              {
+                id: 'security',
+                brewer: 'taster',
+                model: 'light',
+                effort: 'small',
+                lens: 'plan/security',
+              },
+              {
+                id: 'correctness',
+                brewer: 'taster',
+                model: 'light',
+                effort: 'small',
+                lens: 'plan/correctness',
+              },
             ],
             onFindings: { goto: 'note', maxRounds: 1 },
           },

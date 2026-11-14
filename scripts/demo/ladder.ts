@@ -151,7 +151,10 @@ export const ladderRecipeText = (): string =>
         bestUsed: 'To show the path of an order across two repositories',
       },
       testFirst: false,
-      steps: [{ id: 'implement', brewer: 'cellarman' }, { action: 'openPullRequest' }],
+      steps: [
+        { id: 'implement', brewer: 'cellarman', model: 'standard', effort: 'larger' },
+        { action: 'openPullRequest' },
+      ],
     },
   )}`;
 
@@ -169,7 +172,9 @@ export const ladderBreweryFiles = (): Record<string, string> => ({
       [WEB]: { alias: ALIASES[WEB], checks: NO_CHECKS },
     },
   }),
-  'models.jsonc': json({ models: { builder: 'claude-haiku-5-5', planner: 'claude-haiku-5-5' } }),
+  'models.jsonc': json({
+    claude: { models: { standard: 'claude-haiku-5-5', strong: 'claude-haiku-5-5' } },
+  }),
   '.gitignore': '.foedrum/\n',
   [`recipes/${LADDER_RECIPE}.jsonc`]: ladderRecipeText(),
 });

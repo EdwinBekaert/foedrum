@@ -3,7 +3,6 @@
 // line per problem. serve.ts runs it; main.ts reads the files.
 
 import { join } from 'node:path';
-import { modelOf } from '../brewers/attempt-plan.ts';
 import { type ConfigDirs, configDirsOf } from '../brewers/attempt-settings.ts';
 import type { RepositorySetup } from '../checks/check-runner.ts';
 import type { RepositoryChecks } from '../checks/gravity.ts';
@@ -15,7 +14,6 @@ import {
   type BreweryFile,
   type BreweryFiles,
   defaultRecipeProblem,
-  filesInUse,
   invalidRecipes,
   loadRecipes,
   type StepBrewers,
@@ -25,8 +23,6 @@ import { MASH_IN } from '../engine/recipe-label.ts';
 import type { Recipes } from '../engine/recipes.ts';
 import { sameRepo } from '../engine/task-tree.ts';
 import { checksRunUnsandboxed } from '../platform/check-sandbox.ts';
-import { messageOf } from '../platform/errors.ts';
-import { BrewerFrontmatter } from '../schemas/brewer.ts';
 import {
   BreweryConfig,
   githubHostOf,
@@ -34,9 +30,9 @@ import {
   type TestReportConfig,
 } from '../schemas/brewery-config.ts';
 import { LocalConfig } from '../schemas/local-config.ts';
-import { ModelsConfig, ModelsFile } from '../schemas/models.ts';
+import { ModelsConfig } from '../schemas/models.ts';
 import { durationMs } from '../schemas/primitives.ts';
-import { readDoc, readJsonc } from '../schemas/read.ts';
+import { readJsonc } from '../schemas/read.ts';
 import type { z } from '../schemas/zod.ts';
 import { managedClonePath, repoFolder } from '../workspace/attempt-worktrees.ts';
 import type { Diagnosis } from './doctor.ts';
@@ -211,16 +207,16 @@ const read = <T>(
 };
 
 /**
- * The models a brewer can resolve (ADR 0153): Foedrum's default `models` with the Brewery's over
- * them, by alias, and the `brewers` of the Brewery's file only. Every `brewers` alias must have a
- * model among the merged ones. Undefined, with the problems added, when a file does not pass.
+ * The models and efforts a step can resolve (ADR 0153, ADR 0397): Foedrum's default `claude` models
+ * and efforts with the Brewery's over them, entry by entry. Undefined, with the problems added,
+ * when a file does not pass.
  */
 const mergedModels = (
   own: string | undefined,
   defaults: BreweryFile | undefined,
   problems: string[],
 ): ModelsConfig | undefined => {
-  const none: ModelsConfig = { models: {}, brewers: {} };
+  const none: ModelsConfig = { claude: { models: {}, efforts: {} } };
   // A default that does not load is Foedrum's defect, named by its defaults/ path (ADR 0098).
   const readDefaults = (): ModelsConfig | undefined => {
     if (defaults === undefined) return none;
@@ -232,19 +228,14 @@ const mergedModels = (
   };
   const fromDefaults = readDefaults();
   const fromBrewery =
-    own === undefined ? none : read('models.jsonc', own, ModelsFile, undefined, problems);
+    own === undefined ? none : read('models.jsonc', own, ModelsConfig, undefined, problems);
   if (fromDefaults === undefined || fromBrewery === undefined) return undefined;
-  const merged = {
-    models: { ...fromDefaults.models, ...fromBrewery.models },
-    brewers: fromBrewery.brewers,
+  return {
+    claude: {
+      models: { ...fromDefaults.claude.models, ...fromBrewery.claude.models },
+      efforts: { ...fromDefaults.claude.efforts, ...fromBrewery.claude.efforts },
+    },
   };
-  const unmapped = Object.entries(merged.brewers).filter(
-    ([, alias]) => !Object.hasOwn(merged.models, alias),
-  );
-  for (const [brewer, alias] of unmapped) {
-    problems.push(`models.jsonc: brewers.${brewer}: No model has the alias "${alias}"`);
-  }
-  return unmapped.length === 0 ? merged : undefined;
 };
 
 /** What a command that needs the Brewery's name says when foedrum.jsonc has none. */
@@ -376,23 +367,18 @@ export const serveSetup = (inputs: ServeInputs): ServeSetupResult => {
     ? defaultRecipeProblem(config?.defaultRecipe, loaded.recipes)
     : undefined;
   if (defaulted !== undefined) problems.push(`${defaulted.what}: ${defaulted.fix}`);
-  // Every brewer's alias has a model, so no attempt finds out only when it starts.
+  // Every step's level and effort has a translation, so no attempt finds out only when it starts.
   if (models !== undefined) {
-    for (const file of filesInUse(files.brewery).brewers) {
-      if (!('text' in file)) continue;
-      const brewer = readDoc(file.text, BrewerFrontmatter);
-      if (!brewer.valid) continue;
-      try {
-        modelOf(models, brewer.frontmatter);
-      } catch (error) {
-        problems.push(`${file.path}: ${messageOf(error)}`);
-      }
-    }
-    // And every alias a step names (ADR 0321).
-    for (const { path, stepId, alias } of loaded.valid ? loaded.catalog.stepModels : []) {
-      if (!Object.hasOwn(models.models, alias)) {
+    for (const step of loaded.valid ? loaded.catalog.stepLevels : []) {
+      const named = `${step.path}: step "${step.stepId}" of the brewer "${step.brewer}" names`;
+      if (!Object.hasOwn(models.claude.models, step.model)) {
         problems.push(
-          `${path}: step "${stepId}" names the model alias "${alias}", which models.jsonc has no model for`,
+          `${named} the level "${step.model}", which models.jsonc has no claude model for`,
+        );
+      }
+      if (!Object.hasOwn(models.claude.efforts, step.effort)) {
+        problems.push(
+          `${named} the effort "${step.effort}", which models.jsonc has no claude effort for`,
         );
       }
     }

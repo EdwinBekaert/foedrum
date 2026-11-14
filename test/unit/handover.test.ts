@@ -17,6 +17,7 @@ import { renderStatus } from '../../src/engine/status-comment.ts';
 import type { Event } from '../../src/schemas/events.ts';
 import { OutDocFrontmatter, readOutDoc, TastingOutDoc } from '../../src/schemas/out-doc.ts';
 import { brewerText, recipeText } from '../helpers/brewery-files.ts';
+import { claudeModels } from '../helpers/models.ts';
 
 // Built at run time, so no scanner takes this file for one that holds a token.
 const token = ['ghp', 'A1b2'.repeat(9)].join('_');
@@ -284,7 +285,7 @@ describe('an unaccepted proposal and later prompts', () => {
     const plans = createAttemptPlans({
       state: () => fold(events),
       brewers,
-      models: { models: { builder: 'claude-sonnet-5-5' }, brewers: {} },
+      models: claudeModels({ standard: 'claude-sonnet-5-5' }),
       repoTools: () => [],
       clone: (repo) => join('/clones', repo),
       sandbox: false,

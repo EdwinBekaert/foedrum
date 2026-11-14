@@ -169,16 +169,40 @@ describe('the demo Brewery', () => {
     const group = {
       id: 'taste',
       parallel: [
-        { id: 'correctness', brewer: 'taster', lens: 'diff/correctness' },
-        { id: 'security', brewer: 'taster', lens: 'diff/security' },
-        { id: 'test-design', brewer: 'taster', lens: 'diff/test-design' },
-        { id: 'design-conformance', brewer: 'taster', lens: 'diff/design-conformance' },
+        {
+          id: 'correctness',
+          brewer: 'taster',
+          model: 'standard',
+          effort: 'moderate',
+          lens: 'diff/correctness',
+        },
+        {
+          id: 'security',
+          brewer: 'taster',
+          model: 'standard',
+          effort: 'moderate',
+          lens: 'diff/security',
+        },
+        {
+          id: 'test-design',
+          brewer: 'taster',
+          model: 'standard',
+          effort: 'moderate',
+          lens: 'diff/test-design',
+        },
+        {
+          id: 'design-conformance',
+          brewer: 'taster',
+          model: 'standard',
+          effort: 'moderate',
+          lens: 'diff/design-conformance',
+        },
       ],
       // Every lens's findings send the batch back to implement once (ADR 0193, ADR 0354).
       onFindings: { goto: 'implement', maxRounds: 1 },
     };
     // Brett mutates the change after the group, advisory (ADR 0319).
-    const mutants = { id: 'mutants', brewer: 'brett' };
+    const mutants = { id: 'mutants', brewer: 'brett', model: 'standard', effort: 'moderate' };
     assert.deepStrictEqual(
       recipe.steps,
       nip.steps.flatMap((step) => (step.id === 'taste' ? [group, mutants] : [step])),
