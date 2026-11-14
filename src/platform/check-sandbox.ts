@@ -7,7 +7,7 @@
 // the output limit stay the process runner's (ADR 0035).
 
 import { mkdtempSync, readFileSync } from 'node:fs';
-import { BlockList, isIP } from 'node:net';
+import { isIPv4 } from 'node:net';
 import { homedir, tmpdir } from 'node:os';
 import { basename, dirname, join, posix, resolve } from 'node:path';
 import type { Duplex } from 'node:stream';
@@ -318,10 +318,8 @@ export interface SandboxedChecksOptions {
 /** The user-mode network stacks a Linux setup's namespace gets the network from (ADR 0218). */
 export type NetworkStackTool = 'pasta' | 'slirp4netns';
 
-/** The addresses a host's resolver is pasta's own loopback at, never forwarded to (ADR 0400). */
-const LOOPBACK = new BlockList();
-LOOPBACK.addSubnet('127.0.0.0', 8, 'ipv4');
-LOOPBACK.addAddress('::1', 'ipv6');
+/** A byte order mark, which a text file may start with. */
+const BOM = String.fromCodePoint(0xfeff);
 
 /** The host's /etc/resolv.conf, or undefined when it cannot be read. */
 const readResolvConfFile = (): string | undefined => {
@@ -335,19 +333,19 @@ const readResolvConfFile = (): string | undefined => {
 
 /**
  * Why pasta has no resolver to forward a setup's 10.0.2.3 to, or undefined when it has one: it
- * forwards to the first nameserver of the host's /etc/resolv.conf, and a loopback one, such as
- * systemd-resolved's stub, gave it none (ADR 0218, ADR 0400). `resolvConf` is undefined when the
- * file cannot be read.
+ * forwards to the first nameserver of the host's /etc/resolv.conf, which must be an IPv4 address
+ * since pasta runs with `-4`, and a loopback one, such as systemd-resolved's stub, gave it none
+ * (ADR 0218, ADR 0400). `resolvConf` is undefined when the file cannot be read.
  */
 export const pastaResolverGap = (resolvConf: string | undefined): string | undefined => {
   if (resolvConf === undefined) return `${RESOLV_CONF} cannot be read`;
-  const first = /^nameserver[ \t]+(\S+)/m.exec(resolvConf)?.[1];
+  const text = resolvConf.startsWith(BOM) ? resolvConf.slice(BOM.length) : resolvConf;
+  const first = /^nameserver[ \t]+(\S+)/m.exec(text)?.[1];
   if (first === undefined) return `${RESOLV_CONF} names no nameserver`;
-  // An IPv6 address may carry its interface's zone.
-  const address = first.replace(/%.*$/, '');
-  const family = isIP(address);
-  if (family === 0) return `${RESOLV_CONF}'s first nameserver ${first} is not an address`;
-  return LOOPBACK.check(address, family === 6 ? 'ipv6' : 'ipv4')
+  if (!isIPv4(first)) {
+    return `${RESOLV_CONF}'s first nameserver ${first} is not an IPv4 address`;
+  }
+  return first.startsWith('127.')
     ? `${RESOLV_CONF}'s first nameserver ${first} is a loopback address`
     : undefined;
 };
