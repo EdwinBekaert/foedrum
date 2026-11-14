@@ -260,6 +260,13 @@ describe('tasting-compare --real --brewer (ADR 0394)', () => {
       );
     });
 
+    it('--brewer without an effort asks for an effort, not a model level (ADR 0397)', () => {
+      assert.throws(
+        () => brewerSettingsOf({ real: true, brewer: 'cellarman', model: 'opus' }),
+        /needs --effort <effort>$/,
+      );
+    });
+
     it('a model id models.jsonc refuses stops the run before anything is brewed', () => {
       assert.throws(
         () =>
