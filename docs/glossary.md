@@ -60,7 +60,7 @@ The lanes are the engine's. A person reads a batch as one of four states, on eve
 | Brewer | Role |
 |---|---|
 | Innkeeper | Suggests a recipe for an order and asks which brews it (`mash-in`, `foedrum mash`) |
-| Maltster | Context gathering: the default Maltster surveys a repository's manifests and proposes its test map in the test-first recipes' `survey` step, committing nothing else ([ADR 0298](adr/0298-the-maltster-s-survey-ends-without-a-session-for-a-fresh-map-and-its-check-sends-a-disagreement-back-once.md)) |
+| Maltster | Context gathering: the default Maltster surveys a repository's manifests and proposes its test map in the test-first recipes' `survey` step, committing nothing else ([ADR 0298](adr/0298-the-maltster-s-survey-ends-without-a-session-for-a-fresh-map-and-its-check-sends-a-disagreement-back-once.md)), and in Nip's and Deep-brew's `map` step, read-only, maps the code an order touches for the Gauger, Cellarman and the Finer to start from ([ADR 0395](adr/0395-the-maltster-maps-the-code-an-order-touches-before-the-gauger-on-the-explorer-alias.md)) |
 | Brewmaster | Planning |
 | Gauger | Failing tests first |
 | Cellarman | Implementation |

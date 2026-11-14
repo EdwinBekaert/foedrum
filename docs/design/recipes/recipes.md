@@ -114,6 +114,7 @@ Parallel groups and Brett: [tasting](tasting.md).
 **Skipped steps.** An input from a skipped step is left out, and a `goto`, `onBlocked` or `onFindings` route to a skipped step makes the batch Stuck (`divergence`) instead of jumping.
 With `testFirst` off, Cellarman therefore gets no `tests` in-doc, and "this test is wrong" goes to a human.
 An input from a step the recipe the attempt was scheduled under does not have is left out in the same way, so a recipe of a Cellarman and a pull request, with no Gauger step, brews ([ADR 0305](../../adr/0305-a-step-input-of-a-step-the-recipe-lacks-is-left-out.md), [ADR 0309](../../adr/0309-the-attempt-plans-find-every-brewer-in-the-recipe-its-attempt-was-scheduled-under.md)).
+So a Brewery's own Nip or Deep-brew without the Maltster's `map` step brews as before, and its Gauger, Cellarman and Finer read no map ([ADR 0395](../../adr/0395-the-maltster-maps-the-code-an-order-touches-before-the-gauger-on-the-explorer-alias.md)).
 An input that names a check, an action or a group of the recipe is a mistake in the brewer's file: its attempt fails, saying the step is no brewer's step and has no out doc (`inputsOf`, `src/brewers/attempt-plan.ts`).
 
 **Test-first in bug-fix recipes.** The Microbiologist's reproducing test is the failing test: its step has `"id": "triage"`, the red proof uses `"of": "triage"`, and no Gauger step is needed.
