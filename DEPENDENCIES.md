@@ -33,7 +33,7 @@ Tools CI installs from npm that no user installs and Foedrum does not ship, each
 
 | Package | Version | Lockfile | Used by | Install scripts | Provenance | Licence |
 |---|---|---|---|---|---|---|
-| `@anthropic-ai/claude-code` | 2.1.310 | `ci/claude/package-lock.json`, with `ci/claude/.npmrc` (the root's hardening) | CI's `real-claude` job: the tests against the installed `claude`, with the fake Messages API | `postinstall`, never run: `npm ci --prefix ci/claude` installs with scripts off, and the job puts the platform package's binary on `PATH` | none | proprietary (`SEE LICENSE IN README.md`) |
+| `@anthropic-ai/claude-code` | the one `ci/claude/package.json` pins | `ci/claude/package-lock.json`, with `ci/claude/.npmrc` (the root's hardening) | CI's `real-claude` job: the tests against the installed `claude`, with the fake Messages API | `postinstall`, never run: `npm ci --prefix ci/claude` installs with scripts off, and the job puts the platform package's binary on `PATH` | none | proprietary (`SEE LICENSE IN README.md`) |
 
 Why the admission checklist's points 4, 5 and 7 do not apply to it: its install script never runs, and what it would do (copy the platform binary over a stub, with no download) the job does by `PATH`; it is not published with Foedrum or installed by a user, so its licence binds only CI's use of it; and every bump arrives as a Dependabot pull request (`/ci/claude`, 7-day cooldown) that gets a diff review of the lockfile and runs every test against it.
 
