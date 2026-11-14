@@ -3,7 +3,7 @@
 A brewer step that needs a person in the conversation says so in the recipe ([ADR 0222](../../adr/0222-a-recipe-s-brewer-step-may-be-interactive.md)):
 
 ```jsonc
-{ "id": "lauter", "brewer": "maltster", "interactive": true, "prompt": "Walk the plan through with me." }
+{ "id": "lauter", "brewer": "maltster-survey", "interactive": true, "prompt": "Walk the plan through with me." }
 ```
 
 ```mermaid

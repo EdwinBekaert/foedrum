@@ -15,6 +15,7 @@ So the search runs as a step of its own, and `--safe-mode` and the claude comman
 ## Decision
 - **A second Maltster file, `defaults/brewers/maltster-map.md`.**
   It is the same Maltster in the glossary, the docs and the status lines, with its own instructions, out doc and tools.
+  The survey's file is renamed beside it, from `maltster.md` to `maltster-survey.md`, with the brewer id `maltster-survey` in the `survey` steps, its text and version as they were; no alias keeps the old id, since no Brewery runs Foedrum yet.
   It reads the order, and a sub-order's plan entry, and searches the code read-only (`access: read`, on the task tree).
   It answers with a code map in its out doc's body, apart from the test map its survey proposes: one line per place, a path with its lines where they are a part of the file, and why the place matters to the order, under `Code`, `Tests` and `Docs`, 60 places at most.
   It judges nothing and writes no code. Its tools are `Read`, `Grep`, `Glob` and `Edit(map.md)`, as the Brewmaster's are.

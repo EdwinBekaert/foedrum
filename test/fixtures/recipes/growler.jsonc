@@ -11,7 +11,7 @@
   },
   "testFirst": false, // the sub-orders' own recipes write the tests
   "steps": [
-    { "id": "context", "brewer": "maltster" },
+    { "id": "context", "brewer": "maltster-survey" },
     { "id": "breakdown", "brewer": "brewmaster" },
     {
       "id": "brew",

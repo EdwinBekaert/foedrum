@@ -52,7 +52,7 @@ export const recipeText = (): string =>
         bestUsed: 'With one clear outcome a test can show',
       },
       steps: [
-        { id: 'survey', brewer: 'maltster', when: 'recipe.testFirst' },
+        { id: 'survey', brewer: 'maltster-survey', when: 'recipe.testFirst' },
         {
           id: 'survey-check',
           check: 'test',

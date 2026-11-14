@@ -23,7 +23,7 @@
   },
   "steps": [
     // Without a session when the base's map is fresh, or the Brewery keeps it (ADR 0298).
-    { "id": "survey", "brewer": "maltster", "when": "recipe.testFirst" },
+    { "id": "survey", "brewer": "maltster-survey", "when": "recipe.testFirst" },
     {
       // A run that disagrees with the proposed map goes back to the Maltster once, then the batch
       // is Stuck on its environment (ADR 0298).
