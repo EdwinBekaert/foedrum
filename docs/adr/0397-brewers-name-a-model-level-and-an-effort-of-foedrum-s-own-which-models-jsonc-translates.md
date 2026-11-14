@@ -31,6 +31,7 @@ Decided with the maintainer on 2026-11-14 (#1058).
 - **`tasting-compare --real --brewer`'s `--effort` takes Foedrum's four levels**, translated by the default efforts, so Claude Code's `max` cannot be measured by it without a Brewery of one's own that maps an effort to it.
   The measured step names `strong`, and the run's scratch Brewery maps only `claude.models.strong` to `--model`: no other step of `real-brew-cellarman` names `strong`, `light` and `standard` stay the defaults' (so a map step stays on Haiku), and no effort is mapped.
   The planning runs' scratch Brewery (`--sub-orders`) writes no `models.jsonc`, so the Brewmaster stays on the default `strong`.
+  A run's setup ends in the Foedrum effort it was given, such as `855-cellarman-claude-opus-5-5-thorough`, not Claude Code's word.
   The `opus` setup swaps the Taster to `strong` with `brewers`, which is Opus by default, instead of adding an alias of its own.
 
 ## What an existing Brewery must do
