@@ -116,6 +116,17 @@ describe('realClaudeByChange', () => {
     ]);
   });
 
+  it('lists none when the change reaches only tests that do not opt in, so the job skips', async () => {
+    // No answer for the full listing: falling back to every opt-in test fails here.
+    const { git } = fakeGit({
+      [MERGE_BASE]: ok(`${base}\n`),
+      [DIFF]: ok(z('src/cli/new.ts')),
+      [UNTRACKED]: ok(''),
+      [TYPESCRIPT]: ok(z(...Object.keys(opted))),
+    });
+    assert.deepEqual(await realClaudeByChange({ cwd, git, read: readOpted }), []);
+  });
+
   it('lists every one, sorted, when the change reaches every test file', async () => {
     const { git } = fakeGit({
       [MERGE_BASE]: ok(`${base}\n`),
