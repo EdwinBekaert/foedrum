@@ -27,7 +27,7 @@ import type { AttemptSettings } from '../../src/schemas/attempt-settings.ts';
 import type { AttemptRef } from '../../src/workspace/attempt-worktrees.ts';
 import { brewerText, recipeText } from '../helpers/brewery-files.ts';
 import { fakeRecipe, fakeRecipes } from '../helpers/fake-recipes.ts';
-import { claudeModels } from '../helpers/models.ts';
+import { CLAUDE_EFFORTS, claudeModels } from '../helpers/models.ts';
 
 const cwd = join(sep, 'brewery');
 const workRoot = join(sep, 'work-root');
@@ -1011,6 +1011,20 @@ describe('foedrum resume (ADR 0126)', () => {
         [started.length, args.slice(0, 2), args[args.indexOf('--effort') + 1]],
         [1, ['--resume', S1], 'xhigh'],
       );
+    });
+
+    it("opens an attempt at the effort a Brewery's models.jsonc translates its brewer's to (ADR 0397)", async () => {
+      const models = {
+        ...setup.models,
+        claude: { ...setup.models.claude, efforts: { ...CLAUDE_EFFORTS, quick: 'max' as const } },
+      };
+      const result = await resumeOf('12-1', 'innkeep', {
+        setup: async () =>
+          ({ kind: 'ready', setup: { ...setup, brewers: mash.brewers, models } }) as const,
+      });
+      assert.deepEqual(result, { exitCode: 0, stdout: '', stderr: '' });
+      const args = started[0]?.args ?? [];
+      assert.equal(args[args.indexOf('--effort') + 1], 'max');
     });
 
     it("opens an attempt that recorded no recipe with the brewer of its batch's recipe", async () => {

@@ -134,6 +134,31 @@ describe('model levels and efforts of Foedrum’s own (#1058, ADR 0397)', () => 
     ]);
   });
 
+  it('a brewer whose level and effort both have no translation refuses the start with a line for each', () => {
+    const problems = refused(
+      gaugerBrewery(
+        { models: { light: 'haiku' }, efforts: { quick: 'low' } },
+        { model: 'strong', effort: 'careful' },
+      ),
+    );
+    assert.deepEqual(problems, [
+      'defaults/brewers/gauger.md: models.jsonc has no claude model for the level "strong" of the brewer "gauger"',
+      'defaults/brewers/gauger.md: models.jsonc has no claude effort for the effort "careful" of the brewer "gauger"',
+    ]);
+  });
+
+  it('a step whose level and effort overrides both have no translation refuses the start with a line for each', () => {
+    const steps = [
+      { id: 'brew', brewer: 'gauger', model: 'strong', effort: 'thorough' },
+      { action: 'openPullRequest' },
+    ];
+    const problems = refused(gaugerBrewery({ models: { standard: 'sonnet' } }, {}, steps));
+    assert.deepEqual(problems, [
+      'recipes/stout.jsonc: step "brew" of the brewer "gauger" names the level "strong", which models.jsonc has no claude model for',
+      'recipes/stout.jsonc: step "brew" of the brewer "gauger" names the effort "thorough", which models.jsonc has no claude effort for',
+    ]);
+  });
+
   it('a level with no model refuses the start, as an alias with no model did', () => {
     const problems = refused(gaugerBrewery({ models: { light: 'haiku' } }, { model: 'strong' }));
     assert.deepEqual(problems, [

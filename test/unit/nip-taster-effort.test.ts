@@ -17,7 +17,7 @@ import {
 import type { Event } from '../../src/schemas/events.ts';
 import type { ModelsConfig } from '../../src/schemas/models.ts';
 import { recipeText } from '../helpers/brewery-files.ts';
-import { claudeModels } from '../helpers/models.ts';
+import { CLAUDE_EFFORTS, claudeModels } from '../helpers/models.ts';
 
 const noFiles = readBreweryFiles(join(FOEDRUM_DEFAULTS, 'no-such-brewery'));
 
@@ -198,6 +198,15 @@ describe("nip's Tasters at high effort, without the Taster's read of the rules (
       /recipes\/amber\.jsonc: .* at steps\[1\]/,
     );
     assert.ok(loadRecipes(files('careful')).valid);
+  });
+
+  it("a Brewery's models.jsonc that maps careful to xhigh starts a careful step at --effort xhigh (ADR 0397)", async () => {
+    const models: ModelsConfig = {
+      ...MODELS,
+      claude: { ...MODELS.claude, efforts: { ...CLAUDE_EFFORTS, careful: 'xhigh' } },
+    };
+    assert.equal((await planOf('correctness', { models })).call.effort, 'xhigh');
+    assert.equal((await planOf('design-conformance', { models })).call.effort, 'medium');
   });
 
   it("a blind-tasting swap of the Taster moves its model and keeps a step's own effort", async () => {
