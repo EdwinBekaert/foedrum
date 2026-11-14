@@ -200,7 +200,7 @@
               "pattern": "^[1-9][0-9]*[smhd]$"
             },
             "model": {
-              "description": "Overrides the brewer's model level; a blind-tasting swap of the brewer still wins (ADR 0321, ADR 0397)",
+              "description": "Required: the model level the step runs on, which models.jsonc translates for the agent; every brewer step names one, and a brewer file none (ADR 0397)",
               "type": "string",
               "enum": [
                 "light",
@@ -210,7 +210,7 @@
               ]
             },
             "effort": {
-              "description": "Overrides the brewer's effort on this step, one of Foedrum's own; a blind-tasting swap of the brewer's model keeps it (ADR 0352, ADR 0397)",
+              "description": "Required: how hard the step thinks, which models.jsonc translates for the agent; every brewer step names one, and a brewer file none (ADR 0397)",
               "type": "string",
               "enum": [
                 "small",
@@ -612,7 +612,7 @@
                     "pattern": "^[1-9][0-9]*[smhd]$"
                   },
                   "model": {
-                    "description": "Overrides the brewer's model level; a blind-tasting swap of the brewer still wins (ADR 0321, ADR 0397)",
+                    "description": "Required: the model level the step runs on, which models.jsonc translates for the agent; every brewer step names one, and a brewer file none (ADR 0397)",
                     "type": "string",
                     "enum": [
                       "light",
@@ -622,7 +622,7 @@
                     ]
                   },
                   "effort": {
-                    "description": "Overrides the brewer's effort on this step, one of Foedrum's own; a blind-tasting swap of the brewer's model keeps it (ADR 0352, ADR 0397)",
+                    "description": "Required: how hard the step thinks, which models.jsonc translates for the agent; every brewer step names one, and a brewer file none (ADR 0397)",
                     "type": "string",
                     "enum": [
                       "small",

@@ -1,14 +1,13 @@
-// models.jsonc: what a brewer's model level and effort run as on each agent, and per-brewer
-// overrides (brewers-and-recipes §5, ADR 0397).
+// models.jsonc: what a recipe step's model level and effort run as on each agent
+// (brewers-and-recipes §5, ADR 0397).
 
-import { PathSafeId } from './ids.ts';
 import { z } from './zod.ts';
 
-/** How strong a model a brewer runs on, which models.jsonc names a model for (ADR 0397). */
+/** How strong a model a brewer step runs on, which models.jsonc names a model for (ADR 0397). */
 export const ModelLevel = z.enum(['light', 'standard', 'strong', 'extreme']);
 export type ModelLevel = z.infer<typeof ModelLevel>;
 
-/** A brewer's reasoning effort, or a step's that overrides it, in Foedrum's words (ADR 0352, ADR 0397). */
+/** How hard a brewer step thinks, in Foedrum's words (ADR 0352, ADR 0397). */
 export const Effort = z.enum(['small', 'moderate', 'larger', 'full']);
 export type Effort = z.infer<typeof Effort>;
 
@@ -37,31 +36,11 @@ const ClaudeBlock = z.strictObject({
     .describe("The word `claude --effort` gets for each of Foedrum's efforts"),
 });
 
-/**
- * The fields of a models.jsonc, without the check that its `brewers` name a level with a model: a
- * Brewery's file may leave that model to Foedrum's defaults, so serve checks it on the merged
- * models (ADR 0153).
- */
-export const ModelsFile = z.strictObject({
+/** A models.jsonc: Foedrum's own, or a Brewery's that merges over it entry by entry (ADR 0153). */
+export const ModelsConfig = z.strictObject({
   $schema: z.string().optional().describe('The JSON Schema of this file, for editors'),
   claude: ClaudeBlock.default({ models: {}, efforts: {} }).describe(
     "What Foedrum's levels and efforts are for the claude agent (ADR 0397)",
   ),
-  brewers: z
-    .record(PathSafeId, ModelLevel)
-    .default({})
-    .describe("A level per brewer, replacing the brewer's own (blind tasting)"),
-});
-
-export const ModelsConfig = ModelsFile.superRefine((config, ctx) => {
-  for (const [brewer, level] of Object.entries(config.brewers)) {
-    if (!Object.hasOwn(config.claude.models, level)) {
-      ctx.addIssue({
-        code: 'custom',
-        message: `No model has the level "${level}"`,
-        path: ['brewers', brewer],
-      });
-    }
-  }
 });
 export type ModelsConfig = z.infer<typeof ModelsConfig>;

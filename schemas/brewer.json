@@ -96,24 +96,6 @@
             "none"
           ]
         },
-        "model": {
-          "type": "string",
-          "enum": [
-            "light",
-            "standard",
-            "strong",
-            "extreme"
-          ]
-        },
-        "effort": {
-          "type": "string",
-          "enum": [
-            "small",
-            "moderate",
-            "larger",
-            "full"
-          ]
-        },
         "tools": {
           "type": "object",
           "properties": {
@@ -246,8 +228,6 @@
         "version",
         "output",
         "produces",
-        "model",
-        "effort",
         "tools",
         "deadline",
         "maxAttempts"
@@ -363,24 +343,6 @@
             "none"
           ]
         },
-        "model": {
-          "type": "string",
-          "enum": [
-            "light",
-            "standard",
-            "strong",
-            "extreme"
-          ]
-        },
-        "effort": {
-          "type": "string",
-          "enum": [
-            "small",
-            "moderate",
-            "larger",
-            "full"
-          ]
-        },
         "tools": {
           "type": "object",
           "properties": {
@@ -513,8 +475,6 @@
         "version",
         "output",
         "produces",
-        "model",
-        "effort",
         "tools",
         "deadline",
         "maxAttempts"

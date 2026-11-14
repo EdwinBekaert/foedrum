@@ -2,9 +2,7 @@
 {
   "name": "maltster-survey",
   "description": "Proposes the repository's test map from its manifests, when it has none or a stale one; changes nothing else.",
-  "version": 4,
-  "model": "standard",
-  "effort": "moderate",
+  "version": 5,
   "output": { "doc": "survey.md", "schema": "survey" },
   "inputs": [{ "name": "testLine", "from": "test-line" }],
   "produces": "commits",

@@ -73,8 +73,15 @@ export interface Lens {
 }
 
 /** The brewer of a recipe's step, with its instructions: the brewer file's body. */
+/** A brewer as its step runs it: with the model level and effort the step names (ADR 0397). */
+export type BrewerOnStep = BrewerFrontmatter & { model: ModelLevel; effort: Effort };
+
+/** A brewer file as read, before a step names its level and effort. */
+export type ShelvedBrewer = Omit<StepBrewer, 'brewer'> & { brewer: BrewerFrontmatter };
+
 export interface StepBrewer {
-  brewer: BrewerFrontmatter;
+  /** Its brewer, with the model level and effort its step names (ADR 0397). */
+  brewer: BrewerOnStep;
   instructions: string;
   /** The lenses its inputs name, by name. */
   lenses?: ReadonlyMap<string, Lens>;
@@ -107,7 +114,7 @@ const unguidedLine = (name: string): string =>
 
 /** Every brewer and lens in use, and what names them: what doctor reports on (ADR 0141). */
 export interface Catalog {
-  brewers: readonly (StepBrewer & { name: string; path: string })[];
+  brewers: readonly (ShelvedBrewer & { name: string; path: string })[];
   lenses: readonly Lens[];
   /**
    * The brewers the recipes' steps name, the lenses those brewers' inputs and steps name, and of
@@ -118,20 +125,17 @@ export interface Catalog {
     lenses: ReadonlySet<string>;
     reviewLenses: ReadonlySet<string>;
   };
-  /**
-   * The steps that override their brewer's model level or effort, each with its brewer and recipe
-   * file (ADR 0321, ADR 0352, ADR 0397).
-   */
-  stepOverrides: readonly StepOverride[];
+  /** Every brewer step's model level and effort, with its brewer and recipe file (ADR 0397). */
+  stepLevels: readonly StepLevels[];
 }
 
-/** A step's own model level or effort, which models.jsonc must translate (ADR 0397). */
-export interface StepOverride {
+/** A brewer step's model level and effort, which models.jsonc must translate (ADR 0397). */
+export interface StepLevels {
   path: string;
   stepId: string;
   brewer: string;
-  model?: ModelLevel;
-  effort?: Effort;
+  model: ModelLevel;
+  effort: Effort;
 }
 
 /** The brewers of the loaded recipes' steps. */
@@ -788,7 +792,7 @@ type StepLoad = LoadedStep | string[];
 
 /** What a brewer step loads against: the brewers and lenses read. */
 interface Shelf {
-  brewers: ReadonlyMap<string, StepBrewer>;
+  brewers: ReadonlyMap<string, ShelvedBrewer>;
   /** The name of every brewer file, also one that did not load. */
   brewerNames: ReadonlySet<string>;
   lenses: ReadonlyMap<string, Lens>;
@@ -949,9 +953,18 @@ function brewerLine(
           `it names no brewer "${step.brewer}" that the Brewery's brewers/ or Foedrum's defaults have (ADR 0098)`,
         ];
   }
-  // The step's model and effort are the brewer's on this step: all that reads an attempt's model
-  // or effort reads this brewer (ADR 0321, ADR 0352).
-  const { model = shelved.brewer.model, effort = shelved.brewer.effort } = step;
+  // The step's model and effort are the brewer's on this step, the one place they are named: all
+  // that reads an attempt's model or effort reads this brewer (ADR 0321, ADR 0352, ADR 0397).
+  const { model, effort } = step;
+  if (model === undefined || effort === undefined) {
+    return [
+      ...(model === undefined ? ['model'] : []),
+      ...(effort === undefined ? ['effort'] : []),
+    ].map(
+      (field) =>
+        `step "${id}" of the brewer "${step.brewer}" names no "${field}": every brewer step names its model level and its effort (ADR 0397)`,
+    );
+  }
   const found: StepBrewer = { ...shelved, brewer: { ...shelved.brewer, model, effort } };
   const { brewer } = found;
   const refused = unplannable(brewer);
@@ -1270,7 +1283,7 @@ function readBrewers(
   files: readonly BreweryFile[],
   lenses: ReadonlyMap<string, Lens>,
   unreported: (lens: string) => boolean,
-): { read: { path: string; value: StepBrewer & { name: string } }[]; problems: string[] } {
+): { read: { path: string; value: ShelvedBrewer & { name: string } }[]; problems: string[] } {
   const problems: string[] = [];
   const read = readAll(
     files,
@@ -1314,7 +1327,7 @@ export function loadRecipes(breweryFiles: BreweryFiles): LoadedRecipes {
   );
   const problems = [...lensProblems, ...brewerProblems];
   const brewers = new Map(
-    brewerFiles.map(({ value: { name, ...found } }): [string, StepBrewer] => [name, found]),
+    brewerFiles.map(({ value: { name, ...found } }): [string, ShelvedBrewer] => [name, found]),
   );
   // A brewer whose file is there but broken is reported once, as that file.
   const brewerNames = new Set(files.brewers.map(({ path }) => nameOf(path)));
@@ -1323,7 +1336,7 @@ export function loadRecipes(breweryFiles: BreweryFiles): LoadedRecipes {
   const namedBrewers = new Set<string>();
   // The lenses the recipes' lens steps name (ADR 0161).
   const stepLenses = new Set<string>();
-  const stepOverrides: StepOverride[] = [];
+  const stepLevels: StepLevels[] = [];
   const recipes = new Map<string, Recipe>();
   // By recipe, then step id.
   const stepBrewers = new Map<string, ReadonlyMap<string, StepBrewer>>();
@@ -1364,14 +1377,8 @@ export function loadRecipes(breweryFiles: BreweryFiles): LoadedRecipes {
     for (const step of order) {
       if (!('brewer' in step)) continue;
       const { model, effort } = step;
-      if (model === undefined && effort === undefined) continue;
-      stepOverrides.push({
-        path,
-        stepId: stepId(step),
-        brewer: step.brewer,
-        ...(model === undefined ? {} : { model }),
-        ...(effort === undefined ? {} : { effort }),
-      });
+      if (model === undefined || effort === undefined) continue;
+      stepLevels.push({ path, stepId: stepId(step), brewer: step.brewer, model, effort });
     }
     const named = order.map((step) => stepBrewerName(step));
     for (const name of named) if (name !== undefined) namedBrewers.add(name);
@@ -1477,7 +1484,7 @@ export function loadRecipes(breweryFiles: BreweryFiles): LoadedRecipes {
         ]),
         reviewLenses: stepLenses,
       },
-      stepOverrides,
+      stepLevels,
     },
     recipes: { find: (name) => recipes.get(name) },
     testFirst: testFirstRecipes,

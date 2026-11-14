@@ -87,11 +87,13 @@ const BrewerStep = z
         "A Taster's step in a parallel group with onFindings: runs again after every round back, whatever it found; the group's other children run again only when they had findings (ADR 0357)",
       ),
     deadline: Duration.optional().describe("Overrides the brewer's deadline"),
+    // Required on every brewer step: the recipe loader refuses a step without one, naming the step
+    // and the field, which a union of step kinds cannot (ADR 0397).
     model: ModelLevel.optional().describe(
-      "Overrides the brewer's model level; a blind-tasting swap of the brewer still wins (ADR 0321, ADR 0397)",
+      'Required: the model level the step runs on, which models.jsonc translates for the agent; every brewer step names one, and a brewer file none (ADR 0397)',
     ),
     effort: Effort.optional().describe(
-      "Overrides the brewer's effort on this step, one of Foedrum's own; a blind-tasting swap of the brewer's model keeps it (ADR 0352, ADR 0397)",
+      'Required: how hard the step thinks, which models.jsonc translates for the agent; every brewer step names one, and a brewer file none (ADR 0397)',
     ),
     interactive: z
       .literal(true)

@@ -1,7 +1,6 @@
 // Brewer frontmatter: a reusable agent role (brewers-and-recipes §1).
 
 import { LensName, PathSafeId } from './ids.ts';
-import { Effort, ModelLevel } from './models.ts';
 import { BrewerAllowedTool, BrewerDeniedTool, Duration, RelativePath } from './primitives.ts';
 import { NonEmpty } from './step-outcome.ts';
 import { z } from './zod.ts';
@@ -90,8 +89,6 @@ const shared = {
   toolbox: NonEmpty.optional(),
   output: z.strictObject({ doc: PathSafeId, schema: Identifier }),
   produces: z.enum(['commits', 'report', 'comment', 'none']),
-  model: ModelLevel,
-  effort: Effort,
   // Role-level tools only; the repository adds its toolchain commands (ADR 0023).
   tools: z.strictObject({
     allow: z.array(BrewerAllowedTool),

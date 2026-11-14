@@ -18,7 +18,13 @@
   },
   "steps": [
     // Without a session when the base's map is fresh, or the Brewery keeps it (ADR 0298).
-    { "id": "survey", "brewer": "maltster-survey", "when": "recipe.testFirst" },
+    {
+      "id": "survey",
+      "brewer": "maltster-survey",
+      "model": "standard",
+      "effort": "moderate",
+      "when": "recipe.testFirst"
+    },
     {
       // A run that disagrees with the proposed map goes back to the Maltster once, then the batch
       // is Stuck on its environment (ADR 0298).
@@ -30,8 +36,14 @@
     },
     // The Maltster maps the code the order touches, read-only, for the Gauger, Cellarman and the
     // Finer to start from, also with test-first off (ADR 0395).
-    { "id": "map", "brewer": "maltster-map" },
-    { "id": "gauge", "brewer": "gauger", "when": "recipe.testFirst" },
+    { "id": "map", "brewer": "maltster-map", "model": "light", "effort": "moderate" },
+    {
+      "id": "gauge",
+      "brewer": "gauger",
+      "model": "standard",
+      "effort": "larger",
+      "when": "recipe.testFirst"
+    },
     {
       "id": "red",
       "check": "test",
@@ -43,10 +55,12 @@
     {
       "id": "implement",
       "brewer": "cellarman",
+      "model": "standard",
+      "effort": "larger",
       // A test Cellarman finds wrong goes back to the Gauger, once (ADR 0017, ADR 0064).
       "onBlocked": { "findings": { "goto": "gauge", "maxRounds": 1 } }
     },
-    { "id": "fine", "brewer": "finer" },
+    { "id": "fine", "brewer": "finer", "model": "standard", "effort": "larger" },
     {
       // A failure goes back to Cellarman, whichever step broke it; the Finer then runs again.
       "id": "green",
@@ -60,6 +74,8 @@
       // run, then the batch is Stuck with the survivors open (ADR 0319, ADR 0369).
       "id": "mutants",
       "brewer": "brett",
+      "model": "standard",
+      "effort": "moderate",
       "blocking": true,
       "onBlocked": { "findings": { "goto": "gauge", "maxRounds": 2 } }
     },
@@ -70,6 +86,7 @@
       // still open (ADR 0192, ADR 0354, ADR 0369).
       "id": "taste",
       "brewer": "taster",
+      "effort": "moderate",
       "model": "strong",
       "lenses": [
         "diff/correctness",

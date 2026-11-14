@@ -2,9 +2,7 @@
 {
   "name": "gauger",
   "description": "Writes failing tests, and stubs that throw, from the order; no implementation.",
-  "version": 14,
-  "model": "standard",
-  "effort": "larger",
+  "version": 15,
   "inputs": [
     { "name": "order", "from": "order" },
     { "name": "map", "from": "step:map" },

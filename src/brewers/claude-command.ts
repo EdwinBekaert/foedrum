@@ -7,9 +7,9 @@ import { type ClaudeEffort, ModelId } from '../schemas/models.ts';
 export type ClaudeSession = { kind: 'new'; id: string } | { kind: 'resume'; id: string };
 
 export interface ClaudeCall {
-  /** The model id behind the brewer's level (models.jsonc). */
+  /** The model id behind the level of the brewer's step (models.jsonc). */
   model: string;
-  /** Claude Code's word for the brewer's effort (models.jsonc, ADR 0397). */
+  /** Claude Code's word for the effort of the brewer's step (models.jsonc, ADR 0397). */
   effort: ClaudeEffort;
   maxTurns?: number | undefined;
   /** The attempt's settings file, written by the runner. */

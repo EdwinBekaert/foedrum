@@ -86,12 +86,20 @@ export const planRecipeText = (setup: PlanSetupName): string => {
         parallel: lenses.map((lens) => ({
           id: stepIdOf(lens),
           brewer: 'taster',
+          model: ON_STRONG.includes(lens) ? 'strong' : 'standard',
+          effort: 'moderate',
           lens,
-          ...(ON_STRONG.includes(lens) ? { model: 'strong' } : {}),
         })),
         ...backTo(PLAN_STEP),
       }
-    : { id: TASTE, brewer: 'taster', lenses, ...backTo(PLAN_STEP) };
+    : {
+        id: TASTE,
+        brewer: 'taster',
+        model: 'standard',
+        effort: 'moderate',
+        lenses,
+        ...backTo(PLAN_STEP),
+      };
   const recipe = {
     name: setup,
     type: 'mash',
@@ -102,7 +110,7 @@ export const planRecipeText = (setup: PlanSetupName): string => {
       bestUsed: 'Through node scripts/tasting-compare.ts --plan',
     },
     testFirst: false,
-    steps: [{ id: PLAN_STEP, brewer: 'brewmaster' }, taste],
+    steps: [{ id: PLAN_STEP, brewer: 'brewmaster', model: 'strong', effort: 'larger' }, taste],
   };
   return `// node scripts/tasting-compare.ts --plan's setup ${setup} (ADR 0323).\n${JSON.stringify(recipe, null, 2)}\n`;
 };

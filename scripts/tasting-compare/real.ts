@@ -279,9 +279,15 @@ export const realRecipeText = (setup: RealSetup): string => {
     },
     testFirst: false,
     steps: [
-      { id: 'gauge', brewer: 'gauger', when: 'recipe.testFirst' },
-      { id: IMPLEMENT, brewer: 'cellarman' },
-      taste,
+      {
+        id: 'gauge',
+        brewer: 'gauger',
+        model: 'standard',
+        effort: 'larger',
+        when: 'recipe.testFirst',
+      },
+      { id: IMPLEMENT, brewer: 'cellarman', model: 'standard', effort: 'larger' },
+      withTasterLevels(taste, profileOf(setup)),
       { action: 'openPullRequest' },
     ],
   };
@@ -296,17 +302,30 @@ export interface Tasters {
   reads: string;
 }
 
-const MODERATE_EFFORT = '"effort": "moderate"';
+/** The setups whose Taster steps run at `larger`, which is Claude Code's `high` (ADR 0344, ADR 0397). */
+const ON_HIGH: ReadonlySet<Profile | 'comments'> = new Set(['high', 'high-bare', 'high-together']);
 
-/** The `high` setup's Taster: the reading Taster's text at another effort, and no other change. */
-export const highTaster = (reads: string): string => {
-  if (reads.split(MODERATE_EFFORT).length !== 2) {
-    throw new Error(
-      `the reading Taster does not say ${MODERATE_EFFORT} once: high would compare nothing`,
-    );
-  }
-  return reads.replace(MODERATE_EFFORT, () => '"effort": "larger"');
+/**
+ * `taste` with every Taster step's level and effort: `setup`'s, as its brewers swap and its Taster's
+ * own effort set them before a step named both, and a step's own where it names one (ADR 0397).
+ */
+const withTasterLevels = (
+  taste: Record<string, unknown>,
+  profile: Profile | 'comments',
+): Record<string, unknown> => {
+  const model = ON_OPUS.has(profile) ? 'strong' : 'standard';
+  const effort = ON_HIGH.has(profile) ? 'larger' : 'moderate';
+  const levels = (step: Record<string, unknown>) => ({ model, effort, ...step });
+  const { parallel } = taste;
+  return Array.isArray(parallel) ? { ...taste, parallel: parallel.map(levels) } : levels(taste);
 };
+
+/**
+ * A pinned Taster's text without the `model` and `effort` lines of its frontmatter, which a brewer
+ * file no longer has: its step names both (ADR 0397).
+ */
+export const withoutLevels = (text: string): string =>
+  text.replace(/^ {2}"(?:model|effort)": "[a-z]+",\r?\n/gm, '');
 
 /**
  * What the `-bare` Taster leaves out of the reading Taster's text, each once (ADR 0347): the first bullet,
@@ -324,17 +343,9 @@ const BARE_CUTS = [
 
 /**
  * The `-bare` setups' Taster: the reading Taster's text without what tells it to read the rules, and
- * no other change (ADR 0347). A text that does not hold each cut once stops the comparison, as
- * `highTaster` does, since a later edit could otherwise compare nothing.
+ * no other change (ADR 0347). A text that does not hold each cut once stops the comparison, since
+ * a later edit could otherwise compare nothing.
  */
-/**
- * A pinned Taster's text without the `model` and `effort` lines of its frontmatter, which a brewer
- * file no longer has: its step names both (ADR 0397).
- */
-export const withoutLevels = (_text: string): string => {
-  throw new Error('not implemented');
-};
-
 export const bareTaster = (reads: string): string =>
   BARE_CUTS.reduce((text, cut) => {
     if (text.split(cut).length !== 2) {
@@ -368,10 +379,7 @@ export const realFolders = (comparison: string | undefined): string[] => {
   return ['real', 'comparisons', comparison];
 };
 
-/** The `opus` setup's models.jsonc: it swaps the Taster to the default's strong level, Opus, and no other brewer. */
-const OPUS_MODELS = `${JSON.stringify({ brewers: { taster: 'strong' } })}\n`;
-
-/** The setups that put the Taster on Opus. */
+/** The setups that put the Taster's steps on Opus, the default's `strong` level (ADR 0344, ADR 0397). */
 const ON_OPUS: ReadonlySet<Profile | 'comments'> = new Set(['opus', 'opus-bare', 'opus-together']);
 /** The setups whose Taster asks for Opus, by models.jsonc or by its step's own level (ADR 0366). */
 const ASKS_OPUS: ReadonlySet<Profile | 'comments'> = new Set([...ON_OPUS, 'deep']);
@@ -389,20 +397,18 @@ const tasterOf = (profile: Profile | 'comments', tasters: Tasters): string => {
     case 'apart7':
       throw new Error(`the ${profile} setup tastes with the default Taster, not a text of its own`);
     case 'today':
-      return tasters.today;
-    case 'high':
-      return highTaster(tasters.reads);
+      return withoutLevels(tasters.today);
     case 'opus-bare':
     case 'opus-together':
-      return bareTaster(tasters.reads);
     case 'high-bare':
     case 'high-together':
-      return highTaster(bareTaster(tasters.reads));
+      return withoutLevels(bareTaster(tasters.reads));
     case 'reads':
     case 'lens':
     case 'opus':
+    case 'high':
     case 'comments':
-      return tasters.reads;
+      return withoutLevels(tasters.reads);
     default: {
       const never: never = profile;
       return never;
@@ -411,15 +417,14 @@ const tasterOf = (profile: Profile | 'comments', tasters: Tasters): string => {
 };
 
 /**
- * The Brewery's files of a run of `setup` beyond Nip's: the recipe, its Taster, and what its setup
- * changes: `today`'s Taster, the bare Taster, `high`'s effort or `opus`'s model.
+ * The Brewery's files of a run of `setup` beyond Nip's: its recipe, whose Taster steps carry `high`'s
+ * effort or `opus`'s model, and its Taster: `today`'s, the bare Taster or the reading one.
  */
 export const realBreweryFiles = (setup: RealSetup, tasters: Tasters): Record<string, string> => {
   const profile = profileOf(setup);
   return {
     [`recipes/${realRecipeOf(setup)}.jsonc`]: realRecipeText(setup),
     ...(SHIPPED.has(profile) ? {} : { 'brewers/taster.md': tasterOf(profile, tasters) }),
-    ...(ON_OPUS.has(profile) ? { 'models.jsonc': OPUS_MODELS } : {}),
   };
 };
 
@@ -1141,7 +1146,7 @@ export const brewerRecipeText = (settings: BrewerSettings): string => {
     },
     testFirst: false,
     steps: [
-      { id: 'gauge', brewer: 'gauger' },
+      { id: 'gauge', brewer: 'gauger', model: 'standard', effort: 'larger' },
       { id: IMPLEMENT, brewer: settings.brewer, model: MEASURED, effort: settings.effort },
       {
         id: 'green',
@@ -1532,7 +1537,7 @@ export const plannerBreweryFiles = (): Record<string, string> => {
       bestUsed: 'Through node scripts/tasting-compare.ts --real --sub-orders',
     },
     testFirst: false,
-    steps: [{ id: 'plan', brewer: 'brewmaster' }],
+    steps: [{ id: 'plan', brewer: 'brewmaster', model: 'strong', effort: 'larger' }],
   };
   return {
     [`recipes/${PLANNER_RECIPE}.jsonc`]: `// node scripts/tasting-compare.ts --real --sub-orders' recipe (ADR 0396).\n${json(recipe)}`,

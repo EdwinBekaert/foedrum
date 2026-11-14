@@ -151,7 +151,10 @@ export const ladderRecipeText = (): string =>
         bestUsed: 'To show the path of an order across two repositories',
       },
       testFirst: false,
-      steps: [{ id: 'implement', brewer: 'cellarman' }, { action: 'openPullRequest' }],
+      steps: [
+        { id: 'implement', brewer: 'cellarman', model: 'standard', effort: 'larger' },
+        { action: 'openPullRequest' },
+      ],
     },
   )}`;
 
