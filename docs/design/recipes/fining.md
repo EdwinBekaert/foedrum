@@ -1,7 +1,7 @@
 # Fining
 
 **The Finer** simplifies a batch's change and commits it, before the checks and the reviews read it ([ADR 0166](../../adr/0166-the-finer-simplifies-a-batch-s-change-before-green.md)); in brewing, fining clears the haze before the beer is served.
-The default one is `defaults/brewers/finer.md`, on the alias `builder`, a brewer that produces commits with `git.commit` and the guards `requiresOutDoc`, `requiresCommits` and `testsUnchanged`.
+The default one is `defaults/brewers/finer.md`, on the level `standard`, a brewer that produces commits with `git.commit` and the guards `requiresOutDoc`, `requiresCommits` and `testsUnchanged`.
 Its `## What to look for` lists duplication (in the change, and against code the repository already has), dead code, needless indirection and over-general code; it applies the smaller form that does exactly what the code does now.
 Its `## What you may change` keeps it to files the change already touches, away from the lines the red step added to test files and from the test files the batch's base holds (the `testsUnchanged` guard holds them, [ADR 0358](../../adr/0358-an-older-test-changes-only-in-the-gauger-s-red-commit.md)), from `package.json`, the lockfile, `.npmrc`, CI, hooks and settings, and from error messages, output formats and public interfaces.
 It runs the repository's format, lint, typecheck and the tests that cover what it changed before it commits.

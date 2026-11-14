@@ -16,7 +16,7 @@ src/
   schemas/      zod schemas (source of types, validation and JSON Schema)
   formats/      JSONC, frontmatter and TOML readers (limits for untrusted input: 64 levels, 1 MiB; ADR 0020), TAP, JUnit XML, LCOV and Cobertura readers (ADR 0274), the system map's manifest readers (ADR 0317, ADR 0320), and git diff readers
 schemas/        JSON Schema files generated from src/schemas (npm run schemas)
-defaults/       default brewers, recipes and tasting lenses, and models.jsonc, which maps the aliases the default brewers name and merges by alias under the Brewery's (ADR 0153)
+defaults/       default brewers, recipes and tasting lenses, and models.jsonc, which translates the levels and efforts the default brewers name and merges entry by entry under the Brewery's (ADR 0153, ADR 0397)
 scripts/        development scripts: the check, the gate, the review's tools, npm run demo (a scratch Brewery brewed with Nip's steps and a parallel group of four lenses whose findings all go back once (ADR 0354), through serve's seams with the tests' fakes, then foedrum lenses, brew, resume and replay, and an order mashed to a plan that waits for its review; and `npm run demo -- ladder`, an order planned across a library and an application, the library released and the application bumped to it, two pull requests that name each other and the order closed; ADR 0097, ADR 0139, ADR 0185, ADR 0193, ADR 0283, ADR 0294); never shipped
 plugin/         companion Claude Code plugin (Markdown commands and skills)
 test/           unit, property, chaos, integration; helpers/ holds the fakes, never shipped (the package's files are src/, defaults/ and schemas/)
@@ -27,7 +27,7 @@ docs/
 
 ```
 foedrum.jsonc     the Brewery's owner/name (brewery) and GitHub API (githubApi); repositories (source, base, triage sources, intake filter and alias, check commands, test report, setup, toolchain allowlist; ADR 0023, ADR 0050), allow-listed users (users), concurrency, the open-order limit (openOrders), how often the intake polls (pollEvery), budgets, permission ceiling (schema so far: the Brewery, the GitHub API, users, concurrency and pollEvery (ADR 0068), openOrders (ADR 0217), source and base, checks, test report, setup, tools, house-yeast and test-map fallbacks, intake filter and alias, and ceiling; [configuration files](recipes/configuration.md); the ceiling: ADR 0026)
-models.jsonc      model aliases, and an alias per brewer (updated by blind-tasting pull requests)
+models.jsonc      each agent's model per level and effort word per effort, and a level per brewer (updated by blind-tasting pull requests)
 .claude/settings.json  enables the foedrum plugin for sessions opened in the Brewery (written by foedrum init, ADR 0199)
 brewers/          custom and overriding brewers (*.md)
 recipes/          custom and overriding recipes (*.jsonc)

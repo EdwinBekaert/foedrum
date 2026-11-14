@@ -45,8 +45,8 @@ The setup command is not a brewer field: it depends on the repository, so it is 
 
 | Field | Purpose |
 |---|---|
-| `model` | Alias resolved through `models.jsonc`, so evaluations can swap it |
-| `effort` | Reasoning effort; constant across retries to keep the prompt cache valid |
+| `model` | Model level, `light`, `standard` or `strong`, which `models.jsonc` translates into a model of the agent, so evaluations can swap it |
+| `effort` | Reasoning effort, `quick`, `steady`, `careful` or `thorough`, which `models.jsonc` translates into the agent's own word; constant across retries to keep the prompt cache valid ([ADR 0397](../../adr/0397-brewers-name-a-model-level-and-an-effort-of-foedrum-s-own-which-models-jsonc-translates.md)) |
 
 **Tools and context**
 
@@ -109,8 +109,8 @@ After them come the answers to the step's questions ([ADR 0059](../../adr/0059-a
   "name": "cellarman",
   "description": "Makes the Gauger's failing tests pass in one repository.",
   "version": 1,
-  "model": "builder",
-  "effort": "high",
+  "model": "standard",
+  "effort": "careful",
   "inputs": [
     { "name": "order", "from": "order", "trusted": false },
     { "name": "plan", "from": "step:plan" },
