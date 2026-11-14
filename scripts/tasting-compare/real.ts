@@ -1058,7 +1058,7 @@ export const brewerSettingsOf = (given: {
     throw new Error(`--brewer takes ${MEASURED_BREWERS.join(', ')}, not "${brewer}"`);
   }
   if (model === undefined) throw new Error(`--brewer ${brewer} needs --model <id>`);
-  if (effort === undefined) throw new Error(`--brewer ${brewer} needs --effort <level>`);
+  if (effort === undefined) throw new Error(`--brewer ${brewer} needs --effort <effort>`);
   if (!ModelId.safeParse(model).success) {
     throw new Error(
       `--model takes a model id models.jsonc accepts, such as claude-sonnet-5-5, not "${model}"`,
