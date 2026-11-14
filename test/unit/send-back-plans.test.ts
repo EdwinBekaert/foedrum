@@ -18,6 +18,7 @@ import { loadRecipes } from '../../src/engine/recipe-files.ts';
 import type { Event } from '../../src/schemas/events.ts';
 import { OutDocFrontmatter } from '../../src/schemas/out-doc.ts';
 import type { Git, GitResult } from '../../src/workspace/git.ts';
+import { claudeModels } from '../helpers/models.ts';
 
 const noFiles = readBreweryFiles(join(FOEDRUM_DEFAULTS, 'no-such-brewery'));
 const loaded = loadRecipes(noFiles);
@@ -126,7 +127,7 @@ const plansOf = (
   createAttemptPlans({
     state: () => fold(events),
     brewers: loaded.brewers,
-    models: { models: { builder: 'claude-sonnet-5-5', reader: 'claude-haiku-5-5' }, brewers: {} },
+    models: claudeModels({ standard: 'claude-sonnet-5-5', light: 'claude-haiku-5-5' }),
     repoTools: () => ['Bash(npm test)'],
     // null: foedrum.jsonc gives the repository no checks.
     repoChecks: (repo) =>

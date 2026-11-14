@@ -66,7 +66,10 @@ describe('serveSetup', () => {
       base: { PATH: '/usr/bin', HOME: home },
       forced: brewerForcedEnv(),
     });
-    assert.deepStrictEqual(setup.models.models, { quick: 'claude-haiku-5-5' });
+    assert.deepStrictEqual(setup.models.claude, {
+      models: { light: 'claude-haiku-5-5' },
+      efforts: { quick: 'low' },
+    });
     assert.notEqual(setup.recipes.find('stout'), undefined);
     assert.equal(setup.brewers.find('stout', 'brew')?.brewer.name, 'cellarman');
     // The check steps of the recipes, which the check runner runs (ADR 0069).
@@ -277,7 +280,7 @@ describe('serveSetup', () => {
           ...inputs().files,
           config: '{ "repositories": 1 }',
           local: '{ "workRoot": "relative" }',
-          models: '{ "models": { "Quick": "x" } }',
+          models: '{ "claude": { "models": { "Light": "x" } } }',
         },
       }),
     );
@@ -294,16 +297,16 @@ describe('serveSetup', () => {
     ]);
   });
 
-  it('refuses a brewer whose model alias models.jsonc does not have', () => {
+  it('refuses a brewer whose model level models.jsonc does not have', () => {
     assert.deepStrictEqual(
-      refused(inputs({ files: { ...inputs().files, models: models('deep') } })),
+      refused(inputs({ files: { ...inputs().files, models: models('strong') } })),
       [
-        'brewers/cellarman.md: models.jsonc has no model for the alias "quick" of the brewer "cellarman"',
+        'brewers/cellarman.md: models.jsonc has no claude model for the level "light" of the brewer "cellarman"',
       ],
     );
   });
 
-  it('refuses a default brewer whose model alias models.jsonc does not have, unless the Brewery replaces it (ADR 0098)', () => {
+  it('refuses a default brewer whose model level models.jsonc does not have, unless the Brewery replaces it (ADR 0098)', () => {
     const { brewery } = inputs().files;
     const [own] = brewery.brewers;
     assert.ok(own !== undefined);
@@ -311,16 +314,16 @@ describe('serveSetup', () => {
     const withDefault = (brewers: typeof brewery.brewers) => ({
       files: {
         ...inputs().files,
-        models: models('deep'),
+        models: models('strong'),
         brewery: { ...brewery, brewers, defaults: { brewers: [fromDefaults] } },
       },
     });
     assert.deepStrictEqual(refused(inputs(withDefault([]))), [
-      'defaults/brewers/cellarman.md: models.jsonc has no model for the alias "quick" of the brewer "cellarman"',
+      'defaults/brewers/cellarman.md: models.jsonc has no claude model for the level "light" of the brewer "cellarman"',
     ]);
     // The Brewery's own cellarman is checked instead.
     assert.deepStrictEqual(refused(inputs(withDefault([own]))), [
-      'brewers/cellarman.md: models.jsonc has no model for the alias "quick" of the brewer "cellarman"',
+      'brewers/cellarman.md: models.jsonc has no claude model for the level "light" of the brewer "cellarman"',
     ]);
   });
 
@@ -532,25 +535,34 @@ describe('serveSetup: the isolation level of check steps (ADR 0076)', () => {
   });
 });
 
-// Foedrum's defaults map their own model aliases, and a Brewery's models.jsonc merges over them
-// (ADR 0153).
+// Foedrum's defaults map their own model levels and efforts, and a Brewery's models.jsonc merges
+// over them entry by entry (ADR 0153, ADR 0397).
 describe("serveSetup: Foedrum's default models (ADR 0153)", () => {
   // A default Gauger that names `model`, brewing the one step of a Brewery recipe.
   const gaugerNaming = (model: string) =>
     cellarman
       .replace('"name": "cellarman"', '"name": "gauger"')
-      .replace('"model": "quick"', `"model": "${model}"`);
+      .replace('"model": "light"', `"model": "${model}"`);
   const gaugerRecipe = recipe.replace('cellarman', 'gauger');
   const defaultModels = (
-    fields: Record<string, unknown> = { models: { builder: 'sonnet' } },
-  ): BreweryFile => ({ path: 'defaults/models.jsonc', text: JSON.stringify(fields) });
+    claude: Record<string, unknown> = { models: { standard: 'sonnet' } },
+    brewers?: Record<string, string>,
+  ): BreweryFile => ({
+    path: 'defaults/models.jsonc',
+    text: JSON.stringify({
+      claude: { efforts: { quick: 'low' }, ...claude },
+      ...(brewers === undefined ? {} : { brewers }),
+    }),
+  });
+  const own = (models: Record<string, string>, brewers?: Record<string, string>) =>
+    JSON.stringify({ claude: { models }, ...(brewers === undefined ? {} : { brewers }) });
 
   /** serve's inputs for a Brewery with the default Gauger, `own` as its models.jsonc. */
   const withGauger = (
     own: string | undefined,
     defaults: { model?: string; models?: BreweryFile } = {},
   ) => {
-    const { model = 'builder', models: defaultFile = defaultModels() } = defaults;
+    const { model = 'standard', models: defaultFile = defaultModels() } = defaults;
     return inputs({
       files: {
         ...inputs().files,
@@ -572,76 +584,75 @@ describe("serveSetup: Foedrum's default models (ADR 0153)", () => {
     return modelOf(setup.models, found.brewer);
   };
 
-  it('is ready without models.jsonc, and the Gauger resolves the default builder: sonnet', () => {
+  it('is ready without models.jsonc, and the Gauger resolves the default standard: sonnet', () => {
     const setup = ready(withGauger(undefined));
     assert.equal(gaugerModel(setup), 'sonnet');
-    assert.deepStrictEqual(setup.models.models, { builder: 'sonnet' });
+    assert.deepStrictEqual(setup.models.claude.models, { standard: 'sonnet' });
   });
 
-  it('lets a Brewery entry replace the default of its alias and keeps every other default alias', () => {
+  it('lets a Brewery entry replace the default of its level and keeps every other default level', () => {
     const setup = ready(
-      withGauger(JSON.stringify({ models: { builder: 'claude-sonnet-5-5' } }), {
-        models: defaultModels({ models: { builder: 'sonnet', tasting: 'opus' } }),
+      withGauger(own({ standard: 'claude-sonnet-5-5' }), {
+        models: defaultModels({ models: { standard: 'sonnet', strong: 'opus' } }),
       }),
     );
     assert.equal(gaugerModel(setup), 'claude-sonnet-5-5');
-    assert.deepStrictEqual(setup.models.models, { builder: 'claude-sonnet-5-5', tasting: 'opus' });
+    assert.deepStrictEqual(setup.models.claude.models, {
+      standard: 'claude-sonnet-5-5',
+      strong: 'opus',
+    });
   });
 
-  it('keeps the default builder for a Brewery that maps only another alias, and resolves that alias too', () => {
-    const own = JSON.stringify({ models: { reviewer: 'claude-opus-5-5' } });
-    const setup = ready(withGauger(own));
+  it('keeps the default standard for a Brewery that maps only another level, and resolves that level too', () => {
+    const setup = ready(withGauger(own({ strong: 'claude-opus-5-5' })));
     assert.equal(gaugerModel(setup), 'sonnet');
-    assert.deepStrictEqual(setup.models.models, {
-      builder: 'sonnet',
-      reviewer: 'claude-opus-5-5',
+    assert.deepStrictEqual(setup.models.claude.models, {
+      standard: 'sonnet',
+      strong: 'claude-opus-5-5',
     });
-    // A brewer that names the Brewery's alias resolves it.
-    const reviewing = ready(withGauger(own, { model: 'reviewer' }));
-    assert.equal(gaugerModel(reviewing), 'claude-opus-5-5');
+    // A brewer that names the Brewery's level resolves it.
+    const strong = ready(withGauger(own({ strong: 'claude-opus-5-5' }), { model: 'strong' }));
+    assert.equal(gaugerModel(strong), 'claude-opus-5-5');
   });
 
   it("takes the brewers part from the Brewery's file only", () => {
-    const own = JSON.stringify({ models: { reviewer: 'claude-opus-5-5' } });
-    const fromDefault = defaultModels({
-      models: { builder: 'sonnet', tasting: 'opus' },
-      brewers: { gauger: 'tasting' },
-    });
-    const setup = ready(withGauger(own, { models: fromDefault }));
+    const fromDefault = defaultModels(
+      { models: { standard: 'sonnet', strong: 'opus' } },
+      { gauger: 'strong' },
+    );
+    const setup = ready(withGauger(own({ light: 'claude-haiku-5-5' }), { models: fromDefault }));
     assert.deepStrictEqual(setup.models.brewers, {});
     assert.equal(gaugerModel(setup), 'sonnet');
     // The Brewery's own brewers part does apply.
-    const swapping = JSON.stringify({
-      models: { reviewer: 'claude-opus-5-5' },
-      brewers: { gauger: 'reviewer' },
-    });
+    const swapping = own({ light: 'claude-haiku-5-5' }, { gauger: 'light' });
     const swapped = ready(withGauger(swapping, { models: fromDefault }));
-    assert.deepStrictEqual(swapped.models.brewers, { gauger: 'reviewer' });
-    assert.equal(gaugerModel(swapped), 'claude-opus-5-5');
+    assert.deepStrictEqual(swapped.models.brewers, { gauger: 'light' });
+    assert.equal(gaugerModel(swapped), 'claude-haiku-5-5');
   });
 
-  it("accepts a Brewery's brewers part that names a default alias, and refuses one that names no alias at all", () => {
-    // The Gauger names `deep`, which the Brewery maps; its brewers part swaps in the default builder.
-    const swapTo = (alias: string) =>
-      JSON.stringify({ models: { deep: 'claude-opus-5-5' }, brewers: { gauger: alias } });
-    const setup = ready(withGauger(swapTo('builder'), { model: 'deep' }));
+  it("accepts a Brewery's brewers part that names a default level, and refuses one that names a level no file maps", () => {
+    // The Gauger names `strong`, which the Brewery maps; its brewers part swaps in the default standard.
+    const swapTo = (level: string) => own({ strong: 'claude-opus-5-5' }, { gauger: level });
+    const setup = ready(withGauger(swapTo('standard'), { model: 'strong' }));
     assert.equal(gaugerModel(setup), 'sonnet');
-    const problems = refused(withGauger(swapTo('nope'), { model: 'deep' }));
+    const problems = refused(withGauger(swapTo('light'), { model: 'strong' }));
     assert.equal(problems.length, 1);
-    assert.match(problems[0] ?? '', /^models\.jsonc: .*No model has the alias "nope"/);
+    assert.match(problems[0] ?? '', /^models\.jsonc: .*No model has the level "light"/);
   });
 
-  it('refuses a brewer whose alias neither the default nor the Brewery maps, by its file', () => {
+  it('refuses a brewer whose level neither the default nor the Brewery maps, by its file', () => {
     const line =
-      'defaults/brewers/gauger.md: models.jsonc has no model for the alias "deep" of the brewer "gauger"';
-    assert.deepStrictEqual(refused(withGauger(undefined, { model: 'deep' })), [line]);
-    const own = JSON.stringify({ models: { reviewer: 'claude-opus-5-5' } });
-    assert.deepStrictEqual(refused(withGauger(own, { model: 'deep' })), [line]);
+      'defaults/brewers/gauger.md: models.jsonc has no claude model for the level "strong" of the brewer "gauger"';
+    assert.deepStrictEqual(refused(withGauger(undefined, { model: 'strong' })), [line]);
+    assert.deepStrictEqual(
+      refused(withGauger(own({ light: 'claude-haiku-5-5' }), { model: 'strong' })),
+      [line],
+    );
   });
 
   it('needs no models.jsonc, but refuses one that does not pass the schema or does not read, with its line', () => {
     ready(withGauger(undefined));
-    for (const text of ['{ "models": { "Quick": "x" } }', '{']) {
+    for (const text of ['{ "claude": { "models": { "Light": "x" } } }', '{']) {
       const problems = refused(withGauger(text));
       assert.equal(problems.length, 1, problems.join('\n'));
       assert.match(problems[0] ?? '', /^models\.jsonc: /);
@@ -649,15 +660,18 @@ describe("serveSetup: Foedrum's default models (ADR 0153)", () => {
   });
 
   it('refuses a default models.jsonc that does not pass, does not read or cannot be read, with a line naming its defaults/ path (ADR 0098)', () => {
-    const own = JSON.stringify({ models: { builder: 'claude-sonnet-5-5' } });
+    const mapped = own({ standard: 'claude-sonnet-5-5' });
     const broken: BreweryFile[] = [
       { path: 'defaults/models.jsonc', text: '{' },
-      { path: 'defaults/models.jsonc', text: '{ "models": { "Builder": "sonnet" } }' },
+      {
+        path: 'defaults/models.jsonc',
+        text: '{ "claude": { "models": { "Standard": "sonnet" } } }',
+      },
       { path: 'defaults/models.jsonc', unreadable: 'EACCES' },
     ];
     for (const file of broken) {
-      // With the Brewery's own file mapping builder, only the default is at fault.
-      for (const text of [own, undefined]) {
+      // With the Brewery's own file mapping standard, only the default is at fault.
+      for (const text of [mapped, undefined]) {
         const problems = refused(withGauger(text, { models: file }));
         assert.ok(
           problems.some((problem) => problem.startsWith('defaults/models.jsonc: ')),

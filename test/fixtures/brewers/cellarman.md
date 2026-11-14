@@ -4,8 +4,8 @@
   "name": "cellarman",
   "description": "Makes the Gauger's failing tests pass in one repository.",
   "version": 1,
-  "model": "builder",
-  "effort": "high",
+  "model": "standard",
+  "effort": "careful",
   "inputs": [
     { "name": "order", "from": "order", "trusted": false },
     { "name": "plan", "from": "step:plan" },

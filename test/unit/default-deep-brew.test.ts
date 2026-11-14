@@ -74,15 +74,15 @@ describe('the default deep-brew', () => {
     assert.deepEqual(checks.redProof('deep-brew'), checks.redProof('nip'));
   });
 
-  it('deep-brew tastes through all seven diff lenses in one Taster step on the planner alias', () => {
+  it('deep-brew tastes through all seven diff lenses in one Taster step on the strong level', () => {
     const { brewers } = loaded();
     const deep = found('deep-brew');
     assert.equal(deep.children('taste'), undefined, 'one step, not a parallel group');
     const taste = brewers.find('deep-brew', 'taste') ?? assert.fail('no taste step');
     assert.equal(taste.brewer.name, 'taster');
-    assert.equal(taste.brewer.model, 'planner');
+    assert.equal(taste.brewer.model, 'strong');
     // The Taster's own effort, as three lenses together were measured (ADR 0347).
-    assert.equal(taste.brewer.effort, 'medium');
+    assert.equal(taste.brewer.effort, 'steady');
     const diffLenses = readdirSync(join(FOEDRUM_DEFAULTS, 'lenses', 'diff'))
       .filter((file) => file.endsWith('.md'))
       .map((file) => `diff/${file.replace(/\.md$/, '')}`);

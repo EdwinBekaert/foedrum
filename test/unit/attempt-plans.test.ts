@@ -21,6 +21,7 @@ import type { Event, GravityReading } from '../../src/schemas/events.ts';
 import { OutDocFrontmatter } from '../../src/schemas/out-doc.ts';
 import type { StepOutcome } from '../../src/schemas/step-outcome.ts';
 import { brewerText, recipeText } from '../helpers/brewery-files.ts';
+import { claudeModels } from '../helpers/models.ts';
 
 const workRoot = join('/root');
 const worktree = join('/work', 'brew-1');
@@ -94,7 +95,7 @@ const setup = (
   const plans = createAttemptPlans({
     state: () => fold(events),
     brewers,
-    models: { models: { builder: 'claude-sonnet-5-5' }, brewers: {} },
+    models: claudeModels({ standard: 'claude-sonnet-5-5' }),
     repoTools: (repo) => (repo === 'acme/api' ? ['Bash(npm test)'] : []),
     clone: (repo) => join('/clones', repo),
     sandbox: false,
@@ -2232,7 +2233,7 @@ describe('createAttemptPlans: limits', () => {
     const plans = createAttemptPlans({
       state: () => fold(events),
       brewers: two.brewers,
-      models: { models: {}, brewers: {} },
+      models: claudeModels({}),
       repoTools: () => [],
       clone: () => join('/clones', 'acme/api'),
       sandbox: false,
@@ -2277,7 +2278,7 @@ describe('createAttemptPlans: limits', () => {
       createAttemptPlans({
         state: () => fold(events),
         brewers: committing.brewers,
-        models: { models: { builder: 'claude-sonnet-5-5' }, brewers: {} },
+        models: claudeModels({ standard: 'claude-sonnet-5-5' }),
         repoTools: () => [],
         clone: (repo) => join('/clones', repo),
         sandbox: false,
@@ -2973,7 +2974,7 @@ describe('createAttemptPlans: a Taster that reviews a plan (ADR 0312)', () => {
     ];
     const { plans } = setup(events, planDocs, 'Export the batches.', tasting.brewers, {
       repositories,
-      models: { models: { builder: 'claude-sonnet-5-5', planner: 'opus' }, brewers: {} },
+      models: claudeModels({ standard: 'claude-sonnet-5-5', strong: 'opus' }),
       git: async () => ({ code: 0, stdout: `${'d'.repeat(40)}\n`, stderr: '' }),
     });
     const { prompt } = await plans.plan({ ref: plan3, limits: plans.limits(plan3) });
@@ -2991,7 +2992,7 @@ describe('createAttemptPlans: a Taster that reviews a plan (ADR 0312)', () => {
     const promptOf = async (why: 'failed' | 'findings') => {
       const { plans } = setup(scheduled(why), planDocs, 'Export the batches.', tasting.brewers, {
         repositories,
-        models: { models: { builder: 'claude-sonnet-5-5', planner: 'opus' }, brewers: {} },
+        models: claudeModels({ standard: 'claude-sonnet-5-5', strong: 'opus' }),
         git: async () => ({ code: 0, stdout: `${'d'.repeat(40)}\n`, stderr: '' }),
       });
       return (await plans.plan({ ref: plan3, limits: plans.limits(plan3) })).prompt;
@@ -3017,7 +3018,7 @@ describe('createAttemptPlans: a Taster that reviews a plan (ADR 0312)', () => {
     ];
     const { plans } = setup(events, planDocs, 'Export the batches.', tasting.brewers, {
       repositories,
-      models: { models: { builder: 'claude-sonnet-5-5', planner: 'opus' }, brewers: {} },
+      models: claudeModels({ standard: 'claude-sonnet-5-5', strong: 'opus' }),
       git: async () => ({ code: 0, stdout: `${'d'.repeat(40)}\n`, stderr: '' }),
     });
     const { prompt } = await plans.plan({ ref: plan4, limits: plans.limits(plan4) });

@@ -44,7 +44,7 @@ describe('mash-in and the Innkeeper (ADR 0232)', () => {
       { name, model, access, allow: tools?.allow, schema: output?.schema },
       {
         name: 'innkeeper',
-        model: 'builder',
+        model: 'standard',
         access: 'read',
         allow: ['Read', 'Grep', 'Glob', 'Edit(mash-in.md)'],
         schema: 'recipeChoice',

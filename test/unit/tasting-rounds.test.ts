@@ -15,6 +15,7 @@ import type { Event } from '../../src/schemas/events.ts';
 import type { StepOutcome } from '../../src/schemas/step-outcome.ts';
 import type { Git } from '../../src/workspace/git.ts';
 import { recipeText } from '../helpers/brewery-files.ts';
+import { claudeModels } from '../helpers/models.ts';
 
 const noFiles = readBreweryFiles(join(FOEDRUM_DEFAULTS, 'no-such-brewery'));
 const files = {
@@ -154,7 +155,7 @@ const planRound = async (
       assert.ok(loaded.valid, loaded.valid ? '' : loaded.problems.join('\n'));
       return loaded.brewers;
     })(),
-    models: { models: { builder: 'claude-sonnet-5-5' }, brewers: {} },
+    models: claudeModels({ standard: 'claude-sonnet-5-5' }),
     repoTools: () => [],
     clone: (repo) => join('/clones', repo),
     sandbox: false,

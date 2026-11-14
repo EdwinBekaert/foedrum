@@ -30,6 +30,7 @@ import { OutDocFrontmatter } from '../../src/schemas/out-doc.ts';
 import { brewerText, recipeText } from '../helpers/brewery-files.ts';
 import { fakeFetch } from '../helpers/fake-fetch.ts';
 import { ghOver } from '../helpers/fake-gh.ts';
+import { claudeModels } from '../helpers/models.ts';
 
 const nonce = '0123456789abcdef0123456789abcdef';
 const sessionId = '0f8fad5b-d9cb-469f-a165-70867728950e';
@@ -112,7 +113,7 @@ const plansOf = (
   createAttemptPlans({
     state: () => fold([...events()]),
     brewers: loadedWith(retryMode),
-    models: { models: { builder: 'claude-sonnet-5-5' }, brewers: {} },
+    models: claudeModels({ standard: 'claude-sonnet-5-5' }),
     repoTools: () => [],
     clone: (repo) => join('/clones', repo),
     sandbox: false,
@@ -906,7 +907,7 @@ describe('a resumed session hears the comments made since (ADR 0338)', () => {
     const plans = createAttemptPlans({
       state: () => log.state(),
       brewers: loaded.brewers,
-      models: { models: { planner: 'claude-sonnet-5-5' }, brewers: {} },
+      models: claudeModels({ strong: 'claude-sonnet-5-5' }),
       repoTools: () => [],
       clone: (repo) => join('/clones', repo),
       sandbox: false,

@@ -1,5 +1,5 @@
-// The Maltster's map (ADR 0395): Nip and Deep-brew run a read-only `map` step, on the `explorer`
-// alias, before the Gauger, and the Gauger, Cellarman and the Finer read its out doc as an input.
+// The Maltster's map (ADR 0395): Nip and Deep-brew run a read-only `map` step, on the `light`
+// level, before the Gauger, and the Gauger, Cellarman and the Finer read its out doc as an input.
 // The Maltster's survey, maltster-survey, is unchanged beside it but for its name. The fake brewer
 // runner plays every step.
 
@@ -126,7 +126,7 @@ describe('the default Nip and Deep-brew map the code before the Gauger (ADR 0395
     const found = loaded().brewers.find('nip', 'map') ?? assert.fail('nip has no map step');
     assert.equal(found.brewer.name, 'maltster-map');
     assert.equal(found.brewer.access, 'read');
-    assert.equal(found.brewer.model, 'explorer');
+    assert.equal(found.brewer.model, 'light');
     assert.equal(found.brewer.output.doc, 'map.md');
     assert.equal(found.brewer.produces, 'report');
   });
@@ -148,7 +148,7 @@ describe('the default Nip and Deep-brew map the code before the Gauger (ADR 0395
     const found = loaded().brewers.find('deep-brew', 'map') ?? assert.fail('no map step');
     assert.equal(found.brewer.name, 'maltster-map');
     assert.equal(found.brewer.access, 'read');
-    assert.equal(found.brewer.model, 'explorer');
+    assert.equal(found.brewer.model, 'light');
   });
 
   it("keeps the first map when the Tasters' findings send the batch back to Cellarman", async () => {
@@ -205,7 +205,7 @@ describe('the default Nip and Deep-brew map the code before the Gauger (ADR 0395
       const survey = brewers.find(recipe, 'survey') ?? assert.fail(`${recipe} has no survey`);
       assert.equal(survey.brewer.name, 'maltster-survey', recipe);
       assert.equal(survey.brewer.version, 4, recipe);
-      assert.equal(survey.brewer.model, 'builder', recipe);
+      assert.equal(survey.brewer.model, 'standard', recipe);
       assert.deepEqual(survey.brewer.output, { doc: 'survey.md', schema: 'survey' }, recipe);
       assert.deepEqual(survey.brewer.guards, ['requiresOutDoc', 'requiresCommits', 'testMapOnly']);
       assert.deepEqual(recipes.find(recipe)?.steps.slice(0, 2), ['survey', 'survey-check']);
@@ -273,7 +273,7 @@ const eventsOf = (stepId: string, mapped: boolean): Event[] => {
   ];
 };
 
-/** The attempt plan of `stepId`, with `models` resolving the aliases and `brewers` the steps. */
+/** The attempt plan of `stepId`, with `models` resolving the levels and `brewers` the steps. */
 const planOf = async (
   stepId: string,
   options: { models?: ServeSetup['models']; brewers?: ServeSetup['brewers'] } = {},
@@ -332,7 +332,7 @@ const startedMap = (): Event[] => [
 ];
 
 describe("the map step's attempt and the brewers that read its map (ADR 0395)", () => {
-  it('starts claude for the map step on the model the default explorer alias maps to, haiku', async () => {
+  it('starts claude for the map step on the model the default light level maps to, haiku', async () => {
     const plan = await planOf('map');
     assert.equal(plan.call.model, 'haiku');
     const args = claudeArgs({ ...plan.call, settingsFile: join('/root', 'settings.json') });
@@ -347,12 +347,12 @@ describe("the map step's attempt and the brewers that read its map (ADR 0395)", 
     assert.match(writes[0] ?? '', /^Edit\([^)]*map\.md\)$/);
   });
 
-  it("puts the map step on another model when the Brewery's models.jsonc maps explorer to it", async () => {
-    const setup = setupWith(JSON.stringify({ models: { explorer: 'claude-sonnet-5-5' } }));
+  it("puts the map step on another model when the Brewery's models.jsonc maps light to it", async () => {
+    const setup = setupWith(JSON.stringify({ claude: { models: { light: 'claude-sonnet-5-5' } } }));
     const plan = await planOf('map', { models: setup.models });
     assert.equal(plan.call.model, 'claude-sonnet-5-5');
-    // The other aliases keep Foedrum's defaults.
-    assert.equal(setup.models.models.builder, 'sonnet');
+    // The other levels keep Foedrum's defaults.
+    assert.equal(setup.models.claude.models.standard, 'sonnet');
   });
 
   for (const [stepId, brewer] of [

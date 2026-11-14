@@ -15,6 +15,7 @@ import { loadRecipes } from '../../src/engine/recipe-files.ts';
 import type { Event } from '../../src/schemas/events.ts';
 import type { Disposition, TastingFinding } from '../../src/schemas/out-doc.ts';
 import { recipeText } from '../helpers/brewery-files.ts';
+import { claudeModels } from '../helpers/models.ts';
 
 const deadline: TastingFinding = {
   file: 'src/wait.ts',
@@ -275,7 +276,7 @@ const planRound = async (
       assert.ok(loaded.valid, loaded.valid ? '' : loaded.problems.join('\n'));
       return loaded.brewers;
     })(),
-    models: { models: { builder: 'claude-sonnet-5-5' }, brewers: {} },
+    models: claudeModels({ standard: 'claude-sonnet-5-5' }),
     repoTools: () => [],
     clone: (repo) => join('/clones', repo),
     sandbox: false,

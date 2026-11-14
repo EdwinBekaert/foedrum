@@ -195,6 +195,11 @@ export function modelOf(models: ModelsConfig, brewer: BrewerFrontmatter): string
   return model;
 }
 
+/** The word `claude --effort` gets for the brewer's effort; throws when models.jsonc has none (ADR 0397). */
+export function effortOf(_models: ModelsConfig, _brewer: BrewerFrontmatter): string {
+  throw new Error('not implemented');
+}
+
 /**
  * The model family the brewer runs on, read as its attempt runs it, a blind-tasting swap included;
  * undefined when it cannot be told, also when models.jsonc has no model for its alias (ADR 0215).

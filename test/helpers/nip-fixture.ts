@@ -228,7 +228,7 @@ export const nipBreweryFiles = (options: {
     users: [options.user],
     repositories: { [options.target]: nipTargetConfig() },
   }),
-  'models.jsonc': json({ models: { builder: 'claude-haiku-5-5' } }),
+  'models.jsonc': json({ claude: { models: { standard: 'claude-haiku-5-5' } } }),
   '.gitignore': '.foedrum/\n',
 });
 

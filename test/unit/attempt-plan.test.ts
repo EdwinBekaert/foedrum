@@ -34,6 +34,7 @@ import { OutDocFrontmatter, readOutDoc } from '../../src/schemas/out-doc.ts';
 import { BrewerAllowedTool } from '../../src/schemas/primitives.ts';
 import type { StepOutcome } from '../../src/schemas/step-outcome.ts';
 import { outDoc } from '../helpers/fake-brewer-runner.ts';
+import { claudeModels } from '../helpers/models.ts';
 
 const brewer = (fields: Record<string, unknown> = {}): BrewerFrontmatter =>
   BrewerFrontmatter.parse({
@@ -42,8 +43,8 @@ const brewer = (fields: Record<string, unknown> = {}): BrewerFrontmatter =>
     version: 1,
     output: { doc: 'brew.md', schema: 'outDoc' },
     produces: 'report',
-    model: 'builder',
-    effort: 'high',
+    model: 'standard',
+    effort: 'careful',
     tools: { allow: ['Read', 'Edit(brew.md)', 'Bash(git diff*)'], deny: ['Read(.env)'] },
     access: 'read',
     tree: 'task',
@@ -52,10 +53,10 @@ const brewer = (fields: Record<string, unknown> = {}): BrewerFrontmatter =>
     ...fields,
   });
 
-const models: ModelsConfig = {
-  models: { builder: 'claude-sonnet-5-5', quick: 'claude-haiku-5-5' },
-  brewers: { taster: 'quick' },
-};
+const models: ModelsConfig = claudeModels(
+  { standard: 'claude-sonnet-5-5', light: 'claude-haiku-5-5' },
+  { taster: 'light' },
+);
 
 const sha = 'c'.repeat(40);
 const worktreeOf = (name: string) => ({
@@ -712,51 +713,44 @@ describe('gitRulesOf (ADR 0074)', () => {
 });
 
 describe('modelOf (models.jsonc)', () => {
-  it("is the model behind the brewer's alias", () => {
+  it("is the model behind the brewer's level", () => {
     assert.equal(modelOf(models, brewer()), 'claude-sonnet-5-5');
   });
 
-  it("takes the alias models.jsonc gives the brewer over the brewer's own", () => {
+  it("takes the level models.jsonc gives the brewer over the brewer's own", () => {
     assert.equal(modelOf(models, brewer({ name: 'taster' })), 'claude-haiku-5-5');
   });
 
-  it("takes the brewer's own alias when its name is only a property every object has", () => {
+  it("takes the brewer's own level when its name is only a property every object has", () => {
     assert.equal(modelOf(models, brewer({ name: 'constructor' })), 'claude-sonnet-5-5');
   });
 
-  it('throws for an alias that is only a property every object has (review of #165)', () => {
+  it('throws, naming the level and the brewer, when models.jsonc has no model for the level', () => {
     assert.throws(
-      () => modelOf(models, brewer({ model: 'constructor' })),
-      /models.jsonc has no model for the alias "constructor" of the brewer "brewmaster"/,
-    );
-  });
-
-  it('throws, naming the alias and the brewer, when models.jsonc has no model for the alias', () => {
-    assert.throws(
-      () => modelOf(models, brewer({ model: 'large' })),
-      /models\.jsonc has no model for the alias "large" of the brewer "brewmaster"/,
+      () => modelOf(models, brewer({ model: 'strong' })),
+      /models\.jsonc has no claude model for the level "strong" of the brewer "brewmaster"/,
     );
   });
 });
 
 describe('familyOfBrewer (ADR 0215)', () => {
-  const families: ModelsConfig = {
-    models: { builder: 'claude-sonnet-5-5', deep: 'opus', quick: 'claude-haiku-5-5' },
-    brewers: { taster: 'deep', gauger: 'quick' },
-  };
+  const families: ModelsConfig = claudeModels(
+    { standard: 'claude-sonnet-5-5', strong: 'opus', light: 'claude-haiku-5-5' },
+    { taster: 'strong', gauger: 'light' },
+  );
 
-  it("is the family of the model behind the brewer's alias", () => {
+  it("is the family of the model behind the brewer's level", () => {
     assert.equal(familyOfBrewer(families, brewer()), 'Sonnet');
-    assert.equal(familyOfBrewer(families, brewer({ model: 'deep' })), 'Opus');
+    assert.equal(familyOfBrewer(families, brewer({ model: 'strong' })), 'Opus');
   });
 
   it('reads a blind-tasting swap as the attempt runs it', () => {
     assert.equal(familyOfBrewer(families, brewer({ name: 'taster' })), 'Opus');
   });
 
-  it('cannot tell a family no Opus or Sonnet limit names, nor an alias without a model', () => {
+  it('cannot tell a family no Opus or Sonnet limit names, nor a level without a model', () => {
     assert.equal(familyOfBrewer(families, brewer({ name: 'gauger' })), undefined);
-    assert.equal(familyOfBrewer(families, brewer({ model: 'large' })), undefined);
+    assert.equal(familyOfBrewer(models, brewer({ model: 'strong' })), undefined);
   });
 });
 

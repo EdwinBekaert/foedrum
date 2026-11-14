@@ -17,6 +17,7 @@ import {
 import type { Event } from '../../src/schemas/events.ts';
 import type { ModelsConfig } from '../../src/schemas/models.ts';
 import { recipeText } from '../helpers/brewery-files.ts';
+import { claudeModels } from '../helpers/models.ts';
 
 const noFiles = readBreweryFiles(join(FOEDRUM_DEFAULTS, 'no-such-brewery'));
 
@@ -29,7 +30,7 @@ const valid = (result: LoadedRecipes) => {
 const HIGH = new Set(['nip/correctness', 'nip/acceptance', 'nip/security']);
 
 describe("the default recipes' Taster steps (#935)", () => {
-  it("every Taster step of the default recipes but nip's three keeps its brewer's medium effort: regression test", () => {
+  it("every Taster step of the default recipes but nip's three keeps its brewer's steady effort: regression test", () => {
     const { recipes, brewers } = valid(loadRecipes(noFiles));
     const others: string[] = [];
     for (const name of ['nip', 'mash', 'deep-mash', 'mash-in']) {
@@ -38,7 +39,7 @@ describe("the default recipes' Taster steps (#935)", () => {
         if (found?.brewer.output.schema !== 'tasting') continue;
         if (HIGH.has(`${name}/${stepId}`)) continue;
         others.push(`${name}/${stepId}`);
-        assert.equal(found.brewer.effort, 'medium', `${name}/${stepId}`);
+        assert.equal(found.brewer.effort, 'steady', `${name}/${stepId}`);
       }
     }
     // The plan Tasters of mash and deep-mash, and nip's design conformance, are among them.
@@ -80,10 +81,10 @@ const eventsOf = (recipe: string, stepId: string): Event[] => {
   ];
 };
 
-const MODELS: ModelsConfig = {
-  models: { builder: 'claude-sonnet-5-5', planner: 'claude-opus-5-5' },
-  brewers: {},
-};
+const MODELS: ModelsConfig = claudeModels({
+  standard: 'claude-sonnet-5-5',
+  strong: 'claude-opus-5-5',
+});
 
 /** The prompt and the `claude` call of `stepId`'s first attempt in `recipe`, as an attempt plans them. */
 const planOf = async (
@@ -146,7 +147,7 @@ describe("nip's Tasters at high effort, without the Taster's read of the rules (
                 id: 'deep',
                 brewer: 'taster',
                 lens: 'diff/correctness',
-                effort: 'xhigh',
+                effort: 'thorough',
                 onFindings: { goto: 'implement', maxRounds: 1 },
               },
               {
@@ -196,11 +197,11 @@ describe("nip's Tasters at high effort, without the Taster's read of the rules (
       refused.valid ? '' : refused.problems.join('\n'),
       /recipes\/amber\.jsonc: .* at steps\[1\]/,
     );
-    assert.ok(loadRecipes(files('high')).valid);
+    assert.ok(loadRecipes(files('careful')).valid);
   });
 
   it("a blind-tasting swap of the Taster moves its model and keeps a step's own effort", async () => {
-    const swapped: ModelsConfig = { ...MODELS, brewers: { taster: 'planner' } };
+    const swapped: ModelsConfig = { ...MODELS, brewers: { taster: 'strong' } };
     const { call } = await planOf('correctness', { models: swapped });
     assert.equal(call.model, 'claude-opus-5-5');
     assert.equal(call.effort, 'high');

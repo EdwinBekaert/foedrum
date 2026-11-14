@@ -28,8 +28,10 @@ export const config = (fields: Record<string, unknown> = {}, web: Record<string,
   });
 export const local = (fields: Record<string, unknown> = {}) =>
   JSON.stringify({ clones: { 'acme/web': clone }, ...fields });
-export const models = (alias = 'quick') =>
-  JSON.stringify({ models: { [alias]: 'claude-haiku-5-5' } });
+export const models = (level = 'light') =>
+  JSON.stringify({
+    claude: { models: { [level]: 'claude-haiku-5-5' }, efforts: { quick: 'low' } },
+  });
 
 // Its brewer commits with no red proof before it, so it says testFirst: false (ADR 0064), and
 // the commits go into a pull request (ADR 0084).
@@ -65,8 +67,8 @@ export const brewer = `---
   "inputs": [{ "name": "order", "from": "order" }],
   "output": { "doc": "brew.md", "schema": "outDoc" },
   "produces": "commits",
-  "model": "quick",
-  "effort": "low",
+  "model": "light",
+  "effort": "quick",
   "tools": { "allow": ["Read", "Write"] },
   "access": "write",
   "tree": "task",

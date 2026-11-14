@@ -25,6 +25,7 @@ import { openAttemptWorktrees } from '../../src/workspace/attempt-worktrees-git.
 import { runGit } from '../../src/workspace/git.ts';
 import { outDoc } from '../helpers/fake-brewer-runner.ts';
 import { waitUntil } from '../helpers/load.ts';
+import { claudeModels } from '../helpers/models.ts';
 import { realClaude } from '../helpers/real-claude.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 import { type FakeMessagesApi, startFakeMessagesApi, type ToolCall } from './fake-messages-api.ts';
@@ -64,8 +65,8 @@ const brewer = `---
   "inputs": [{ "name": "order", "from": "order" }],
   "output": { "doc": "brew.md", "schema": "outDoc" },
   "produces": "commits",
-  "model": "quick",
-  "effort": "low",
+  "model": "light",
+  "effort": "quick",
   "tools": { "allow": ["Read", "Write"] },
   "access": "write",
   "tree": "task",
@@ -147,7 +148,7 @@ describe('one real step through the driver', { skip: real.kind === 'skip' && rea
         return driver.state();
       },
       brewers: loaded.brewers,
-      models: { models: { quick: 'claude-haiku-5-5' }, brewers: {} },
+      models: claudeModels({ light: 'claude-haiku-5-5' }),
       repoTools: () => [],
       clone: () => clone,
       sandbox: false,
