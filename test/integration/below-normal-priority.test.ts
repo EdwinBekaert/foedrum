@@ -4,7 +4,7 @@
 
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { constants, getPriority } from 'node:os';
+import { constants, getPriority, setPriority } from 'node:os';
 import { join } from 'node:path';
 import { describe, it, type TestContext } from 'node:test';
 
@@ -35,11 +35,25 @@ const priorities = (preload = './scripts/test-cpu-time.ts'): string => {
 const below = constants.priority.PRIORITY_BELOW_NORMAL;
 
 // A test process that already runs below normal (npm run test:integration on a developer's
-// machine lowers itself) would pass its priority on to the probe whatever the preload does, so
-// the check could not fail. It runs where this process is at normal priority, as in CI.
+// machine lowers itself, and so does the Windows runner in CI) would pass its priority on to the
+// probe whatever the preload does, so the check could not fail. Windows lets a process raise itself
+// back to normal, so it does that for the test and lowers itself again after; elsewhere that takes
+// privileges, and the test runs only where this process is at normal priority, as in CI there.
 const skipWhenAlreadyLow = (t: TestContext): boolean => {
-  if (getPriority() < below) return false;
-  t.skip('this process already runs below normal, so the probe would inherit it');
+  const was = getPriority();
+  if (was < below) return false;
+  try {
+    setPriority(constants.priority.PRIORITY_NORMAL);
+  } catch {
+    // Refused: left as it was.
+  }
+  if (getPriority() < below) {
+    t.after(() => setPriority(was));
+    return false;
+  }
+  t.skip(
+    'this process already runs below normal and may not raise itself, so the probe would inherit it',
+  );
   return true;
 };
 
