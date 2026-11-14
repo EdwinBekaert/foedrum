@@ -993,11 +993,15 @@ export const scriptedTranscript = (worktree: string, model: string): string =>
 export const MEASURED_BREWERS = ['cellarman'] as const;
 export type MeasuredBrewer = (typeof MEASURED_BREWERS)[number];
 
-/** A real brewer's run settings: which brewer, on which model, at which effort (ADR 0394). */
+/**
+ * A real brewer's run settings: which brewer, on which model, at which effort (ADR 0394), and
+ * `plan` when it starts from the Brewmaster's kept sub-order, not the order's own text (ADR 0396).
+ */
 export interface BrewerSettings {
   brewer: MeasuredBrewer;
   model: string;
   effort: z.infer<typeof Effort>;
+  orderText?: 'plan';
 }
 
 /** One order brewed by a real brewer on a model and effort: the order first, as a setup's name. */
@@ -1016,6 +1020,7 @@ export const brewerSettingsOf = (given: {
   model?: string;
   effort?: string;
   setups?: string;
+  orderText?: string;
 }): BrewerSettings | undefined => {
   const { real, brewer, model, effort, setups } = given;
   if (brewer === undefined) {
@@ -1450,4 +1455,94 @@ export const brewerTable = (records: readonly BrewerRecord[]): string => {
     '',
     'Score lists/<order>.md by hand against the key, then open codes.md, which says which setup each code is.',
   ].join('\n')}\n`;
+};
+
+/** The Brewmaster's recipe of the planning step, `--sub-orders` (ADR 0396). */
+export const PLANNER_RECIPE = 'real-plan-brewmaster';
+
+/** One order planned once by the real Brewmaster. */
+export type PlannerSetup = `${OrderNumber}-brewmaster`;
+
+/** What a planning run measured: the Brewmaster's models, and its one sub-order or why it has none. */
+export interface PlannerRun {
+  models: readonly string[];
+  unreadable?: string;
+  /** The Brewmaster's plan, as its out doc gave it. */
+  plan?: unknown;
+  /** The sub-order a brewer's run starts from: its title and its plan entry's text (ADR 0290). */
+  subOrder?: { title: string; text: string };
+  /** Why the order keeps no sub-order text. */
+  why?: string;
+}
+
+export type PlannerRecord = RunRecord<PlannerSetup> & { planner: PlannerRun };
+
+/** Whether `--sub-orders` plans the orders; throws on a wrong combination. */
+export const subOrdersRunOf = (_given: {
+  real?: boolean;
+  subOrders?: boolean;
+  brewer?: string;
+  setups?: string;
+  orderText?: string;
+}): boolean => {
+  throw new Error('not implemented');
+};
+
+/** The planning step's setups, one per order of `--orders`, or of every order. */
+export const plannerSetups = (_orders?: string): PlannerSetup[] => {
+  throw new Error('not implemented');
+};
+
+/** The planning step's Brewery files beyond Nip's: its recipe. */
+export const plannerBreweryFiles = (): Record<string, string> => {
+  throw new Error('not implemented');
+};
+
+/** A planning run's record from its store's events. */
+export const plannerRecordOf = (
+  _events: readonly { event: Event }[],
+  _transcriptOf: (sessionId: string, worktree: string) => string | undefined,
+): Pick<PlannerRecord, 'ended' | 'attempts' | 'planner'> => {
+  throw new Error('not implemented');
+};
+
+/** Why a planning run measured nothing, or undefined. */
+export const plannerFailure = (
+  _record: Pick<PlannerRecord, 'ended' | 'planner'>,
+): string | undefined => {
+  throw new Error('not implemented');
+};
+
+/** Why the comparison must stop after a planning run, or undefined. */
+export const plannerStop = (
+  _record: Pick<PlannerRecord, 'setup' | 'planner'>,
+): string | undefined => {
+  throw new Error('not implemented');
+};
+
+/** The files a planning step keeps, by path in its folder. */
+export const keptFiles = (_records: readonly PlannerRecord[]): Record<string, string> => {
+  throw new Error('not implemented');
+};
+
+/** The dry run's scripted Brewmaster: a plan of one sub-order of the order `title`. */
+export const scriptedPlan = (_title: string): Record<string, readonly Scripted[]> => {
+  throw new Error('not implemented');
+};
+
+/** The file of the text a brewer's run of `setup` starts from: the order's own, or the kept sub-order's. */
+export const orderFileOf = (
+  _setup: BrewerSetup,
+  _folders: { fixture: string; kept: string },
+): string => {
+  throw new Error('not implemented');
+};
+
+/** Throws, naming every missing file, when a run of `setups` would start from a kept text that is not there. */
+export const refuseMissingTexts = (
+  _setups: readonly BrewerSetup[],
+  _kept: string,
+  _exists: (path: string) => boolean,
+): void => {
+  throw new Error('not implemented');
 };

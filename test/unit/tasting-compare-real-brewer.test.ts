@@ -18,13 +18,25 @@ import {
   brewerTable,
   codeDiffArgs,
   codeOf,
+  keptFiles,
   nextBrewerRun,
+  orderFileOf,
+  PLANNER_RECIPE,
+  type PlannerRecord,
+  plannerBreweryFiles,
+  plannerFailure,
+  plannerRecordOf,
+  plannerSetups,
+  plannerStop,
   REAL_BREWER_RECIPE,
   REAL_SETUPS,
   realBreweryFiles,
+  refuseMissingTexts,
   scratchNameOf,
+  scriptedPlan,
   scriptedTranscript,
   splitHead,
+  subOrdersRunOf,
 } from '../../scripts/tasting-compare/real.ts';
 import { modelOf } from '../../src/brewers/attempt-plan.ts';
 import { claudeArgs } from '../../src/brewers/claude-command.ts';
@@ -45,13 +57,14 @@ const SESSION = '00000000-0000-4000-8000-000000000001';
 const withBrewery = <T>(
   settings: BrewerSettings,
   use: (ready: ReturnType<typeof serveSetup>, files: Record<string, string>) => T,
+  own: () => Record<string, string> = () => brewerBreweryFiles(settings, NAMES),
 ): T => {
   const brewery = makeTempDir('tasting-compare-real-brewer');
   try {
     const { 'models.jsonc': _, ...nip } = nipBreweryFiles(NAMES);
     const files: Record<string, string> = {
       ...nip,
-      ...brewerBreweryFiles(settings, NAMES),
+      ...own(),
       '.foedrum/local.jsonc': localConfig(join(brewery.path, 'work'), join(brewery.path, 'web')),
     };
     for (const [path, text] of Object.entries(files)) {
@@ -82,19 +95,28 @@ const withBrewery = <T>(
 };
 
 /** A step's `claude` line in a brewer's run, through serve's own setup. */
-const commandLine = (settings: BrewerSettings, stepId: string): string[] =>
-  withBrewery(settings, (ready) => {
-    assert.ok(ready.kind !== 'refused', JSON.stringify(ready));
-    const step = ready.setup.brewers.find(REAL_BREWER_RECIPE, stepId);
-    assert.ok(step !== undefined, stepId);
-    return claudeArgs({
-      model: modelOf(ready.setup.models, step.brewer),
-      effort: step.brewer.effort,
-      settingsFile: 'settings.json',
-      tools: ['Read'],
-      session: { kind: 'new', id: SESSION },
-    });
-  });
+const commandLine = (
+  settings: BrewerSettings,
+  stepId: string,
+  recipe = REAL_BREWER_RECIPE,
+  own?: () => Record<string, string>,
+): string[] =>
+  withBrewery(
+    settings,
+    (ready) => {
+      assert.ok(ready.kind !== 'refused', JSON.stringify(ready));
+      const step = ready.setup.brewers.find(recipe, stepId);
+      assert.ok(step !== undefined, stepId);
+      return claudeArgs({
+        model: modelOf(ready.setup.models, step.brewer),
+        effort: step.brewer.effort,
+        settingsFile: 'settings.json',
+        tools: ['Read'],
+        session: { kind: 'new', id: SESSION },
+      });
+    },
+    own,
+  );
 
 const optionValue = (line: readonly string[], option: string): string | undefined =>
   line[line.indexOf(option) + 1];
@@ -598,7 +620,7 @@ describe('tasting-compare --real --brewer (ADR 0394)', () => {
       const row = codes.split('\n').find((line) => line.includes(codeOf('a seed', SONNET, 1)));
       assert.equal(
         row,
-        `| ${codeOf('a seed', SONNET, 1)} | ${SONNET} | 1 | claude-sonnet-5-5 | high | passed | implement 1 | 10 | 2 | 3 | 4 | 19 | 7 | 1 s | 9 s |`,
+        `| ${codeOf('a seed', SONNET, 1)} | ${SONNET} | 1 | claude-sonnet-5-5 | high | issue | passed | implement 1 | 10 | 2 | 3 | 4 | 19 | 7 | 1 s | 9 s |`,
       );
     });
 
@@ -747,7 +769,7 @@ describe('tasting-compare --real --brewer (ADR 0394)', () => {
       const row = codes.split('\n').find((line) => line.includes(codeOf('a seed', SETUP, 1)));
       assert.equal(
         row,
-        `| ${codeOf('a seed', SETUP, 1)} | ${SETUP} | 1 | claude-opus-5-5 | xhigh | passed | gauge 1, implement 2, fine 1, green 2 | 30 | 4 | 6 | 8 | 48 | 10 | 3 s | 9 s |`,
+        `| ${codeOf('a seed', SETUP, 1)} | ${SETUP} | 1 | claude-opus-5-5 | xhigh | issue | passed | gauge 1, implement 2, fine 1, green 2 | 30 | 4 | 6 | 8 | 48 | 10 | 3 s | 9 s |`,
       );
     });
 
@@ -756,6 +778,218 @@ describe('tasting-compare --real --brewer (ADR 0394)', () => {
       const green = recipe.steps.find((step) => 'id' in step && step.id === 'green');
       assert.ok(green !== undefined && 'check' in green);
       assert.equal(green.deadline, '30m');
+    });
+  });
+
+  describe("a run from the Brewmaster's sub-order (ADR 0396)", () => {
+    const PLAN_RUN: BrewerSettings = { ...OPUS, orderText: 'plan' };
+    const FOLDERS = { fixture: join('fx', 'real'), kept: join('tc', 'real', 'sub-orders') };
+    const BATCH = '1-1';
+
+    /** A plan of `subOrders`, as a succeeded Brewmaster's out doc gives it. */
+    const subOrder = (id: string) => ({
+      id,
+      title: `Build ${id}`,
+      repo: TARGET,
+      size: { lines: 120, mechanism: `the ${id} mechanism` },
+      doneWhen: `the ${id} test passes`,
+      touches: [{ path: 'src/engine/driver.ts' }],
+      dependencies: [],
+      recipe: 'nip',
+      why: 'a small change with a test first',
+      ready: true,
+    });
+    const planned = (output: Record<string, unknown>, more: { event: Event }[] = []) => [
+      event({ type: 'batch.ordered', batchId: BATCH, order: { issue: 1 }, routeBy: 'x' }),
+      event({
+        type: 'batch.recipe_chosen',
+        batchId: BATCH,
+        recipe: PLANNER_RECIPE,
+        reason: 'label',
+        source: 'label',
+      }),
+      event({
+        type: 'step.scheduled',
+        batchId: BATCH,
+        stepId: 'plan',
+        attempt: 1,
+        deadlineAt: 'x',
+      }),
+      started('plan', 1, session('plan-1')),
+      finished('plan', 1, { outcome: { kind: 'succeeded', output } }),
+      ...more,
+    ];
+    const done = (...ids: string[]) =>
+      planned({ status: 'done', summary: 'A plan', assumptions: [], subOrders: ids.map(subOrder) });
+    const opusPlanner = (_id: string, tree: string) => scriptedTranscript(tree, 'claude-opus-5-5');
+    const plannerRecord = (events: { event: Event }[]): PlannerRecord => ({
+      setup: '855-brewmaster',
+      run: 1,
+      wallMs: 1,
+      ...plannerRecordOf(events, opusPlanner),
+    });
+
+    it('--order-text plan gives runs of their own: each setup ends in -plan', () => {
+      assert.deepEqual(brewerSettingsOf({ real: true, ...OPUS, orderText: 'plan' }), PLAN_RUN);
+      assert.deepEqual(brewerSetups(PLAN_RUN, '855'), ['855-cellarman-claude-opus-5-5-xhigh-plan']);
+    });
+
+    it("a run without --order-text, or with issue, is today's run: the same settings and setups", () => {
+      assert.deepEqual(brewerSettingsOf({ real: true, ...OPUS }), OPUS);
+      assert.deepEqual(brewerSettingsOf({ real: true, ...OPUS, orderText: 'issue' }), OPUS);
+      assert.deepEqual(brewerSetups(OPUS, '855'), ['855-cellarman-claude-opus-5-5-xhigh']);
+    });
+
+    it('--order-text without --brewer, or with another text, is refused', () => {
+      assert.throws(
+        () => brewerSettingsOf({ real: true, orderText: 'plan' }),
+        /--order-text.*--brewer/,
+      );
+      assert.throws(
+        () => brewerSettingsOf({ real: true, ...OPUS, orderText: 'sub-order' }),
+        /--order-text.*issue, plan.*"sub-order"/,
+      );
+    });
+
+    it('a run with --order-text plan brews from the kept sub-order text', () => {
+      assert.equal(
+        orderFileOf('855-cellarman-claude-opus-5-5-xhigh-plan', FOLDERS),
+        join(FOLDERS.kept, '855.md'),
+      );
+    });
+
+    it("a run without --order-text brews from the order's own text, as before", () => {
+      assert.equal(
+        orderFileOf('855-cellarman-claude-opus-5-5-xhigh', FOLDERS),
+        join(FOLDERS.fixture, '855.md'),
+      );
+    });
+
+    it('a missing kept text refuses before anything brews, naming every order it misses', () => {
+      const setups = brewerSetups(PLAN_RUN);
+      const there = join(FOLDERS.kept, '864.md');
+      assert.throws(
+        () => refuseMissingTexts(setups, FOLDERS.kept, (path) => path === there),
+        (error: Error) =>
+          /855\.md/.test(error.message) &&
+          /867\.md/.test(error.message) &&
+          !/864\.md/.test(error.message) &&
+          /--sub-orders/.test(error.message),
+      );
+      assert.doesNotThrow(() => refuseMissingTexts(setups, FOLDERS.kept, () => true));
+    });
+
+    it("a run from the order's own text needs no kept text", () => {
+      assert.doesNotThrow(() => refuseMissingTexts(brewerSetups(OPUS), FOLDERS.kept, () => false));
+    });
+
+    it('--sub-orders plans the orders once, and is refused beside a brewer run or a Taster setup, or without --real', () => {
+      assert.equal(subOrdersRunOf({ real: true, subOrders: true }), true);
+      assert.equal(subOrdersRunOf({ real: true }), false);
+      assert.throws(() => subOrdersRunOf({ subOrders: true }), /--sub-orders.*--real/);
+      assert.throws(
+        () => subOrdersRunOf({ real: true, subOrders: true, brewer: 'cellarman' }),
+        /--sub-orders.*--brewer/,
+      );
+      assert.throws(
+        () => subOrdersRunOf({ real: true, subOrders: true, setups: 'reads' }),
+        /--sub-orders.*--setups/,
+      );
+      assert.deepEqual(plannerSetups('867'), ['867-brewmaster']);
+    });
+
+    it("the planning step's recipe runs the Brewmaster on its default model and effort", () => {
+      const own = () => plannerBreweryFiles();
+      const line = commandLine(OPUS, 'plan', PLANNER_RECIPE, own);
+      assert.equal(optionValue(line, '--model'), 'opus');
+      assert.equal(optionValue(line, '--effort'), 'high');
+      const recipe = Recipe.parse(
+        parseJsonc(plannerBreweryFiles()[`recipes/${PLANNER_RECIPE}.jsonc`] ?? ''),
+      );
+      assert.equal(recipe.type, 'mash');
+      assert.deepEqual(
+        recipe.steps.map((step) => ('action' in step ? step.action : step.id)),
+        ['plan'],
+      );
+    });
+
+    it("a plan of one sub-order keeps its title and its plan entry's text, which a brewer's run starts from", () => {
+      const { planner } = plannerRecord(done('notes'));
+      assert.equal(planner.subOrder?.title, 'Build notes');
+      assert.match(planner.subOrder?.text ?? '', /^#### `notes`: Build notes$/m);
+      assert.match(planner.subOrder?.text ?? '', /- Done when: the notes test passes/);
+      assert.equal(planner.why, undefined);
+      const kept = keptFiles([plannerRecord(done('notes'))]);
+      assert.equal(kept['855.md'], `Build notes\n${planner.subOrder?.text}\n`);
+      assert.deepEqual(JSON.parse(kept['855-plan.json'] ?? '{}').subOrders[0].id, 'notes');
+    });
+
+    it('a plan of more than one sub-order keeps no text and says why: a result, not a failed run', () => {
+      const record = plannerRecord(done('api', 'ui'));
+      assert.equal(record.planner.subOrder, undefined);
+      assert.match(record.planner.why ?? '', /2 sub-orders/);
+      assert.equal(plannerFailure(record), undefined);
+      const kept = keptFiles([record]);
+      assert.equal(kept['855.md'], undefined);
+      assert.equal(JSON.parse(kept['855-plan.json'] ?? '{}').subOrders.length, 2);
+    });
+
+    it('a Brewmaster that asked a question keeps no text and says why', () => {
+      const asked = planned({ status: 'needs_input', summary: 'A question', questions: [] });
+      const record = plannerRecord(asked);
+      assert.equal(record.planner.subOrder, undefined);
+      assert.match(record.planner.why ?? '', /needs_input/);
+      assert.equal(plannerFailure(record), undefined);
+    });
+
+    it('a planning run whose Brewmaster wrote no out doc measured nothing', () => {
+      const lost = planned({}).slice(0, -1);
+      const record = plannerRecord([
+        ...lost,
+        finished('plan', 1, {
+          outcome: { kind: 'failed', retryable: false, reason: 'no out doc' },
+        }),
+      ]);
+      assert.match(plannerFailure(record) ?? '', /plan/);
+    });
+
+    it('a Brewmaster on a model other than Opus, or whose transcript cannot be found, stops the comparison', () => {
+      const sonnet = {
+        ...plannerRecord(done('notes')),
+        ...plannerRecordOf(done('notes'), (_id, tree) =>
+          scriptedTranscript(tree, 'claude-sonnet-5-5'),
+        ),
+      };
+      assert.match(plannerStop(sonnet) ?? '', /claude-sonnet-5-5.*opus/);
+      const lost = { ...sonnet, ...plannerRecordOf(done('notes'), () => undefined) };
+      assert.match(plannerStop(lost) ?? '', /transcript/);
+      assert.equal(plannerStop(plannerRecord(done('notes'))), undefined);
+    });
+
+    it("the dry run's scripted Brewmaster writes a plan of one sub-order", () => {
+      const [plan] = scriptedPlan('An order').plan ?? [];
+      const subOrders = (plan?.doc?.subOrders ?? []) as { title: string }[];
+      assert.deepEqual(
+        subOrders.map(({ title }) => title),
+        ['An order'],
+      );
+    });
+
+    it('codes.md says which text each run started from', () => {
+      const setup = '855-cellarman-claude-opus-5-5-xhigh-plan' as const;
+      const { codes } = brewerBlinded([brewerRecord(setup, 1, { orderText: 'plan' })], 'a seed');
+      assert.match(codes, /\| Effort \| Text \| Checks \|/);
+      const row = codes.split('\n').find((line) => line.includes(codeOf('a seed', setup, 1)));
+      assert.match(row ?? '', /\| xhigh \| plan \| passed \|/);
+    });
+
+    it('the lists show no text a run started from: regression test', () => {
+      const setup = '855-cellarman-claude-opus-5-5-xhigh-plan' as const;
+      const { lists } = brewerBlinded([brewerRecord(setup, 1, { orderText: 'plan' })], 'a seed');
+      assert.doesNotMatch(
+        (lists['855'] ?? '').replaceAll(/the code of .*/g, ''),
+        /plan|issue|cellarman/,
+      );
     });
   });
 });
