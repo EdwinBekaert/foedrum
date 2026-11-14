@@ -160,6 +160,15 @@ describe('gatherDoctorFacts', () => {
     assert.ok(!read.includes('/etc/resolv.conf'));
   });
 
+  it('reads no /etc/resolv.conf when it cannot be read', async () => {
+    const { shell } = fakeShell();
+    const readFile = (path: string) => {
+      if (path === '/etc/resolv.conf') throw new Error('EACCES: permission denied');
+      return undefined;
+    };
+    assert.equal((await gatherDoctorFacts({ ...shell, readFile })).resolvConf, undefined);
+  });
+
   // Brewers run only in a Job Object on Windows (ADR 0039), so doctor tries one: node, doing
   // nothing, held in a job by the runner.
   it('on Windows, holds node in a Job Object and records how it answered', async () => {

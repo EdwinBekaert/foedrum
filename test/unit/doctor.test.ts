@@ -1592,6 +1592,16 @@ describe("diagnose: the setup's network stack", () => {
     );
   });
 
+  it('says nothing of a setup network with neither stack', () => {
+    const neither = linux({ slirp4netns: undefined });
+    assert.equal(diagnose({ ...neither, resolvConf: lan }).setupNetwork, undefined);
+  });
+
+  it('says nothing of a setup network off Linux, where a setup has no stack', () => {
+    const mac = { ...macos, tools: { ...macos.tools, pasta }, resolvConf: lan };
+    assert.equal(diagnose(mac).setupNetwork, undefined);
+  });
+
   it('prints the line before the isolation level', () => {
     const report = formatDiagnosis(diagnose({ ...linux({ pasta }), resolvConf: lan }));
     assert.match(

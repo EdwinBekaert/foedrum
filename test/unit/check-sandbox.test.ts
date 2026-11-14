@@ -712,6 +712,13 @@ describe('sandboxedChecks with the network kept, for a setup', () => {
     assert.deepEqual(calls[1]?.args, PASTA_ARGS);
   });
 
+  it("uses slirp4netns when the host's first resolver is systemd-resolved's stub, which pasta cannot forward to", async () => {
+    const { calls, exec } = fakeSetup();
+    const readResolvConf = () => 'nameserver 127.0.0.53\nnameserver 192.168.1.1\n';
+    await linuxSetup(exec, { readResolvConf })(line, [], call);
+    assert.equal(calls[1]?.file, '/usr/bin/slirp4netns');
+  });
+
   it('does not start without slirp4netns or pasta, and says so', async () => {
     const { calls, exec } = fakeSetup();
     const result = await linuxSetup(exec, { findStackTool: stackTools() })(line, [], call);
