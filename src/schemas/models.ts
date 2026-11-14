@@ -5,7 +5,7 @@ import { PathSafeId } from './ids.ts';
 import { z } from './zod.ts';
 
 /** How strong a model a brewer runs on, which models.jsonc names a model for (ADR 0397). */
-export const ModelLevel = z.enum(['light', 'standard', 'strong']);
+export const ModelLevel = z.enum(['light', 'standard', 'strong', 'extreme']);
 export type ModelLevel = z.infer<typeof ModelLevel>;
 
 /** A brewer's reasoning effort, or a step's that overrides it, in Foedrum's words (ADR 0352, ADR 0397). */

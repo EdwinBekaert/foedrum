@@ -205,7 +205,8 @@
               "enum": [
                 "light",
                 "standard",
-                "strong"
+                "strong",
+                "extreme"
               ]
             },
             "effort": {
@@ -616,7 +617,8 @@
                     "enum": [
                       "light",
                       "standard",
-                      "strong"
+                      "strong",
+                      "extreme"
                     ]
                   },
                   "effort": {

@@ -23,7 +23,8 @@
             "enum": [
               "light",
               "standard",
-              "strong"
+              "strong",
+              "extreme"
             ]
           },
           "additionalProperties": {
@@ -71,7 +72,8 @@
         "enum": [
           "light",
           "standard",
-          "strong"
+          "strong",
+          "extreme"
         ]
       }
     }
