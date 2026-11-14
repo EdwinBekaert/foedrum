@@ -972,6 +972,10 @@ describe('pastaResolverGap', () => {
     );
   });
 
+  it('reads a nameserver whose address follows a tab', () => {
+    assert.equal(pastaResolverGap('nameserver\t192.168.1.1\n'), undefined);
+  });
+
   it('reads the first nameserver only, since pasta forwards to it', () => {
     assert.equal(
       pastaResolverGap('nameserver 127.0.0.53\nnameserver 192.168.1.1\n'),
