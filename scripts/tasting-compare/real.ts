@@ -1015,6 +1015,8 @@ export interface BrewerSettings {
   model: string;
   effort: z.infer<typeof Effort>;
   orderText?: 'plan';
+  /** Whether a real `maltster-map` step maps the code before the scripted Gauger (ADR 0398). */
+  map?: true;
 }
 
 /** One order brewed by a real brewer on a model and effort: the order first, as a setup's name. */
@@ -1034,8 +1036,9 @@ export const brewerSettingsOf = (given: {
   effort?: string;
   setups?: string;
   orderText?: string;
+  map?: boolean;
 }): BrewerSettings | undefined => {
-  const { real, brewer, model, effort, setups, orderText } = given;
+  const { real, brewer, model, effort, setups, orderText, map } = given;
   if (brewer === undefined) {
     if (model !== undefined || effort !== undefined) {
       throw new Error('--model and --effort set the brewer --brewer names: give --brewer too');
@@ -1045,6 +1048,8 @@ export const brewerSettingsOf = (given: {
         '--order-text chooses the text a --brewer run starts from: give --brewer too',
       );
     }
+    if (map === true)
+      throw new Error('--map maps the code before a --brewer run: give --brewer too');
     return undefined;
   }
   if (real !== true) throw new Error('--brewer runs a brewer of --real for real: give --real too');
@@ -1074,6 +1079,7 @@ export const brewerSettingsOf = (given: {
     model,
     effort: level.data,
     ...(orderText === 'plan' ? { orderText } : {}),
+    ...(map === true ? { map } : {}),
   };
 };
 
@@ -1081,8 +1087,13 @@ export const brewerSettingsOf = (given: {
 export const brewerSetups = (settings: BrewerSettings, orders?: string): BrewerSetup[] =>
   realOrdersOf(orders).map(
     ({ order }): BrewerSetup =>
-      `${order}-${settings.brewer}-${settings.model}-${settings.effort}${settings.orderText === 'plan' ? PLAN_TEXT : ''}`,
+      `${order}-${settings.brewer}-${settings.model}-${settings.effort}${settings.map === true ? MAP_TEXT : ''}${settings.orderText === 'plan' ? PLAN_TEXT : ''}`,
   );
+
+/** The step of the Maltster's map, as `nip` names it (ADR 0395). */
+const MAP = 'map';
+/** The part of a brewer's setup that says it ran with a map, before any `-plan` (ADR 0398). */
+const MAP_TEXT = '-map';
 
 /** A run's scratch folder name: a setup's name with what Windows refuses in a folder's name replaced. */
 export const scratchNameOf = (name: string): string => name.replace(/[^A-Za-z0-9._-]/g, '_');
@@ -1117,7 +1128,8 @@ const GREEN_CHECKS = ['build', 'typecheck', 'lint', 'format', 'test'] as const;
  * The recipe of a real Cellarman's runs: the scripted Gauger's tests, Cellarman on the measured
  * alias and effort, the repository's checks, sent back to Cellarman once, and the pull request a
  * recipe that commits must open (ADR 0084). Not test-first, so no red proof runs and the
- * repository needs no test map (ADR 0394).
+ * repository needs no test map (ADR 0394). With `map`, the Maltster's map step comes first, on its
+ * own model and effort as it ships, and Cellarman reads it as `nip`'s does (ADR 0398).
  */
 export const brewerRecipeText = (settings: BrewerSettings): string => {
   const recipe = {
@@ -1131,6 +1143,7 @@ export const brewerRecipeText = (settings: BrewerSettings): string => {
     },
     testFirst: false,
     steps: [
+      ...(settings.map === true ? [{ id: MAP, brewer: 'maltster-map' }] : []),
       { id: 'gauge', brewer: 'gauger' },
       { id: IMPLEMENT, brewer: settings.brewer, model: MEASURED, effort: settings.effort },
       {
@@ -1184,11 +1197,26 @@ export interface BrewedHead {
   code: Record<string, string>;
 }
 
-/** What the scripted brewers of a brewer's run play: the Gauger always, Cellarman on a dry run. */
+/**
+ * What the scripted brewers of a brewer's run play: the Gauger always, Cellarman on a dry run, and
+ * the Maltster's map on a dry run with `map`.
+ */
 export const brewerScript = (
   head: BrewedHead,
   dryRun: boolean,
+  map = false,
 ): Record<string, readonly Scripted[]> => ({
+  ...(dryRun && map
+    ? {
+        [MAP]: [
+          {
+            files: {},
+            message: '',
+            summary: `The dry run's scripted map: the head ${head.head} changes ${Object.keys(head.code).join(', ')}.`,
+          },
+        ],
+      }
+    : {}),
   gauge: [
     {
       files: head.tests,
@@ -1209,13 +1237,22 @@ export const brewerScript = (
     : {}),
 });
 
-/** One step of a brewer's run: its attempts, and the tokens, turns and time of its sessions. */
+/** A step's search and read calls, by its sessions' transcripts (ADR 0398). */
+export interface Searches {
+  grep: number;
+  glob: number;
+  read: number;
+}
+
+/** One step of a brewer's run: its attempts, and the tokens, turns, time and searches of its sessions. */
 export interface StepRun {
   stepId: string;
   attempts: number;
   usage?: Usage;
   turns: number;
   durationMs: number;
+  /** Its calls of Grep, Glob and Read; none when a session of it has no transcript, as the scripted Gauger's. */
+  searches?: Searches;
 }
 
 /** What a brewer's run measured (ADR 0394). */
@@ -1227,6 +1264,8 @@ export interface BrewerRun extends BrewerSettings {
   steps: readonly StepRun[];
   /** The models the brewer's transcripts name. */
   models: readonly string[];
+  /** The models the map step's transcripts name, on a run with a map (ADR 0398). */
+  mapModels?: readonly string[];
   /** Why a transcript of the brewer cannot say its model. */
   unreadable?: string;
   /** The commit the checks read last: the brewer's code. */
@@ -1236,6 +1275,62 @@ export interface BrewerRun extends BrewerSettings {
 }
 
 export type BrewerRecord = RunRecord<BrewerSetup> & { brewer: BrewerRun };
+
+/**
+ * A transcript's calls of Grep, Glob and Read, each once by its id, whatever came of it: only the
+ * model's own lines count, as in `transcriptReads`; undefined when a line cannot be read, since it
+ * may hold calls (ADR 0398).
+ */
+const searchesIn = (transcript: string): Searches | undefined => {
+  const names = new Map<string, string>();
+  for (const line of transcript.split(/\r?\n/)) {
+    if (line === '') continue;
+    const read = readLine(line);
+    if (read === undefined) return undefined;
+    if (read.type !== 'assistant') continue;
+    for (const block of blocksOf(read.message?.content)) {
+      const use = ClaudeToolUse.safeParse(block);
+      if (use.success) names.set(use.data.id, use.data.name);
+    }
+  }
+  const count = (name: string): number =>
+    [...names.values()].filter((each) => each === name).length;
+  return { grep: count('Grep'), glob: count('Glob'), read: count('Read') };
+};
+
+const sumSearches = (a: Searches, b: Searches): Searches => ({
+  grep: a.grep + b.grep,
+  glob: a.glob + b.glob,
+  read: a.read + b.read,
+});
+
+/**
+ * Each step's searches over its sessions' transcripts; a step with a session whose transcript cannot
+ * be found or read whole has none, so a count never stands for part of its attempts. A session a
+ * retry resumes (ADR 0175) is read once: its transcript holds both attempts.
+ */
+const searchesOf = (
+  events: readonly { event: Event }[],
+  transcriptOf: (sessionId: string, worktree: string) => string | undefined,
+): Map<string, Searches | undefined> => {
+  const steps = new Map<string, Searches | undefined>();
+  const read = new Set<string>();
+  for (const { event } of events) {
+    if (event.type !== 'step.started' || event.session === undefined) continue;
+    const { stepId } = event;
+    const session = `${stepId}\0${event.session.id}`;
+    if (read.has(session)) continue;
+    read.add(session);
+    const transcript = transcriptOf(event.session.id, event.session.worktree);
+    const counted = transcript === undefined ? undefined : searchesIn(transcript);
+    const known = steps.has(stepId) ? steps.get(stepId) : { grep: 0, glob: 0, read: 0 };
+    steps.set(
+      stepId,
+      known === undefined || counted === undefined ? undefined : sumSearches(known, counted),
+    );
+  }
+  return steps;
+};
 
 /** A reading as one line: its check, or the setup, and how it ended. */
 const readingLine = (reading: GravityReading): string => {
@@ -1270,7 +1365,8 @@ const sumUsage = (a: Usage | undefined, b: Usage | undefined): Usage | undefined
 /**
  * A brewer's run's record from its store's events: how its batch ended; each step's attempts,
  * tokens, turns and time; the green step's last readings and the commit it read, which is the
- * brewer's code; and the models the brewer's transcripts name (ADR 0344, ADR 0394).
+ * brewer's code; the models the brewer's transcripts name (ADR 0344, ADR 0394); and each step's
+ * searches, and with a map the models its step ran on, which stop nothing (ADR 0398).
  */
 export const brewerRecordOf = (
   events: readonly { event: Event }[],
@@ -1303,6 +1399,7 @@ export const brewerRecordOf = (
       }
     }
   }
+  const searches = searchesOf(events, transcriptOf);
   return {
     ended,
     attempts: [],
@@ -1310,8 +1407,12 @@ export const brewerRecordOf = (
       ...settings,
       checksPassed: green.passed,
       checks: green.checks,
-      steps: [...steps.values()],
+      steps: [...steps.values()].map((step) => {
+        const counted = searches.get(step.stepId);
+        return counted === undefined ? step : { ...step, searches: counted };
+      }),
       ...stepModels(events, IMPLEMENT, transcriptOf),
+      ...(settings.map === true ? { mapModels: stepModels(events, MAP, transcriptOf).models } : {}),
       ...(commit === undefined ? {} : { commit }),
     },
   };
@@ -1373,6 +1474,9 @@ const setupsIn = (records: readonly BrewerRecord[]): BrewerSetup[] => [
 
 const seconds = (ms: number): string => `${Math.round(ms / 1000)} s`;
 
+const totalOf = (usage: Usage): number =>
+  usage.inputTokens + usage.outputTokens + usage.cacheReadTokens + usage.cacheWriteTokens;
+
 const brewerRow = (code: string, { setup, run, wallMs, brewer }: BrewerRecord): string => {
   const usage = brewer.steps.reduce<Usage | undefined>(
     (sum, { usage }) => sumUsage(sum, usage),
@@ -1381,17 +1485,24 @@ const brewerRow = (code: string, { setup, run, wallMs, brewer }: BrewerRecord): 
   const tokens =
     usage === undefined
       ? '- | - | - | - | -'
-      : `${usage.inputTokens} | ${usage.outputTokens} | ${usage.cacheReadTokens} | ${usage.cacheWriteTokens} | ${usage.inputTokens + usage.outputTokens + usage.cacheReadTokens + usage.cacheWriteTokens}`;
+      : `${usage.inputTokens} | ${usage.outputTokens} | ${usage.cacheReadTokens} | ${usage.cacheWriteTokens} | ${totalOf(usage)}`;
+  const mapped =
+    brewer.map === true ? ['yes', ...(brewer.mapModels ?? []).map(escapeCell)].join(', ') : 'no';
+  const searched = brewer.steps.flatMap(({ stepId, searches }) =>
+    searches === undefined ? [] : [`${stepId} ${searches.grep}/${searches.glob}/${searches.read}`],
+  );
+  const mapUsage = brewer.steps.find(({ stepId }) => stepId === MAP)?.usage;
   const rounds = brewer.steps.map(({ stepId, attempts }) => `${stepId} ${attempts}`).join(', ');
   const turns = brewer.steps.reduce((sum, { turns }) => sum + turns, 0);
   const time = brewer.steps.reduce((sum, { durationMs }) => sum + durationMs, 0);
-  return `| ${code} | ${setup} | ${run} | ${escapeCell(brewer.model)} | ${brewer.effort} | ${brewer.orderText ?? 'issue'} | ${brewer.checksPassed ? 'passed' : 'failed'} | ${rounds} | ${tokens} | ${turns} | ${seconds(time)} | ${seconds(wallMs)} |`;
+  return `| ${code} | ${setup} | ${run} | ${escapeCell(brewer.model)} | ${brewer.effort} | ${brewer.orderText ?? 'issue'} | ${mapped} | ${brewer.checksPassed ? 'passed' : 'failed'} | ${rounds} | ${searched.length === 0 ? '-' : searched.join(', ')} | ${tokens} | ${mapUsage === undefined ? '-' : totalOf(mapUsage)} | ${turns} | ${seconds(time)} | ${seconds(wallMs)} |`;
 };
 
 /**
  * One list per order of the code its runs wrote, each run's diff under its code and sorted by it,
- * and the one file that names the setups: each code's setup, model, effort, checks, rounds,
- * tokens and time, and the runs that measured nothing. Nothing here says which code is right.
+ * and the one file that names the setups: each code's setup, model, effort, text, map and the
+ * models it ran on, checks, rounds, each step's Grep, Glob and Read calls, tokens, the map's tokens
+ * and time, and the runs that measured nothing (ADR 0398). Nothing here says which code is right.
  */
 export const brewerBlinded = (
   records: readonly BrewerRecord[],
@@ -1432,8 +1543,8 @@ export const brewerBlinded = (
   const codes = [
     '# The codes of the lists',
     '',
-    '| Code | Setup | Run | Model | Effort | Text | Checks | Rounds | Input | Output | Cache read | Cache write | Tokens | Turns | Brewers | Wall |',
-    '|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|',
+    '| Code | Setup | Run | Model | Effort | Text | Map | Checks | Rounds | Grep, Glob, Read | Input | Output | Cache read | Cache write | Tokens | Map tokens | Turns | Brewers | Wall |',
+    '|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|',
     ...rows,
     ...(failures.length === 0 ? [] : ['', ...failures]),
     '',

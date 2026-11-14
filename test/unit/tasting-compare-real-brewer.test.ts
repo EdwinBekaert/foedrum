@@ -442,13 +442,20 @@ describe('tasting-compare --real --brewer (ADR 0394)', () => {
       assert.deepEqual(brewer.checks, ['typecheck: exited 0', 'test: exited 0']);
       assert.equal(brewer.commit, SECOND);
       assert.deepEqual(brewer.steps, [
-        { stepId: 'gauge', attempts: 1, turns: 0, durationMs: 0 },
+        {
+          stepId: 'gauge',
+          attempts: 1,
+          turns: 0,
+          durationMs: 0,
+          searches: { grep: 0, glob: 0, read: 1 },
+        },
         {
           stepId: 'implement',
           attempts: 2,
           usage: { inputTokens: 30, outputTokens: 4, cacheReadTokens: 6, cacheWriteTokens: 8 },
           turns: 10,
           durationMs: 1_500,
+          searches: { grep: 0, glob: 0, read: 2 },
         },
         { stepId: 'green', attempts: 2, turns: 0, durationMs: 0 },
       ]);
@@ -621,7 +628,7 @@ describe('tasting-compare --real --brewer (ADR 0394)', () => {
       const row = codes.split('\n').find((line) => line.includes(codeOf('a seed', SONNET, 1)));
       assert.equal(
         row,
-        `| ${codeOf('a seed', SONNET, 1)} | ${SONNET} | 1 | claude-sonnet-5-5 | high | issue | passed | implement 1 | 10 | 2 | 3 | 4 | 19 | 7 | 1 s | 9 s |`,
+        `| ${codeOf('a seed', SONNET, 1)} | ${SONNET} | 1 | claude-sonnet-5-5 | high | issue | no | passed | implement 1 | - | 10 | 2 | 3 | 4 | 19 | - | 7 | 1 s | 9 s |`,
       );
     });
 
@@ -770,7 +777,7 @@ describe('tasting-compare --real --brewer (ADR 0394)', () => {
       const row = codes.split('\n').find((line) => line.includes(codeOf('a seed', SETUP, 1)));
       assert.equal(
         row,
-        `| ${codeOf('a seed', SETUP, 1)} | ${SETUP} | 1 | claude-opus-5-5 | xhigh | issue | passed | gauge 1, implement 2, fine 1, green 2 | 30 | 4 | 6 | 8 | 48 | 10 | 3 s | 9 s |`,
+        `| ${codeOf('a seed', SETUP, 1)} | ${SETUP} | 1 | claude-opus-5-5 | xhigh | issue | no | passed | gauge 1, implement 2, fine 1, green 2 | - | 30 | 4 | 6 | 8 | 48 | - | 10 | 3 s | 9 s |`,
       );
     });
 
@@ -996,9 +1003,9 @@ describe('tasting-compare --real --brewer (ADR 0394)', () => {
     it('codes.md says which text each run started from', () => {
       const setup = '855-cellarman-claude-opus-5-5-xhigh-plan' as const;
       const { codes } = brewerBlinded([brewerRecord(setup, 1, { orderText: 'plan' })], 'a seed');
-      assert.match(codes, /\| Effort \| Text \| Checks \|/);
+      assert.match(codes, /\| Effort \| Text \| Map \| Checks \|/);
       const row = codes.split('\n').find((line) => line.includes(codeOf('a seed', setup, 1)));
-      assert.match(row ?? '', /\| xhigh \| plan \| passed \|/);
+      assert.match(row ?? '', /\| xhigh \| plan \| no \| passed \|/);
     });
 
     it('the lists show no text a run started from: regression test', () => {
@@ -1026,6 +1033,191 @@ describe('tasting-compare --real --brewer (ADR 0394)', () => {
       const { brewer } = brewerRecordOf(twoRounds, PLAN_RUN, opusTranscript);
       assert.equal(brewer.orderText, 'plan');
       assert.equal(brewerRecordOf(twoRounds, OPUS, opusTranscript).brewer.orderText, undefined);
+    });
+  });
+
+  describe("a run with the Maltster's map (ADR 0398)", () => {
+    const MAP_RUN: BrewerSettings = { ...OPUS, map: true };
+    const SETUP = '855-cellarman-claude-opus-5-5-xhigh-map' as const;
+    const HAIKU = 'claude-haiku-5-5';
+    const stepIds = (settings: BrewerSettings) =>
+      Recipe.parse(parseJsonc(brewerRecipeText(settings))).steps.map((step) =>
+        'action' in step ? step.action : step.id,
+      );
+
+    /** A transcript whose model calls `names` in turn, each call once. */
+    const calls = (model: string, ...names: string[]) =>
+      names
+        .map((name, at) =>
+          JSON.stringify({
+            type: 'assistant',
+            message: { model, content: [{ type: 'tool_use', id: `c-${at}`, name, input: {} }] },
+          }),
+        )
+        .join('\n');
+    /** The map step's transcript: its first Grep logged twice, as one call. */
+    const mapTranscript = `${calls(HAIKU, 'Grep', 'Grep', 'Glob', 'Read', 'Read', 'Read', 'Edit')}\n${calls(HAIKU, 'Grep')}`;
+    const transcripts: Record<string, string> = {
+      'map-1': mapTranscript,
+      'implement-1': calls('claude-opus-5-5', 'Read', 'Read', 'Grep'),
+      'implement-2': calls('claude-opus-5-5', 'Read'),
+    };
+    const transcriptOf = (id: string) => transcripts[id];
+    const mapped = [
+      started('map', 1, session('map-1')),
+      finished('map', 1, { usage: usage(100), receipt: { turns: 5, durationMs: 2_000 } }),
+      ...twoRounds,
+    ];
+
+    it('--map gives runs of their own: each setup ends in -map, before -plan', () => {
+      assert.deepEqual(brewerSettingsOf({ real: true, ...OPUS, map: true }), MAP_RUN);
+      assert.deepEqual(brewerSetups(MAP_RUN, '855'), [SETUP]);
+      const both = brewerSettingsOf({ real: true, ...OPUS, map: true, orderText: 'plan' });
+      assert.ok(both !== undefined);
+      assert.deepEqual(brewerSetups(both, '855'), [`${SETUP}-plan`]);
+      const folders = { fixture: 'fixture', kept: 'kept' };
+      assert.equal(orderFileOf(`${SETUP}-plan`, folders), join('kept', '855.md'));
+    });
+
+    it('--map without --brewer is refused', () => {
+      assert.throws(() => brewerSettingsOf({ real: true, map: true }), /--map.*--brewer/);
+    });
+
+    it('a run with --map has a real map step before the scripted Gauger, as nip runs it, and Cellarman reads its map', () => {
+      assert.deepEqual(stepIds(MAP_RUN), ['map', 'gauge', 'implement', 'green', 'openPullRequest']);
+      const line = commandLine(MAP_RUN, 'map');
+      const nip = commandLine(MAP_RUN, 'map', 'nip');
+      assert.equal(optionValue(line, '--model'), optionValue(nip, '--model'));
+      assert.equal(optionValue(line, '--effort'), optionValue(nip, '--effort'));
+      withBrewery(MAP_RUN, (ready) => {
+        assert.ok(ready.kind !== 'refused', JSON.stringify(ready));
+        const step = ready.setup.brewers.find(REAL_BREWER_RECIPE, 'map');
+        assert.equal(step?.brewer.name, 'maltster-map');
+        const implement = ready.setup.brewers.find(REAL_BREWER_RECIPE, 'implement');
+        assert.ok(implement?.brewer.inputs?.some(({ from }) => from === 'step:map'));
+      });
+    });
+
+    it("a run without --map is today's run: the same settings, setups and steps: regression test", () => {
+      assert.deepEqual(brewerSettingsOf({ real: true, ...OPUS, map: false }), OPUS);
+      assert.deepEqual(brewerSetups(OPUS, '855'), ['855-cellarman-claude-opus-5-5-xhigh']);
+      assert.deepEqual(stepIds(OPUS), ['gauge', 'implement', 'green', 'openPullRequest']);
+    });
+
+    it('--dry-run with --map scripts the map step too, and a real run leaves it to the real Maltster', () => {
+      assert.deepEqual(brewerScript(HEAD, true, true).map?.[0]?.files, {});
+      assert.equal(brewerScript(HEAD, false, true).map, undefined);
+      assert.equal(brewerScript(HEAD, true).map, undefined);
+    });
+
+    it("counts each step's Grep, Glob and Read calls from its transcripts, and none for a step with no transcript", () => {
+      const { brewer } = brewerRecordOf(mapped, MAP_RUN, transcriptOf);
+      const searches = Object.fromEntries(brewer.steps.map((step) => [step.stepId, step.searches]));
+      assert.deepEqual(searches, {
+        map: { grep: 2, glob: 1, read: 3 },
+        gauge: undefined,
+        implement: { grep: 1, glob: 0, read: 3 },
+        green: undefined,
+      });
+      assert.deepEqual(brewer.steps.find(({ stepId }) => stepId === 'map')?.usage, usage(100));
+    });
+
+    it('counts a session that a retry resumes once: its transcript holds both attempts', () => {
+      const resumed = [
+        started('implement', 1, session('implement-1')),
+        finished('implement', 1, { outcome: { kind: 'failed', retryable: true, reason: 'turns' } }),
+        started('implement', 2, session('implement-1')),
+        finished('implement', 2),
+      ];
+      const { brewer } = brewerRecordOf(resumed, MAP_RUN, transcriptOf);
+      const implement = brewer.steps.find(({ stepId }) => stepId === 'implement');
+      assert.deepEqual(implement?.searches, { grep: 1, glob: 0, read: 2 });
+    });
+
+    it("counts only the model's own calls: a tool_use block on a line of another type is no call", () => {
+      const logged = JSON.stringify({
+        type: 'user',
+        message: { content: [{ type: 'tool_use', id: 'logged', name: 'Grep', input: {} }] },
+      });
+      const withLog: Record<string, string> = {
+        ...transcripts,
+        'map-1': `${mapTranscript}\n${logged}`,
+      };
+      const { brewer } = brewerRecordOf(mapped, MAP_RUN, (id) => withLog[id]);
+      const map = brewer.steps.find(({ stepId }) => stepId === 'map');
+      assert.deepEqual(map?.searches, { grep: 2, glob: 1, read: 3 });
+    });
+
+    it('a step whose first attempt has no transcript gets no count, though a later one has: a count never stands for part of its attempts', () => {
+      const { 'implement-1': _, ...later } = transcripts;
+      const { brewer } = brewerRecordOf(mapped, MAP_RUN, (id) => later[id]);
+      const implement = brewer.steps.find(({ stepId }) => stepId === 'implement');
+      assert.equal(implement?.attempts, 2);
+      assert.equal(implement?.searches, undefined);
+    });
+
+    it('a step whose transcript has a line it cannot read gets no count', () => {
+      const broken: Record<string, string> = {
+        ...transcripts,
+        'implement-2': `${calls('claude-opus-5-5', 'Read')}\n{"type":`,
+      };
+      const { brewer } = brewerRecordOf(mapped, MAP_RUN, (id) => broken[id]);
+      const implement = brewer.steps.find(({ stepId }) => stepId === 'implement');
+      assert.equal(implement?.searches, undefined);
+      const map = brewer.steps.find(({ stepId }) => stepId === 'map');
+      assert.deepEqual(map?.searches, { grep: 2, glob: 1, read: 3 });
+    });
+
+    it("a run's record says it had a map, and the models its map step ran on", () => {
+      const { brewer } = brewerRecordOf(mapped, MAP_RUN, transcriptOf);
+      assert.equal(brewer.map, true);
+      assert.deepEqual(brewer.mapModels, [HAIKU]);
+      assert.deepEqual(brewer.models, ['claude-opus-5-5']);
+      assert.equal(brewerRecordOf(twoRounds, OPUS, transcriptOf).brewer.mapModels, undefined);
+    });
+
+    const withMap = brewerRecord(SETUP, 1, {
+      map: true,
+      mapModels: [HAIKU],
+      steps: [
+        {
+          stepId: 'map',
+          attempts: 1,
+          usage: usage(100),
+          turns: 5,
+          durationMs: 2_000,
+          searches: { grep: 2, glob: 1, read: 3 },
+        },
+        {
+          stepId: 'implement',
+          attempts: 1,
+          usage: usage(10),
+          turns: 7,
+          durationMs: 1_000,
+          searches: { grep: 1, glob: 0, read: 3 },
+        },
+      ],
+    });
+
+    it("codes.md shows each step's search and read calls, the map step's tokens and its models", () => {
+      const { codes } = brewerBlinded([withMap], 'a seed');
+      assert.match(
+        codes,
+        /\| Text \| Map \| Checks \| Rounds \| Grep, Glob, Read \| Input \| Output \| Cache read \| Cache write \| Tokens \| Map tokens \| Turns \|/,
+      );
+      const row = codes.split('\n').find((line) => line.includes(codeOf('a seed', SETUP, 1)));
+      assert.equal(
+        row,
+        `| ${codeOf('a seed', SETUP, 1)} | ${SETUP} | 1 | claude-opus-5-5 | xhigh | issue | yes, ${HAIKU} | passed | map 1, implement 1 | map 2/1/3, implement 1/0/3 | 110 | 4 | 6 | 8 | 128 | 109 | 12 | 3 s | 9 s |`,
+      );
+    });
+
+    it('the lists show neither the map nor the search counts: regression test', () => {
+      const { lists } = brewerBlinded([withMap], 'a seed');
+      assert.doesNotMatch(
+        (lists['855'] ?? '').replaceAll(/the code of .*/g, ''),
+        /map|haiku|grep|glob|yes|2\/1\/3/i,
+      );
     });
   });
 });
