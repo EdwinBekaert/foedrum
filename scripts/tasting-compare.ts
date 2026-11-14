@@ -38,6 +38,14 @@
 // one file of its bodies under .foedrum/tmp/tasting-compare/real, the setups named only in
 // codes.md, or under real/comparisons/<name> with --comparison <name>, whose records, runs and
 // lists are its own. It scores nothing. Its decisions are scripts/tasting-compare/real.ts.
+//
+// With --real --brewer cellarman --model <id> --effort <level> (#995, ADR 0394) it builds the three
+// heads again instead: a scripted Gauger commits each head's test files as brewed, Cellarman runs
+// on the real claude on the given model and effort, or scripted with --dry-run, and the
+// repository's checks run on its code after `npm ci`. Each run records whether the checks passed,
+// each step's attempts, tokens, turns and time, and the commit it ended on; --orders runs only
+// those orders. One blinded list per order shows each run's code diff under
+// .foedrum/tmp/tasting-compare/real/brewers, the setups named only in codes.md.
 
 import { randomBytes } from 'node:crypto';
 import {
@@ -98,12 +106,26 @@ import {
   summarizePlan,
 } from './tasting-compare/plan.ts';
 import {
+  type BrewerRecord,
+  type BrewerSettings,
+  type BrewerSetup,
   blinded,
+  brewerBlinded,
+  brewerBreweryFiles,
+  brewerRecordOf,
+  brewerScript,
+  brewerSettingsOf,
+  brewerSetups,
+  brewerStop,
+  brewerTable,
   changedFiles,
+  codeDiffArgs,
   comparisonStop,
+  nextBrewerRun,
   nextRealRun,
   orderOf,
   READS_TASTER,
+  REAL_BREWER_RECIPE,
   REAL_ORDERS,
   REAL_SETUPS,
   type RealSetup,
@@ -114,9 +136,11 @@ import {
   realRecordOf,
   realTable,
   refuseSameTaster,
+  scratchNameOf,
   scriptedRealTastings,
   scriptedTranscript,
   selectRealSetups,
+  splitHead,
   TODAY_COMMIT,
 } from './tasting-compare/real.ts';
 
@@ -139,6 +163,9 @@ const { values } = parseArgs({
     setups: { type: 'string' },
     orders: { type: 'string' },
     comparison: { type: 'string' },
+    brewer: { type: 'string' },
+    model: { type: 'string' },
+    effort: { type: 'string' },
   },
 });
 if (values.plan === true && values.real === true) {
@@ -149,9 +176,18 @@ if (values.setups !== undefined && values.real !== true) {
   process.stderr.write('--setups chooses among the setups of --real: give --real too\n');
   process.exit(2);
 }
-if (values.orders !== undefined && values.setups === undefined) {
+/** A real brewer's settings, when --brewer gives them (ADR 0394). */
+const brewerSettings = (() => {
+  try {
+    return brewerSettingsOf(values);
+  } catch (error) {
+    process.stderr.write(`${(error as Error).message}\n`);
+    process.exit(2);
+  }
+})();
+if (values.orders !== undefined && values.setups === undefined && brewerSettings === undefined) {
   process.stderr.write(
-    '--orders chooses the orders of the setups --setups names: give --setups too\n',
+    '--orders chooses the orders of the setups --setups or the runs --brewer names: give one of them too\n',
   );
   process.exit(2);
 }
@@ -209,8 +245,17 @@ const patchedTarget = async (scratch: string, git: RunGit): Promise<void> => {
   await git(web, ['push', '-q', 'origin', 'main']);
 };
 
-/** What a comparison brews and how it reads the runs: the diff, plan or real mode's. */
-interface Mode<Setup extends string> {
+/** What a run's record reads beyond the store: the scratch folder of its run, and its git. */
+interface RunPlace {
+  scratch: string;
+  git: RunGit;
+}
+
+/**
+ * What a comparison brews and how it reads the runs: the diff, plan or real mode's, or a real
+ * brewer's, whose records hold what it measured (ADR 0394).
+ */
+interface Mode<Setup extends string, Run extends RunRecord<Setup> = RunRecord<Setup>> {
   /** Its folders under .foedrum/tmp/tasting-compare: its records and runs stay its own. */
   folders: readonly string[];
   setups: readonly Setup[];
@@ -231,7 +276,7 @@ interface Mode<Setup extends string> {
   /** The step that is always scripted, with no model. */
   scriptedStep: string;
   next: (
-    records: readonly RunRecord<Setup>[],
+    records: readonly Run[],
     runs: number,
   ) => { setup: Setup; run: number; retry: boolean } | undefined;
   recordOf: (
@@ -239,12 +284,13 @@ interface Mode<Setup extends string> {
     setup: Setup,
     /** The model each attempt was planned with, by its session's id. */
     planned: ReadonlyMap<string, string>,
-  ) => Pick<RunRecord, 'ended' | 'attempts'>;
-  table: (records: readonly RunRecord<Setup>[]) => string;
-  /** Why a run shows the comparison itself cannot go on: the harness's fault, never a Taster's. */
-  stop?: (record: Pick<RunRecord<Setup>, 'setup' | 'attempts'>) => string | undefined;
+    place: RunPlace,
+  ) => Promise<Omit<Run, 'setup' | 'run' | 'retry' | 'wallMs'>>;
+  table: (records: readonly Run[]) => string;
+  /** Why a run shows the comparison itself cannot go on: the harness's fault, never a brewer's. */
+  stop?: (record: Run) => string | undefined;
   /** More files of its report, by path in its folder. */
-  files?: (records: readonly RunRecord<Setup>[], folder: string) => Record<string, string>;
+  files?: (records: readonly Run[], folder: string) => Record<string, string>;
   /** The comments on a run's order, by the login that writes as a maintainer (ADR 0333). */
   comments?: (setup: Setup, author: string) => FakeApiComment[];
 }
@@ -283,7 +329,7 @@ const diffMode = (): Mode<SetupName> => {
     },
     scriptedStep: IMPLEMENT,
     next: nextRun,
-    recordOf,
+    recordOf: async (events, setup) => recordOf(events, setup),
     table: (records) => tableMarkdown(summarize(records, key), key),
   };
 };
@@ -305,7 +351,7 @@ const planMode = (): Mode<PlanSetupName> => {
     }),
     scriptedStep: PLAN_STEP,
     next: nextPlanRun,
-    recordOf: planRecordOf,
+    recordOf: async (events, setup) => planRecordOf(events, setup),
     table: (records) => planTableMarkdown(summarizePlan(records, key), key, { dryRun }),
   };
 };
@@ -321,19 +367,71 @@ const transcriptOf = (sessionId: string): string | undefined => {
   return undefined;
 };
 
-const realMode = async (): Promise<Mode<RealSetup>> => {
-  /** A commit's whole id in this checkout, where the heads and the old Taster are read. */
-  const commitIn = async (commit: string): Promise<string> => {
-    const { code, stdout } = await runGit(root, ['rev-parse', '--verify', `${commit}^{commit}`]);
-    if (code !== 0) {
-      throw new Error(`the commit ${commit} is not in this checkout: run git fetch origin first`);
-    }
-    return stdout.trim();
-  };
+/** A commit's whole id in this checkout, where the heads and the old Taster are read. */
+const commitIn = async (commit: string): Promise<string> => {
+  const { code, stdout } = await runGit(root, ['rev-parse', '--verify', `${commit}^{commit}`]);
+  if (code !== 0) {
+    throw new Error(`the commit ${commit} is not in this checkout: run git fetch origin first`);
+  }
+  return stdout.trim();
+};
+
+/** Throws unless every order's base and head is in this checkout. */
+const realCommits = async (): Promise<void> => {
   for (const { base, head } of REAL_ORDERS) {
     await commitIn(base);
     await commitIn(head);
   }
+};
+
+/** The real modes' folder of the orders' texts. */
+const realFixture = join(fixture, 'real');
+
+/** The target of a real mode's run: its order's base alone on main, fetched from this checkout. */
+const realTarget = async (
+  setup: RealSetup | BrewerSetup,
+  scratch: string,
+  git: RunGit,
+): Promise<void> => {
+  // Only the base: later history stays out of the scratch remote, whatever a brewer may run.
+  await git(scratch, ['init', '-q', '--bare', '--initial-branch=main', 'web.git']);
+  const base = await commitIn(orderOf(setup).base);
+  await git(join(scratch, 'web.git'), [
+    'fetch',
+    '-q',
+    '--no-tags',
+    '--depth',
+    '1',
+    root,
+    `${base}:refs/heads/main`,
+  ]);
+  await git(scratch, ['clone', '-q', 'web.git', 'web']);
+};
+
+/** The seed of a report folder's codes: one for the folder, so a code stays the same as more runs come in. */
+const seedIn = (reportFolder: string): string => {
+  const seedFile = join(reportFolder, 'seed.txt');
+  if (!existsSync(seedFile)) writeFileSync(seedFile, randomBytes(16).toString('hex'));
+  return readFileSync(seedFile, 'utf8');
+};
+
+/** A head as brewed, read from this checkout: its commit, the files it changed, its subject, and a reader of their texts. */
+const brewedHeadOf = async (setup: RealSetup | BrewerSetup, git: RunGit) => {
+  const { base, head } = orderOf(setup);
+  const changed = changedFiles(
+    await git(root, ['diff', '--name-status', '-z', '--no-renames', base, head]),
+  );
+  const subject = (await git(root, ['log', '-1', '--format=%s', head])).trim();
+  const textsOf = async (paths: readonly string[]): Promise<Record<string, string>> => {
+    const texts: Record<string, string> = {};
+    for (const path of paths) texts[path] = await git(root, ['show', `${head}:${path}`]);
+    return texts;
+  };
+  return { head, changed, subject, textsOf };
+};
+
+const realMode = async (): Promise<Mode<RealSetup>> => {
+  await realCommits();
   const today = await runGit(root, [
     'show',
     `${await commitIn(TODAY_COMMIT)}:defaults/brewers/taster.md`,
@@ -341,40 +439,19 @@ const realMode = async (): Promise<Mode<RealSetup>> => {
   if (today.code !== 0) {
     throw new Error(`the Taster of ${TODAY_COMMIT} cannot be read: ${today.stderr.trim()}`);
   }
-  const folder = join(fixture, 'real');
-  const reads = readFileSync(join(folder, READS_TASTER), 'utf8');
+  const reads = readFileSync(join(realFixture, READS_TASTER), 'utf8');
   refuseSameTaster(today.stdout, reads);
   return {
     folders: realFolderOf,
     setups: realSetups,
-    order: (setup) => join(folder, `${orderOf(setup).order}.md`),
+    order: (setup) => join(realFixture, `${orderOf(setup).order}.md`),
     recipeOf: realRecipeOf,
     breweryFiles: (setup) => realBreweryFiles(setup, { today: today.stdout, reads }),
-    target: async (setup, scratch, git) => {
-      // Only the base: later history stays out of the scratch remote, whatever a Taster may run.
-      await git(scratch, ['init', '-q', '--bare', '--initial-branch=main', 'web.git']);
-      const base = await commitIn(orderOf(setup).base);
-      await git(join(scratch, 'web.git'), [
-        'fetch',
-        '-q',
-        '--no-tags',
-        '--depth',
-        '1',
-        root,
-        `${base}:refs/heads/main`,
-      ]);
-      await git(scratch, ['clone', '-q', 'web.git', 'web']);
-    },
+    target: realTarget,
     script: async (setup, _scratch, git) => {
-      const { base, head } = orderOf(setup);
-      const changed = changedFiles(
-        await git(root, ['diff', '--name-status', '-z', '--no-renames', base, head]),
-      );
-      const files: Record<string, string> = {};
-      for (const path of changed) files[path] = await git(root, ['show', `${head}:${path}`]);
-      const subject = (await git(root, ['log', '-1', '--format=%s', head])).trim();
+      const { head, changed, subject, textsOf } = await brewedHeadOf(setup, git);
       const implement: Scripted = {
-        files,
+        files: await textsOf(changed),
         message: subject,
         summary: `The head ${head}, committed as it was brewed.`,
       };
@@ -385,19 +462,16 @@ const realMode = async (): Promise<Mode<RealSetup>> => {
     },
     scriptedStep: IMPLEMENT,
     next: (records, runCount) => nextRealRun(records, runCount, realSetups),
-    recordOf: (events, _setup, planned) =>
+    recordOf: async (events, _setup, planned) =>
       realRecordOf(events, (id, worktree) =>
         dryRun ? scriptedTranscript(worktree, planned.get(id) ?? 'no plan') : transcriptOf(id),
       ),
     table: realTable,
     stop: comparisonStop,
     comments: (setup, author) =>
-      realCommentsOf(setup, author, (file) => readFileSync(join(folder, file), 'utf8')),
+      realCommentsOf(setup, author, (file) => readFileSync(join(realFixture, file), 'utf8')),
     files: (records, reportFolder) => {
-      // One seed for the folder, so a code stays the same as more runs come in.
-      const seedFile = join(reportFolder, 'seed.txt');
-      if (!existsSync(seedFile)) writeFileSync(seedFile, randomBytes(16).toString('hex'));
-      const { lists, bodies, codes } = blinded(records, readFileSync(seedFile, 'utf8'));
+      const { lists, bodies, codes } = blinded(records, seedIn(reportFolder));
       return {
         'codes.md': codes,
         ...Object.fromEntries(
@@ -411,8 +485,62 @@ const realMode = async (): Promise<Mode<RealSetup>> => {
   };
 };
 
+/**
+ * A real brewer's mode (ADR 0394): each order's base, the head's test files committed by the
+ * scripted Gauger, then Cellarman on the given model and effort, real or scripted with --dry-run,
+ * and the repository's checks on its code. Its records stay in a folder of their own beside the
+ * Tasters' setups'.
+ */
+const brewerMode = async (settings: BrewerSettings): Promise<Mode<BrewerSetup, BrewerRecord>> => {
+  await realCommits();
+  const setups = brewerSetups(settings, values.orders);
+  const names = { brewery: BREWERY, target: TARGET, user: USER };
+  return {
+    folders: [...realFolderOf, 'brewers'],
+    setups,
+    order: (setup) => join(realFixture, `${orderOf(setup).order}.md`),
+    recipeOf: () => REAL_BREWER_RECIPE,
+    breweryFiles: () => brewerBreweryFiles(settings, names),
+    target: realTarget,
+    script: async (setup, _scratch, git) => {
+      const { head, changed, subject, textsOf } = await brewedHeadOf(setup, git);
+      const { tests, code } = splitHead(changed);
+      return brewerScript(
+        { head, subject, tests: await textsOf(tests), code: await textsOf(code) },
+        dryRun,
+      );
+    },
+    scriptedStep: 'gauge',
+    next: (records, runCount) => nextBrewerRun(records, runCount, setups),
+    recordOf: async (events, setup, planned, { scratch, git }) => {
+      const record = brewerRecordOf(events, settings, (id, worktree) =>
+        dryRun ? scriptedTranscript(worktree, planned.get(id) ?? 'no plan') : transcriptOf(id),
+      );
+      const { commit } = record.brewer;
+      if (commit === undefined) return record;
+      // The code it wrote: the change from the base, past the Gauger's test files.
+      const base = await commitIn(orderOf(setup).base);
+      const diff = await git(join(scratch, 'web'), codeDiffArgs(base, commit));
+      return { ...record, brewer: { ...record.brewer, diff } };
+    },
+    table: brewerTable,
+    stop: brewerStop,
+    files: (records, reportFolder) => {
+      const { lists, codes } = brewerBlinded(records, seedIn(reportFolder));
+      return {
+        'codes.md': codes,
+        ...Object.fromEntries(
+          Object.entries(lists).map(([order, list]) => [join('lists', `${order}.md`), list]),
+        ),
+      };
+    },
+  };
+};
+
 /** Brews every run of `mode` that has no record yet, and prints its one table. */
-const compare = async <Setup extends string>(mode: Mode<Setup>): Promise<void> => {
+const compare = async <Setup extends string, Run extends RunRecord<Setup>>(
+  mode: Mode<Setup, Run>,
+): Promise<void> => {
   const folder = join(
     root,
     '.foedrum',
@@ -422,10 +550,10 @@ const compare = async <Setup extends string>(mode: Mode<Setup>): Promise<void> =
     ...(dryRun ? ['dry-run'] : []),
   );
   const resultsFile = join(folder, 'results.jsonl');
-  const readRecords = (): RunRecord<Setup>[] => readRecordsIn<Setup>(folder);
+  const readRecords = (): Run[] => readRecordsIn<Setup, Run>(folder);
 
-  /** Brews one run of `setup` in `scratch`, and reads its Tasters' attempts from the store. */
-  const brewRun = async (setup: Setup, scratch: string): Promise<Omit<RunRecord<Setup>, 'run'>> => {
+  /** Brews one run of `setup` in `scratch`, and reads what it measured from the store. */
+  const brewRun = async (setup: Setup, scratch: string): Promise<Omit<Run, 'run' | 'retry'>> => {
     const ownGit = gitEnvOf(scratch);
     Object.assign(process.env, ownGit);
     const git = async (cwd: string, args: string[]): Promise<string> => {
@@ -562,12 +690,13 @@ const compare = async <Setup extends string>(mode: Mode<Setup>): Promise<void> =
     } finally {
       store.close();
     }
-    return { setup, wallMs, ...mode.recordOf(events, setup, planned) };
+    const measured = await mode.recordOf(events, setup, planned, { scratch, git });
+    return { ...measured, setup, wallMs } as Omit<Run, 'run' | 'retry'>;
   };
 
   mkdirSync(folder, { recursive: true });
   say(
-    `tasting-compare: ${runs} runs of ${mode.setups.join(', ')} in ${folder}${dryRun ? ', the Tasters scripted' : ', the Tasters on the real claude'}`,
+    `tasting-compare: ${runs} runs of ${mode.setups.join(', ')} in ${folder}${dryRun ? ', the brewers scripted' : ', on the real claude'}`,
   );
   for (
     let next = mode.next(readRecords(), runs);
@@ -576,13 +705,13 @@ const compare = async <Setup extends string>(mode: Mode<Setup>): Promise<void> =
   ) {
     const name = `${next.setup}-${next.run}${next.retry ? '-retry' : ''}`;
     say(`tasting-compare: ${name}`);
-    let record: RunRecord<Setup>;
+    let record: Run;
     try {
       record = {
-        ...(await brewRun(next.setup, join(folder, name))),
+        ...(await brewRun(next.setup, join(folder, scratchNameOf(name)))),
         run: next.run,
         ...(next.retry ? { retry: true as const } : {}),
-      };
+      } as Run;
       const stop = mode.stop?.(record);
       if (stop !== undefined) throw new Error(stop);
     } catch (error) {
@@ -603,8 +732,10 @@ const compare = async <Setup extends string>(mode: Mode<Setup>): Promise<void> =
   process.stdout.write(table);
 };
 
-await (values.real === true
-  ? compare(await realMode())
-  : values.plan === true
-    ? compare(planMode())
-    : compare(diffMode()));
+await (brewerSettings !== undefined
+  ? compare(await brewerMode(brewerSettings))
+  : values.real === true
+    ? compare(await realMode())
+    : values.plan === true
+      ? compare(planMode())
+      : compare(diffMode()));

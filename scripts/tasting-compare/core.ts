@@ -257,13 +257,18 @@ export interface RunRecord<Setup extends string = SetupName> {
 }
 
 /** The records of a comparison's folder, from its results.jsonl; none when it has no file. */
-export const readRecordsIn = <Setup extends string>(folder: string): RunRecord<Setup>[] => {
+export const readRecordsIn = <
+  Setup extends string,
+  Run extends RunRecord<Setup> = RunRecord<Setup>,
+>(
+  folder: string,
+): Run[] => {
   const file = join(folder, 'results.jsonl');
   return existsSync(file)
     ? readFileSync(file, 'utf8')
         .split(/\r?\n/)
         .filter((line) => line !== '')
-        .map((line) => JSON.parse(line) as RunRecord<Setup>)
+        .map((line) => JSON.parse(line) as Run)
     : [];
 };
 
@@ -556,12 +561,12 @@ export const summaryOf = <Setup extends string>(
 };
 
 /** A setup's runs: per run number the run that did not fail is scored, and every failed one is listed. */
-export const runsOfSetup = <Setup extends string>(
-  records: readonly RunRecord<Setup>[],
+export const runsOfSetup = <Setup extends string, Run extends RunRecord<Setup> = RunRecord<Setup>>(
+  records: readonly Run[],
   setup: Setup,
-  failure: (record: RunRecord<Setup>) => string | undefined,
-): { scored: RunRecord<Setup>[]; failed: SetupSummary['failed'] } => {
-  const scored: RunRecord<Setup>[] = [];
+  failure: (record: Run) => string | undefined,
+): { scored: Run[]; failed: SetupSummary['failed'] } => {
+  const scored: Run[] = [];
   const failed: SetupSummary['failed'] = [];
   for (const record of records.filter((each) => each.setup === setup)) {
     const why = failure(record);
@@ -600,11 +605,11 @@ export const summarize = (records: readonly RunRecord[], key: Key): SetupSummary
  * The next run to brew of `setups`, setup by setup and run by run: a run with no record yet, or once
  * again a run whose only record failed; undefined once every setup has `runs` runs.
  */
-export const nextRunOf = <Setup extends string>(
+export const nextRunOf = <Setup extends string, Run extends RunRecord<Setup> = RunRecord<Setup>>(
   setups: readonly Setup[],
-  records: readonly RunRecord<Setup>[],
+  records: readonly Run[],
   runs: number,
-  failure: (record: RunRecord<Setup>) => string | undefined,
+  failure: (record: Run) => string | undefined,
 ): { setup: Setup; run: number; retry: boolean } | undefined => {
   for (const setup of setups) {
     for (let run = 1; run <= runs; run += 1) {
