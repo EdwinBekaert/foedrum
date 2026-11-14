@@ -11,6 +11,14 @@ export type Affected = { kind: 'all'; why: string } | { kind: 'some'; files: str
 export const isTestFile = (path: string): boolean =>
   /^test\/(?:unit|property|chaos)\/.+\.test\.ts$/.test(path);
 
+/**
+ * Whether a file, by its path and text, is a test against the installed `claude` (ADR 0057): an
+ * integration test that imports the real-claude helper.
+ */
+export const isRealClaudeTest = (_path: string, _text: string): boolean => {
+  throw new Error('not implemented');
+};
+
 // Files that set how every test runs.
 const reachesEverything = (path: string): boolean =>
   ['package.json', 'package-lock.json', 'tsconfig.json'].includes(path) ||
@@ -29,11 +37,13 @@ const importsOf = (path: string, text: string): string[] =>
 
 /**
  * The test files a change reaches: `changed` are the changed paths, relative to the checkout with
- * `/`; `texts` holds every TypeScript file of the working tree by such a path.
+ * `/`; `texts` holds every TypeScript file of the working tree by such a path; `isTest` says which
+ * of them are the test files to reach, npm run check's by default.
  */
 export const affectedTests = (
   changed: readonly string[],
   texts: ReadonlyMap<string, string>,
+  _isTest: (path: string, text: string) => boolean = isTestFile,
 ): Affected => {
   const everything = changed.find(reachesEverything);
   if (everything !== undefined) return { kind: 'all', why: `${everything} changed` };

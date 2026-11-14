@@ -60,6 +60,17 @@ export const affectedByChange = async ({ cwd, git, read }: ChangeOptions): Promi
   }
 };
 
+/**
+ * The tests against the installed `claude` (ADR 0057) that the change reaches, sorted: every one
+ * when it reaches every test file, or with `every`.
+ */
+export const realClaudeByChange = async (
+  _options: ChangeOptions,
+  _every = false,
+): Promise<string[]> => {
+  throw new Error('not implemented');
+};
+
 /** affectedByChange with the real git and file reads, for the checkout at cwd. */
 export const affectedInCheckout = async (cwd: string): Promise<Affected> => {
   const { readFile } = await import('node:fs/promises');
