@@ -27,6 +27,16 @@ Versions are pinned exactly when a package is first installed, after the 7-day m
 
 - **`zod` — one maintainer.** The package lists a single npm maintainer (checklist point 6). Accepted because it is widely used and actively released (4.6.5, 2026-09-13), publishes with provenance, has no dependencies and no install scripts, and is imported only by `src/schemas/zod.ts`. Bumps get a diff review.
 
+## CI-only tools
+
+Tools CI installs from npm that no user installs and Foedrum does not ship, each pinned in a lockfile of its own outside the root one ([ADR 0399](docs/adr/0399-ci-runs-the-tests-against-the-installed-claude-with-a-claude-pinned-in-a-lockfile-of-its-own.md)). The dependency guard and its budget read only `package-lock.json`, so they do not count these.
+
+| Package | Version | Lockfile | Used by | Install scripts | Provenance | Licence |
+|---|---|---|---|---|---|---|
+| `@anthropic-ai/claude-code` | 2.1.310 | `ci/claude/package-lock.json`, with `ci/claude/.npmrc` (the root's hardening) | CI's `real-claude` job: the tests against the installed `claude`, with the fake Messages API | `postinstall`, never run: `npm ci --prefix ci/claude` installs with scripts off, and the job puts the platform package's binary on `PATH` | none | proprietary (`SEE LICENSE IN README.md`) |
+
+Why the admission checklist's points 4, 5 and 7 do not apply to it: its install script never runs, and what it would do (copy the platform binary over a stub, with no download) the job does by `PATH`; it is not published with Foedrum or installed by a user, so its licence binds only CI's use of it; and every bump arrives as a Dependabot pull request (`/ci/claude`, 7-day cooldown) that gets a diff review of the lockfile and runs every test against it.
+
 ## Built-ins used instead of packages
 
 | Need | Built-in | Instead of |

@@ -1554,3 +1554,62 @@ describe("diagnose: whether a test-first recipe's test line saves a report (ADR 
     );
   });
 });
+
+// pasta isolates itself, where its resolver works; slirp4netns keeps the home folder and /run/user
+// in reach (ADR 0400).
+describe("diagnose: the setup's network stack", () => {
+  const pasta = ran('/usr/bin/pasta', 'pasta 2024_09_06.6b38f07\n');
+  const lan = 'nameserver 192.168.1.1\n';
+  const stub = 'nameserver 127.0.0.53\n';
+
+  it('names pasta, isolated, when its resolver works, also beside slirp4netns', () => {
+    const diagnosis = diagnose({ ...linux({ pasta }), resolvConf: lan });
+    assert.equal(diagnosis.tools.at(-1)?.name, 'pasta');
+    assert.equal(
+      diagnosis.setupNetwork,
+      'Setup network: pasta, isolated (a mount namespace of its own on an empty root, ADR 0400)',
+    );
+  });
+
+  it('names slirp4netns, not isolated, and why pasta was passed over', () => {
+    const diagnosis = diagnose({ ...linux({ pasta }), resolvConf: stub });
+    assert.equal(diagnosis.tools.at(-1)?.name, 'slirp4netns');
+    assert.equal(
+      diagnosis.setupNetwork,
+      "Setup network: slirp4netns, not isolated: a taken-over slirp4netns reaches the home folder and /run/user (ADR 0400); pasta is here, but /etc/resolv.conf's first nameserver 127.0.0.53 is a loopback address",
+    );
+  });
+
+  it('names slirp4netns, not isolated, where pasta is not there', () => {
+    assert.equal(
+      diagnose({ ...linux(), resolvConf: lan }).setupNetwork,
+      'Setup network: slirp4netns, not isolated: a taken-over slirp4netns reaches the home folder and /run/user (ADR 0400)',
+    );
+  });
+
+  it('names pasta with its resolver gap where slirp4netns is not there', () => {
+    const diagnosis = diagnose({ ...linux({ pasta, slirp4netns: undefined }), resolvConf: stub });
+    assert.equal(
+      diagnosis.setupNetwork,
+      "Setup network: pasta, isolated, but /etc/resolv.conf's first nameserver 127.0.0.53 is a loopback address: a setup cannot look names up; install slirp4netns (ADR 0218, ADR 0400)",
+    );
+  });
+
+  it('says nothing of a setup network with neither stack', () => {
+    const neither = linux({ slirp4netns: undefined });
+    assert.equal(diagnose({ ...neither, resolvConf: lan }).setupNetwork, undefined);
+  });
+
+  it('says nothing of a setup network off Linux, where a setup has no stack', () => {
+    const mac = { ...macos, tools: { ...macos.tools, pasta }, resolvConf: lan };
+    assert.equal(diagnose(mac).setupNetwork, undefined);
+  });
+
+  it('prints the line before the isolation level', () => {
+    const report = formatDiagnosis(diagnose({ ...linux({ pasta }), resolvConf: lan }));
+    assert.match(
+      report,
+      /\n\nSetup network: pasta, isolated \(a mount namespace of its own on an empty root, ADR 0400\)\nIsolation: /,
+    );
+  });
+});

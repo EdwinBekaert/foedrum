@@ -16,6 +16,14 @@ updates:
       npm:
         patterns: ["*"]
 
+  # The claude CI runs the tests against the installed claude with (DEPENDENCIES.md, ADR 0399).
+  - package-ecosystem: npm
+    directory: /ci/claude
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+
   - package-ecosystem: github-actions
     directory: /
     schedule:
