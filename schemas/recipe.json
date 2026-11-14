@@ -212,10 +212,10 @@
               "description": "Overrides the brewer's effort on this step, one of Foedrum's own; a blind-tasting swap of the brewer's model keeps it (ADR 0352, ADR 0397)",
               "type": "string",
               "enum": [
-                "quick",
-                "steady",
-                "careful",
-                "thorough"
+                "small",
+                "moderate",
+                "larger",
+                "full"
               ]
             },
             "interactive": {
@@ -623,10 +623,10 @@
                     "description": "Overrides the brewer's effort on this step, one of Foedrum's own; a blind-tasting swap of the brewer's model keeps it (ADR 0352, ADR 0397)",
                     "type": "string",
                     "enum": [
-                      "quick",
-                      "steady",
-                      "careful",
-                      "thorough"
+                      "small",
+                      "moderate",
+                      "larger",
+                      "full"
                     ]
                   },
                   "interactive": {

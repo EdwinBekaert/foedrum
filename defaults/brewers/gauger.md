@@ -4,7 +4,7 @@
   "description": "Writes failing tests, and stubs that throw, from the order; no implementation.",
   "version": 14,
   "model": "standard",
-  "effort": "careful",
+  "effort": "larger",
   "inputs": [
     { "name": "order", "from": "order" },
     { "name": "map", "from": "step:map" },

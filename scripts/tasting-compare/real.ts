@@ -175,9 +175,9 @@ const TOGETHER = {
  * all; a test holds them to that file (ADR 0366).
  */
 const SHIPPED_NIP_TASTERS = [
-  { ...LENS_TASTERS[0], effort: 'careful', everyRound: true },
-  { ...LENS_TASTERS[1], effort: 'careful' },
-  { ...LENS_TASTERS[2], effort: 'careful' },
+  { ...LENS_TASTERS[0], effort: 'larger', everyRound: true },
+  { ...LENS_TASTERS[1], effort: 'larger' },
+  { ...LENS_TASTERS[2], effort: 'larger' },
   LENS_TASTERS[3],
 ] as const;
 /**
@@ -296,7 +296,7 @@ export interface Tasters {
   reads: string;
 }
 
-const MEDIUM_EFFORT = '"effort": "steady"';
+const MEDIUM_EFFORT = '"effort": "moderate"';
 
 /** The `high` setup's Taster: the reading Taster's text at another effort, and no other change. */
 export const highTaster = (reads: string): string => {
@@ -305,7 +305,7 @@ export const highTaster = (reads: string): string => {
       `the reading Taster does not say ${MEDIUM_EFFORT} once: high would compare nothing`,
     );
   }
-  return reads.replace(MEDIUM_EFFORT, () => '"effort": "careful"');
+  return reads.replace(MEDIUM_EFFORT, () => '"effort": "larger"');
 };
 
 /**

@@ -4,7 +4,7 @@
   "description": "The Maltster's map: reads the order and the code, and lists the files and lines it touches, one line each saying why; read-only.",
   "version": 1,
   "model": "light",
-  "effort": "steady",
+  "effort": "moderate",
   "inputs": [
     { "name": "order", "from": "order" },
     { "name": "planEntry", "from": "plan-entry" }

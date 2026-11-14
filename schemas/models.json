@@ -38,10 +38,10 @@
           "propertyNames": {
             "type": "string",
             "enum": [
-              "quick",
-              "steady",
-              "careful",
-              "thorough"
+              "small",
+              "moderate",
+              "larger",
+              "full"
             ]
           },
           "additionalProperties": {

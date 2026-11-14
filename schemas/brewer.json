@@ -107,10 +107,10 @@
         "effort": {
           "type": "string",
           "enum": [
-            "quick",
-            "steady",
-            "careful",
-            "thorough"
+            "small",
+            "moderate",
+            "larger",
+            "full"
           ]
         },
         "tools": {
@@ -373,10 +373,10 @@
         "effort": {
           "type": "string",
           "enum": [
-            "quick",
-            "steady",
-            "careful",
-            "thorough"
+            "small",
+            "moderate",
+            "larger",
+            "full"
           ]
         },
         "tools": {

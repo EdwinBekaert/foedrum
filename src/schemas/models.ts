@@ -9,7 +9,7 @@ export const ModelLevel = z.enum(['light', 'standard', 'strong']);
 export type ModelLevel = z.infer<typeof ModelLevel>;
 
 /** A brewer's reasoning effort, or a step's that overrides it, in Foedrum's words (ADR 0352, ADR 0397). */
-export const Effort = z.enum(['quick', 'steady', 'careful', 'thorough']);
+export const Effort = z.enum(['small', 'moderate', 'larger', 'full']);
 export type Effort = z.infer<typeof Effort>;
 
 /** Claude Code's effort words, which models.jsonc translates Foedrum's into (`claude --effort`). */

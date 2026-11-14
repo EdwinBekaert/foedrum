@@ -4,7 +4,7 @@
   "description": "Simplifies the batch's change without changing what it does, and commits it; or says why there was nothing to simplify.",
   "version": 6,
   "model": "standard",
-  "effort": "careful",
+  "effort": "larger",
   "inputs": [
     { "name": "order", "from": "order" },
     { "name": "map", "from": "step:map" }

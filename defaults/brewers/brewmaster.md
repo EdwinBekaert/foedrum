@@ -4,7 +4,7 @@
   "description": "Reads the order and the repositories it reaches, and breaks the order into sub-orders, one repository each, with the recipe each should run with; read-only.",
   "version": 8,
   "model": "strong",
-  "effort": "careful",
+  "effort": "larger",
   "inputs": [
     { "name": "order", "from": "order" },
     { "name": "repositories", "from": "repositories" },

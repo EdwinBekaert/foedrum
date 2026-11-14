@@ -4,7 +4,7 @@
   "description": "Reviews the batch's change, or its plan, through the one lens its step names, and answers with findings and a verdict; read-only.",
   "version": 12,
   "model": "standard",
-  "effort": "steady",
+  "effort": "moderate",
   "inputs": [
     { "name": "order", "from": "order" },
     { "name": "planEntry", "from": "plan-entry" },
