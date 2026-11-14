@@ -1275,36 +1275,13 @@ export const brewerRecordOf = (
 ): Pick<BrewerRecord, 'ended' | 'attempts' | 'brewer'> => {
   const { ended } = recordIn(events, new Map());
   const steps = new Map<string, StepRun>();
-  const models = new Set<string>();
-  // How many models each Cellarman attempt's transcript names, by attempt.
-  const named = new Map<number, number>();
-  let unreadable: string | undefined;
   let commit: string | undefined;
   let green: { passed: boolean; checks: string[] } = { passed: false, checks: [] };
   for (const { event } of events) {
     if (event.type === 'step.started') {
       if (event.stepId === 'green' && event.worktree !== undefined) commit = event.worktree.commit;
-      if (event.stepId !== IMPLEMENT || event.session === undefined) continue;
-      const { id, worktree } = event.session;
-      const transcript = transcriptOf(id, worktree);
-      if (transcript === undefined) {
-        unreadable ??= `${IMPLEMENT} ${event.attempt}: its transcript could not be found`;
-        continue;
-      }
-      const read = transcriptReads(transcript, worktree).models;
-      named.set(event.attempt, read.length);
-      for (const model of read) models.add(model);
     } else if (event.type === 'step.finished') {
       const { stepId, usage, receipt } = event;
-      // A Cellarman that finished on no model cannot say which wrote the code; one that failed by
-      // itself may have called none (ADR 0344).
-      if (
-        stepId === IMPLEMENT &&
-        event.outcome.kind === 'succeeded' &&
-        named.get(event.attempt) === 0
-      ) {
-        unreadable ??= `${IMPLEMENT} ${event.attempt}: its transcript names no model`;
-      }
       const step = steps.get(stepId) ?? { stepId, attempts: 0, turns: 0, durationMs: 0 };
       const summed = sumUsage(step.usage, usage);
       steps.set(stepId, {
@@ -1330,8 +1307,7 @@ export const brewerRecordOf = (
       checksPassed: green.passed,
       checks: green.checks,
       steps: [...steps.values()],
-      models: [...models],
-      ...(unreadable === undefined ? {} : { unreadable }),
+      ...stepModels(events, IMPLEMENT, transcriptOf),
       ...(commit === undefined ? {} : { commit }),
     },
   };
@@ -1555,7 +1531,8 @@ export const plannerBreweryFiles = (): Record<string, string> => {
 
 /**
  * The models each attempt of `stepId` ran on, by its transcript; a transcript that cannot be found,
- * or one of an attempt that succeeded and names no model, cannot say (ADR 0344).
+ * or one of an attempt that succeeded and names no model, cannot say; one that failed by itself may
+ * have called none (ADR 0344).
  */
 const stepModels = (
   events: readonly { event: Event }[],
