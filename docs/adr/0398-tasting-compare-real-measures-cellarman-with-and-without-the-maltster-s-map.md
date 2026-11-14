@@ -17,7 +17,7 @@ The question, answered after the merge by a run by hand: does Cellarman with the
   Its settings carry `map: true`, and its record the models its map step's transcripts name.
 - **The map's model stops nothing.** Unlike Cellarman's ([ADR 0344](0344-tasting-compare-real-measures-a-stronger-model-and-more-effort-apart.md)), it is not the setting measured; `codes.md` shows it, so a map on another model shows when the scores are read.
 - **Every brewer's run counts each step's `Grep`, `Glob` and `Read` calls** from its sessions' transcripts: each call once by its id, whatever came of it, summed over the step's attempts.
-  A step with a session whose transcript cannot be found, such as the scripted Gauger's on a real run, has no count, so a count never stands for part of its attempts; a check step has no session.
+  A step with a session whose transcript cannot be found, such as the scripted Gauger's on a real run, or holds a line that cannot be read, has no count, so a count never stands for part of its attempts; a check step has no session.
   A dry run's scripted transcripts each hold one `Read`, so its counts show the columns, not a measure.
 - **`codes.md` gains three columns on every brewer's run**: `Map`, `no` or `yes` with the map's models; `Grep, Glob, Read`, per step, such as `map 4/3/12, implement 2/0/9`; and `Map tokens`, the map step's total.
   `Tokens`, `Turns` and `Brewers` stay the sums over every step, so a run with a map counts what the map cost.
