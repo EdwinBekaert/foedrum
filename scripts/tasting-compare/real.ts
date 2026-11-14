@@ -6,9 +6,10 @@
 import { createHmac } from 'node:crypto';
 import { join, resolve } from 'node:path';
 import { pathInside } from '../../src/platform/paths.ts';
-import type { Effort } from '../../src/schemas/brewer.ts';
+import { Effort } from '../../src/schemas/brewer.ts';
 import { ClaudeToolResult, ClaudeToolUse } from '../../src/schemas/claude-stream.ts';
-import type { Event, Usage } from '../../src/schemas/events.ts';
+import type { Event, GravityReading, Usage } from '../../src/schemas/events.ts';
+import { ModelId } from '../../src/schemas/models.ts';
 import { z } from '../../src/schemas/zod.ts';
 import type { FakeApiComment } from '../../test/helpers/fake-github-api.ts';
 import type { Scripted } from '../../test/helpers/nip-fixture.ts';
@@ -96,12 +97,7 @@ export const selectRealSetups = (names: string, orders?: string): readonly RealS
   if (unknown !== undefined) {
     throw new Error(`--setups names no setup "${unknown}": it knows ${known.join(', ')}`);
   }
-  const numbers = REAL_ORDERS.map(({ order }) => String(order));
-  const only = orders?.split(',');
-  const stranger = only?.find((order) => !numbers.includes(order));
-  if (stranger !== undefined) {
-    throw new Error(`--orders names no order "${stranger}": it knows ${numbers.join(', ')}`);
-  }
+  const only = chosenOrders(orders);
   return REAL_SETUPS.filter(
     (setup) =>
       chosen.includes(profileOf(setup)) &&
@@ -109,12 +105,23 @@ export const selectRealSetups = (names: string, orders?: string): readonly RealS
   );
 };
 
+/** The orders `--orders` names, or undefined without it; throws on an order it does not know. */
+const chosenOrders = (orders: string | undefined): string[] | undefined => {
+  const numbers = REAL_ORDERS.map(({ order }) => String(order));
+  const only = orders?.split(',');
+  const stranger = only?.find((order) => !numbers.includes(order));
+  if (stranger !== undefined) {
+    throw new Error(`--orders names no order "${stranger}": it knows ${numbers.join(', ')}`);
+  }
+  return only;
+};
+
 /** A setup's name after its order: its profile, or `comments`. */
 const profileOf = (setup: RealSetup): Profile | 'comments' =>
   setup.slice(setup.indexOf('-') + 1) as Profile | 'comments';
 
 /** The order `setup` tastes. */
-export const orderOf = (setup: RealSetup): (typeof REAL_ORDERS)[number] => {
+export const orderOf = (setup: RealSetup | BrewerSetup): (typeof REAL_ORDERS)[number] => {
   const number = Number(setup.slice(0, setup.indexOf('-')));
   const found = REAL_ORDERS.find(({ order }) => order === number);
   if (found === undefined) throw new Error(`no order for the setup ${setup}`);
@@ -999,44 +1006,134 @@ export type BrewerSetup = `${OrderNumber}-${MeasuredBrewer}-${string}`;
 /** The recipe of a real Cellarman's run (ADR 0394). */
 export const REAL_BREWER_RECIPE = 'real-brew-cellarman';
 
+/** The alias the measured brewer's step names, which models.jsonc maps to the given model. */
+const MEASURED = 'measured';
+
 /** The settings `--brewer`, `--model` and `--effort` give, or undefined without them; throws on a wrong combination. */
-export const brewerSettingsOf = (_given: {
+export const brewerSettingsOf = (given: {
   real?: boolean;
   brewer?: string;
   model?: string;
   effort?: string;
   setups?: string;
 }): BrewerSettings | undefined => {
-  throw new Error('not implemented');
+  const { real, brewer, model, effort, setups } = given;
+  if (brewer === undefined) {
+    if (model !== undefined || effort !== undefined) {
+      throw new Error('--model and --effort set the brewer --brewer names: give --brewer too');
+    }
+    return undefined;
+  }
+  if (real !== true) throw new Error('--brewer runs a brewer of --real for real: give --real too');
+  if (setups !== undefined) {
+    throw new Error('--setups chooses Taster setups and --brewer a brewer run: give one of them');
+  }
+  const measured = MEASURED_BREWERS.find((each) => each === brewer);
+  if (measured === undefined) {
+    throw new Error(`--brewer takes ${MEASURED_BREWERS.join(', ')}, not "${brewer}"`);
+  }
+  if (model === undefined) throw new Error(`--brewer ${brewer} needs --model <id>`);
+  if (effort === undefined) throw new Error(`--brewer ${brewer} needs --effort <level>`);
+  if (!ModelId.safeParse(model).success) {
+    throw new Error(
+      `--model takes a model id models.jsonc accepts, such as claude-sonnet-5-5, not "${model}"`,
+    );
+  }
+  const level = Effort.safeParse(effort);
+  if (!level.success) {
+    throw new Error(`--effort takes one of ${Effort.options.join(', ')}, not "${effort}"`);
+  }
+  return { brewer: measured, model, effort: level.data };
 };
 
 /** The setups of a brewer's runs, one per order, of the orders `--orders` names or of every order. */
-export const brewerSetups = (_settings: BrewerSettings, _orders?: string): BrewerSetup[] => {
-  throw new Error('not implemented');
+export const brewerSetups = (settings: BrewerSettings, orders?: string): BrewerSetup[] => {
+  const only = chosenOrders(orders);
+  return REAL_ORDERS.filter(({ order }) => only === undefined || only.includes(String(order))).map(
+    ({ order }): BrewerSetup => `${order}-${settings.brewer}-${settings.model}-${settings.effort}`,
+  );
 };
 
 /** A run's scratch folder name: a setup's name with what Windows refuses in a folder's name replaced. */
-export const scratchNameOf = (_name: string): string => {
-  throw new Error('not implemented');
-};
+export const scratchNameOf = (name: string): string => name.replace(/[^A-Za-z0-9._-]/g, '_');
+
+/** The folder of a head's test files, which the scripted Gauger commits (ADR 0394). */
+const TESTS = 'test/';
 
 /** The head's files: its test files, which the scripted Gauger commits, and the rest, Cellarman's. */
-export const splitHead = (_changed: readonly string[]): { tests: string[]; code: string[] } => {
-  throw new Error('not implemented');
+export const splitHead = (changed: readonly string[]): { tests: string[]; code: string[] } => {
+  const tests = changed.filter((path) => path.startsWith(TESTS));
+  const code = changed.filter((path) => !path.startsWith(TESTS));
+  if (tests.length === 0) throw new Error(`the head changes no test file under ${TESTS}`);
+  if (code.length === 0) throw new Error(`the head changes nothing but tests under ${TESTS}`);
+  return { tests, code };
 };
 
-/** The recipe of a real Cellarman's runs. */
-export const brewerRecipeText = (_settings: BrewerSettings): string => {
-  throw new Error('not implemented');
+/** The checks of the green step, every check the repository names. */
+const GREEN_CHECKS = ['build', 'typecheck', 'lint', 'format', 'test'] as const;
+
+/**
+ * The recipe of a real Cellarman's runs: the scripted Gauger's tests, Cellarman on the measured
+ * alias and effort, the repository's checks, sent back to Cellarman once, and the pull request a
+ * recipe that commits must open (ADR 0084). Not test-first, so no red proof runs and the
+ * repository needs no test map (ADR 0394).
+ */
+export const brewerRecipeText = (settings: BrewerSettings): string => {
+  const recipe = {
+    name: REAL_BREWER_RECIPE,
+    type: 'brew',
+    description: "A head's tests as brewed, then a real Cellarman on a model and effort given",
+    guidance: {
+      chooseWhen: 'A brewed head, built again by a real brewer to compare models',
+      notWhen: 'Any new order',
+      bestUsed: 'Through node scripts/tasting-compare.ts --real --brewer',
+    },
+    testFirst: false,
+    steps: [
+      { id: 'gauge', brewer: 'gauger' },
+      { id: IMPLEMENT, brewer: settings.brewer, model: MEASURED, effort: settings.effort },
+      {
+        id: 'green',
+        check: GREEN_CHECKS,
+        deadline: '30m',
+        onFail: { goto: IMPLEMENT, maxRounds: 1 },
+      },
+      { action: 'openPullRequest' },
+    ],
+  };
+  return `// node scripts/tasting-compare.ts --real --brewer's recipe (ADR 0394).\n${JSON.stringify(recipe, null, 2)}\n`;
 };
+
+/**
+ * Foedrum's own checks, after its setup installs the base's dependencies in the check step's
+ * worktree; `npm run check` runs the test files the change reaches from the base (ADR 0394).
+ */
+const FOEDRUM_REPOSITORY = {
+  setup: { command: 'npm ci', timeout: '10m' },
+  checks: {
+    build: null,
+    typecheck: 'npm run typecheck',
+    lint: 'npm run lint',
+    format: null,
+    test: 'npm run check',
+  },
+};
+
+const json = (value: unknown): string => `${JSON.stringify(value, null, 2)}\n`;
 
 /** The Brewery's files of a real Cellarman's run beyond Nip's: its recipe, models.jsonc and foedrum.jsonc. */
 export const brewerBreweryFiles = (
-  _settings: BrewerSettings,
-  _names: { brewery: string; target: string; user: string },
-): Record<string, string> => {
-  throw new Error('not implemented');
-};
+  settings: BrewerSettings,
+  names: { brewery: string; target: string; user: string },
+): Record<string, string> => ({
+  [`recipes/${REAL_BREWER_RECIPE}.jsonc`]: brewerRecipeText(settings),
+  'models.jsonc': json({ models: { [MEASURED]: settings.model } }),
+  'foedrum.jsonc': json({
+    brewery: names.brewery,
+    users: [names.user],
+    repositories: { [names.target]: FOEDRUM_REPOSITORY },
+  }),
+});
 
 /** A head as the scripted brewers play it: its commit, subject and files, by path. */
 export interface BrewedHead {
@@ -1048,11 +1145,28 @@ export interface BrewedHead {
 
 /** What the scripted brewers of a brewer's run play: the Gauger always, Cellarman on a dry run. */
 export const brewerScript = (
-  _head: BrewedHead,
-  _dryRun: boolean,
-): Record<string, readonly Scripted[]> => {
-  throw new Error('not implemented');
-};
+  head: BrewedHead,
+  dryRun: boolean,
+): Record<string, readonly Scripted[]> => ({
+  gauge: [
+    {
+      files: head.tests,
+      message: `Test ${head.subject}`,
+      summary: `The test files of ${head.head}, committed as they were brewed: ${Object.keys(head.tests).join(', ')}.`,
+    },
+  ],
+  ...(dryRun
+    ? {
+        [IMPLEMENT]: [
+          {
+            files: head.code,
+            message: head.subject,
+            summary: `The dry run's scripted Cellarman: the code of ${head.head}, committed as it was brewed.`,
+          },
+        ],
+      }
+    : {}),
+});
 
 /** One step of a brewer's run: its attempts, and the tokens, turns and time of its sessions. */
 export interface StepRun {
@@ -1082,45 +1196,226 @@ export interface BrewerRun extends BrewerSettings {
 
 export type BrewerRecord = RunRecord<BrewerSetup> & { brewer: BrewerRun };
 
-/** A brewer's run's record from its store's events. */
+/** A reading as one line: its check, or the setup, and how it ended. */
+const readingLine = (reading: GravityReading): string => {
+  const name = reading.check ?? ('setup' in reading ? 'setup' : 'command');
+  switch (reading.result) {
+    case 'exited':
+      return `${name}: exited ${reading.exitCode}`;
+    case 'killed':
+      return `${name}: killed, ${reading.killed}`;
+    case 'signaled':
+      return `${name}: ended on ${reading.signal}`;
+    case 'skipped':
+    case 'unstarted':
+      return `${name}: ${reading.result}`;
+    default: {
+      const never: never = reading;
+      return never;
+    }
+  }
+};
+
+const sumUsage = (a: Usage | undefined, b: Usage | undefined): Usage | undefined =>
+  a === undefined || b === undefined
+    ? (a ?? b)
+    : {
+        inputTokens: a.inputTokens + b.inputTokens,
+        outputTokens: a.outputTokens + b.outputTokens,
+        cacheReadTokens: a.cacheReadTokens + b.cacheReadTokens,
+        cacheWriteTokens: a.cacheWriteTokens + b.cacheWriteTokens,
+      };
+
+/**
+ * A brewer's run's record from its store's events: how its batch ended; each step's attempts,
+ * tokens, turns and time; the green step's last readings and the commit it read, which is the
+ * brewer's code; and the models the brewer's transcripts name (ADR 0344, ADR 0394).
+ */
 export const brewerRecordOf = (
-  _events: readonly { event: Event }[],
-  _settings: BrewerSettings,
-  _transcriptOf: (sessionId: string, worktree: string) => string | undefined,
+  events: readonly { event: Event }[],
+  settings: BrewerSettings,
+  transcriptOf: (sessionId: string, worktree: string) => string | undefined,
 ): Pick<BrewerRecord, 'ended' | 'attempts' | 'brewer'> => {
-  throw new Error('not implemented');
+  const { ended } = recordIn(events, new Map());
+  const steps = new Map<string, StepRun>();
+  const models = new Set<string>();
+  let unreadable: string | undefined;
+  let commit: string | undefined;
+  let green: { passed: boolean; checks: string[] } = { passed: false, checks: [] };
+  for (const { event } of events) {
+    if (event.type === 'step.started') {
+      if (event.stepId === 'green' && event.worktree !== undefined) commit = event.worktree.commit;
+      if (event.stepId !== IMPLEMENT || event.session === undefined) continue;
+      const { id, worktree } = event.session;
+      const transcript = transcriptOf(id, worktree);
+      if (transcript === undefined) {
+        unreadable ??= `${IMPLEMENT} ${event.attempt}: its transcript could not be found`;
+        continue;
+      }
+      for (const model of transcriptReads(transcript, worktree).models) models.add(model);
+    } else if (event.type === 'step.finished') {
+      const { stepId, usage, receipt } = event;
+      const step = steps.get(stepId) ?? { stepId, attempts: 0, turns: 0, durationMs: 0 };
+      const summed = sumUsage(step.usage, usage);
+      steps.set(stepId, {
+        stepId,
+        attempts: step.attempts + 1,
+        ...(summed === undefined ? {} : { usage: summed }),
+        turns: step.turns + (receipt?.turns ?? 0),
+        durationMs: step.durationMs + (receipt?.durationMs ?? 0),
+      });
+      if (stepId === 'green') {
+        green = {
+          passed: event.outcome.kind === 'succeeded',
+          checks: (event.readings ?? []).map(readingLine),
+        };
+      }
+    }
+  }
+  return {
+    ended,
+    attempts: [],
+    brewer: {
+      ...settings,
+      checksPassed: green.passed,
+      checks: green.checks,
+      steps: [...steps.values()],
+      models: [...models],
+      ...(unreadable === undefined ? {} : { unreadable }),
+      ...(commit === undefined ? {} : { commit }),
+    },
+  };
 };
 
-/** Why a brewer's run measured nothing, or undefined. */
-export const brewerFailure = (
-  _record: Pick<BrewerRecord, 'ended' | 'brewer'>,
-): string | undefined => {
-  throw new Error('not implemented');
-};
+/**
+ * Why a brewer's run measured nothing, or undefined: no code of its brewer reached the checks. A
+ * run whose checks failed measured the code all the same (ADR 0394).
+ */
+export const brewerFailure = ({
+  ended,
+  brewer,
+}: Pick<BrewerRecord, 'ended' | 'brewer'>): string | undefined =>
+  brewer.commit === undefined
+    ? `the batch ended ${ended} before the checks read any code of ${brewer.brewer}`
+    : undefined;
 
-/** Why the comparison must stop after a brewer's run, or undefined. */
-export const brewerStop = (_record: Pick<BrewerRecord, 'setup' | 'brewer'>): string | undefined => {
-  throw new Error('not implemented');
+/**
+ * Why the comparison must stop after a brewer's run, or undefined: a transcript that cannot say,
+ * or a model the run did not ask for, is the harness's, so every later run would be too (ADR 0344).
+ * An id asks for itself, a family for any of its ids; `[1m]` is no part of the name a transcript
+ * gives.
+ */
+export const brewerStop = ({
+  setup,
+  brewer,
+}: Pick<BrewerRecord, 'setup' | 'brewer'>): string | undefined => {
+  if (brewer.unreadable !== undefined) return escapeCell(brewer.unreadable);
+  const asked = brewer.model.replace(/\[1m\]$/, '');
+  const other = brewer.models.find((model) => !model.includes(asked));
+  return other === undefined
+    ? undefined
+    : escapeCell(`${IMPLEMENT}: it ran on ${other}, and ${setup} asks for ${asked}`);
 };
 
 /** The next brewer's run to brew (`nextRunOf`). */
 export const nextBrewerRun = (
-  _records: readonly BrewerRecord[],
-  _runs: number,
-  _setups: readonly BrewerSetup[],
-): { setup: BrewerSetup; run: number; retry: boolean } | undefined => {
-  throw new Error('not implemented');
+  records: readonly BrewerRecord[],
+  runs: number,
+  setups: readonly BrewerSetup[],
+) => nextRunOf(setups, records, runs, brewerFailure);
+
+/** A fence longer than any run of backticks in `text`, so no line of it closes the block. */
+const fenceOf = (text: string): string =>
+  '`'.repeat(Math.max(3, ...[...text.matchAll(/`+/g)].map(([run]) => run.length + 1)));
+
+/** The setups a brewer's records hold, in the order they first came. */
+const setupsIn = (records: readonly BrewerRecord[]): BrewerSetup[] => [
+  ...new Set(records.map(({ setup }) => setup)),
+];
+
+const seconds = (ms: number): string => `${Math.round(ms / 1000)} s`;
+
+const brewerRow = (code: string, { setup, run, wallMs, brewer }: BrewerRecord): string => {
+  const usage = brewer.steps.reduce<Usage | undefined>(
+    (sum, { usage }) => sumUsage(sum, usage),
+    undefined,
+  );
+  const tokens =
+    usage === undefined
+      ? '- | - | - | - | -'
+      : `${usage.inputTokens} | ${usage.outputTokens} | ${usage.cacheReadTokens} | ${usage.cacheWriteTokens} | ${usage.inputTokens + usage.outputTokens + usage.cacheReadTokens + usage.cacheWriteTokens}`;
+  const rounds = brewer.steps.map(({ stepId, attempts }) => `${stepId} ${attempts}`).join(', ');
+  const turns = brewer.steps.reduce((sum, { turns }) => sum + turns, 0);
+  const time = brewer.steps.reduce((sum, { durationMs }) => sum + durationMs, 0);
+  return `| ${code} | ${setup} | ${run} | ${escapeCell(brewer.model)} | ${brewer.effort} | ${brewer.checksPassed ? 'passed' : 'failed'} | ${rounds} | ${tokens} | ${turns} | ${seconds(time)} | ${seconds(wallMs)} |`;
 };
 
-/** One blinded list per order of the code of its runs, and the file that names their setups. */
+/**
+ * One list per order of the code its runs wrote, each run's diff under its code and sorted by it,
+ * and the one file that names the setups: each code's setup, model, effort, checks, rounds,
+ * tokens and time, and the runs that measured nothing. Nothing here says which code is right.
+ */
 export const brewerBlinded = (
-  _records: readonly BrewerRecord[],
-  _seed: string,
+  records: readonly BrewerRecord[],
+  seed: string,
 ): { lists: Record<string, string>; codes: string } => {
-  throw new Error('not implemented');
+  const lists: Record<string, string> = {};
+  const rows: string[] = [];
+  const failures: string[] = [];
+  for (const { order } of REAL_ORDERS) {
+    const scored: { code: string; record: BrewerRecord }[] = [];
+    for (const setup of setupsIn(records).filter((each) => orderOf(each).order === order)) {
+      const runs = runsOfSetup(records, setup, brewerFailure);
+      for (const record of runs.scored) {
+        const code = codeOf(seed, setup, record.run);
+        scored.push({ code, record });
+        rows.push(brewerRow(code, record));
+      }
+      for (const { run, why } of runs.failed) {
+        failures.push(`Failed: ${setup} run ${run}: ${escapeCell(why)}`);
+      }
+    }
+    if (scored.length === 0) continue;
+    scored.sort((a, b) => (a.code < b.code ? -1 : 1));
+    lists[String(order)] = `${[
+      `# Order #${order}: ${scored.length} runs to score`,
+      '',
+      'Each run has a code of its own. Open codes.md only once they are scored.',
+      '',
+      ...scored.flatMap(({ code, record }) => {
+        const diff = (record.brewer.diff ?? '').trimEnd();
+        const fence = fenceOf(diff);
+        return [`## Run ${code}`, '', `${fence}diff`, diff, fence, ''];
+      }),
+    ]
+      .join('\n')
+      .trimEnd()}\n`;
+  }
+  const codes = [
+    '# The codes of the lists',
+    '',
+    '| Code | Setup | Run | Model | Effort | Checks | Rounds | Input | Output | Cache read | Cache write | Tokens | Turns | Brewers | Wall |',
+    '|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|',
+    ...rows,
+    ...(failures.length === 0 ? [] : ['', ...failures]),
+    '',
+  ].join('\n');
+  return { lists, codes };
 };
 
 /** What a brewer's comparison prints: each setup's runs, failed, retried and passing the checks. */
-export const brewerTable = (_records: readonly BrewerRecord[]): string => {
-  throw new Error('not implemented');
+export const brewerTable = (records: readonly BrewerRecord[]): string => {
+  const rows = setupsIn(records).map((setup) => {
+    const { scored, failed } = runsOfSetup(records, setup, brewerFailure);
+    const retried = records.filter((each) => each.setup === setup && each.retry === true).length;
+    const passed = scored.filter(({ brewer }) => brewer.checksPassed).length;
+    return `| ${setup} | ${scored.length} | ${failed.length} | ${retried} | ${passed} of ${scored.length} |`;
+  });
+  return `${[
+    '| Setup | Runs to score | Failed goes | Retried | Passed the checks |',
+    '|---|---|---|---|---|',
+    ...rows,
+    '',
+    'Score lists/<order>.md by hand against the key, then open codes.md, which says which setup each code is.',
+  ].join('\n')}\n`;
 };
