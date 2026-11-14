@@ -12,6 +12,7 @@ import {
   insideFolders,
   type NetworkStackTool,
   pastaResolverGap,
+  readResolvConfFile,
   SANDBOX_EXEC,
   type SandboxedChecksOptions,
   sandboxedChecks,
@@ -988,6 +989,29 @@ describe('pastaResolverGap', () => {
       "/etc/resolv.conf's first nameserver resolver.lan is not an IPv4 address",
     );
     assert.equal(pastaResolverGap(undefined), '/etc/resolv.conf cannot be read');
+  });
+});
+
+// What a setup reads by default to choose its stack (ADR 0400).
+describe('readResolvConfFile', () => {
+  it("reads the file's text", () => {
+    const dir = makeTempDir('resolv-conf');
+    try {
+      const path = join(dir.path, 'resolv.conf');
+      writeFileSync(path, 'nameserver 192.168.1.1\n');
+      assert.equal(readResolvConfFile(path), 'nameserver 192.168.1.1\n');
+    } finally {
+      dir.remove();
+    }
+  });
+
+  it('reads nothing from a file that is not there', () => {
+    const dir = makeTempDir('resolv-conf');
+    try {
+      assert.equal(readResolvConfFile(join(dir.path, 'missing')), undefined);
+    } finally {
+      dir.remove();
+    }
   });
 });
 
