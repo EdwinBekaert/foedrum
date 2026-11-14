@@ -1122,6 +1122,18 @@ describe('tasting-compare --real --brewer (ADR 0394)', () => {
       assert.deepEqual(brewer.steps.find(({ stepId }) => stepId === 'map')?.usage, usage(100));
     });
 
+    it('a step whose transcript has a line it cannot read gets no count', () => {
+      const broken: Record<string, string> = {
+        ...transcripts,
+        'implement-2': `${calls('claude-opus-5-5', 'Read')}\n{"type":`,
+      };
+      const { brewer } = brewerRecordOf(mapped, MAP_RUN, (id) => broken[id]);
+      const implement = brewer.steps.find(({ stepId }) => stepId === 'implement');
+      assert.equal(implement?.searches, undefined);
+      const map = brewer.steps.find(({ stepId }) => stepId === 'map');
+      assert.deepEqual(map?.searches, { grep: 2, glob: 1, read: 3 });
+    });
+
     it("a run's record says it had a map, and the models its map step ran on", () => {
       const { brewer } = brewerRecordOf(mapped, MAP_RUN, transcriptOf);
       assert.equal(brewer.map, true);
