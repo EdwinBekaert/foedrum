@@ -41,8 +41,8 @@ The question, answered after the merge by a run by hand: does Cellarman on Sonne
 
   A run whose checks failed measured the code all the same.
   A run with no commit the checks read measured nothing: it is listed as failed and brewed once more, as ADR 0332's runs are.
-- **A run on a model it did not ask for stops the comparison**, as [ADR 0344](0344-tasting-compare-real-measures-a-stronger-model-and-more-effort-apart.md) has it: an id asks for itself, a family for any id that holds it, and `[1m]` is no part of the name a transcript gives.
-  So does a Cellarman whose transcript cannot be found.
+- **A run on a model it did not ask for stops the comparison**, as [ADR 0344](0344-tasting-compare-real-measures-a-stronger-model-and-more-effort-apart.md) has it: a family, a name with no `-` such as `opus`, asks for any id that holds it; an id asks for itself or a dated snapshot of it (eight digits after a `-`), never for another id it starts; and `[1m]` is read as no part of either name, since a dry run's scripted transcript names the model as planned.
+  So does a Cellarman whose transcript cannot be found, and one that finished with a transcript that names no model; a Cellarman attempt that failed by itself may have called no model, and stops nothing.
 - **Its records stay apart**, under `real/brewers`, or `real/comparisons/<name>/brewers` with `--comparison <name>`, away from the Taster setups' records.
   One blinded list per order, `lists/<order>.md`, shows each run's diff under its code, in a fence no line of the diff can close.
   `codes.md` names each code's setup, model, effort, checks, rounds, tokens, turns, the brewers' time and the wall time, and the failed runs.
