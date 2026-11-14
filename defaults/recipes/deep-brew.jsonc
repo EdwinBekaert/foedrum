@@ -28,6 +28,9 @@
       "when": "recipe.testFirst",
       "onFail": { "goto": "survey", "maxRounds": 1 }
     },
+    // The Maltster maps the code the order touches, read-only, for the Gauger, Cellarman and the
+    // Finer to start from, also with test-first off (ADR 0395).
+    { "id": "map", "brewer": "maltster-map" },
     { "id": "gauge", "brewer": "gauger", "when": "recipe.testFirst" },
     {
       "id": "red",

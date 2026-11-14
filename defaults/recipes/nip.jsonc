@@ -1,7 +1,8 @@
 // Nip, a change in one repository whose effect stays inside the code it changes, test-first
 // (ADR 0017, ADR 0375): the Maltster first proposes the
 // repository's test map when it has none or a stale one, checked against one run of its tests
-// (ADR 0282, ADR 0298); then the Gauger commits failing tests,
+// (ADR 0282, ADR 0298), and maps the code the order touches, read-only (ADR 0395); then the Gauger
+// commits failing tests,
 // the red proof shows they fail for the missing behaviour, Cellarman makes them pass, the Finer
 // simplifies the change (ADR 0166), the checks read the result, four Tasters review the change side
 // by side, through the correctness, acceptance, security and design conformance lenses (ADR 0168,
@@ -32,6 +33,9 @@
       "when": "recipe.testFirst",
       "onFail": { "goto": "survey", "maxRounds": 1 }
     },
+    // The Maltster maps the code the order touches, read-only, for the Gauger, Cellarman and the
+    // Finer to start from, also with test-first off (ADR 0395).
+    { "id": "map", "brewer": "maltster-map" },
     { "id": "gauge", "brewer": "gauger", "when": "recipe.testFirst" },
     {
       "id": "red",

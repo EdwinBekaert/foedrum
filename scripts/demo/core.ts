@@ -60,6 +60,7 @@ export const recipeText = (): string =>
           when: 'recipe.testFirst',
           onFail: { goto: 'survey', maxRounds: 1 },
         },
+        { id: 'map', brewer: 'maltster-map' },
         { id: 'gauge', brewer: 'gauger', when: 'recipe.testFirst' },
         {
           id: 'red',
