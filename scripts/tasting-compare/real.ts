@@ -1302,8 +1302,9 @@ export const brewerFailure = ({
 /**
  * Why the comparison must stop after a brewer's run, or undefined: a transcript that cannot say,
  * or a model the run did not ask for, is the harness's, so every later run would be too (ADR 0344).
- * An id asks for itself, a family for any of its ids; `[1m]` is no part of the name a transcript
- * gives.
+ * A family, a name with no `-` such as `opus`, asks for any id that holds it; an id asks for itself
+ * or a dated snapshot of it, never for another id it starts; `[1m]` is no part of the name a
+ * transcript gives.
  */
 export const brewerStop = ({
   setup,
@@ -1311,7 +1312,12 @@ export const brewerStop = ({
 }: Pick<BrewerRecord, 'setup' | 'brewer'>): string | undefined => {
   if (brewer.unreadable !== undefined) return escapeCell(brewer.unreadable);
   const asked = brewer.model.replace(/\[1m\]$/, '');
-  const other = brewer.models.find((model) => !model.includes(asked));
+  const isAsked = (model: string): boolean =>
+    asked.includes('-')
+      ? model === asked ||
+        (model.startsWith(`${asked}-`) && /^\d{8}$/.test(model.slice(asked.length + 1)))
+      : model.includes(asked);
+  const other = brewer.models.find((model) => !isAsked(model));
   return other === undefined
     ? undefined
     : escapeCell(`${IMPLEMENT}: it ran on ${other}, and ${setup} asks for ${asked}`);
