@@ -1,6 +1,6 @@
 // Deep-brew, the build stage of the full recipe (ADR 0366): Nip's steps from the survey to the pull
 // request, a blocking Brett step whose survivors go back to the Gauger, and one Taster on the
-// planner alias through all seven diff lenses together. No test can show a Taster finds anything
+// strong level through all seven diff lenses together. No test can show a Taster finds anything
 // (#879): these pin the recipe's shape, and walk a survivor round through the driver.
 
 import assert from 'node:assert/strict';

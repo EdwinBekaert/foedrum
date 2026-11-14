@@ -216,7 +216,7 @@ export const nipTargetConfig = () => ({
 
 /**
  * The Brewery's files, by path relative to its checkout: no recipe or brewer of its own, so Nip,
- * the Maltster, the Gauger, the Cellarman, the Finer and the Taster come from `defaults/`. Their model alias is builder (ADR 0100).
+ * the Maltster, the Gauger, the Cellarman, the Finer and the Taster come from `defaults/`. Their model level is standard (ADR 0100, ADR 0397).
  */
 export const nipBreweryFiles = (options: {
   brewery: string;
