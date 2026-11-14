@@ -31,7 +31,7 @@ describe('the recipes under defaults/', () => {
 });
 
 describe('mash-in and the Innkeeper (ADR 0232)', () => {
-  it("asks at its one step, through a read-only Innkeeper on builder, offering Foedrum's other recipes", () => {
+  it("asks at its one step, through a read-only Innkeeper on standard, offering Foedrum's other recipes", () => {
     const loaded = loadRecipes(readBreweryFiles(join(root, '..', 'no-brewery')));
     assert.ok(loaded.valid, loaded.valid ? '' : loaded.problems.join('\n'));
     const mashIn = loaded.recipes.find('mash-in');

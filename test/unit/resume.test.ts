@@ -982,7 +982,7 @@ describe('foedrum resume (ADR 0126)', () => {
       );
     });
 
-    it("opens an attempt at its step's own effort, over its brewer's: regression test (ADR 0352)", async () => {
+    it("opens an attempt at its step's own effort: regression test (ADR 0352, ADR 0397)", async () => {
       const stepped = loadRecipes({
         recipes: [
           {
