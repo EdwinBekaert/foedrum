@@ -295,7 +295,7 @@ describe('foedrum brew on recipe:mash, with the default Brewmaster (ADR 0234)', 
     assert.doesNotMatch(status, /Running|Done/);
   });
 
-  it("gives the Brewmaster the Brewery's repositories with their bases, on the planner alias", async () => {
+  it("gives the Brewmaster the Brewery's repositories with their bases, on the strong level", async () => {
     assert.equal(await runBrew(setup, shell([planned]), request), 3, lines.join('\n'));
     assert.match(
       prompts[0] ?? '',
