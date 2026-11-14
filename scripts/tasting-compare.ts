@@ -119,6 +119,7 @@ import {
   brewerStop,
   brewerTable,
   changedFiles,
+  codeDiffArgs,
   comparisonStop,
   nextBrewerRun,
   nextRealRun,
@@ -519,15 +520,7 @@ const brewerMode = async (settings: BrewerSettings): Promise<Mode<BrewerSetup, B
       if (commit === undefined) return record;
       // The code it wrote: the change from the base, past the Gauger's test files.
       const base = await commitIn(orderOf(setup).base);
-      const diff = await git(join(scratch, 'web'), [
-        'diff',
-        '--no-renames',
-        base,
-        commit,
-        '--',
-        '.',
-        ':(exclude)test',
-      ]);
+      const diff = await git(join(scratch, 'web'), codeDiffArgs(base, commit));
       return { ...record, brewer: { ...record.brewer, diff } };
     },
     table: brewerTable,

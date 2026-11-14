@@ -1069,6 +1069,17 @@ export const splitHead = (changed: readonly string[]): { tests: string[]; code: 
   return { tests, code };
 };
 
+/** git's arguments for the code a run wrote: its diff from `base` to `commit`, past the head's test files. */
+export const codeDiffArgs = (base: string, commit: string): string[] => [
+  'diff',
+  '--no-renames',
+  base,
+  commit,
+  '--',
+  '.',
+  `:(exclude)${TESTS}`,
+];
+
 /** The checks of the green step, every check the repository names. */
 const GREEN_CHECKS = ['build', 'typecheck', 'lint', 'format', 'test'] as const;
 
