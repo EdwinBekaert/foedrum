@@ -39,7 +39,7 @@ A GitHub App comes later, as a second kind of `gh` login.
 
 ## What these rules don't cover
 
-The holes the table above leaves open, each where it is described:
+The holes the table above and the [trust boundaries](../trust-boundaries.md) leave open, each where it is described:
 
 - A netrc login in the user's home still reaches a brewer's git and a check step's, until #135 (the brewer-push row, [ADR 0109](../adr/0109-a-brewer-s-git-holds-no-push-credential.md)).
 - A push that gets a login on the permissions-only level, or from a check step on native Windows, is stopped and found by nothing, since the `noPush` guard is gone (the brewer-push row, [ADR 0076](../adr/0076-check-steps-run-in-an-os-sandbox-with-no-network.md), [ADR 0133](../adr/0133-the-nopush-guard-goes-a-brewer-s-git-holds-no-push-credential.md)).
