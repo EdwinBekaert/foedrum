@@ -1,6 +1,6 @@
 // Claude Code PreToolUse hook for Read, Grep and Glob: lets a call through only when every path
 // it reads resolves inside the checkout, `CLAUDE_PROJECT_DIR` (ADR 0049).
-// Wired in the frontmatter of the read-only agents (.claude/agents/taster.md, brett.md) as
+// Wired in the frontmatter of the read-only agents (.claude/agents/Explore.md, taster.md, brett.md, auditor.md) as
 // `node "${CLAUDE_PROJECT_DIR}/scripts/read-guard.ts"`, failing closed like the local gate.
 // Exit 0 lets the tool call through; exit 2 blocks it and shows stderr to Claude.
 // Like scripts/precheck.ts, the module has no static imports: a tool it does not guard exits
