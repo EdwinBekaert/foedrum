@@ -36,3 +36,17 @@ flowchart LR
 **Authentication:** Claude — whatever the user's `claude` CLI is logged in with.
 GitHub — the maintainer's `gh` login (`gh auth login`, kept in the OS keyring), for the API through `gh api` and for git pushes with `gh` as git's credential helper (`gh auth setup-git`); `foedrum doctor` checks both, and Foedrum never holds a token ([ADR 0073](../adr/0073-github-only-through-gh-s-own-login.md)).
 A GitHub App comes later, as a second kind of `gh` login.
+
+## What these rules don't cover
+
+The holes the table above leaves open, each where it is described:
+
+- A netrc login in the user's home still reaches a brewer's git and a check step's, until #135 (the brewer-push row, [ADR 0109](../adr/0109-a-brewer-s-git-holds-no-push-credential.md)).
+- A push that gets a login on the permissions-only level, or from a check step on native Windows, is stopped and found by nothing, since the `noPush` guard is gone (the brewer-push row, [ADR 0076](../adr/0076-check-steps-run-in-an-os-sandbox-with-no-network.md), [ADR 0133](../adr/0133-the-nopush-guard-goes-a-brewer-s-git-holds-no-push-credential.md)).
+- On the sandboxed level, a brewer's shell commands can still reach the OS keyring, which the sandbox docs leave open, and with it gh's login (the secret-leakage row, [ADR 0087](../adr/0087-sandboxed-commands-go-through-the-allow-rules-and-never-see-credentials.md), [ADR 0160](../adr/0160-sandboxed-commands-read-only-inside-the-working-directories.md)).
+- On the permissions-only level, a brewer or a check step can read gh's login (the secret-leakage row, [ADR 0087](../adr/0087-sandboxed-commands-go-through-the-allow-rules-and-never-see-credentials.md)).
+- On native Windows, check steps and the checks before a brewer's end can read gh's login too (the secret-leakage row, [ADR 0076](../adr/0076-check-steps-run-in-an-os-sandbox-with-no-network.md), [ADR 0381](../adr/0381-a-brewer-that-writes-code-runs-the-quick-checks-before-its-end-and-is-sent-back-once.md)).
+- On the permissions-only level, a brewer can run code it wrote as the user, through an allowed toolchain command, which reaches more than the clone's git configuration (the worktree row, [ADR 0137](../adr/0137-the-push-its-lookup-and-the-worktree-fetch-run-in-the-clone-again.md)).
+- Nothing in CI checks the `npm` GitHub environment or the npm trusted publisher that guard publishing, since both are settings outside the repository's files ([trust boundaries](../trust-boundaries.md), [ADR 0388](../adr/0388-a-tag-on-a-green-main-publishes-through-trusted-publishing-and-a-dry-run-proves-the-rest.md)).
+
+The container isolation level that [isolation levels](platform/isolation.md) and the install-scripts row describe is not built: Foedrum runs on the sandboxed level or the permissions-only level only (`IsolationLevel` in `src/cli/doctor.ts`).
