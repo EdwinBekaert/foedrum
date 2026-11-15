@@ -5,10 +5,10 @@ One function works it out from the batch's lane, `batchState` in `src/engine/bat
 
 | State | When | The few words after it |
 |---|---|---|
-| **Running** | a brewer or a check works on it, or a split order's sub-orders brew | the steps under way, or `the sub-orders brew (#2, #3)` |
+| **Running** | a brewer or a check works on it, or it is on tap with an approved plan whose sub-orders brew or are not opened yet | the steps under way, or `the sub-orders brew (#2, #3)` |
 | **Waiting for you** | it waits for a person | what for: `approve the plan`, `give your go` (a human gate, [ADR 0383](../../adr/0383-rack-archives-finished-batches-and-deletes-old-archive-folders-and-temporary-files.md)), `answer a question`, `open its session`, `stopped by <who> (retry or cancel)`, `look at a failure`, `merge a pull request`, or `see to what keeps the order open` |
 | **Queued** | ordered and not routed yet, or conditioning on a merge, a release or another batch | what it waits for |
-| **Done** | its pull requests all ended, every sub-order of its order merged, it was cancelled, or it ended on tap with no pull request | how: `merged`, `closed without merging`, `every sub-order merged`, `cancelled by <who>`, `no pull request` |
+| **Done** | its pull requests all ended, every sub-order of its order merged, it was cancelled, or it ended on tap with no pull request, no approved plan and no sub-orders (a human gate's go approves no plan) | how: `merged`, `closed without merging`, `every sub-order merged`, `cancelled by <who>`, `no pull request` |
 
 A Stuck batch waits for you: a plan's review for its approval, a human gate for your go (`foedrum approve` or `foedrum cancel`), a question or a changed order for an answer, an interactive step for its session, a stop for a retry or a cancel, and every other reason for a look at the failure, whose reason follows.
 An on-tap batch waits for you while any of its pull requests has no recorded end, and is done once all have one.

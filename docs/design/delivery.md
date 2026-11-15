@@ -17,7 +17,7 @@ The package ships the JavaScript `tsc` emits from `src/` into `dist/` (`npm run 
 Its `files` are `dist/`, `defaults/`, `schemas/` and the Job Object helper `src/platform/job-object.ps1`, which `tsc` does not copy; `bin` is `dist/cli/main.js`.
 A module finds a file of the package from the package root, which lies as far above `dist/<area>/` as above `src/<area>/`: the defaults, `package.json` and the helper.
 No lifecycle script builds it: CI runs `npm run build` before `npm pack`.
-CI's `package` job builds, packs and installs the tarball into an empty folder outside the checkout on Linux, Windows and macOS for every pull request, then starts the installed `foedrum` (`--version`, `--help`, `doctor`), imports every emitted module and runs it once more through `npx` with the tarball as the package; `ci-ok` needs it.
+CI's `package` job builds, packs and installs the tarball into an empty folder outside the checkout on Linux, Windows and macOS for every pull request, push to `main` and nightly run, then starts the installed `foedrum` (`--version`, `--help`, `doctor`), imports every emitted module and runs it once more through `npx` with the tarball as the package; `ci-ok` needs it.
 The job is the reusable workflow `.github/workflows/package.yml`, which CI and the release both run ([ADR 0388](../adr/0388-a-tag-on-a-green-main-publishes-through-trusted-publishing-and-a-dry-run-proves-the-rest.md)).
 
 ## Releases

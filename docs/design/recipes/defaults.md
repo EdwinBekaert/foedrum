@@ -3,7 +3,8 @@
 ## Default recipes
 
 Mash-in, Mash and Deep-mash are of type `mash`, Nip, Deep-brew and Rack of type `brew` ([ADR 0365](../../adr/0365-a-recipe-has-a-type-mash-or-brew.md)).
-Nip, Deep-brew, Mash and Deep-mash each carry guidance, when to choose it, when not and how it is best used, which the Innkeeper, the Brewmaster and `plan/recipe-fit` read; Nip's says it is not for a change that can reach a lot, however small, and names Deep-brew for it. Mash-in, which chooses a recipe and is never offered, carries none, nor does Rack, which runs no brewer and is never offered ([ADR 0383](../../adr/0383-rack-archives-finished-batches-and-deletes-old-archive-folders-and-temporary-files.md)) ([ADR 0375](../../adr/0375-every-recipe-offered-as-a-choice-carries-guidance-the-models-that-choose-read.md)).
+Nip, Deep-brew, Mash and Deep-mash each carry guidance, when to choose it, when not and how it is best used, which the Innkeeper, the Brewmaster and `plan/recipe-fit` read; Nip's says it is not for a change that can reach a lot, however small, and names Deep-brew for it ([ADR 0375](../../adr/0375-every-recipe-offered-as-a-choice-carries-guidance-the-models-that-choose-read.md)).
+Mash-in, which chooses a recipe and is never offered, carries none, nor does Rack, which runs no brewer and is never offered ([ADR 0383](../../adr/0383-rack-archives-finished-batches-and-deletes-old-archive-folders-and-temporary-files.md)).
 
 | Recipe | Use |
 |---|---|
