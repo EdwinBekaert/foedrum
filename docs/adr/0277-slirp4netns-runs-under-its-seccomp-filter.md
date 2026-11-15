@@ -1,6 +1,6 @@
 # 0277. slirp4netns runs under its seccomp filter
 
-Date: 2026-10-31 · Status: Accepted · Amends [0218](0218-a-linux-setup-gets-a-network-namespace-of-its-own-through-a-user-mode-network-stack.md) (slirp4netns's arguments gain `--enable-seccomp`)
+Date: 2026-10-31 · Status: Accepted · Amends [0218](0218-a-linux-setup-gets-a-network-namespace-of-its-own-through-a-user-mode-network-stack.md) (slirp4netns's arguments gain `--enable-seccomp`) · Amended by [0400](0400-pasta-comes-first-for-a-setup-where-its-resolver-works-and-slirp4netns-s-gap-is-recorded.md)
 
 ## Context
 Since [ADR 0218](0218-a-linux-setup-gets-a-network-namespace-of-its-own-through-a-user-mode-network-stack.md) a repository's setup on Linux and WSL2 gets the network from a user-mode network stack, slirp4netns first, attached to bwrap's network namespace from outside.

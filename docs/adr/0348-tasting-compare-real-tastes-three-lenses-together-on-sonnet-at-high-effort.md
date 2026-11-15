@@ -1,6 +1,6 @@
 # 0348. tasting-compare --real tastes three lenses together on Sonnet at high effort
 
-Date: 2026-11-08 · Status: Accepted · Amends [0347](0347-tasting-compare-real-measures-tasters-without-the-rules-read-and-three-lenses-together.md) (a fourth setup beside its three)
+Date: 2026-11-08 · Status: Accepted · Amends [0347](0347-tasting-compare-real-measures-tasters-without-the-rules-read-and-three-lenses-together.md) (a fourth setup beside its three) · Amended by [0394](0394-tasting-compare-real-runs-a-real-cellarman-on-a-model-and-effort-it-is-given.md)
 
 ## Context
 #879's comparison under [ADR 0347](0347-tasting-compare-real-measures-tasters-without-the-rules-read-and-three-lenses-together.md) measured three lenses in one Taster only on Opus (`opus-together`).

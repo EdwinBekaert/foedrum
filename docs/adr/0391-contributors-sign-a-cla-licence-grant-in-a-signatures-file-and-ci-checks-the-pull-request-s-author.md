@@ -1,6 +1,6 @@
 # 0391. Contributors sign a CLA licence grant in a signatures file, and CI checks the pull request's author
 
-Date: 2026-11-13 · Status: Accepted · Amends [0009](0009-agpl-and-cla.md) (the CLA is a licence grant, signed in a file, checked by CI)
+Date: 2026-11-13 · Status: Accepted · Amends [0009](0009-agpl-and-cla.md) (the CLA is a licence grant, signed in a file, checked by CI) · Amended by [0392](0392-the-cla-promises-that-contributions-stay-available-under-the-agpl-or-an-osi-approved-licence.md)
 
 ## Context
 [ADR 0009](0009-agpl-and-cla.md) licenses Foedrum under the AGPL-3.0 and asks a Contributor License Agreement of contributions, so the project can relicense or offer a commercial licence beside the AGPL, and says it must be in place before outside contributions are accepted.

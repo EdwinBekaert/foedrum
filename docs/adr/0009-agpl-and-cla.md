@@ -1,6 +1,6 @@
 # 0009. AGPL-3.0 with a Contributor License Agreement
 
-Date: 2026-10-13 · Status: Accepted
+Date: 2026-10-13 · Status: Accepted · Amended by [0391](0391-contributors-sign-a-cla-licence-grant-in-a-signatures-file-and-ci-checks-the-pull-request-s-author.md) and [0392](0392-the-cla-promises-that-contributions-stay-available-under-the-agpl-or-an-osi-approved-licence.md)
 
 ## Context
 Foedrum should be genuine open source — usable by individuals and inside companies — while preventing closed commercial resale, in particular offering a modified Foedrum as a hosted service without sharing the changes.

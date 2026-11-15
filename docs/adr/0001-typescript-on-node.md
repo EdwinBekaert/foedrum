@@ -1,6 +1,6 @@
 # 0001. TypeScript, run by Node's built-in type stripping
 
-Date: 2026-10-13 · Status: Accepted
+Date: 2026-10-13 · Status: Accepted · Amended by [0377](0377-the-package-ships-the-javascript-tsc-emits-and-ci-starts-the-installed-tarball.md)
 
 ## Context
 Foedrum's core is a state machine whose correctness depends on handling every state and every step outcome. The ecosystem around Claude, GitHub and command-line tooling is strongest in TypeScript and Python. We want as few build tools as possible.

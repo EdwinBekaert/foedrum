@@ -1,6 +1,6 @@
 # 0004. Built-in first dependency policy
 
-Date: 2026-10-13 · Status: Accepted · Amended by [0113](0113-github-s-security-features-on-the-foedrum-repository.md) and [0119](0119-npm-audit-runs-once-per-ci-run-with-one-retry-on-an-outage.md)
+Date: 2026-10-13 · Status: Accepted · Amended by [0113](0113-github-s-security-features-on-the-foedrum-repository.md), [0119](0119-npm-audit-runs-once-per-ci-run-with-one-retry-on-an-outage.md), [0388](0388-a-tag-on-a-green-main-publishes-through-trusted-publishing-and-a-dry-run-proves-the-rest.md) and [0399](0399-ci-runs-the-tests-against-the-installed-claude-with-a-claude-pinned-in-a-lockfile-of-its-own.md)
 
 ## Context
 Compromised npm packages are a recurring, real threat (hijacked maintainers, malicious install scripts, self-propagating worms). One 2025 attack specifically drove locally installed AI coding CLIs to hunt for secrets — exactly the kind of machine Foedrum runs on. Typical stacks for a tool like this pull in 400+ packages.

@@ -1,6 +1,6 @@
 # 0113. GitHub's security features on the Foedrum repository
 
-Date: 2026-10-21 · Status: Accepted · Amends [0004](0004-built-in-first-dependency-policy.md) (which of GitHub's own checks run next to the dependency policy)
+Date: 2026-10-21 · Status: Accepted · Amends [0004](0004-built-in-first-dependency-policy.md) (which of GitHub's own checks run next to the dependency policy) · Amended by [0388](0388-a-tag-on-a-green-main-publishes-through-trusted-publishing-and-a-dry-run-proves-the-rest.md)
 
 ## Context
 The repository is public. [ADR 0004](0004-built-in-first-dependency-policy.md) set the dependency policy: built-ins first, an admission checklist, `npm audit` and `npm audit signatures` in CI, and Dependabot version updates, weekly and grouped, with a 7-day cooldown. GitHub's other security features were off: secret scanning, push protection, Dependabot alerts and security updates, and private vulnerability reporting. Foedrum runs model output and commands on its users' machines, so people will look for holes in it, and a credential pushed to a public repository is copied within minutes.

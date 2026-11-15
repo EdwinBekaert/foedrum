@@ -1,6 +1,6 @@
 # 0016. Delivery: an npm CLI and a companion Claude Code plugin
 
-Date: 2026-10-13 · Status: Accepted
+Date: 2026-10-13 · Status: Accepted · Amended by [0377](0377-the-package-ships-the-javascript-tsc-emits-and-ci-starts-the-installed-tarball.md) and [0388](0388-a-tag-on-a-green-main-publishes-through-trusted-publishing-and-a-dry-run-proves-the-rest.md)
 
 ## Context
 Foedrum uses Claude Code heavily, which raises the question of whether Foedrum itself should be a Claude Code plugin. A plugin lives inside an interactive Claude Code session. The engine, however, must poll GitHub, spawn and supervise `claude` processes, hold leases, enforce deadlines and survive crashes and reboots. It runs for days, for example while a batch is Conditioning until a release appears. That needs a process that does not depend on anyone's session.

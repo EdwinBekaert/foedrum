@@ -1,6 +1,6 @@
 # 0215. An Opus or Sonnet limit holds only the brewers of its family
 
-Date: 2026-10-26 · Status: Accepted · Amends [0206](0206-a-run-out-usage-window-holds-every-brewer-attempt-until-it-reopens.md) (a window per scope instead of one for every brewer)
+Date: 2026-10-26 · Status: Accepted · Amends [0206](0206-a-run-out-usage-window-holds-every-brewer-attempt-until-it-reopens.md) (a window per scope instead of one for every brewer) · Amended by [0397](0397-recipe-steps-name-a-model-level-and-an-effort-of-foedrum-s-own-which-models-jsonc-translates-for-the-agent.md)
 
 ## Context
 [ADR 0206](0206-a-run-out-usage-window-holds-every-brewer-attempt-until-it-reopens.md) holds every brewer attempt while any usage window is closed, whichever of the four limits of [ADR 0091](0091-a-run-out-usage-window-blocks-on-the-environment.md) claude hit.

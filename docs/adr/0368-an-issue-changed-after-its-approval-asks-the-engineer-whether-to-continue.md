@@ -1,6 +1,6 @@
 # 0368. An issue changed after its approval asks the engineer whether to continue
 
-Date: 2026-11-10 · Status: Accepted · Amends [0359](0359-the-intake-takes-an-issue-only-when-someone-in-users-added-its-labels.md) (the label approves the issue as it is when it is labelled, and a later change asks) and [0333](0333-a-brewer-s-order-holds-the-maintainers-comments.md) (a comment added after the approval stops a claimed order's batch until the engineer answers)
+Date: 2026-11-10 · Status: Accepted · Amends [0359](0359-the-intake-takes-an-issue-only-when-someone-in-users-added-its-labels.md) (the label approves the issue as it is when it is labelled, and a later change asks) and [0333](0333-a-brewer-s-order-holds-the-maintainers-comments.md) (a comment added after the approval stops a claimed order's batch until the engineer answers) · Amended by [0373](0373-a-label-approved-order-s-brewers-read-every-comment-made-before-its-approval.md)
 
 ## Context
 Since [ADR 0359](0359-the-intake-takes-an-issue-only-when-someone-in-users-added-its-labels.md), a target repository's issue is approved for a Brewery by its intake label, when someone in `users` added it, whoever opened the issue.
