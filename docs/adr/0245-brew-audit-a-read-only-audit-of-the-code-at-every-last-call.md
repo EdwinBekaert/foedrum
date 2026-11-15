@@ -1,6 +1,6 @@
 # 0245. /brew-audit: a read-only audit of the code and the ADRs at every last call, its findings kept in the main checkout
 
-Date: 2026-10-27 · Status: Accepted
+Date: 2026-10-27 · Status: Accepted · Amended by [0389](0389-nothing-in-foedrum-tmp-is-kept-and-the-worktree-cleanup-clears-it.md)
 
 ## Context
 `/brew-review` judges one pull request through the diff lenses, and `/brew-last-call` audits Foedrum's instruction files before a milestone closes. Nothing reads the code and the ADRs as they stand: how many changes add up, code they left dead or duplicated, decisions the code drifted from.

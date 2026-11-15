@@ -1,6 +1,6 @@
 # 0119. npm audit runs once per CI run, with one retry on an outage, and CI tests the newest Node 24
 
-Date: 2026-10-22 · Status: Accepted · Amends [0004](0004-built-in-first-dependency-policy.md) (where and how CI runs `npm audit`)
+Date: 2026-10-22 · Status: Accepted · Amends [0004](0004-built-in-first-dependency-policy.md) (where and how CI runs `npm audit`) · Amended by [0377](0377-the-package-ships-the-javascript-tsc-emits-and-ci-starts-the-installed-tarball.md)
 
 ## Context
 [ADR 0004](0004-built-in-first-dependency-policy.md) put `npm audit` in CI, and CI ran `npm audit --omit=dev` on all six legs of its matrix ([ADR 0010](0010-cross-platform-and-isolation-levels.md)). The audit sends the lockfile's runtime packages to npm's advisory endpoint (`POST /-/npm/v1/security/advisories/bulk`), and the answer depends on the lockfile alone, not on the platform or the Node version: six calls ask the same question. `npm audit signatures` is different: it checks the packages installed on that leg.

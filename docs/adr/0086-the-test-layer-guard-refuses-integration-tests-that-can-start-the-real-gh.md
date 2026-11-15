@@ -1,6 +1,6 @@
 # 0086. The test-layer guard refuses integration tests that can start the real `gh`
 
-Date: 2026-10-18 · Status: Accepted · Amends [0021](0021-unit-tests-spawn-no-processes.md) (what the test-layer guard reads)
+Date: 2026-10-18 · Status: Accepted · Amends [0021](0021-unit-tests-spawn-no-processes.md) (what the test-layer guard reads) · Amended by [0362](0362-the-canned-gh-answers-take-their-runner-and-the-cli-tests-that-start-nothing-are-unit-tests.md)
 
 ## Context
 No test of any layer may reach a login, gh's included ([ADR 0075](0075-only-a-lower-bound-reads-the-wall-clock-and-doctor-runs-against-stub-tools.md), #212). An integration test runs real tools, so it can start the real `gh` with whatever login the machine has: by spawning `gh`, by calling `doctorFromCheckout` or `serveFromCheckout` with their defaults, the real runner and PATH, or by running `src/cli/main.ts`, which wires in those defaults. PR #207 took four review rounds because each fix covered only the test that had just failed. The test-design lens and CLAUDE.md state the rule (#213, #216), but nothing checked it.

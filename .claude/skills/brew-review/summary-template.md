@@ -33,7 +33,7 @@ Verdicts: correctness approve · security approve · …
 
 ### Mutation check (Brett)
 
-<m> min <s> s · covered: a baseline of <w> test files (wide) with coverage, <c1>–<c2> test files per mutant (or "round 1: <d> test files (direct) · round 2: <w> test files (wide), <k> mutants (or "not needed")", with why the covered round fell back: `fallback: <reason>`, the coverage baseline timed out, or the criteria's copy predates `mutant-coverage.ts`; or "one round: <w> test files", when the criteria's `mutant-tests.ts` predates `--direct`)
+<m> min <s> s · covered: a baseline of <w> test files (wide) with coverage, <c1>–<c2> test files per mutant (or "round 1: <d> test files (direct) · round 2: <w> test files (wide), <k> mutants (or "not needed")", with why the covered round fell back: `fallback: <reason>`, `wide` was the glob, or the coverage baseline timed out)
 
 | # | Mutant | Result | Disposition |
 |---|---|---|---|
