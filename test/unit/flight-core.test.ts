@@ -294,6 +294,14 @@ describe('the Flight (ADR 0409)', () => {
       assert.match(config.repositories[TARGET]?.checks.test ?? '', /^node --test/);
     });
 
+    it('a dry run brews a copy of the recipe with test-first off and its steps as they ship', () => {
+      const files = flightBreweryFiles({ ...SHIPPED, dryRun: true }, NIP, NAMES);
+      const copy = copyOf(files, 'nip');
+      assert.equal(Recipe.parse(parseJsonc(copy)).testFirst, false);
+      assert.deepEqual(stepsOf(copy), stepsOf(NIP));
+      assert.equal(files['models.jsonc'], undefined);
+    });
+
     it("a swap on a level moves only the brewer's steps, with no models.jsonc", () => {
       const files = flightBreweryFiles(swapped('extreme'), NIP, NAMES);
       assert.equal(files['models.jsonc'], undefined);
@@ -358,15 +366,16 @@ describe('the Flight (ADR 0409)', () => {
   });
 
   describe("the dry run's scripted brewers", () => {
-    it("the Gauger commits the solution's tests and Cellarman its code", () => {
+    it('Cellarman commits the whole solution, its tests and its code: a dry run skips the test-first steps', () => {
       const script = dryRunScript(ORDER, NIP);
-      assert.deepEqual(Object.keys(script.gauge?.[0]?.files ?? {}), ['test/posts.test.mjs']);
-      assert.deepEqual(Object.keys(script.implement?.[0]?.files ?? {}), ['src/posts.mjs']);
+      assert.deepEqual(Object.keys(script.implement?.[0]?.files ?? {}).sort(), [
+        'src/posts.mjs',
+        'test/posts.test.mjs',
+      ]);
     });
 
-    it('the Maltster commits a test map, and every Taster approves with no finding', () => {
+    it('every Taster approves with no finding', () => {
       const script = dryRunScript(ORDER, NIP);
-      assert.deepEqual(Object.keys(script.survey?.[0]?.files ?? {}), [TEST_MAP_PATH]);
       for (const id of ['correctness', 'acceptance', 'security', 'design-conformance']) {
         assert.deepEqual(script[id]?.[0]?.tasting, { verdict: 'approve', findings: [] }, id);
       }
