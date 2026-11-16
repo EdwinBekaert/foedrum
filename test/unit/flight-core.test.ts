@@ -58,6 +58,7 @@ const EVERY_LEVEL = JSON.stringify({
       model,
       effort: 'moderate',
     })),
+    { action: 'openPullRequest' },
   ],
 });
 const withEveryLevel = (name: string) => (name === 'every-level' ? EVERY_LEVEL : recipeText(name));

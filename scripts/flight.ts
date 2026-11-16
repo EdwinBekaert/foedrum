@@ -106,12 +106,8 @@ const mode: Mode<string, FlightRecord> = {
     // reached no pull request; the hidden tests laid over it last.
     const hidden = join(scratch, 'hidden');
     await git(scratch, ['clone', '-q', 'web.git', 'hidden']);
-    const greenTree = events.findLast(
-      ({ event }) => event.type === 'step.started' && event.worktree?.commit === head,
-    )?.event;
-    if (record.flight.headFrom === 'green' && greenTree?.type === 'step.started') {
-      await git(hidden, ['fetch', '-q', greenTree.worktree?.path ?? '', head]);
-    }
+    const { headTree } = record.flight;
+    if (headTree !== undefined) await git(hidden, ['fetch', '-q', headTree, head]);
     await git(hidden, ['checkout', '-q', head]);
     const changed = (
       await git(hidden, ['diff', '--name-only', '--no-renames', 'origin/main', head])
@@ -131,7 +127,7 @@ const mode: Mode<string, FlightRecord> = {
       ...record,
       flight: {
         ...record.flight,
-        hidden: hiddenOf(ran.exitCode),
+        hidden: hiddenOf(ran.exitCode, ran.killed),
         hiddenOutput: ran.output.slice(-OUTPUT_KEPT),
         changed,
         outside: outsidePaths(changed, order.allowedPaths),

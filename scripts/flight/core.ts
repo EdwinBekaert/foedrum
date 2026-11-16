@@ -7,6 +7,7 @@ import type { parseArgs } from 'node:util';
 import { TEST_MAP_PATH } from '../../src/checks/test-map.ts';
 import { effectKey } from '../../src/engine/effect-key.ts';
 import { parseJsonc } from '../../src/formats/jsonc.ts';
+import type { Killed } from '../../src/platform/processes.ts';
 import type { Event, Usage } from '../../src/schemas/events.ts';
 import { type Effort, ModelLevel } from '../../src/schemas/models.ts';
 import { Recipe } from '../../src/schemas/recipe.ts';
@@ -123,6 +124,10 @@ const settingsOf = (
   if (recipe === undefined) throw new Error('--recipe names the default recipe a Flight brews');
   const text = recipeText(recipe);
   if (text === undefined) throw new Error(`--recipe takes a default recipe, not "${recipe}"`);
+  const read = recipeOf(text);
+  if (!read.steps.some((step) => 'action' in step && step.action === 'openPullRequest')) {
+    throw new Error(`--recipe ${recipe} opens no pull request, so no run of it would leave a head`);
+  }
   const runs = Number(values.runs ?? '3');
   if (!Number.isSafeInteger(runs) || runs < 1) {
     throw new Error(`--runs must be a whole number of at least 1, not ${values.runs}`);
@@ -136,7 +141,6 @@ const settingsOf = (
   if (model === undefined) throw new Error(`--brewer ${brewer} needs --model <level or id>`);
   if (effort === undefined) throw new Error(`--brewer ${brewer} needs --effort <effort>`);
   const swap = { brewer, ...tasterModelOf(model, effort) };
-  const read = recipeOf(text);
   if (!brewerSteps(read).some((step) => step.brewer === brewer)) {
     throw new Error(`--brewer "${brewer}" names no step of the recipe ${recipe}`);
   }
@@ -258,6 +262,8 @@ export interface FlightRun {
   /** The commit a person gets from the batch, and where it was read. */
   head?: string;
   headFrom?: 'pull request' | 'green';
+  /** The worktree the green step read a head of no pull request in, where its commit is. */
+  headTree?: string;
   hidden?: Hidden;
   /** The end of the hidden tests' output. */
   hiddenOutput?: string;
@@ -280,12 +286,12 @@ const GREEN = 'green';
 /** The head a person gets from the batch: its pull request's, or else the commit green last read. */
 export const headOf = (
   events: readonly { event: Event }[],
-): Pick<FlightRun, 'head' | 'headFrom'> => {
-  let green: string | undefined;
+): Pick<FlightRun, 'head' | 'headFrom' | 'headTree'> => {
+  let green: { commit: string; path: string } | undefined;
   let pushed: { round: number; commit: string } | undefined;
   for (const { event } of events) {
     if (event.type === 'step.started' && event.stepId === GREEN && event.worktree !== undefined) {
-      green = event.worktree.commit;
+      green = { commit: event.worktree.commit, path: event.worktree.path };
     } else if (event.type === 'effect.applied') {
       const key = effectKey.decode(event.key);
       const round = 'stepId' in key ? undefined : /^push(?:\.(\d+))?$/.exec(key.effect);
@@ -297,7 +303,7 @@ export const headOf = (
     }
   }
   if (pushed !== undefined) return { head: pushed.commit, headFrom: 'pull request' };
-  return green === undefined ? {} : { head: green, headFrom: 'green' };
+  return green === undefined ? {} : { head: green.commit, headFrom: 'green', headTree: green.path };
 };
 
 /** The changed files outside `allowedPaths`: a folder ends in `/`, any other entry is one file. */
@@ -313,9 +319,12 @@ export const outsidePaths = (
       ),
   );
 
-/** How the hidden tests ended by their exit code, null when they did not finish. */
-export const hiddenOf = (exitCode: number | null): Hidden =>
-  exitCode === null ? 'timed out' : exitCode === 0 ? 'passed' : 'failed';
+/**
+ * How the hidden tests ended by their exit code, and how the runner killed them: timed out only at
+ * their deadline; killed for their output, or never started, they failed.
+ */
+export const hiddenOf = (exitCode: number | null, killed?: Killed): Hidden =>
+  killed === 'timed-out' ? 'timed out' : exitCode === 0 ? 'passed' : 'failed';
 
 /** A run's record from its store's events, before its hidden tests ran. */
 export const flightRecordOf = (
