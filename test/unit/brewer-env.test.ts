@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { devNull } from 'node:os';
 import { describe, it } from 'node:test';
 import { brewerBaseEnv, brewerForcedEnv, buildBrewerEnv } from '../../src/engine/brewer-env.ts';
 
@@ -169,6 +170,10 @@ describe('brewerForcedEnv (ADR 0109)', () => {
     ]);
   });
 
+  it("points git's netrc at the null device, so no netrc login of the user's home reaches it (ADR 0411)", () => {
+    assert.equal(brewerForcedEnv().NETRC, devNull);
+  });
+
   it('names a key and a value for every pair it counts, and no pair it does not', () => {
     const env = brewerForcedEnv();
     const count = Number(env.GIT_CONFIG_COUNT);
@@ -190,6 +195,8 @@ describe('brewerForcedEnv (ADR 0109)', () => {
         GIT_CONFIG_COUNT: '0',
         GIT_CONFIG_VALUE_0: 'store',
         GIT_TERMINAL_PROMPT: '1',
+        netrc: '',
+        NETRC: '/home/user/.netrc',
       };
       const env = buildBrewerEnv({ base: undo, brewer: undo, forced, platform });
       for (const [name, value] of Object.entries(forced)) assert.equal(env[name], value, name);
