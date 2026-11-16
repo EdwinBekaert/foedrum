@@ -12,7 +12,7 @@ A model-upgrade pull request changes one brewer's level in a recipe; to judge it
   Its options and every refusal go through one tested function, `flightOptionsOf` in `scripts/flight/core.ts`; a refusal exits 2.
   The recipe is a default recipe by its name, one that opens a pull request: a recipe that opens none, such as `mash`, is refused, since no run of it would leave a head.
 - **Decided with the maintainer on 2026-11-16: the recipe as it ships, with one brewer swapped.**
-  - Without `--brewer`, the scratch Brewery holds no recipe copy and no `models.jsonc`: the recipe brews as it ships, and `--model` or `--effort` alone is refused.
+  - Without `--brewer`, the scratch Brewery holds no `models.jsonc`, and no recipe copy but a dry run's, whose only change is `testFirst` (below): the recipe brews as it ships, and `--model` or `--effort` alone is refused.
   - With `--brewer`, all three are required, and a brewer no step of the recipe names is refused.
     The scratch Brewery gets a copy of the default recipe in which only that brewer's steps, children of a parallel group included, name the model and the effort.
   - A level is used as given.

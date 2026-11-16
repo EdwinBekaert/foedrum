@@ -14,7 +14,7 @@ It has a folder per kind of material, and [its README](../../tasting-room/README
 ## What runs today
 
 Every comparison is a script or a skill run by hand from a checkout: a real run needs `claude`'s login and spends tokens, which no test may ([ADR 0057](../adr/0057-real-claude-tests-are-opt-in-and-claude-proofs-leave-the-suite.md)).
-Each brews with `foedrum brew`'s own run in a scratch Brewery on the fake code host, keeps its runs and records under `.foedrum/tmp/tasting-compare/`, and goes on where it stopped when run again.
+Each brews with `foedrum brew`'s own run in a scratch Brewery on the fake code host, keeps its runs and records under `.foedrum/tmp/tasting-compare/`, a Flight's under `.foedrum/tmp/flight/`, and goes on where it stopped when run again.
 `--dry-run` plays every model step scripted, so it shows what a run will do before any token is spent, and `--runs <n>` sets the runs per setup (3 when left out).
 
 - **The seeded comparison:** `node scripts/tasting-compare.ts` tastes `seeded/`'s change with the seven default diff lenses apart, the seven together and Nip's three as measured together, and prints a table of the planted defects each setup found, the other findings, tokens and time ([ADR 0224](../adr/0224-the-default-recipes-taste-apart-or-together-as-a-seeded-comparison-measured.md)).
