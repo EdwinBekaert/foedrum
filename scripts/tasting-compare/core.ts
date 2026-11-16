@@ -84,24 +84,38 @@ export interface SeededTaster {
  * The seeded mode's `--model` and `--effort`, or undefined without them, and with `--real` or
  * `--brewer`, whose runs read them; throws on a wrong combination (ADR 0405).
  */
-export const seededTasterOf = (_given: {
+export const seededTasterOf = (given: {
   real?: boolean;
   plan?: boolean;
   brewer?: string;
   model?: string;
   effort?: string;
 }): SeededTaster | undefined => {
-  throw new Error('not implemented');
+  const { real, plan, brewer, model, effort } = given;
+  if (real === true || brewer !== undefined) return undefined;
+  if (model === undefined && effort === undefined) return undefined;
+  if (plan === true) {
+    throw new Error("--model and --effort set the seeded change's Tasters: not with --plan");
+  }
+  if (model === undefined) throw new Error('--effort needs --model <level or id>');
+  if (effort === undefined) throw new Error('--model needs --effort <effort>');
+  return tasterModelOf(model, effort);
 };
 
 /** The folders of a seeded run's records: none by default, `seeded/<model>-<effort>` given a Taster (ADR 0405). */
-export const seededFolders = (_taster?: SeededTaster): string[] => {
-  throw new Error('not implemented');
-};
+export const seededFolders = (taster?: SeededTaster): string[] =>
+  taster === undefined ? [] : ['seeded', scratchNameOf(`${taster.model}-${taster.effort}`)];
 
 /** The line that heads the table of a run given a Taster: what it asked for, and what the receipts named (ADR 0405). */
-export const tasterLine = (_taster: SeededTaster, _records: readonly RunRecord[]): string => {
-  throw new Error('not implemented');
+export const tasterLine = (
+  { model, effort }: SeededTaster,
+  records: readonly RunRecord[],
+): string => {
+  const named = [
+    ...new Set(records.flatMap(({ attempts }) => attempts.flatMap(({ models = [] }) => models))),
+  ];
+  const ran = named.length === 0 ? ': not named' : ` ${named.join(', ')}`;
+  return escapeCell(`Tasters on ${model} at ${effort}; ran on${ran}`);
 };
 
 /** The step that commits the seeded change: a scripted Cellarman, no model. */
@@ -145,12 +159,16 @@ const tasterSteps = (setup: SetupName): Map<string, readonly string[]> => {
 
 /**
  * The recipe of `setup`: the scripted implementer, then its Tasters, each the default `taster`
- * with its model, and the pull request a recipe that commits must open (ADR 0084), on the fake
+ * on `standard` at `moderate`, or on the level and effort of `taster` (ADR 0405), and the pull request a recipe that commits must open (ADR 0084), on the fake
  * code host. No check runs, and Nip's Gauger is skipped as testFirst off skips it, so the
  * Cellarman's tests input is skipped too: the seeded change is not test-first (ADR 0064).
  */
-export const recipeText = (setup: SetupName): string => {
+export const recipeText = (
+  setup: SetupName,
+  taster: SeededTaster = { model: 'standard', effort: 'moderate' },
+): string => {
   const { lenses } = SETUPS[setup];
+  const levels = { model: levelOf(taster.model), effort: taster.effort };
   const taste =
     setup === 'apart-7'
       ? {
@@ -158,8 +176,7 @@ export const recipeText = (setup: SetupName): string => {
           parallel: lenses.map((lens) => ({
             id: stepIdOf(lens),
             brewer: 'taster',
-            model: 'standard',
-            effort: 'moderate',
+            ...levels,
             lens,
           })),
           ...backTo(IMPLEMENT),
@@ -167,8 +184,7 @@ export const recipeText = (setup: SetupName): string => {
       : {
           id: TASTE,
           brewer: 'taster',
-          model: 'standard',
-          effort: 'moderate',
+          ...levels,
           lenses,
           ...backTo(IMPLEMENT),
         };
@@ -200,11 +216,12 @@ export const recipeText = (setup: SetupName): string => {
 
 /** The Brewery's files of a seeded run beyond Nip's: its recipe, and with a model id its models.jsonc (ADR 0405). */
 export const seededBreweryFiles = (
-  _setup: SetupName,
-  _taster?: SeededTaster,
-): Record<string, string> => {
-  throw new Error('not implemented');
-};
+  setup: SetupName,
+  taster?: SeededTaster,
+): Record<string, string> => ({
+  [`recipes/${setup}.jsonc`]: recipeText(setup, taster),
+  ...(taster === undefined ? {} : modelsFileOf(taster.model)),
+});
 
 /** One planted defect: its lens, its file, the line ranges it is in, and what it is. */
 export interface Defect {

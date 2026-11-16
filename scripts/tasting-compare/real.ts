@@ -1170,7 +1170,8 @@ export const brewerSettingsOf = (given: {
     throw new Error('--lenses and --rules set the Taster of --brewer taster: give --brewer taster');
   }
   if (brewer === undefined) {
-    if (model !== undefined || effort !== undefined) {
+    // Without --real they set the seeded change's Tasters (`seededTasterOf`, ADR 0405).
+    if (real === true && (model !== undefined || effort !== undefined)) {
       throw new Error('--model and --effort set the brewer --brewer names: give --brewer too');
     }
     if (orderText !== undefined) {
