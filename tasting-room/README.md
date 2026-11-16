@@ -28,3 +28,4 @@ A commit that adds an order says in its message that the integration tests it ad
 | `plant-watering` | house rule | The instruction file says functions never change the data they are given and return new data; the order asks for a function that records a watering and does not repeat it. |
 | `parcel-weights` | house rule | The instruction file says a typed value that cannot be read is refused with an `InputError`, never a plain `Error`; the order says only to refuse it. |
 | `quiz-rank` | design page | `docs/commands.md` is the one list of the program's commands; the order adds a command and never names the page. |
+| `room-booking` | design page | `docs/errors.md` is the one list of the codes `book` answers; the order adds a code and never names the page. |
