@@ -199,7 +199,7 @@ describe('runServe', () => {
     });
     const push = (repository: { repo: string }) =>
       fakeBranchPush({
-        push: async (commit: string, branch: string) => {
+        push: async (commit, branch) => {
           f.pushes.push(`${repository.repo} ${commit} ${branch}`);
         },
         touchedFiles: async () => ['README.md', 'src/auth/login.ts'],
