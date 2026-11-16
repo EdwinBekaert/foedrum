@@ -1,0 +1,7 @@
+{
+  "trap": {
+    "kind": "edge-case",
+    "line": "A field between double quotes keeps its comma and loses its quotes; the order says once how the export quotes such a field and asks only for a line's fields."
+  },
+  "allowedPaths": ["src/", "test/"]
+}

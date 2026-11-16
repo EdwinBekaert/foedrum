@@ -31,3 +31,4 @@ A commit that adds an order says in its message that the integration tests it ad
 | `room-booking` | design page | `docs/errors.md` is the one list of the codes `book` answers; the order adds a code and never names the page. |
 | `post-slugs` | edge case | A title typed with punctuation and extra spaces gives no extra hyphens, nor one at either end; the order mentions how writers type titles once, and its example has neither. |
 | `recent-files` | edge case | A file opened again moves to the front instead of showing twice; the order asks for the files opened most recently and never speaks of opening one again. |
+| `contacts-csv` | edge case | A field between double quotes keeps its comma and loses its quotes; the order says once how the export quotes such a field and asks only for a line's fields. |
