@@ -1,6 +1,7 @@
 // The environment of a brewer's process (#81, brewers-and-recipes §1.1): a minimal base, the
 // brewer's own `env` on top, and the runner's forced variables last, so a brewer cannot undo them.
 
+import { devNull } from 'node:os';
 import { envNameKey } from '../platform/env.ts';
 
 export type Env = Readonly<Record<string, string>>;
@@ -83,7 +84,9 @@ const NO_PUSH_CREDENTIALS: readonly (readonly [string, string])[] = [
 
 /**
  * The runner's forced variables (brewers-and-recipes §1.1): npm runs no lifecycle script, and git
- * holds no credential that lets a push succeed and never prompts for one (ADR 0109), and claude
+ * holds no credential that lets a push succeed and never prompts for one (ADR 0109), nor a netrc
+ * login of the user's home, since libcurl 8.16 reads `NETRC` first and the null device holds none
+ * (ADR 0411); an empty `NETRC` would send it back to the home. And claude
  * neither updates itself nor sends telemetry, error reports or feature-flag requests (ADR 0177).
  */
 export function brewerForcedEnv(): Record<string, string> {
@@ -92,6 +95,7 @@ export function brewerForcedEnv(): Record<string, string> {
     DISABLE_AUTOUPDATER: '1',
     CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
     GIT_TERMINAL_PROMPT: '0',
+    NETRC: devNull,
     GIT_CONFIG_COUNT: String(NO_PUSH_CREDENTIALS.length),
     ...Object.fromEntries(
       NO_PUSH_CREDENTIALS.flatMap(([key, value], n) => [
