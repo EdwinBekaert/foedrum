@@ -249,6 +249,11 @@ describe('tasting-compare --real --brewer (ADR 0394)', () => {
       assert.throws(() => brewerSettingsOf({ real: true, effort: 'larger' }), /--brewer/);
     });
 
+    it('--model and --effort without --real are left to the seeded mode (ADR 0405)', () => {
+      assert.equal(brewerSettingsOf({ model: 'strong', effort: 'moderate' }), undefined);
+      assert.equal(brewerSettingsOf({ model: 'strong' }), undefined);
+    });
+
     it('--brewer without a model or an effort is refused', () => {
       assert.throws(
         () => brewerSettingsOf({ real: true, brewer: 'cellarman', effort: 'larger' }),
