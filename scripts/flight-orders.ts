@@ -5,6 +5,7 @@
 
 import { readdirSync, readFileSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';
+import { withoutBom } from '../src/formats/manifest-reader.ts';
 import { z } from '../src/schemas/zod.ts';
 
 /** Files by their path from a folder, with `/` between its parts, and their text. */
@@ -63,7 +64,7 @@ const under = (files: Files, folder: string): Files =>
 const orderJsonOf = (text: string | undefined): z.infer<typeof OrderJson> | string => {
   if (text === undefined) return 'no order.json';
   try {
-    const read = OrderJson.safeParse(JSON.parse(text));
+    const read = OrderJson.safeParse(JSON.parse(withoutBom(text)));
     return read.success
       ? read.data
       : `order.json ${z.prettifyError(read.error).replaceAll('\n', ' ')}`;
@@ -74,7 +75,8 @@ const orderJsonOf = (text: string | undefined): z.infer<typeof OrderJson> | stri
 
 /** The order `name` read from its folder's `files`; throws with every problem, one per line. */
 export const readOrder = (name: string, files: Files): FlightOrder => {
-  const text = files['order.md'];
+  const md = files['order.md'];
+  const text = md === undefined ? undefined : withoutBom(md);
   const json = orderJsonOf(files['order.json']);
   const base = under(files, 'base/');
   const solution = under(files, 'solution/');
