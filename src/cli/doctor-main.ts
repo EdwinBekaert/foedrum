@@ -33,9 +33,10 @@ const restrictsUserns = (platform: NodeJS.Platform): boolean | undefined => {
  */
 export const doctorFromCheckout = (
   cwd: string,
-  options?: Partial<Pick<DoctorShell, 'exec' | 'resolve' | 'denylist' | 'restrictsUserns'>>,
+  options?: Partial<Pick<DoctorShell, 'exec' | 'resolve' | 'denylist' | 'restrictsUserns' | 'env'>>,
 ): Promise<DoctorFacts> =>
   gatherDoctorFacts({
+    ...(options?.env === undefined ? {} : { env: options.env }),
     exec: options?.exec ?? execProcess,
     resolve: options?.resolve ?? resolveExecutable,
     platform: process.platform,

@@ -50,6 +50,17 @@ describe('doctorFromCheckout', () => {
     );
   });
 
+  it('reads ANTHROPIC_BASE_URL from the environment it is given, not its own (ADR 0063, ADR 0087)', async () => {
+    const { exec } = fakeRunner();
+    const facts = await doctorFromCheckout(dir.path, {
+      exec,
+      resolve: (name) => `/usr/bin/${name}`,
+      denylist: () => ({ kind: 'none', path: '/made-up/denylist.txt' }),
+      env: { PATH: '/usr/bin', ANTHROPIC_BASE_URL: 'https://given.example.com/v1' },
+    });
+    assert.equal(facts.modelBaseUrl, 'https://given.example.com/v1');
+  });
+
   it('reads the system map in each clone through the runner it is given (ADR 0317)', async () => {
     const brewery = makeTempDir('doctor-main-map');
     try {
