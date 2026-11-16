@@ -39,7 +39,7 @@ import { Recipe } from '../../src/schemas/recipe.ts';
 import { scriptedOutDoc } from '../helpers/nip-fixture.ts';
 import { makeTempDir } from '../helpers/temp-dir.ts';
 
-const fixture = join(import.meta.dirname, '..', 'fixtures', 'tasting-compare');
+const fixture = join(import.meta.dirname, '..', '..', 'tasting-room', 'seeded');
 
 /** A key of two defects: one in two ranges of a.ts, one in b.ts. */
 const KEY: Key = {

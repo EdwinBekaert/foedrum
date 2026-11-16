@@ -1,6 +1,6 @@
 # Seeded plan for the tasting comparison
 
-An order and a plan made for it, with one planted mistake per default plan lens, which `node scripts/tasting-compare.ts --plan` tastes apart and together ([ADR 0323](../../../../docs/adr/0323-a-seeded-plan-measures-the-plan-lenses-apart-and-together-after-the-merge.md), #804).
+An order and a plan made for it, with one planted mistake per default plan lens, which `node scripts/tasting-compare.ts --plan` tastes apart and together ([ADR 0323](../../../docs/adr/0323-a-seeded-plan-measures-the-plan-lenses-apart-and-together-after-the-merge.md), #804).
 Each mistake is its lens's, on sub-orders of its own, and every other field of those sub-orders is meant to be right.
 The files are data: `test/unit/tasting-compare-plan.test.ts` reads them against the base, and the plan step is scripted, so no model writes the plan.
 

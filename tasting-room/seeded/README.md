@@ -1,6 +1,6 @@
 # Seeded change for the tasting comparison
 
-An order and a change made for it, with one planted defect per default diff lens, which `node scripts/tasting-compare.ts` tastes apart and together ([ADR 0224](../../../docs/adr/0224-the-default-recipes-taste-apart-or-together-as-a-seeded-comparison-measured.md), #567). Each defect is its lens's and not another's, on lines of its own. The files are data: no test applies them; `test/unit/tasting-compare-core.test.ts` reads `key.json` against the lines the change adds.
+An order and a change made for it, with one planted defect per default diff lens, which `node scripts/tasting-compare.ts` tastes apart and together ([ADR 0224](../../docs/adr/0224-the-default-recipes-taste-apart-or-together-as-a-seeded-comparison-measured.md), #567). Each defect is its lens's and not another's, on lines of its own. The files are data: no test applies them; `test/unit/tasting-compare-core.test.ts` reads `key.json` against the lines the change adds.
 
 - `order.md`: the order's issue text, its title on the first line, with a "What to build" checklist of five items and a "Later" section that is not part of it.
 - `0001`: the base, a tiny repository `pantry`: a CLAUDE.md with the rule that only `src/store.mjs` touches the file system, a README that says a pantry file can sit in a folder a household shares, `src/store.mjs` (whose `load` validates every item), `src/pantry.mjs`, `src/cli.mjs` and one test.

@@ -1,6 +1,6 @@
 ---
 paths:
-  - "**/tasting-room/**"
+  - "**/tasting-room/orders/**"
 ---
 
 <!-- Generated from .foedrum/house-yeast/ by npm run house-yeast:rules; do not edit. -->

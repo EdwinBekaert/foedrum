@@ -400,7 +400,7 @@ describe('tasting-compare --real --brewer (ADR 0394)', () => {
 
     it("an existing setup's recipe and Brewery files are unchanged: no checks of its own, no model moved: regression test", () => {
       const reads = readFileSync(
-        join(import.meta.dirname, '..', 'fixtures', 'tasting-compare', 'real', 'taster-reads.md'),
+        join(import.meta.dirname, '..', '..', 'tasting-room', 'real', 'taster-reads.md'),
         'utf8',
       );
       const tasters = { today: 'the old text', reads };

@@ -8,7 +8,7 @@ Apply the patches on top of the branch whose prompts you are checking (the skill
 
 ```sh
 git switch -c planted/23-review-demo
-git am test/fixtures/brew-review/planted-demo/*.patch
+git am tasting-room/lenses/planted-demo/*.patch
 ```
 
 Then start a new Claude Code session in that checkout (the skill and the `taster` and `brett` agents load from it when the session starts) and run:
@@ -42,7 +42,7 @@ If a patch no longer applies because those files now exist, rebase the sample on
 | `0013` Refactor: name the doubled delay in backoffMs | refactor subject, mixed | **Planted:** the code change is a refactor, but the "never exceeds the cap" test changes its expected value (`10_000` to `5_000`) |
 | `0014` Remove the doubled-delay name from backoffMs | remove subject, mixed | **Planted:** folds `backoffMs` back into one expression, keeping the function, and deletes with it the kept "never exceeds the cap" test |
 | `0015` Add a failing test for a delay of at least the base | test + stub | Control: red step for "never waits less than the base" (`backoffMs` throws `not implemented` below the first attempt) |
-| `0016` Never wait less than the base | implementation, mixed | **Planted:** the code still waits half the base at attempt 0, and the step wraps the red test's assertions in `try { … } catch {}`, so it passes; every line the red step added is still there, so `testsUnchanged` would let it through by the test map ([ADR 0274](../../../../docs/adr/0274-the-red-proof-reads-line-coverage-of-the-change-and-a-test-map-not-test-names.md)) |
+| `0016` Never wait less than the base | implementation, mixed | **Planted:** the code still waits half the base at attempt 0, and the step wraps the red test's assertions in `try { … } catch {}`, so it passes; every line the red step added is still there, so `testsUnchanged` would let it through by the test map ([ADR 0274](../../../docs/adr/0274-the-red-proof-reads-line-coverage-of-the-change-and-a-test-map-not-test-names.md)) |
 
 ## Expected findings
 
@@ -76,6 +76,6 @@ A run should report at least these. Line numbers are in `src/engine/wait-for-mer
 
 Findings that were not planted but are correct, and may appear: `backoffMs` accepts NaN, and before `0016` 0 and negative numbers; after `0014` no test reaches the cap, so a dropped `Math.min` passes; the backoff tests use one cap, so a hard-coded cap (`Math.min(10_000, …)`) passes; the `eventStorePath` test only matches `/my-brewery/`; "the bottle's pull request" goes against the glossary (a bottle *is* a pull request); the branch mixes unrelated changes; `isBreweryName` accepts Windows reserved names (`con`, `nul`, `aux`, `com1`); `currentBranch` returns an empty string on a detached HEAD and runs git without a timeout; the merge wait is an in-memory loop rather than Conditioning recorded as events (ADR 0013; ADR 0025's `batch.waiting` with a reminder); the integration test runs `git init` without a timeout; the event store under `~/.foedrum/<brewery>/` is a new location that contradicts ADR 0011; `eventStorePath`'s comment says "the Cellar" (the autonomous driver in the glossary) for what keeps the event store.
 
-Correctness reviews the code, not its tests ([ADR 0022](../../../../docs/adr/0022-five-default-lenses.md)): a correctness finding about the tests (a missing test, a test that cannot fail) means the lenses overlap again.
+Correctness reviews the code, not its tests ([ADR 0022](../../../docs/adr/0022-five-default-lenses.md)): a correctness finding about the tests (a missing test, a test that cannot fail) means the lenses overlap again.
 
 A run that misses a **planted** defect means a prompt change made the review weaker. Compare the run with this table in the pull request that changes the prompt.

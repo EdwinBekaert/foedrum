@@ -1,6 +1,6 @@
 # Planted-defect sample for the acceptance lens
 
-An order and a change made for it, used to check `defaults/lenses/diff/acceptance.md` after a prompt changes (CLAUDE.md, Tests; [ADR 0197](../../../../docs/adr/0197-acceptance-ships-as-a-default-diff-lens-and-nip-tastes-through-it-beside-correctness.md)). The change passes correctness: what it builds works. But it leaves one item of the order's checklist unbuilt and builds one thing the order did not ask for. The files are data: no test applies them. The [planted-demo](../planted-demo/README.md) sample checks the other lenses.
+An order and a change made for it, used to check `defaults/lenses/diff/acceptance.md` after a prompt changes (CLAUDE.md, Tests; [ADR 0197](../../../docs/adr/0197-acceptance-ships-as-a-default-diff-lens-and-nip-tastes-through-it-beside-correctness.md)). The change passes correctness: what it builds works. But it leaves one item of the order's checklist unbuilt and builds one thing the order did not ask for. The files are data: no test applies them. The [planted-demo](../planted-demo/README.md) sample checks the other lenses.
 
 - `order.md`: the order's issue text, its title on the first line, with a "What to build" checklist of three items and a "Later" section that is not part of the checklist.
 - `0001`: the base, a tiny repository with `greet.mjs`, its test and a README.
@@ -12,7 +12,7 @@ In an empty folder under `.foedrum/tmp/` (the read guard lets a reviewer read on
 
 ```sh
 git init -q -b main .
-git am <checkout>/test/fixtures/brew-review/planted-acceptance/*.patch
+git am <checkout>/tasting-room/lenses/planted-acceptance/*.patch
 git diff --output=diff.patch HEAD~1 HEAD
 ```
 

@@ -36,10 +36,7 @@ import { makeTempDir } from '../helpers/temp-dir.ts';
 
 const root = resolve(import.meta.dirname, '..', '..');
 /** The Taster that reads the rules, which the reads and bare Tasters start from (ADR 0352). */
-const READS = readFileSync(
-  join(root, 'test', 'fixtures', 'tasting-compare', 'real', 'taster-reads.md'),
-  'utf8',
-);
+const READS = readFileSync(join(root, 'tasting-room', 'real', 'taster-reads.md'), 'utf8');
 const TASTERS = { today: 'the old text', reads: READS };
 const NAMES = { brewery: BREWERY, target: TARGET, user: USER };
 const SESSION = '00000000-0000-4000-8000-000000000001';
