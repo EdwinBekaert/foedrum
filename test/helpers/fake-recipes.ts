@@ -1,5 +1,7 @@
 // A fake of the Brewery's recipes for state machine tests: steps in a line, with optional loops back.
 
+import type { Batch } from '../../src/engine/fold.ts';
+import { deliveryRound } from '../../src/engine/recipe-files.ts';
 import type {
   ChosenOption,
   Recipe,
@@ -73,6 +75,9 @@ export const fakeRecipe = ({
   if (firstStep === undefined) throw new Error('A recipe needs a step');
   // The step that opens the pull request, which the batch goes on tap with (ADR 0071).
   const opens = steps.find((stepId) => actions[stepId] === 'openPullRequest');
+  // As the loaded recipe does, a step's attempts count since its latest that delivered (ADR 0325).
+  const roundOf = (batch: Batch, stepId: string) =>
+    deliveryRound([...(batch.steps.get(stepId)?.attempts.values() ?? [])]);
   const groupOf = (stepId: string): string | undefined =>
     Object.entries(groups).find(([, children]) => children.includes(stepId))?.[0];
   // As the loaded recipe does, a route counts the attempts of its goto step it scheduled, and the
@@ -117,8 +122,8 @@ export const fakeRecipe = ({
         ? { kind: 'done', pullRequests }
         : { kind: 'done', pullRequests, opens };
     },
-    mayRetry: (batch, stepId) => (batch.steps.get(stepId)?.attempts.size ?? 0) < maxAttempts,
-    roundAttempts: (batch, stepId) => batch.steps.get(stepId)?.attempts.size ?? 0,
+    mayRetry: (batch, stepId) => roundOf(batch, stepId).length < maxAttempts,
+    roundAttempts: (batch, stepId) => roundOf(batch, stepId).length,
     rounds: roundsOf,
     maxRounds: (stepId, why) => (routes[stepId]?.[why] === undefined ? undefined : maxRounds),
     loopBack: (batch, stepId, why) =>

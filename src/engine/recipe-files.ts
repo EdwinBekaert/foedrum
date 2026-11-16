@@ -404,7 +404,7 @@ const delivered = (outcome: StepOutcome): boolean =>
   outcome.kind === 'succeeded' || onFindings(outcome);
 
 /** The round of a brewer step or an action: its attempts since its latest that delivered. */
-const deliveryRound = (attempts: readonly Attempt[]): readonly Attempt[] =>
+export const deliveryRound = (attempts: readonly Attempt[]): readonly Attempt[] =>
   roundOf(attempts, delivered);
 
 /** The deadline of a check step without one of its own (ADR 0069). */
