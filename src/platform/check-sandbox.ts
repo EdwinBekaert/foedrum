@@ -600,6 +600,7 @@ export function sandboxedChecks(options: SandboxedChecksOptions): ExecProcess {
   const findStackTool =
     options.findStackTool ?? ((tool: NetworkStackTool) => resolveExecutable(tool, { platform }));
   const readResolvConf = options.readResolvConf ?? readResolvConfFile;
+  const now = options.now ?? Date.now;
   const hasSandboxExec =
     options.hasSandboxExec ?? (() => resolveExecutable(SANDBOX_EXEC, { platform }) !== undefined);
   return async (file, args, call) => {
@@ -650,11 +651,17 @@ export function sandboxedChecks(options: SandboxedChecksOptions): ExecProcess {
       }
       const resolver = resolverIn(realPath);
       const args = bwrapArgs(paths, file, { network, resolver });
-      const run = () => inOwnNamespace(exec, bwrap, { tool, path }, args, call);
-      // bwrap's loopback setup fails before the line runs, so running it again is safe (ADR 0408).
+      const run = (timeoutMs = call.timeoutMs) =>
+        inOwnNamespace(exec, bwrap, { tool, path }, args, { ...call, timeoutMs });
+      const started = now();
       const first = await run();
       if (!lostLoopbackRace(first)) return first;
-      const second = await run();
+      // bwrap's loopback failure ends a run before its line, so it runs once more, with the time
+      // the first left (ADR 0408); a line that wrote those words itself and failed runs again too.
+      const spent = now() - started;
+      const second = await run(
+        call.timeoutMs === undefined ? undefined : Math.max(0, call.timeoutMs - spent),
+      );
       return lostLoopbackRace(second)
         ? unstarted(`${bwrapSaid(second)}, twice: ${LOOPBACK_RACE}`, '0408')
         : second;
