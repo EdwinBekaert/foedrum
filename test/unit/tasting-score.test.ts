@@ -178,6 +178,53 @@ describe('tasting-score: the unblinding of a scored comparison (ADR 0403)', () =
     );
   });
 
+  it('tokens per batch add up every Taster of a run tasted apart', () => {
+    const records = [
+      record(ON_LEVEL, 855, 1, 'claude-opus-5-5', 100_000),
+      record(ON_LEVEL, 855, 2, 'claude-opus-5-5', 300_000),
+    ];
+    const table = tableOf(records, [mark(ON_LEVEL, 855, 1), mark(ON_LEVEL, 855, 2)]);
+    assert.equal(rowOf(table, 'taster-strong-larger-apart-reads')[5], '600k (300k–900k)');
+  });
+
+  it('a run with a Taster that has no tokens is left out of tokens per batch', () => {
+    const unknown = record(ON_ID, 855, 2, 'claude-opus-5-5', 500_000);
+    const records = [
+      record(ON_ID, 855, 1, 'claude-opus-5-5', 200_000),
+      { ...unknown, attempts: unknown.attempts.map((each) => ({ ...each, usage: undefined })) },
+    ];
+    const alone = [records[1] as TastedRecord];
+    const marks = [mark(ON_ID, 855, 1), mark(ON_ID, 855, 2)];
+    assert.equal(
+      rowOf(tableOf(records, marks), 'taster-claude-opus-5-5-full-together-bare')[5],
+      '200k',
+    );
+    assert.equal(
+      rowOf(tableOf(alone, [mark(ON_ID, 855, 2)]), 'taster-claude-opus-5-5-full-together-bare')[5],
+      '-',
+    );
+  });
+
+  it('a Taster that ran on two models counts each, and only the one not asked is marked', () => {
+    const both = record(ON_ID, 855, 1);
+    const records = [
+      {
+        ...both,
+        attempts: both.attempts.map((each) => ({
+          ...each,
+          models: ['claude-opus-5-5', 'claude-haiku-5-5'],
+        })),
+      },
+    ];
+    assert.equal(
+      rowOf(
+        tableOf(records, [mark(ON_ID, 855, 1)]),
+        'taster-claude-opus-5-5-full-together-bare',
+      )[6],
+      'claude-opus-5-5 (1); claude-haiku-5-5 (1), not asked: claude-opus-5-5',
+    );
+  });
+
   it('the table shows the model each Taster ran on, with how many Tasters', () => {
     const records = [
       record(ON_LEVEL, 855, 1, 'claude-opus-5-5'),
