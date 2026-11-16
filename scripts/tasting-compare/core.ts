@@ -74,6 +74,36 @@ export const tasterModelOf = (model: string, effort: string): { model: string; e
 /** A run's scratch folder name: a setup's name with what Windows refuses in a folder's name replaced. */
 export const scratchNameOf = (name: string): string => name.replace(/[^A-Za-z0-9._-]/g, '_');
 
+/** The Tasters' model, a level or a model id, and effort, which a seeded run is given (ADR 0405). */
+export interface SeededTaster {
+  model: string;
+  effort: Effort;
+}
+
+/**
+ * The seeded mode's `--model` and `--effort`, or undefined without them, and with `--real` or
+ * `--brewer`, whose runs read them; throws on a wrong combination (ADR 0405).
+ */
+export const seededTasterOf = (_given: {
+  real?: boolean;
+  plan?: boolean;
+  brewer?: string;
+  model?: string;
+  effort?: string;
+}): SeededTaster | undefined => {
+  throw new Error('not implemented');
+};
+
+/** The folders of a seeded run's records: none by default, `seeded/<model>-<effort>` given a Taster (ADR 0405). */
+export const seededFolders = (_taster?: SeededTaster): string[] => {
+  throw new Error('not implemented');
+};
+
+/** The line that heads the table of a run given a Taster: what it asked for, and what the receipts named (ADR 0405). */
+export const tasterLine = (_taster: SeededTaster, _records: readonly RunRecord[]): string => {
+  throw new Error('not implemented');
+};
+
 /** The step that commits the seeded change: a scripted Cellarman, no model. */
 export const IMPLEMENT = 'implement';
 /** The step id of a together setup's one Taster, and of the apart setup's group. */
@@ -166,6 +196,14 @@ export const recipeText = (setup: SetupName): string => {
     ],
   };
   return `// node scripts/tasting-compare.ts's setup ${setup} (ADR 0224).\n${JSON.stringify(recipe, null, 2)}\n`;
+};
+
+/** The Brewery's files of a seeded run beyond Nip's: its recipe, and with a model id its models.jsonc (ADR 0405). */
+export const seededBreweryFiles = (
+  _setup: SetupName,
+  _taster?: SeededTaster,
+): Record<string, string> => {
+  throw new Error('not implemented');
 };
 
 /** One planted defect: its lens, its file, the line ranges it is in, and what it is. */
