@@ -12,10 +12,14 @@ test('refuses a room another booking holds at the same time, with ROOM_TAKEN', (
   });
 });
 
-test('books another room at the same time', () => {
+test('books another room at the same time, and the same room at other hours', () => {
   assert.deepEqual(rooms.book(DAY, { room: 'Library', from: 11, to: 13 }), {
     ok: true,
     bookings: [...DAY, { room: 'Library', from: 11, to: 13 }],
+  });
+  assert.deepEqual(rooms.book(DAY, { room: 'Garden', from: 14, to: 16 }), {
+    ok: true,
+    bookings: [...DAY, { room: 'Garden', from: 14, to: 16 }],
   });
 });
 
