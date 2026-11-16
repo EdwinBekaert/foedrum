@@ -273,6 +273,20 @@ describe('tasting-score: the unblinding of a scored comparison (ADR 0403)', () =
     );
   });
 
+  it('marks with two problems are refused with a line for each', () => {
+    const left = mark(ON_LEVEL, 867, 2).code;
+    const marks = [
+      ...MARKS.filter(({ code }) => code !== left),
+      { order: 855, code: 'deadbeef', caught: [], outside: [] },
+    ];
+    assert.throws(
+      () => tableOf(RECORDS, marks),
+      (error: Error) =>
+        /deadbeef.*not in codes\.md/.test(error.message) &&
+        new RegExp(`${left}.*no mark`).test(error.message),
+    );
+  });
+
   it("a caught item that is not of its run's order is refused", () => {
     const marks = MARKS.map((each) =>
       each.code === mark(ON_ID, 855, 2).code ? { ...each, caught: ['M1'] } : each,
