@@ -391,9 +391,15 @@ const unstarted = (why: string, adr = '0076'): ExecResult => {
 const LOOPBACK_FAILED = 'bwrap: loopback: Failed RTM_NEWADDR';
 const LOOPBACK_RACE = 'likely a race in which the network stack brought lo up first';
 
-/** Whether a setup did not start because bwrap's loopback setup failed (ADR 0407). */
+/**
+ * Whether a setup did not start because bwrap's loopback setup failed (ADR 0407): unstarted, as
+ * Foedrum reads bwrap's own failure, never a line that ran and was killed or signalled.
+ */
 const lostLoopbackRace = (result: ExecResult): boolean =>
-  result.exitCode === null && result.stderr.startsWith(LOOPBACK_FAILED);
+  result.exitCode === null &&
+  result.killed === undefined &&
+  result.signal === undefined &&
+  result.stderr.startsWith(LOOPBACK_FAILED);
 
 /** What bwrap said, without the ADR `unstarted` added. */
 const bwrapSaid = (result: ExecResult): string => result.stderr.replace(/ \(ADR \d{4}\)\n$/, '');
