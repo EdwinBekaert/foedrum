@@ -21,7 +21,7 @@ CI runs only the proof that each order is fair, its hidden tests failing on the 
 ### One order's files
 
 - `order.md`: the order's issue text, its title on the first line. A Flight's brewer gets it and the starting repository, nothing else.
-- `order.json`: `trap`, its `kind` (`house-rule`, `design-page` or `edge-case`) and a `line` a person reads, and `allowedPaths`, the path prefixes the change may touch (one that ends in `/` is a folder).
+- `order.json`: `trap`, its `kind` (`house-rule`, `design-page` or `edge-case`) and a `line` a person reads, and `allowedPaths`, the paths the change may touch: one that ends in `/` is a folder, any other one file.
 - `base/`: the starting repository, plain Node with `node:test` and no dependencies.
   Its instruction file is `base/INSTRUCTIONS.fixture.md`, laid down as `CLAUDE.md`: a file named `CLAUDE.md` here would be loaded as a rule by Foedrum's own sessions and reviews.
 - `solution/`: the reference solution, the files it adds or replaces over `base/`. It deletes none.
