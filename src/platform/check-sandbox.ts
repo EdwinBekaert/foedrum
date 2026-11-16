@@ -280,6 +280,8 @@ export const insideFolders =
 export interface SandboxedChecksOptions {
   /** The process runner the sandbox is started through. */
   exec: ExecProcess;
+  /** The clock, in milliseconds, that a setup's second run takes its time left from (ADR 0408). */
+  now?: () => number;
   /** Default this process's. */
   platform?: NodeJS.Platform;
   /** Default `os.homedir()`. */

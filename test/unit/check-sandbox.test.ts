@@ -817,6 +817,24 @@ describe('sandboxedChecks with the network kept, for a setup', () => {
     assert.ok(events.indexOf('bwrap fails') < events.indexOf('the line runs'));
   });
 
+  // ADR 0140 and ADR 0163: a setup's runs together keep to its timeout.
+  it('gives the second run only the time the first run left of the timeout', async () => {
+    const { calls, exec } = fakeSetup({ failsAfterPid: [LOOPBACK] });
+    let clock = 1_000;
+    // Each bwrap run takes 20 s on the clock.
+    const timed: ExecProcess = async (file, args, options) => {
+      const result = await exec(file, args, options);
+      if (file === '/usr/bin/bwrap') clock += 20_000;
+      return result;
+    };
+    await linuxSetup(timed, { now: () => clock })(line, [], call);
+    const runs = calls.filter((c) => c.file === '/usr/bin/bwrap');
+    assert.deepEqual(
+      runs.map((c) => c.options.timeoutMs),
+      [60_000, 40_000],
+    );
+  });
+
   it("reads as not started with bwrap's words and the likely race when its loopback setup fails twice", async () => {
     const { calls, events, exec } = fakeSetup({ failsAfterPid: [LOOPBACK, LOOPBACK, LOOPBACK] });
     const result = await linuxSetup(exec)(line, [], call);
