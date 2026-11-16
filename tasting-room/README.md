@@ -25,3 +25,4 @@ A commit that adds an order says in its message that the integration tests it ad
 | `invoice-discount` | house rule | The instruction file says every amount is whole cents, a share is computed multiplying before dividing and rounded once through `roundCents`; the order does not repeat it. |
 | `shelf-tags` | design page | `docs/format.md` is the one description of the shelf file and lists every field; the order adds a field and never names the page. |
 | `timesheet-night` | edge case | A night shift ends the next morning, before its start time; the order mentions night shifts once and asks nothing of them. |
+| `plant-watering` | house rule | The instruction file says functions never change the data they are given and return new data; the order asks for a function that records a watering and does not repeat it. |

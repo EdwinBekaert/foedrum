@@ -1,0 +1,7 @@
+{
+  "trap": {
+    "kind": "house-rule",
+    "line": "The instruction file says functions never change the data they are given, a list or an object in it, and return new data; the order does not repeat it."
+  },
+  "allowedPaths": ["src/", "test/"]
+}
