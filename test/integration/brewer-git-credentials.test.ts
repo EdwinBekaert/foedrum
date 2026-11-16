@@ -1,13 +1,14 @@
 // A brewer's git holds no credential that lets a push succeed (ADR 0109), with real git: the
 // user's configuration plants a credential helper, one for the remote's URL, an askpass program, an
-// ssh command and ssh allowed by name, and its home a netrc login, and a push with the brewer's
-// forced variables runs none of them and sends no login. The one server is a local one that asks for a login: nothing reaches the network.
+// ssh command and ssh allowed by name, and a push with the brewer's forced variables runs none of
+// them. The one server is a local one that asks for a login: nothing reaches the network.
 
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
+import { devNull } from 'node:os';
 import { join } from 'node:path';
 import { after, before, beforeEach, describe, it } from 'node:test';
 import { brewerForcedEnv } from '../../src/engine/brewer-env.ts';
@@ -28,12 +29,10 @@ describe("a brewer's git and the user's push credentials (ADR 0109)", () => {
   let server: Server;
   let port: number;
   const cookies: string[] = [];
-  const logins: string[] = [];
   before(async () => {
     dir = makeTempDir('brewer-git-credentials');
     server = createServer((request, response) => {
       cookies.push(request.headers.cookie ?? '');
-      logins.push(request.headers.authorization ?? '');
       response.writeHead(401, { 'WWW-Authenticate': 'Basic realm="foedrum"' });
       response.end();
     });
@@ -63,7 +62,7 @@ describe("a brewer's git and the user's push credentials (ADR 0109)", () => {
     user = {
       // No git variable and no proxy of the machine's: the requests reach the local server.
       ...Object.fromEntries(
-        Object.entries(process.env).filter(([name]) => !/^GIT_|_PROXY$|^NETRC$/i.test(name)),
+        Object.entries(process.env).filter(([name]) => !/^GIT_|_PROXY$/i.test(name)),
       ),
       GIT_CONFIG_GLOBAL: global,
       GIT_CONFIG_NOSYSTEM: '1',
@@ -141,32 +140,6 @@ describe("a brewer's git and the user's push credentials (ADR 0109)", () => {
     );
   });
 
-  it("sends no netrc login of the user's home (ADR 0411)", async () => {
-    // A made-up login for the local server, where git looks on each platform.
-    const home = join(run, 'home');
-    mkdirSync(home);
-    const netrc = `machine 127.0.0.1 login netrc-user password netrc-password
-`;
-    for (const name of ['.netrc', '_netrc']) writeFileSync(join(home, name), netrc);
-    const sent = `Basic ${Buffer.from('netrc-user:netrc-password').toString('base64')}`;
-    logins.length = 0;
-    await push(`http://127.0.0.1:${port}/acme/app.git`, { ...user, HOME: home, USERPROFILE: home });
-    assert.ok(logins.includes(sent), logins.join(', '));
-    logins.length = 0;
-    const pushed = await push(`http://127.0.0.1:${port}/acme/app.git`, {
-      ...brewer(),
-      HOME: home,
-      USERPROFILE: home,
-    });
-    assert.notEqual(pushed.exitCode, 0);
-    assert.match(pushed.stderr, /terminal prompts disabled/);
-    assert.ok(logins.length > 0);
-    assert.deepEqual(
-      logins.filter((login) => login !== ''),
-      [],
-    );
-  });
-
   it('refuses a push over ssh before any ssh command runs', async () => {
     // Without the forced variables git runs the user's ssh command.
     assert.notEqual((await push('ssh://git@foedrum.invalid/acme/app.git', user)).exitCode, 0);
@@ -198,6 +171,32 @@ describe("a brewer's git and the user's push credentials (ADR 0109)", () => {
     for (const { exitCode, stdout, stderr } of shown) {
       assert.equal(exitCode, 0, stderr);
       assert.match(stdout, /^command\t\r?$/m);
+    }
+  });
+
+  it("points git's netrc at the null device through the Job Object and the platform shell (ADR 0411)", async () => {
+    // What the process sees, not what git does with it: whether git's libcurl reads NETRC is the
+    // machine's (ADR 0411, Not covered).
+    const script = join(run, 'netrc.mjs');
+    writeFileSync(script, 'process.stdout.write(process.env.NETRC ?? "(unset)");\n');
+    const seen = [
+      await execProcess('node', [script], {
+        cwd: repo,
+        env: brewer(),
+        timeoutMs: 60_000,
+        jobObject: true,
+      }),
+      await execProcess(`node "${script}"`, [], {
+        cwd: repo,
+        env: brewer(),
+        timeoutMs: 60_000,
+        shell: true,
+        jobObject: true,
+      }),
+    ];
+    for (const { exitCode, stdout, stderr } of seen) {
+      assert.equal(exitCode, 0, stderr);
+      assert.equal(stdout, devNull);
     }
   });
 
