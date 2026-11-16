@@ -108,6 +108,18 @@ test('refuses an order.json that is not JSON', () => {
   assert.match(refusal({ 'order.json': '{ trap' }), /timesheet: order\.json /);
 });
 
+const BOM = String.fromCodePoint(0xfeff);
+
+test('reads an order.json and an order.md that start with a byte order mark as without one', () => {
+  const order = readOrder(
+    'timesheet',
+    files({ 'order.json': `${BOM}${ORDER_JSON}`, 'order.md': `${BOM}Count a shift\n` }),
+  );
+  assert.equal(order.trap.kind, 'edge-case');
+  assert.equal(order.title, 'Count a shift');
+  assert.equal(order.text, 'Count a shift\n');
+});
+
 test('names every problem of an order at once, one per line', () => {
   const message = refusal({ 'order.md': undefined, 'solution/src/shift.mjs': undefined });
   assert.equal(message.split('\n').length, 2);
