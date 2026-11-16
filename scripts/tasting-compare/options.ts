@@ -93,13 +93,12 @@ const modeOf = (values: TastingValues): TastingMode => {
   const settings = brewerSettingsOf({ ...values, orderText: values['order-text'] });
   const taster = seededTasterOf(values);
   const subOrders = subOrdersRunOf({ ...values, subOrders: values['sub-orders'] });
-  const { orders } = values;
-  if (orders !== undefined && values.setups === undefined && settings === undefined && !subOrders) {
+  const { orders, setups } = values;
+  if (orders !== undefined && setups === undefined && settings === undefined && !subOrders) {
     throw new Error(
       '--orders chooses the orders of the setups --setups, the runs --brewer or the plans --sub-orders names: give one of them too',
     );
   }
-  const setups = values.setups;
   const realSetups = setups === undefined ? REAL_SETUPS : selectRealSetups(setups, orders);
   if (values.comparison !== undefined && values.real !== true) {
     throw new Error('--comparison names a comparison of --real: give --real too');

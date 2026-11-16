@@ -20,8 +20,7 @@ const scored = scoreRun(values, {
   write: writeFileSync,
 });
 if (scored.kind === 'refused') {
-  process.stderr.write(`${scored.message}
-`);
+  process.stderr.write(`${scored.message}\n`);
   process.exit(2);
 }
 process.stdout.write(scored.table);

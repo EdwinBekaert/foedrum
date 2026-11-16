@@ -197,8 +197,7 @@ const say = (line: string): void => {
 const { values } = parseArgs({ options: TASTING_OPTIONS });
 const chosen = tastingModeOf(values);
 if (chosen.kind === 'refused') {
-  process.stderr.write(`${chosen.message}
-`);
+  process.stderr.write(`${chosen.message}\n`);
   process.exit(2);
 }
 /** The planning runs' folder, where a brewer's run from a kept sub-order reads it (ADR 0396). */
