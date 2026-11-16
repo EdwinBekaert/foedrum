@@ -293,4 +293,41 @@ describe('tasting-score: the unblinding of a scored comparison (ADR 0403)', () =
     );
     assert.throws(() => tableOf(RECORDS, marks), /M1.*not a key item of #855/);
   });
+
+  it('a code marked twice is refused', () => {
+    const twice = mark(ON_LEVEL, 855, 1);
+    assert.throws(
+      () => tableOf(RECORDS, [...MARKS, { ...twice, caught: [] }]),
+      new RegExp(`${twice.code}.*more than once`),
+    );
+  });
+
+  it('a marks file that starts with a BOM reads as the same marks', () => {
+    let table = '';
+    assert.doesNotThrow(() => {
+      table = scoredTable({
+        key: KEY,
+        codes: blinded(RECORDS, SEED).codes,
+        marks: `${String.fromCodePoint(0xfeff)}${JSON.stringify({ runs: MARKS })}`,
+      });
+    });
+    assert.equal(table, tableOf(RECORDS, MARKS));
+  });
+
+  it('a line break in a code or a caught item the scorer wrote stays on its refusal line', () => {
+    const marks = [
+      ...MARKS,
+      {
+        order: 855,
+        code: 'x\nforged code',
+        caught: [`D9${String.fromCodePoint(0x2028)}forged item`],
+        outside: [],
+      },
+    ];
+    assert.throws(
+      () => tableOf(RECORDS, marks),
+      (error: Error) =>
+        error.message.split(/\r\n|[\r\n\p{Zl}\p{Zp}]/u).every((line) => !line.startsWith('forged')),
+    );
+  });
 });
