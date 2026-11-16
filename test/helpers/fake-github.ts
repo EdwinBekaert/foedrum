@@ -2,9 +2,9 @@
 // every Brewery that uses it, with no network (ADR 0021). Creating a ref is atomic, as on GitHub:
 // it yields once, so that concurrent claims interleave, and then checks and sets in one step.
 
-import type { IssueMarks } from '../../src/engine/claim-effects.ts';
+import { claimEffectTarget, type IssueMarks } from '../../src/engine/claim-effects.ts';
 import type { EffectTarget } from '../../src/engine/effects.ts';
-import { type ClaimEffect, type ClaimHost, releaseClaim } from '../../src/engine/issue-claims.ts';
+import type { ClaimEffect, ClaimHost } from '../../src/engine/issue-claims.ts';
 
 export interface FakeIssue {
   assignees: string[];
@@ -39,10 +39,7 @@ export interface FakeGitHub {
   opened(repo: string): OpenedIssue[];
   /** How many times each kind of call reached the host. */
   readonly calls: Map<string, number>;
-  /**
-   * The effect target of `effect`, applied as `login`: found by being there (assignee, label), by
-   * the key in a comment of `login`'s, or by a claim ref that is gone.
-   */
+  /** The effect target of `effect`, applied as `login`: the real one, over `host` and `marks`. */
   target(effect: ClaimEffect, login: string): EffectTarget;
   /**
    * The issue marks as `login` sees and makes them: its comments are numbered from 1 in the order
@@ -54,7 +51,6 @@ export interface FakeGitHub {
 }
 
 const refKey = (repo: string, issue: number): string => `${repo}#${issue}`;
-const marker = (key: string): string => `<!-- foedrum:${key} -->`;
 
 export interface FakeGitHubOptions {
   /** Deletes the ref as it is read, as a release in between would. */
@@ -160,87 +156,6 @@ export const fakeGitHub = (options: FakeGitHubOptions = {}): FakeGitHub => {
     },
   };
 
-  const target = (effect: ClaimEffect, login: string): EffectTarget => {
-    const marks = issue(effect.repo, effect.issue);
-    switch (effect.kind) {
-      case 'assign':
-        return {
-          find: async () =>
-            marks.assignees.includes(effect.login) ? { result: effect.login } : undefined,
-          apply: async () => {
-            marks.assignees.push(effect.login);
-            return effect.login;
-          },
-        };
-      case 'add_label':
-        return {
-          find: async () => (marks.labels.includes(effect.label) ? { result: null } : undefined),
-          apply: async () => {
-            marks.labels.push(effect.label);
-            return null;
-          },
-        };
-      case 'remove_label':
-        return {
-          find: async () => (marks.labels.includes(effect.label) ? undefined : { result: null }),
-          apply: async () => {
-            marks.labels = marks.labels.filter((label) => label !== effect.label);
-            return null;
-          },
-        };
-      case 'comment':
-        return {
-          find: async (key) => {
-            const index = marks.comments.findIndex(
-              (comment) => comment.author === login && comment.body.includes(marker(key)),
-            );
-            return index === -1 ? undefined : { result: index };
-          },
-          apply: async (key) => {
-            marks.comments.push({ author: login, body: `${effect.body}\n${marker(key)}` });
-            return marks.comments.length - 1;
-          },
-        };
-      case 'open_order':
-        return {
-          find: async (key) => {
-            const number = findIssue(effect.brewery, marker(key), login);
-            return number === undefined ? undefined : { result: number };
-          },
-          apply: async (key) =>
-            openIssue(
-              effect.brewery,
-              titleOf(effect.repo, effect.issue),
-              `${effect.body}
-${marker(key)}`,
-              login,
-            ),
-        };
-      case 'issue_state':
-        return {
-          find: async () => {
-            const state = marks.state ?? 'open';
-            if (state === 'gone') return { result: 'gone' };
-            return state === effect.state ? { result: null } : undefined;
-          },
-          apply: async () => {
-            if (marks.state === 'gone') throw new Error('410 Gone');
-            marks.state = effect.state;
-            return null;
-          },
-        };
-      case 'release_ref':
-        return {
-          find: async () =>
-            refs.has(refKey(effect.repo, effect.issue)) ? undefined : { result: null },
-          // As the GitHub layer does: only a ref whose record names the Brewery goes.
-          apply: async () => releaseClaim(host, effect),
-        };
-      default:
-        return effect satisfies never;
-    }
-  };
-
   const marks = (login: string): IssueMarks => ({
     assignees: async (repo, number) => {
       count('assignees');
@@ -310,7 +225,7 @@ ${marker(key)}`,
     issue,
     opened,
     calls,
-    target,
+    target: (effect, login) => claimEffectTarget(effect, marks(login), host),
     setRef: (repo, number, message) => {
       point(refKey(repo, number), message);
     },

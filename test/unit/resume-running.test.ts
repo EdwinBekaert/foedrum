@@ -17,6 +17,7 @@ import type { EventStore } from '../../src/engine/event-store.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import { StateBranchStopError } from '../../src/engine/state-branch.ts';
 import { expiredLeaseReason } from '../../src/engine/supervisor.ts';
+import { fakeBranchPush } from '../helpers/fake-branch-push.ts';
 import { type Behaviour, behave, fakeBrewerRunner } from '../helpers/fake-brewer-runner.ts';
 import { ghOver } from '../helpers/fake-gh.ts';
 import { type FakeGitHubApi, fakeGitHubApi } from '../helpers/fake-github-api.ts';
@@ -142,16 +143,7 @@ describe('runResumeRunning (ADR 0127)', () => {
       }),
       worktrees: async () => fakeWorktrees({ root: join(dir.path, 'acme.web', 'attempts') }),
       merge: () => fakeWorktreeMerge(),
-      push: () => ({
-        commit: async () => FAKE_COMMIT,
-        baseTip: async () => 'b'.repeat(40),
-        isAncestor: async (commit, of) => commit === of,
-        remoteTip: async () => undefined,
-        push: async () => {},
-        secretScan: async () => [],
-        touchedFiles: async () => [],
-        fileAt: async () => undefined,
-      }),
+      push: () => fakeBranchPush(),
       runner: () => runner,
       exec: () => Promise.reject(new Error('no check step runs here')),
       setup: () => Promise.reject(new Error('no repository setup runs here')),

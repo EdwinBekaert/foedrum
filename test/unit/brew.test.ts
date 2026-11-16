@@ -33,6 +33,7 @@ import { launchProcess } from '../../src/platform/processes.ts';
 import { BrewCommand, type LauterCommand, MashCommand } from '../../src/schemas/commands.ts';
 import type { Question } from '../../src/schemas/step-outcome.ts';
 import { brewFixture, idle, request, t0 } from '../helpers/brew-fixture.ts';
+import { fakeBranchPush } from '../helpers/fake-branch-push.ts';
 import {
   type Behaviour,
   behave,
@@ -925,19 +926,15 @@ describe('runBrew', () => {
     it('a run whose pull request action is refused has posted the comment with the Stuck that ended it, and tries it once', async () => {
       let scans = 0;
       const refused = shell(behave.succeed('Brewed'), {
-        push: () => ({
-          commit: async () => 'c'.repeat(40),
-          baseTip: async () => 'b'.repeat(40),
-          isAncestor: async (commit, of) => commit === of,
-          remoteTip: async () => undefined,
-          push: async () => assert.fail('a refused push pushes nothing'),
-          secretScan: async () => {
-            scans++;
-            return [{ commit: 'c'.repeat(40), place: 'src/a.ts:1', kind: 'token' }];
-          },
-          touchedFiles: async () => [],
-          fileAt: async () => undefined,
-        }),
+        push: () =>
+          fakeBranchPush({
+            commit: async () => 'c'.repeat(40),
+            push: async () => assert.fail('a refused push pushes nothing'),
+            secretScan: async () => {
+              scans++;
+              return [{ commit: 'c'.repeat(40), place: 'src/a.ts:1', kind: 'token' }];
+            },
+          }),
       });
       assert.equal(await runBrew(f.setup, refused, request), 3);
       assert.match(shown(), /🔔 \*\*Waiting for you\*\*/);
@@ -1008,16 +1005,14 @@ describe('runBrew', () => {
             return { kind: 'unchanged' };
           },
         }),
-        push: () => ({
-          commit: async () => 'c'.repeat(40),
-          baseTip: async () => 'b'.repeat(40),
-          isAncestor: async (commit, of) => commit === of,
-          remoteTip: async () => undefined,
-          push: async () => assert.fail('a refused push pushes nothing'),
-          secretScan: async () => [{ commit: 'c'.repeat(40), place: 'src/a.ts:1', kind: 'token' }],
-          touchedFiles: async () => [],
-          fileAt: async () => undefined,
-        }),
+        push: () =>
+          fakeBranchPush({
+            commit: async () => 'c'.repeat(40),
+            push: async () => assert.fail('a refused push pushes nothing'),
+            secretScan: async () => [
+              { commit: 'c'.repeat(40), place: 'src/a.ts:1', kind: 'token' },
+            ],
+          }),
       });
       assert.equal(await runBrew(f.setup, again, request), 3);
       assert.equal(retried, true);
