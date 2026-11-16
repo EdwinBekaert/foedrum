@@ -1,0 +1,7 @@
+{
+  "trap": {
+    "kind": "design-page",
+    "line": "docs/commands.md is the one list of the program's commands; the order adds a command and never names the page."
+  },
+  "allowedPaths": ["src/", "test/", "docs/commands.md"]
+}
