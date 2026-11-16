@@ -309,8 +309,8 @@ const setupNetworkLine = (facts: DoctorFacts): string | undefined => {
  * ADR 0087). Only the origin and path are shown, since a user, password, query or fragment may
  * hold a key; an address that is not http or https is not quoted at all.
  */
-const modelTrafficLine = (address: string): string | undefined => {
-  if (address === '') return undefined;
+const modelTrafficLine = (address: string | undefined): string | undefined => {
+  if (address === undefined || address === '') return undefined;
   const url = URL.parse(address);
   const cited = '(ADR 0063, ADR 0087)';
   return url === null || (url.protocol !== 'http:' && url.protocol !== 'https:')
@@ -808,8 +808,7 @@ export const diagnose = (facts: DoctorFacts): Diagnosis => {
     ...stackProblems(facts),
   ];
   const setupNetwork = setupNetworkLine(facts);
-  const modelTraffic =
-    facts.modelBaseUrl === undefined ? undefined : modelTrafficLine(facts.modelBaseUrl);
+  const modelTraffic = modelTrafficLine(facts.modelBaseUrl);
   return {
     tools: [
       { name: 'node', version: facts.node, path: undefined },
