@@ -1,7 +1,7 @@
 // The Flight's orders in tasting-room/orders/ (ADR 0404): each order's files read and checked, the
 // trees its proof lays down, and what a proof run's exit means. The proof itself runs in
-// test/integration/flight-orders.test.ts. When #1083 comes, the Flight's runner will build its
-// target from the same starting tree and lay the hidden tests over a brewed head with `withLayer`.
+// test/integration/flight-orders.test.ts. The Flight, scripts/flight.ts, builds its target from the
+// same starting tree and lays the hidden tests over a brewed head with `withLayer` (ADR 0409).
 
 import { readdirSync, readFileSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';
@@ -20,10 +20,10 @@ export interface FlightOrder {
   name: string;
   /** The first line of order.md. */
   title: string;
-  /** order.md as a whole: the issue text, the only file a brewer is to get once #1083 brews it. */
+  /** order.md as a whole: the issue text, the only file of the order a Flight's brewer gets. */
   text: string;
   trap: { kind: TrapKind; line: string };
-  /** Path prefixes the change may touch; one that ends in `/` is a folder. */
+  /** The paths the change may touch: one that ends in `/` is a folder, any other one file. */
   allowedPaths: readonly string[];
   base: Files;
   solution: Files;
@@ -155,3 +155,11 @@ export const folderFiles = (folder: string): Files =>
         return [relative(folder, file).split(sep).join('/'), readFileSync(file, 'utf8')];
       }),
   );
+
+/** Every order of the tasting room, read from its folder in the order of their names. */
+export const tastingRoomOrders = (): FlightOrder[] =>
+  readdirSync(ORDERS, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => entry.name)
+    .sort()
+    .map((name) => readOrder(name, folderFiles(join(ORDERS, name))));

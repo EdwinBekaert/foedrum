@@ -14,18 +14,18 @@ Each folder's README says what its files are and what a run should find.
 
 ## The Flight's orders
 
-A Flight is to brew the orders in `orders/` to judge a change to a recipe, a prompt or a model, by whether the brewed change passes each order's hidden tests.
+A Flight, `node scripts/flight.ts`, brews the orders in `orders/` to judge a change to a recipe, a prompt or a model, by whether the brewed change passes each order's hidden tests ([ADR 0409](../docs/adr/0409-a-flight-brews-every-tasting-room-order-on-a-recipe-as-it-ships-or-with-one-brewer-swapped.md)).
 CI runs only the proof that each order is fair, its hidden tests failing on the starting repository and passing with the reference solution, and no model.
 `scripts/flight-orders.ts` reads them from `ORDERS`, and `test/integration/flight-orders.test.ts` proves, for every order, that its hidden tests fail on the starting repository and pass with its reference solution.
 
 ### One order's files
 
-- `order.md`: the order's issue text, its title on the first line. When #1083 brews the orders, it is to be the only file a brewer gets.
-- `order.json`: `trap`, its `kind` (`house-rule`, `design-page` or `edge-case`) and a `line` a person reads, and `allowedPaths`, the path prefixes the change may touch (one that ends in `/` is a folder).
+- `order.md`: the order's issue text, its title on the first line. A Flight's brewer gets it and the starting repository, nothing else.
+- `order.json`: `trap`, its `kind` (`house-rule`, `design-page` or `edge-case`) and a `line` a person reads, and `allowedPaths`, the paths the change may touch: one that ends in `/` is a folder, any other one file.
 - `base/`: the starting repository, plain Node with `node:test` and no dependencies.
   Its instruction file is `base/INSTRUCTIONS.fixture.md`, laid down as `CLAUDE.md`: a file named `CLAUDE.md` here would be loaded as a rule by Foedrum's own sessions and reviews.
 - `solution/`: the reference solution, the files it adds or replaces over `base/`. It deletes none.
-- `hidden/`: the hidden tests, all under `test/hidden/`, laid over the repository's root last, so none is replaced by a solution's file or, once #1083 lays them over a brewed head, by a test a brewer wrote. They run with `node --test` on their files.
+- `hidden/`: the hidden tests, all under `test/hidden/`, laid over the repository's root last, so none is replaced by a solution's file or, when a Flight lays them over a brewed head, by a test a brewer wrote. They run with `node --test` on their files.
 
 The proof runs every order's hidden tests as a whole: they must fail on the base and pass with the solution. Whether they catch the order's trap is checked by review and by a break per test, not by the proof.
 A commit that adds an order says in its message that the integration tests it adds are tests of new behaviour, and its pull request shows a break per test: the order changed so that test, and only it, fails.

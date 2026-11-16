@@ -1527,6 +1527,35 @@ const sumUsage = (a: Usage | undefined, b: Usage | undefined): Usage | undefined
       };
 
 /**
+ * Each step of a run with its searches, by its sessions' transcripts: its attempts, and the tokens,
+ * turns and time its receipts give, in the order the steps first finished (ADR 0394, ADR 0398).
+ */
+export const stepRunsOf = (
+  events: readonly { event: Event }[],
+  transcriptOf: (sessionId: string, worktree: string) => string | undefined,
+): StepRun[] => {
+  const steps = new Map<string, StepRun>();
+  for (const { event } of events) {
+    if (event.type !== 'step.finished') continue;
+    const { stepId, usage, receipt } = event;
+    const step = steps.get(stepId) ?? { stepId, attempts: 0, turns: 0, durationMs: 0 };
+    const summed = sumUsage(step.usage, usage);
+    steps.set(stepId, {
+      stepId,
+      attempts: step.attempts + 1,
+      ...(summed === undefined ? {} : { usage: summed }),
+      turns: step.turns + (receipt?.turns ?? 0),
+      durationMs: step.durationMs + (receipt?.durationMs ?? 0),
+    });
+  }
+  const searches = searchesOf(events, transcriptOf);
+  return [...steps.values()].map((step) => {
+    const counted = searches.get(step.stepId);
+    return counted === undefined ? step : { ...step, searches: counted };
+  });
+};
+
+/**
  * A brewer's run's record from its store's events: how its batch ended; each step's attempts,
  * tokens, turns and time; the green step's last readings and the commit it read, which is the
  * brewer's code; the models the brewer's transcripts name (ADR 0344, ADR 0394); and each step's
@@ -1538,23 +1567,13 @@ export const brewerRecordOf = (
   transcriptOf: (sessionId: string, worktree: string) => string | undefined,
 ): Pick<BrewerRecord, 'ended' | 'attempts' | 'brewer'> => {
   const { ended } = recordIn(events, new Map());
-  const steps = new Map<string, StepRun>();
   let commit: string | undefined;
   let green: { passed: boolean; checks: string[] } = { passed: false, checks: [] };
   for (const { event } of events) {
     if (event.type === 'step.started') {
       if (event.stepId === 'green' && event.worktree !== undefined) commit = event.worktree.commit;
     } else if (event.type === 'step.finished') {
-      const { stepId, usage, receipt } = event;
-      const step = steps.get(stepId) ?? { stepId, attempts: 0, turns: 0, durationMs: 0 };
-      const summed = sumUsage(step.usage, usage);
-      steps.set(stepId, {
-        stepId,
-        attempts: step.attempts + 1,
-        ...(summed === undefined ? {} : { usage: summed }),
-        turns: step.turns + (receipt?.turns ?? 0),
-        durationMs: step.durationMs + (receipt?.durationMs ?? 0),
-      });
+      const { stepId } = event;
       if (stepId === 'green') {
         green = {
           passed: event.outcome.kind === 'succeeded',
@@ -1563,7 +1582,6 @@ export const brewerRecordOf = (
       }
     }
   }
-  const searches = searchesOf(events, transcriptOf);
   return {
     ended,
     attempts: [],
@@ -1571,10 +1589,7 @@ export const brewerRecordOf = (
       ...settings,
       checksPassed: green.passed,
       checks: green.checks,
-      steps: [...steps.values()].map((step) => {
-        const counted = searches.get(step.stepId);
-        return counted === undefined ? step : { ...step, searches: counted };
-      }),
+      steps: stepRunsOf(events, transcriptOf),
       ...stepModels(events, IMPLEMENT, transcriptOf),
       ...(settings.map === true ? { mapModels: stepModels(events, MAP, transcriptOf).models } : {}),
       ...(commit === undefined ? {} : { commit }),
@@ -1816,7 +1831,7 @@ export const plannerBreweryFiles = (): Record<string, string> => {
  * or one of an attempt that succeeded and names no model, cannot say; one that failed by itself may
  * have called none (ADR 0344).
  */
-const stepModels = (
+export const stepModels = (
   events: readonly { event: Event }[],
   stepId: string,
   transcriptOf: (sessionId: string, worktree: string) => string | undefined,

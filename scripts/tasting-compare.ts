@@ -72,11 +72,9 @@
 // its transcripts, and codes.md shows them, whether the run had a map and the map step's tokens.
 
 import { randomBytes } from 'node:crypto';
-import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { homedir } from 'node:os';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
-import { claudeConfigDir } from '../src/cli/resume.ts';
 import { resolveExecutable } from '../src/platform/executables.ts';
 import { runGit } from '../src/workspace/git.ts';
 import type { Scripted } from '../test/helpers/nip-fixture.ts';
@@ -99,7 +97,13 @@ import {
   tableMarkdown,
   tasterLine,
 } from './tasting-compare/core.ts';
-import { compare, type Mode, patchedTarget, type RunGit } from './tasting-compare/harness.ts';
+import {
+  compare,
+  type Mode,
+  patchedTarget,
+  type RunGit,
+  transcriptOf,
+} from './tasting-compare/harness.ts';
 import { TASTING_OPTIONS, type TastingMode, tastingModeOf } from './tasting-compare/options.ts';
 import {
   nextPlanRun,
@@ -246,17 +250,6 @@ const planMode = (): Mode<PlanSetupName> => {
     recordOf: async (events, setup) => planRecordOf(events, setup),
     table: (records) => planTableMarkdown(summarizePlan(records, key), key, { dryRun }),
   };
-};
-
-/** A session's transcript, in the project folder claude made for its worktree; undefined when none is. */
-const transcriptOf = (sessionId: string): string | undefined => {
-  const projects = join(claudeConfigDir(process.env, process.platform, homedir()), 'projects');
-  if (!existsSync(projects)) return undefined;
-  for (const folder of readdirSync(projects)) {
-    const path = join(projects, folder, `${sessionId}.jsonl`);
-    if (existsSync(path)) return readFileSync(path, 'utf8');
-  }
-  return undefined;
 };
 
 /** A commit's whole id in this checkout, where the heads and the old Taster are read. */

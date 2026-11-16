@@ -14,7 +14,7 @@ It has a folder per kind of material, and [its README](../../tasting-room/README
 ## What runs today
 
 Every comparison is a script or a skill run by hand from a checkout: a real run needs `claude`'s login and spends tokens, which no test may ([ADR 0057](../adr/0057-real-claude-tests-are-opt-in-and-claude-proofs-leave-the-suite.md)).
-Each brews with `foedrum brew`'s own run in a scratch Brewery on the fake code host, keeps its runs and records under `.foedrum/tmp/tasting-compare/`, and goes on where it stopped when run again.
+Each brews with `foedrum brew`'s own run in a scratch Brewery on the fake code host, keeps its runs and records under `.foedrum/tmp/tasting-compare/`, a Flight's under `.foedrum/tmp/flight/`, and goes on where it stopped when run again.
 `--dry-run` plays every model step scripted, so it shows what a run will do before any token is spent, and `--runs <n>` sets the runs per setup (3 when left out).
 
 - **The seeded comparison:** `node scripts/tasting-compare.ts` tastes `seeded/`'s change with the seven default diff lenses apart, the seven together and Nip's three as measured together, and prints a table of the planted defects each setup found, the other findings, tokens and time ([ADR 0224](../adr/0224-the-default-recipes-taste-apart-or-together-as-a-seeded-comparison-measured.md)).
@@ -30,10 +30,10 @@ Each brews with `foedrum brew`'s own run in a scratch Brewery on the fake code h
 - **The lens samples:** a change to the review skill or a lens is run by `/brew-review` against `lenses/planted-demo`, the acceptance lens against `lenses/planted-acceptance`, and the test-design lens also against `planted-drifted-fake`, `planted-empty-passes` and `planted-snapshot-only`; the run is compared by hand with the sample's table of expected findings (CLAUDE.md, Tests).
 - **The Flight's fairness proof:** `test/integration/flight-orders.test.ts` runs, for every order in `orders/`, its hidden tests on the starting repository, where they must fail, and with the reference solution, where they must pass ([ADR 0404](../adr/0404-the-flight-s-tasting-room-is-a-folder-of-orders-each-proved-by-its-hidden-tests.md)).
   It needs no model, so CI runs it with the other integration tests; it proves an order fair, not that a brewer solves it.
+- **A Flight:** `node scripts/flight.ts --recipe <name> [--brewer <name> --model <level or id> --effort <effort>]` brews every order of `orders/` 3 times with a default recipe as it ships, or with only that brewer's steps moved, then runs the order's hidden tests over the head a person gets, in the check sandbox as a check step runs (unsandboxed on native Windows), and records whether they passed, the changes outside its allowed paths and the tokens, turns and time, under `.foedrum/tmp/flight/`; `--dry-run` scripts every brewer and skips the recipe's test-first steps ([ADR 0409](../adr/0409-a-flight-brews-every-tasting-room-order-on-a-recipe-as-it-ships-or-with-one-brewer-swapped.md)).
 
 ## Not built yet
 
-- **The Flight's runner** (#1083): it is to brew each order of `orders/` 3 times per setup on the fake code host and run its hidden tests on each brewed head; this part changes when it merges.
 - **Flight reports** (#1084): it is to compare two Flights order by order and call a difference only when one setup passes every run and the other at most one.
 - **`foedrum taste`:** a command that is to swap one brewer's model, run the Flight several times and compare with the baseline.
   Until it comes, the comparisons above are its pieces.

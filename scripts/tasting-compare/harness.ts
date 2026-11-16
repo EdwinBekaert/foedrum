@@ -4,10 +4,19 @@
 // GitHub URL to a scratch remote. The mode says what each run brews, which step is scripted and
 // how its records read; a run already recorded is not brewed again.
 
-import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import {
+  appendFileSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  writeFileSync,
+} from 'node:fs';
+import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import type { ClaudeAttemptPlan } from '../../src/brewers/claude-runner.ts';
 import { runBrew } from '../../src/cli/brew.ts';
+import { claudeConfigDir } from '../../src/cli/resume.ts';
 import type { ServeShell } from '../../src/cli/serve.ts';
 import { serveSetup } from '../../src/cli/serve-config.ts';
 import { listenWhileServing, serveShell } from '../../src/cli/serve-shell.ts';
@@ -28,9 +37,20 @@ const say = (line: string): void => {
   process.stdout.write(`${line}\n`);
 };
 
-const write = (path: string, text: string): void => {
+export const write = (path: string, text: string): void => {
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, text);
+};
+
+/** A session's transcript, in the project folder claude made for its worktree; undefined when none is. */
+export const transcriptOf = (sessionId: string): string | undefined => {
+  const projects = join(claudeConfigDir(process.env, process.platform, homedir()), 'projects');
+  if (!existsSync(projects)) return undefined;
+  for (const folder of readdirSync(projects)) {
+    const path = join(projects, folder, `${sessionId}.jsonl`);
+    if (existsSync(path)) return readFileSync(path, 'utf8');
+  }
+  return undefined;
 };
 
 /** A git of a run: its output, or a throw that says what failed. */
