@@ -643,6 +643,7 @@ export function sandboxedChecks(options: SandboxedChecksOptions): ExecProcess {
       const resolver = resolverIn(realPath);
       const args = bwrapArgs(paths, file, { network, resolver });
       const run = () => inOwnNamespace(exec, bwrap, { tool, path }, args, call);
+      // bwrap's loopback setup fails before the line runs, so running it again is safe (ADR 0407).
       const first = await run();
       if (!lostLoopbackRace(first)) return first;
       const second = await run();
