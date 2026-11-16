@@ -1,4 +1,4 @@
-# 0407. A setup whose bwrap loses its loopback race runs once more
+# 0408. A setup whose bwrap loses its loopback race runs once more
 
 Date: 2026-11-16 · Status: Accepted · Amends [0218](0218-a-linux-setup-gets-a-network-namespace-of-its-own-through-a-user-mode-network-stack.md) (a setup that bwrap fails is unstarted)
 
