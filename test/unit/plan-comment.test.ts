@@ -188,6 +188,8 @@ describe('renderPlan (ADR 0233)', () => {
   it('shows no flowchart with one sub-order (#658)', () => {
     const text = renderPlan('7-1', 'plan', { subOrders: [subOrder('api')] });
     assert.doesNotMatch(text, /mermaid|\*\*Order\*\*/);
+    assert.match(text, /\n\| `api`: Build api \| about 300 lines \| `tdd` \| none \| yes \|\n/);
+    assert.match(text, /\n- Builds in acme\/api: one endpoint, about 300 lines\n/);
   });
 
   it('shows a flowchart with two sub-orders: regression test (#658)', () => {
