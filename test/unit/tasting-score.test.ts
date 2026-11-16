@@ -373,8 +373,14 @@ describe('tasting-score: the unblinding of a scored comparison (ADR 0403)', () =
     ];
     assert.throws(
       () => tableOf(RECORDS, marks),
-      (error: Error) =>
-        error.message.split(/\r\n|[\r\n\p{Zl}\p{Zp}]/u).every((line) => !line.startsWith('forged')),
+      (error: Error) => {
+        const lines = error.message.split(/\r\n|[\r\n\p{Zl}\p{Zp}]/u);
+        return (
+          lines.every((line) => !line.startsWith('forged')) &&
+          lines.some((line) => line.includes('x forged code is not in codes.md')) &&
+          lines.some((line) => line.includes('D9 forged item, marked caught in x forged code'))
+        );
+      },
     );
   });
 
