@@ -14,7 +14,7 @@ A home of the attempt's own does not fit `claude`. Claude Code keeps its login u
 libcurl, which git's http transport uses, reads the file `NETRC` names before it looks in the home: "If the NETRC environment variable is set, that filename is used as the netrc file", added in curl 8.16.0 ([CURLOPT_NETRC](https://sources.debian.org/src/curl/8.19.0-3/docs/libcurl/opts/CURLOPT_NETRC.md), the Debian copy of curl's 8.19.0 docs). Go's `GOAUTH` reads the same variable ([go command](https://pkg.go.dev/cmd/go), `GOAUTH`).
 
 ## Decision
-`brewerForcedEnv` (`src/engine/brewer-env.ts`) forces `NETRC` to the platform's null device, `os.devNull` (`/dev/null`, or `\\.\nul` on Windows). Like ADR 0109's variables, it goes last, so neither the base nor a brewer's `env` replaces it, and it reaches every process those variables reach: brewers, interactive and resumed sessions, setups and check steps.
+`brewerForcedEnv` (`src/engine/brewer-env.ts`) forces `NETRC` to the platform's null device, `os.devNull` (`/dev/null`, or `\\.\nul` on Windows). Like ADR 0109's variables, it goes last, so neither the base nor a brewer's `env` replaces it (a brewer's `env` may name `NETRC`, as it may `DISABLE_AUTOUPDATER`, and the forced value replaces it), and it reaches every process those variables reach: brewers, interactive and resumed sessions, setups and check steps.
 
 - **The null device, never an empty value.** An empty `NETRC` sends libcurl back to the home (Verification).
 - **`HOME` and `USERPROFILE` stay the user's.** claude keeps its login, git its configuration, and the toolchains their folders.
