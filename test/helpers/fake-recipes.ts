@@ -18,7 +18,10 @@ export interface FakeRecipe {
   type?: RecipeType;
   /** The stall limit of every step; default none. */
   stall?: Stall;
-  /** Attempts per step before the batch is Stuck; default 2. */
+  /**
+   * Attempts per round of every step, since its latest that delivered (ADR 0325), before the batch
+   * is Stuck; default 2.
+   */
   maxAttempts?: number;
   /** The `when` that is false for each step the batch skips, by step id; default none. */
   skips?: Readonly<Record<string, string>>;
@@ -75,7 +78,8 @@ export const fakeRecipe = ({
   if (firstStep === undefined) throw new Error('A recipe needs a step');
   // The step that opens the pull request, which the batch goes on tap with (ADR 0071).
   const opens = steps.find((stepId) => actions[stepId] === 'openPullRequest');
-  // As the loaded recipe does, a step's attempts count since its latest that delivered (ADR 0325).
+  // As the loaded recipe does for a brewer step, a step's attempts count since its latest that
+  // delivered (ADR 0325): the fake treats every step as a brewer step, actions and checks too.
   const roundOf = (batch: Batch, stepId: string) =>
     deliveryRound([...(batch.steps.get(stepId)?.attempts.values() ?? [])]);
   const groupOf = (stepId: string): string | undefined =>
