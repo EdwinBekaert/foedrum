@@ -1,6 +1,6 @@
 # 0411. A brewer's netrc is the null device
 
-Date: 2026-11-16 · Status: Accepted · Amends [0109](0109-a-brewer-s-git-holds-no-push-credential.md) (its netrc line under Not covered)
+Date: 2026-11-16 · Status: Accepted · Amends [0063](0063-foedrum-serve-its-configuration-and-wiring.md) (the variables the runner forces) and [0109](0109-a-brewer-s-git-holds-no-push-credential.md) (its forced variables and its netrc line under Not covered)
 
 ## Context
 [ADR 0109](0109-a-brewer-s-git-holds-no-push-credential.md) leaves a brewer's git, and a check step's, no credential helper, askpass program, cookie or terminal, but not a netrc file (`~/.netrc`, or `_netrc` on Windows) in the user's home: git's http transport sends its login when the server asks for one, before any helper, and no git setting turns that off. It left the fix to a home of the brewer's own.
