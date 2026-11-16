@@ -590,6 +590,45 @@ describe('the Flight (ADR 0409)', () => {
       assert.equal(ran.hidden, 'failed');
     });
 
+    it('hidden tests their deadline killed timed out, and the Flight goes on', async () => {
+      const { exec } = recording({
+        exitCode: null,
+        killed: 'timed-out',
+        stdout: '',
+        stderr: '',
+        output: 'still running',
+      });
+      const ran = await runHiddenTests(linux(exec, '/usr/bin/bwrap'), '/runs/hidden', TESTS, {});
+      assert.equal(ran.hidden, 'timed out');
+    });
+
+    it('hidden tests killed for their output failed, and the Flight goes on', async () => {
+      const { exec } = recording({
+        exitCode: null,
+        killed: 'too-much-output',
+        stdout: '',
+        stderr: '',
+        output: 'x',
+      });
+      const ran = await runHiddenTests(linux(exec, '/usr/bin/bwrap'), '/runs/hidden', TESTS, {});
+      assert.equal(ran.hidden, 'failed');
+    });
+
+    it("a record keeps the last 4096 characters of the hidden tests' output, where node sums up", async () => {
+      const output = `${'a'.repeat(5000)}# pass 2\n# fail 0\n`;
+      const { exec } = recording({ exitCode: 0, stdout: output, stderr: '', output });
+      const ran = await runHiddenTests(linux(exec, '/usr/bin/bwrap'), '/runs/hidden', TESTS, {});
+      assert.equal(ran.output, output.slice(-4096));
+      assert.ok(ran.output.endsWith('# pass 2\n# fail 0\n'));
+    });
+
+    it('on native Windows the hidden tests run in a Job Object, and their result is read', async () => {
+      const { calls, exec } = recording();
+      const ran = await runHiddenTests({ exec, platform: 'win32' }, 'C:\\runs\\hidden', TESTS, {});
+      assert.equal(calls[0]?.options.jobObject, true);
+      assert.deepEqual(ran, { hidden: 'passed', output: 'ok 1' });
+    });
+
     it('a hidden test path that is not a plain path is refused before anything runs', async () => {
       const { calls, exec } = recording();
       await assert.rejects(
