@@ -5,6 +5,6 @@ It supports **SHA-1 repositories**: a full commit id is 40 lowercase hex charact
 
 | Page | What it covers |
 |---|---|
-| [Isolation levels](isolation.md) | Sandboxed, permissions only, container; what doctor reports |
+| [Isolation levels](isolation.md) | Sandboxed and permissions only (the container level is not built); what doctor reports |
 | [Cross-platform rules](cross-platform.md) | Rules for the code: CI, paths, spawning, killing, locks |
 | [Keeping the machine awake](keep-awake.md) | The idle-sleep hold while `brew` or `serve` has an attempt running |

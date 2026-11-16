@@ -30,18 +30,10 @@ const VERSION_ARGS: Readonly<Record<ToolName, readonly string[]>> = {
   socat: ['-V'],
   pasta: ['--version'],
   slirp4netns: ['--version'],
-  podman: ['--version'],
-  docker: ['--version'],
 };
 
 // A version command answers at once; one that hangs must not hold doctor up.
 const VERSION_TIMEOUT_MS = 10_000;
-// A container runtime that does not answer at once is usually waiting for its daemon, and then
-// not usable anyway (#99).
-const CONTAINER_TIMEOUT_MS = 3_000;
-
-const timeoutOf = (name: ToolName): number =>
-  name === 'podman' || name === 'docker' ? CONTAINER_TIMEOUT_MS : VERSION_TIMEOUT_MS;
 
 export interface DoctorShell {
   exec: ExecProcess;
@@ -81,7 +73,7 @@ export const gatherDoctorFacts = async (shell: DoctorShell): Promise<DoctorFacts
   const ask = async (name: ToolName): Promise<ToolRun | undefined> => {
     const path = resolve(name);
     if (path === undefined) return undefined;
-    const timeoutMs = timeoutOf(name);
+    const timeoutMs = VERSION_TIMEOUT_MS;
     const { exitCode, output, killed } = await exec(path, VERSION_ARGS[name], { cwd, timeoutMs });
     // Why the runner killed it comes first, so the report can say so.
     const why = whyKilled(killed, timeoutMs);
@@ -139,24 +131,10 @@ export const gatherDoctorFacts = async (shell: DoctorShell): Promise<DoctorFacts
     ),
     run('git', ['config', '--null', '--get-regexp', '^credential\\.']),
   ]);
-  const [jobObject, npm, git, gh, claude, bwrap, socat, pasta, slirp4netns, podman, docker] =
-    await Promise.all([
-      shell.platform === 'win32' ? holdInJob() : undefined,
-      ...(
-        [
-          'npm',
-          'git',
-          'gh',
-          'claude',
-          'bwrap',
-          'socat',
-          'pasta',
-          'slirp4netns',
-          'podman',
-          'docker',
-        ] as const
-      ).map(ask),
-    ]);
+  const [jobObject, npm, git, gh, claude, bwrap, socat, pasta, slirp4netns] = await Promise.all([
+    shell.platform === 'win32' ? holdInJob() : undefined,
+    ...(['npm', 'git', 'gh', 'claude', 'bwrap', 'socat', 'pasta', 'slirp4netns'] as const).map(ask),
+  ]);
   const [login, credentials] = await asking;
   const systemMap = await shell.systemMap?.();
   const restrictsUserns = shell.restrictsUserns?.();
@@ -164,7 +142,7 @@ export const gatherDoctorFacts = async (shell: DoctorShell): Promise<DoctorFacts
     platform: shell.platform,
     kernelRelease: shell.kernelRelease,
     node: shell.node,
-    tools: { npm, git, gh, claude, bwrap, socat, pasta, slirp4netns, podman, docker },
+    tools: { npm, git, gh, claude, bwrap, socat, pasta, slirp4netns },
     github: { host, login, credentials },
     // Found on PATH, never run: starting it would hold the machine awake (ADR 0195).
     keepAwake: awakeMechanism({

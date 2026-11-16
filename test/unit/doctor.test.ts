@@ -543,89 +543,6 @@ describe('diagnose: isolation (ADR 0010)', () => {
     const freebsd: DoctorFacts = { ...macos, platform: 'freebsd' };
     assert.equal(diagnose(freebsd).isolation.level, 'permissions only');
   });
-
-  it('names a container runtime, Podman before Docker, as the optional container level', () => {
-    assert.equal(diagnose(linux()).container, undefined);
-    const docker = ran('/usr/bin/docker', 'Docker version 27.3.1, build ce12230\n');
-    const podman = ran('/usr/bin/podman', 'podman version 5.2.0\n');
-    assert.deepEqual(diagnose(linux({ docker })).container, {
-      name: 'docker',
-      version: '27.3.1',
-      path: '/usr/bin/docker',
-      usable: true,
-    });
-    assert.deepEqual(diagnose(linux({ docker, podman })).container, {
-      name: 'podman',
-      version: '5.2.0',
-      path: '/usr/bin/podman',
-      usable: true,
-    });
-  });
-
-  it('does not count a container runtime that does not answer its version as available', () => {
-    const docker = ran('C:\\Windows\\system32\\docker.exe', 'timed out after 3 s\n', null);
-    const { container, ok, problems } = diagnose({
-      ...windows,
-      tools: { ...windows.tools, docker },
-    });
-    assert.deepEqual(container, {
-      name: 'docker',
-      version: undefined,
-      path: 'C:\\Windows\\system32\\docker.exe',
-      usable: false,
-      said: 'timed out after 3 s',
-    });
-    // The container level is optional: it is no problem, and doctor stays ok.
-    assert.equal(ok, true);
-    assert.deepEqual(problems, []);
-  });
-
-  it('reports Podman as not usable when neither runtime answers its version', () => {
-    const podman = ran('/usr/bin/podman', 'timed out after 3 s\n', null);
-    const docker = ran('/usr/bin/docker', 'Cannot connect to the Docker daemon\n', 1);
-    assert.deepEqual(diagnose(linux({ docker, podman })).container, {
-      name: 'podman',
-      version: undefined,
-      path: '/usr/bin/podman',
-      usable: false,
-      said: 'timed out after 3 s',
-    });
-  });
-
-  it('reports a runtime that printed nothing as not answering, without a reason', () => {
-    const docker = ran('/usr/bin/docker', '', 1);
-    assert.match(
-      formatDiagnosis(diagnose(linux({ docker }))),
-      /\nContainer: docker at \/usr\/bin\/docker does not answer its version; the container level is not available\n/,
-    );
-  });
-
-  it('falls through to Docker when Podman does not answer its version', () => {
-    const podman = ran('/usr/bin/podman', 'timed out after 3 s\n', null);
-    const docker = ran('/usr/bin/docker', 'Docker version 27.3.1, build ce12230\n');
-    assert.deepEqual(diagnose(linux({ docker, podman })).container, {
-      name: 'docker',
-      version: '27.3.1',
-      path: '/usr/bin/docker',
-      usable: true,
-    });
-  });
-
-  it('does not count a container runtime whose version command fails or prints no version', () => {
-    for (const [output, exitCode] of [
-      ['Cannot connect to the Docker daemon\n', 1],
-      ['Docker\n', 0],
-    ] as const) {
-      const docker = ran('/usr/bin/docker', output, exitCode);
-      assert.deepEqual(diagnose(linux({ docker })).container, {
-        name: 'docker',
-        version: undefined,
-        path: '/usr/bin/docker',
-        usable: false,
-        said: output.trim(),
-      });
-    }
-  });
 });
 
 // #204: a brewer or a check step runs as the maintainer's OS user, so on the permissions-only level
@@ -673,13 +590,13 @@ describe("diagnose: what each isolation level keeps from gh's login (ADR 0082, #
     }
   });
 
-  it('says on native Windows and WSL 1 what WSL2 hides and that the container level closes it', () => {
+  it('says on native Windows and WSL 1 what WSL2 hides, and names no container level', () => {
     for (const facts of [windows, wsl1]) {
       const [line = ''] = keyring(facts);
       assert.match(line, /In WSL2, the sandboxed level hides/);
       hidesFileAndVariables(line);
       leavesKeyringOpen(line);
-      assert.match(line, /the container level mounts only the worktree, which closes both/);
+      assert.doesNotMatch(line, /container/i);
     }
   });
 
@@ -688,14 +605,28 @@ describe("diagnose: what each isolation level keeps from gh's login (ADR 0082, #
     assert.match(line, /The sandboxed level \(bubblewrap and socat\) hides/);
     hidesFileAndVariables(line);
     leavesKeyringOpen(line);
-    assert.match(line, /the container level mounts only the worktree, which closes both/);
+    assert.doesNotMatch(line, /container/i);
     assert.doesNotMatch(line, /WSL2/);
   });
 
-  it('names only the container level on an operating system without a sandbox', () => {
+  it('names no other level on an operating system without a sandbox', () => {
     const [line = ''] = keyring(freebsd);
-    assert.match(line, /The container level mounts only the worktree, which closes both/);
-    assert.doesNotMatch(line, /WSL2|sandboxed level/);
+    assert.ok(
+      line.startsWith(
+        "A brewer runs as you here, so it can still read gh's login from the OS keyring or its hosts file. A login a brewer did read",
+      ),
+      line,
+    );
+    assert.doesNotMatch(line, /container|WSL2|sandboxed level/i);
+  });
+
+  // ADR 0406: the container level is not built, so no advice points a person at it.
+  it('names no container level in the advice on any permissions-only level', () => {
+    for (const facts of permissionsOnly) {
+      const { advice } = diagnose(facts);
+      assert.equal(keyring(facts).length, 1, 'the advice says what can read the login');
+      for (const line of advice) assert.doesNotMatch(line, /container/i);
+    }
   });
 
   it('says on the sandboxed level what the sandbox hides from a brewer and what it leaves open', () => {

@@ -32,9 +32,7 @@ export type ToolName =
   | 'bwrap'
   | 'socat'
   | 'pasta'
-  | 'slirp4netns'
-  | 'podman'
-  | 'docker';
+  | 'slirp4netns';
 
 /** A tool found on PATH, and what its version command answered. */
 export interface ToolRun {
@@ -130,8 +128,6 @@ export interface PromptSize {
   tokens: number;
 }
 
-type ContainerName = 'podman' | 'docker';
-
 export interface Diagnosis {
   tools: readonly ToolLine[];
   /** On Linux with a stack, which one a setup's network comes from and whether it is isolated (ADR 0400). */
@@ -139,20 +135,6 @@ export interface Diagnosis {
   /** How this machine is kept awake while an attempt runs (ADR 0195); never a problem. */
   keepAwake?: AwakeMechanism;
   isolation: { level: IsolationLevel; why: string };
-  /**
-   * The container runtime that makes the optional container level possible; one that is on PATH
-   * but does not answer its version is not usable, with what it said first.
-   */
-  container:
-    | { name: ContainerName; version: string; path: string; usable: true }
-    | {
-        name: ContainerName;
-        version: undefined;
-        path: string;
-        usable: false;
-        said: string | undefined;
-      }
-    | undefined;
   advice: readonly string[];
   problems: readonly Problem[];
   /**
@@ -196,7 +178,7 @@ const WSL2_ADVICE =
  * What each level keeps from gh's login (ADR 0082, #229). Claude Code's sandbox docs settle the
  * user folders (ADR 0160), the hosts file and the token variables (ADR 0087), not the OS keyring,
  * so the sandbox never "closes" it; on WSL2 the user folders include /mnt, with the Windows user's
- * home. The container mounts only the worktree (ADR 0010). Check steps run in an OS sandbox of
+ * home. No container level is built (ADR 0406). Check steps run in an OS sandbox of
  * Foedrum's own with no network, outside one only on native Windows (ADR 0076).
  */
 const SANDBOX_HIDES =
@@ -205,7 +187,6 @@ const WSL2_WINDOWS_HOME =
   "Under WSL, the user folders include the Windows user's logins under /mnt (ADR 0160).";
 const sandboxHides = (wsl: boolean) =>
   wsl ? `${SANDBOX_HIDES} ${WSL2_WINDOWS_HOME}` : SANDBOX_HIDES;
-const CONTAINER_CLOSES = 'container level mounts only the worktree, which closes both.';
 const WRITTEN_DOWN =
   'A login a brewer did read is stopped at the push (ADR 0079) and left out of the pull request and the status comment (ADR 0088) when it looks like one.';
 /** Where check steps run (ADR 0076): bwrap or sandbox-exec, and outside one on native Windows. */
@@ -221,15 +202,13 @@ const permissionsOnlyAdvice = (
 ) =>
   [
     `${windows ? 'A brewer or a check step runs' : 'A brewer runs'} as you here, so it can still read gh's login from the OS keyring or its hosts file.`,
-    sandbox === undefined
-      ? `The ${CONTAINER_CLOSES}`
-      : `${sandbox} ${sandboxHides(wsl)} For brewers, the ${CONTAINER_CLOSES}`,
+    ...(sandbox === undefined ? [] : [`${sandbox} ${sandboxHides(wsl)}`]),
     WRITTEN_DOWN,
     windows ? CHECKS_ON_WINDOWS : CHECKS_IN_BUBBLEWRAP,
   ].join(' ');
 const sandboxedAdvice = (wsl: boolean) =>
   `The sandbox ${sandboxHides(wsl)} ${WRITTEN_DOWN} ${CHECKS_SANDBOXED}`;
-const wsl2OrContainer = (windows: boolean) =>
+const wsl2Sandbox = (windows: boolean) =>
   permissionsOnlyAdvice('In WSL2, the sandboxed level', { wsl: true, windows });
 
 /**
@@ -720,7 +699,7 @@ const isolationOf = ({ platform, kernelRelease, tools }: DoctorFacts) => {
     case 'win32':
       return level(
         { level: 'permissions only', why: 'native Windows has no sandbox for shell commands' },
-        [WSL2_ADVICE, wsl2OrContainer(true)],
+        [WSL2_ADVICE, wsl2Sandbox(true)],
       );
     case 'linux': {
       // WSL 1 runs Linux programs on the Windows kernel, which has no bubblewrap; WSL 2 has. WSL 1
@@ -730,7 +709,7 @@ const isolationOf = ({ platform, kernelRelease, tools }: DoctorFacts) => {
       if (wsl && !/microsoft-standard|wsl2/i.test(kernelRelease)) {
         return level({ level: 'permissions only', why: 'WSL 1 has no sandbox' }, [
           WSL2_ADVICE,
-          wsl2OrContainer(false),
+          wsl2Sandbox(false),
         ]);
       }
       const missing: Problem[] = [];
@@ -807,22 +786,6 @@ export const diagnose = (facts: DoctorFacts): Diagnosis => {
     ...sandboxProblems,
     ...stackProblems(facts),
   ];
-  // Podman first: it runs without a daemon or root. One that does not answer its version (a
-  // runtime waiting for its daemon) is passed over for the next; when none answers, the first
-  // is reported as not usable.
-  const containers = (['podman', 'docker'] as const).flatMap(
-    (name): NonNullable<Diagnosis['container']>[] => {
-      const run = tools[name];
-      if (run === undefined) return [];
-      const version = versionOf(run);
-      return [
-        version === undefined
-          ? { name, version, path: run.path, usable: false, said: firstLine(run) }
-          : { name, version, path: run.path, usable: true },
-      ];
-    },
-  );
-  const container = containers.find((found) => found.usable) ?? containers[0];
   const setupNetwork = setupNetworkLine(facts);
   return {
     tools: [
@@ -838,7 +801,6 @@ export const diagnose = (facts: DoctorFacts): Diagnosis => {
     ],
     ...(setupNetwork === undefined ? {} : { setupNetwork }),
     isolation,
-    container,
     advice,
     problems,
     ...(recipes.defaults === undefined ? {} : { defaults: recipes.defaults }),
@@ -892,7 +854,6 @@ export const formatDiagnosis = ({
   tools,
   setupNetwork,
   isolation,
-  container,
   advice,
   problems,
   defaults,
@@ -917,11 +878,6 @@ export const formatDiagnosis = ({
     ...(setupNetwork === undefined ? [] : [setupNetwork]),
     `Isolation: ${isolation.level} (${isolation.why})`,
     ...advice.map((line) => `  ${line}`),
-    container === undefined
-      ? 'Container: no Podman or Docker (optional)'
-      : container.usable
-        ? `Container: ${container.name} ${container.version} at ${container.path}; the container level is available`
-        : `Container: ${container.name} at ${container.path} does not answer its version${container.said === undefined ? '' : ` (${container.said})`}; the container level is not available`,
     ...(defaults === undefined
       ? []
       : [
