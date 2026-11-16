@@ -11,7 +11,12 @@ import { githubReleaseReader } from '../../src/github/releases.ts';
 import { repositoryVisibilities } from '../../src/github/repository-visibility.ts';
 import { githubTargetTracker } from '../../src/github/tracker.ts';
 import { ghOver } from '../helpers/fake-gh.ts';
-import { type FakeGitHubApi, fakeGitHubApi, headOf } from '../helpers/fake-github-api.ts';
+import {
+  createdOf,
+  type FakeGitHubApi,
+  fakeGitHubApi,
+  headOf,
+} from '../helpers/fake-github-api.ts';
 
 const api = 'https://api.github.com';
 
@@ -408,6 +413,17 @@ describe('the fake GitHub API answers like GitHub', () => {
         ['unlabeled', 'bug', 'ann', T1],
       ],
     );
+  });
+
+  it('records a label added through the API at the instant creation times count from, when given no clock', async () => {
+    const github = fakeGitHubApi({
+      login: 'ann',
+      issues: { 'acme/web': [{ number: 7, labels: [], author: 'bob' }] },
+    });
+    await post(github, 'acme/web/issues/7/labels', { labels: ['foedrum'] });
+    const answer = await github.fetch(`${api}/repos/acme/web/issues/7/events`);
+    const [event] = (await answer.json()) as { created_at: string }[];
+    assert.equal(event?.created_at, createdOf(0));
   });
 
   it('records a label a test adds as the actor it names, so the tracker reads a stranger as its last adder', async () => {
