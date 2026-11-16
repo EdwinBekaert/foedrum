@@ -1,6 +1,6 @@
 # 0410. The tasting room holds all benchmark material, a folder per kind
 
-Date: 2026-11-16 · Status: Accepted · Amends [0404](0404-the-flight-s-tasting-room-is-a-folder-of-orders-each-proved-by-its-hidden-tests.md) (the tasting room was a folder of orders only, each folder of it an order)
+Date: 2026-11-16 · Status: Accepted · Amends [0404](0404-the-flight-s-tasting-room-is-a-folder-of-orders-each-proved-by-its-hidden-tests.md) (the tasting room was a folder of orders only, each folder of it an order), [0173](0173-necessity-ships-as-a-default-diff-lens.md) and [0197](0197-acceptance-ships-as-a-default-diff-lens-and-nip-tastes-through-it-beside-correctness.md) (the planted-defect samples' folder), [0224](0224-the-default-recipes-taste-apart-or-together-as-a-seeded-comparison-measured.md) (the seeded change's folder), [0323](0323-a-seeded-plan-measures-the-plan-lenses-apart-and-together-after-the-merge.md) (the seeded plan's folder), [0332](0332-tasting-compare-real-re-tastes-brewed-heads-and-writes-blinded-lists.md) (the real orders' folder) and [0352](0352-nip-s-correctness-acceptance-and-security-tasters-run-at-high-effort-without-the-rules-read.md) (the pinned Taster's folder)
 
 ## Context
 [ADR 0404](0404-the-flight-s-tasting-room-is-a-folder-of-orders-each-proved-by-its-hidden-tests.md) put the Flight's orders in `tasting-room/`, apart from `test/fixtures/`, which holds inputs for tests of Foedrum's own code.
@@ -23,4 +23,4 @@ None: these are files of Foedrum's own repository, and nothing in a Brewery chan
 ## Consequences
 - A new kind of benchmark material is a new folder of `tasting-room/`, with a row in its README.
 - A change to a file under `tasting-room/` still reaches every test file in `npm run check`, as any file that is not TypeScript outside the docs does.
-- Older records name the old paths and stay as written.
+- The records it amends name the old paths and stay as written; the index links them to this one.
