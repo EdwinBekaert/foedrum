@@ -14,7 +14,7 @@
 // it needs claude's login, which no test layer reaches (ADR 0057). Its decisions are
 // scripts/flight/core.ts.
 
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, lstatSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { checksRunUnsandboxed } from '../src/platform/check-sandbox.ts';
@@ -32,6 +32,7 @@ import {
   flightRecordOf,
   flightStop,
   flightTable,
+  layHiddenTests,
   nextFlightRun,
   outsidePaths,
   runHiddenTests,
@@ -68,6 +69,15 @@ const orderOf = (name: string) => {
   const order = orders.get(name);
   if (order === undefined) throw new Error(`no order ${name} in the tasting room`);
   return order;
+};
+
+/** Whether `path` is a link or a junction; false when nothing is there. */
+const isLink = (path: string): boolean => {
+  try {
+    return lstatSync(path).isSymbolicLink();
+  } catch {
+    return false;
+  }
 };
 
 const mode: Mode<string, FlightRecord> = {
@@ -113,7 +123,7 @@ const mode: Mode<string, FlightRecord> = {
       .split(/\r?\n/)
       .filter((path) => path !== '');
     const tests = withLayer({}, order.hidden);
-    for (const [path, body] of Object.entries(tests)) write(join(hidden, ...path.split('/')), body);
+    layHiddenTests(hidden, tests, { isLink, write });
     const ran = await runHiddenTests(
       { exec: execProcess },
       hidden,

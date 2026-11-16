@@ -3,6 +3,7 @@
 // scripted brewers, a run's record and when it stops the Flight, and the one table. Nothing here
 // starts a process; scripts/flight.ts brews the runs through scripts/tasting-compare/harness.ts.
 
+import { join } from 'node:path';
 import type { parseArgs } from 'node:util';
 import { checksEnv } from '../../src/checks/setup.ts';
 import { TEST_MAP_PATH } from '../../src/checks/test-map.ts';
@@ -347,11 +348,21 @@ const OUTPUT_KEPT = 4096;
  * writing nothing, when one is.
  */
 export const layHiddenTests = (
-  _clone: string,
-  _tests: Files,
-  _io: { isLink: (path: string) => boolean; write: (path: string, text: string) => void },
+  clone: string,
+  tests: Files,
+  io: { isLink: (path: string) => boolean; write: (path: string, text: string) => void },
 ): void => {
-  throw new Error('not implemented');
+  for (const path of Object.keys(tests).sort()) {
+    const parts = path.split('/');
+    for (let depth = 1; depth <= parts.length; depth += 1) {
+      if (io.isLink(join(clone, ...parts.slice(0, depth)))) {
+        throw new Error(
+          `the brewed head holds a link at ${parts.slice(0, depth).join('/')}: no hidden test is written through it`,
+        );
+      }
+    }
+  }
+  for (const [path, text] of Object.entries(tests)) io.write(join(clone, ...path.split('/')), text);
 };
 
 /**
