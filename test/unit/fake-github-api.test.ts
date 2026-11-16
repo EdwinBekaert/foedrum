@@ -415,15 +415,23 @@ describe('the fake GitHub API answers like GitHub', () => {
     );
   });
 
-  it('records a label added through the API at the instant creation times count from, when given no clock', async () => {
+  it('dates each label added or removed through the API after its issue, its comments and the event before, when given no clock', async () => {
     const github = fakeGitHubApi({
       login: 'ann',
-      issues: { 'acme/web': [{ number: 7, labels: [], author: 'bob' }] },
+      issues: { 'acme/web': [{ number: 7, labels: ['bug'], author: 'bob' }] },
     });
+    const comment = await post(github, 'acme/web/issues/7/comments', { body: 'C' });
+    const commented = ((await comment.json()) as { created_at: string }).created_at;
     await post(github, 'acme/web/issues/7/labels', { labels: ['foedrum'] });
+    await github.fetch(`${api}/repos/acme/web/issues/7/labels/bug`, { method: 'DELETE' });
     const answer = await github.fetch(`${api}/repos/acme/web/issues/7/events`);
-    const [event] = (await answer.json()) as { created_at: string }[];
-    assert.equal(event?.created_at, createdOf(0));
+    const times = ((await answer.json()) as { created_at: string }[]).map(
+      (each) => each.created_at,
+    );
+    assert.deepStrictEqual(times.slice(0, 1), [createdOf(7)]);
+    const [, added, removed] = times;
+    assert.ok(added !== undefined && added > createdOf(7) && added > commented, `${added}`);
+    assert.ok(removed !== undefined && removed > added, `${removed}`);
   });
 
   it('records a label a test adds as the actor it names, so the tracker reads a stranger as its last adder', async () => {
