@@ -20,8 +20,9 @@ test('lists each team once, in the order they first scored', () => {
 });
 
 test('ranks the teams by their points over every round, the most first', () => {
-  assert.deepEqual(ranking(SCORES), [
+  assert.deepEqual(ranking([{ team: 'Moths', points: 2 }, ...SCORES]), [
     { team: 'Owls', points: 13 },
     { team: 'Quizzly Bears', points: 9 },
+    { team: 'Moths', points: 2 },
   ]);
 });
