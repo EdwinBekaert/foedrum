@@ -76,6 +76,11 @@ export interface DoctorFacts {
   keepAwake?: AwakeMechanism | undefined;
   /** Each repository of the Brewery read at its base for the system map (ADR 0317). */
   systemMap?: readonly DoctorMapRepository[] | undefined;
+  /**
+   * ANTHROPIC_BASE_URL as doctor's environment has it, which every brewer is given (ADR 0063,
+   * ADR 0087); absent when it is not set. Never printed as it is: it may hold a key.
+   */
+  modelBaseUrl?: string | undefined;
 }
 
 /** The denylist's state as doctor reports it: its path, never its words or their count. */
@@ -132,6 +137,8 @@ export interface Diagnosis {
   tools: readonly ToolLine[];
   /** On Linux with a stack, which one a setup's network comes from and whether it is isolated (ADR 0400). */
   setupNetwork?: string;
+  /** Where brewers' model traffic goes, when ANTHROPIC_BASE_URL is set (ADR 0063, ADR 0087); never a problem. */
+  modelTraffic?: string;
   /** How this machine is kept awake while an attempt runs (ADR 0195); never a problem. */
   keepAwake?: AwakeMechanism;
   isolation: { level: IsolationLevel; why: string };

@@ -470,3 +470,19 @@ describe("gatherDoctorFacts: where brewers' model traffic goes (ADR 0063, ADR 00
     );
   });
 });
+
+describe("gatherDoctorFacts: the address of brewers' model traffic (ADR 0063, ADR 0087)", () => {
+  it("records ANTHROPIC_BASE_URL from doctor's environment", async () => {
+    const env = { PATH: '/usr/bin', ANTHROPIC_BASE_URL: 'https://gateway.example.com/v1' };
+    const facts = await gatherDoctorFacts({ ...fakeShell().shell, env });
+    assert.equal(facts.modelBaseUrl, 'https://gateway.example.com/v1');
+  });
+
+  it('records it on Windows whatever the case of its name', async () => {
+    const node: ExecResult = { exitCode: 0, stdout: '', stderr: '', output: '' };
+    const { shell } = fakeShell({ onPath: {}, answers: { '/usr/bin/node': node } });
+    const env = { Path: 'C:Windows', anthropic_base_url: 'https://gateway.example.com/v1' };
+    const facts = await gatherDoctorFacts({ ...shell, platform: 'win32', env });
+    assert.equal(facts.modelBaseUrl, 'https://gateway.example.com/v1');
+  });
+});
