@@ -11,6 +11,7 @@ import type { State } from '../engine/fold.ts';
 import { ranIn } from '../engine/session-resume.ts';
 import type { AttemptProgress } from '../engine/supervisor.ts';
 import type { DiffFile } from '../formats/unified-diff.ts';
+import { lastLine } from '../platform/errors.ts';
 import { foldsCase } from '../platform/paths.ts';
 import type { TestMap } from '../schemas/test-map.ts';
 import { attemptBranch } from '../workspace/attempt-worktrees.ts';
@@ -28,11 +29,7 @@ const TIP_READ_MS = 10_000;
 
 /** Why git failed: its last line on stderr, or how it ended. */
 const failure = (args: string, result: GitResult): string =>
-  result.stderr
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter((line) => line !== '')
-    .at(-1) ?? `git ${args} exited with ${result.code ?? result.killed ?? 'no code'}`;
+  lastLine(result.stderr) ?? `git ${args} exited with ${result.code ?? result.killed ?? 'no code'}`;
 
 /**
  * The blob of each of `paths` at `ref`, read in `cwd`, the clone, as `ls-tree` names it; a path

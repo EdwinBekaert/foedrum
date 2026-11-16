@@ -1,4 +1,4 @@
-// The Flight's orders in tasting-room/ (ADR 0404): each order's files read and checked, the
+// The Flight's orders in tasting-room/orders/ (ADR 0404): each order's files read and checked, the
 // trees its proof lays down, and what a proof run's exit means. The proof itself runs in
 // test/integration/flight-orders.test.ts. When #1083 comes, the Flight's runner will build its
 // target from the same starting tree and lay the hidden tests over a brewed head with `withLayer`.
@@ -43,6 +43,9 @@ export interface ProofRun {
  * review loads a fixture's rules as its own; a laid-down tree holds it as `CLAUDE.md`.
  */
 export const INSTRUCTIONS_FILE = 'INSTRUCTIONS.fixture.md';
+
+/** The folder of the Flight's orders, one folder per order: the one place it is named. */
+export const ORDERS = join(import.meta.dirname, '..', 'tasting-room', 'orders');
 
 /** Where every hidden test sits in a tree, so none replaces a test a brewer wrote. */
 export const HIDDEN_FOLDER = 'test/hidden/';

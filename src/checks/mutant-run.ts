@@ -12,7 +12,7 @@ import type { State } from '../engine/fold.ts';
 import type { AttemptProgress } from '../engine/supervisor.ts';
 import { survivorFinding, survivorsOf, survivorText } from '../engine/survivors.ts';
 import type { DiffFile } from '../formats/unified-diff.ts';
-import { messageOf } from '../platform/errors.ts';
+import { lastLine, messageOf } from '../platform/errors.ts';
 import { foldsCase } from '../platform/paths.ts';
 import { MAX_MUTANT_TEXT, type MutantRecord, type MutantVerdict } from '../schemas/events.ts';
 import { type MutantEdit, mutantsOf } from '../schemas/out-doc.ts';
@@ -95,11 +95,7 @@ const blockedBySurvivors = (end: AttemptEnd): AttemptEnd => {
 
 /** Why git failed: its last line on stderr, or how it ended. */
 const gitFailed = (stderr: string, code: number | null): string =>
-  stderr
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter((line) => line !== '')
-    .at(-1) ?? `git exited with ${code ?? 'no code'}`;
+  lastLine(stderr) ?? `git exited with ${code ?? 'no code'}`;
 
 /** What a mutant's change is checked against: the effective map's modules and the changed files. */
 interface Change {

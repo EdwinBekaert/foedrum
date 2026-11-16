@@ -11,7 +11,7 @@ import { removeStaleLock } from '../platform/index-lock.ts';
 import { removeTree } from '../platform/remove.ts';
 import { type Rename, replaceFile } from '../platform/replace-file.ts';
 import { PathSafeId } from '../schemas/ids.ts';
-import type { Git, GitOptions } from '../workspace/git.ts';
+import { type Git, type GitOptions, gitFailure } from '../workspace/git.ts';
 import type { EventStore } from './event-store.ts';
 import type { ArchiveShelf } from './rack.ts';
 import {
@@ -131,15 +131,6 @@ const TMP_SUFFIX = '.foedrum-tmp';
 const WRITER_POLL_MS = 250;
 const WRITER_WAIT_MS = 150_000;
 
-const firstLine = (text: string): string =>
-  text
-    .split(/\r?\n/)
-    .find((line) => line.trim() !== '')
-    ?.trim() ?? '';
-
-const why = ({ code, stderr }: { code: number | null; stderr: string }): string =>
-  firstLine(stderr) || (code === null ? 'git did not finish in time' : `git exited with ${code}`);
-
 export const openStateBranch = (options: StateBranchOptions): StateBranch => {
   const {
     store,
@@ -180,7 +171,9 @@ export const openStateBranch = (options: StateBranchOptions): StateBranch => {
   const must = async (cwd: string, args: string[], gitOptions?: GitOptions): Promise<string> => {
     const result = await git(cwd, args, gitOptions);
     if (result.code !== 0) {
-      throw new Error(`git ${args[0]} failed: ${why(result)}${leftToTheUser(result.stderr)}`);
+      throw new Error(
+        `git ${args[0]} failed: ${gitFailure(result)}${leftToTheUser(result.stderr)}`,
+      );
     }
     return result.stdout;
   };
@@ -266,14 +259,15 @@ export const openStateBranch = (options: StateBranchOptions): StateBranch => {
   const head = async (): Promise<string | undefined> => {
     const result = await git(worktree, ['rev-parse', '--verify', '-q', 'HEAD']);
     if (result.code === 1) return undefined;
-    if (result.code !== 0) throw new Error(`Cannot read the state worktree's head: ${why(result)}`);
+    if (result.code !== 0)
+      throw new Error(`Cannot read the state worktree's head: ${gitFailure(result)}`);
     return result.stdout.trim();
   };
   /** The remote branch's commit, or undefined when it does not exist. */
   const remoteHead = async (cwd: string): Promise<string | undefined> => {
     const result = await git(cwd, ['ls-remote', '--exit-code', remote, ref]);
     if (result.code === 2) return undefined;
-    if (result.code !== 0) throw new Error(`Cannot read ${remoteBranch}: ${why(result)}`);
+    if (result.code !== 0) throw new Error(`Cannot read ${remoteBranch}: ${gitFailure(result)}`);
     return remoteCommitOf(result.stdout, ref);
   };
 
@@ -311,8 +305,8 @@ export const openStateBranch = (options: StateBranchOptions): StateBranch => {
     if (commit.code !== 0) {
       throw new StateBranchStopError(
         signing
-          ? `Commit signing is on (commit.gpgSign) in ${clone}, but a test commit could not be signed without a prompt: ${why(commit)}. Make signing work non-interactively, or turn commit.gpgSign off for this clone.`
-          : `A test commit in the state worktree ${worktree} failed: ${why(commit)}`,
+          ? `Commit signing is on (commit.gpgSign) in ${clone}, but a test commit could not be signed without a prompt: ${gitFailure(commit)}. Make signing work non-interactively, or turn commit.gpgSign off for this clone.`
+          : `A test commit in the state worktree ${worktree} failed: ${gitFailure(commit)}`,
       );
     }
     const sha = commit.stdout.trim();
@@ -339,7 +333,7 @@ export const openStateBranch = (options: StateBranchOptions): StateBranch => {
   const isAncestor = async (commit: string, of: string): Promise<boolean> => {
     const result = await git(worktree, ['merge-base', '--is-ancestor', commit, of]);
     if (result.code === 0 || result.code === 1) return result.code === 0;
-    throw new Error(`Cannot tell whether ${of} contains ${commit}: ${why(result)}`);
+    throw new Error(`Cannot tell whether ${of} contains ${commit}: ${gitFailure(result)}`);
   };
 
   const restore = async (localHead: string | undefined, remoteSha: string): Promise<void> => {
@@ -370,7 +364,7 @@ export const openStateBranch = (options: StateBranchOptions): StateBranch => {
       const merged = await git(worktree, ['merge', '--ff-only', '-q', remoteSha]);
       if (merged.code !== 0) {
         throw new StateBranchStopError(
-          `The state worktree at ${localHead ?? 'no commit'} cannot fast-forward to ${remoteBranch} at ${remoteSha}: ${why(merged)}`,
+          `The state worktree at ${localHead ?? 'no commit'} cannot fast-forward to ${remoteBranch} at ${remoteSha}: ${gitFailure(merged)}`,
         );
       }
     }
@@ -403,7 +397,7 @@ export const openStateBranch = (options: StateBranchOptions): StateBranch => {
     await must(worktree, ['add', '-A', '--', '.', `:(exclude,glob)**/*${TMP_SUFFIX}`]);
     const staged = await git(worktree, ['diff', '--cached', '--quiet']);
     if (staged.code !== 0 && staged.code !== 1) {
-      throw new Error(`git diff failed: ${why(staged)}`);
+      throw new Error(`git diff failed: ${gitFailure(staged)}`);
     }
     let commit = await head();
     if (staged.code === 1) {
@@ -415,7 +409,7 @@ export const openStateBranch = (options: StateBranchOptions): StateBranch => {
         '-m',
         commitMessage(pending),
       ]);
-      if (committed.code !== 0) return { kind: 'failed', reason: why(committed) };
+      if (committed.code !== 0) return { kind: 'failed', reason: gitFailure(committed) };
       // A user's pack-refs whose ref lock was removed as stale can set the branch back to its
       // packed value after the commit (ADR 0115): then the events are not on it.
       commit = await head();
@@ -454,7 +448,7 @@ export const openStateBranch = (options: StateBranchOptions): StateBranch => {
           secretRefusal({ commit, from: from + 1, through, stderr: pushed.stderr }),
         );
       case 'failed':
-        return { kind: 'failed', reason: why(pushed) };
+        return { kind: 'failed', reason: gitFailure(pushed) };
       default: {
         const unknown: never = outcome;
         throw new Error(`Unknown push outcome ${String(unknown)}`);

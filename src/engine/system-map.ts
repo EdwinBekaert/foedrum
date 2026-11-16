@@ -9,6 +9,7 @@ import { dotnetManifest } from '../formats/dotnet-manifest.ts';
 import { goManifest } from '../formats/go-manifest.ts';
 import type { DependencyVia, ManifestReader } from '../formats/manifest-reader.ts';
 import { npmManifest } from '../formats/npm-manifest.ts';
+import { lastLine } from '../platform/errors.ts';
 import { MAX_MAP_ITEMS, MAX_MAP_NAME_LENGTH, type SystemMapEntry } from '../schemas/system-map.ts';
 import type { Git, GitResult } from '../workspace/git.ts';
 import { sameRepo } from './task-tree.ts';
@@ -135,7 +136,7 @@ export const entryOf = (
 const cutShort = ({ killed }: GitResult): boolean => killed === 'timed-out' || killed === 'stopped';
 
 export const gitWhy = (result: GitResult): string =>
-  result.stderr.trim().split('\n').at(-1)?.trim() || `git exited with ${result.code ?? 'no code'}`;
+  lastLine(result.stderr) ?? `git exited with ${result.code ?? 'no code'}`;
 
 /**
  * The manifests of the repository in `clone` at `commit`, read with git alone: `ls-tree` lists its

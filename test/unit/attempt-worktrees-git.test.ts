@@ -129,6 +129,13 @@ describe('openAttemptWorktrees with a fake git', () => {
       await assert.rejects(open(fails.git).fetch(), /fetch/);
     });
 
+    it("names git's first non-blank line when stderr starts with a blank one", async () => {
+      const fails = fakeGit((_cwd, args) =>
+        args.includes('fetch') ? failed('   \nfatal: x\n') : undefined,
+      );
+      await assert.rejects(open(fails.git).fetch(), { message: 'git fetch failed: fatal: x' });
+    });
+
     it("runs one fetch at a time: a second waits for the first, as create's does (regression test)", async () => {
       const seen: string[] = [];
       let release = (): void => {};
