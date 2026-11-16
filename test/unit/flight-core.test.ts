@@ -128,8 +128,8 @@ const finished = (stepId: string, attempt: number, more: Record<string, unknown>
     ...more,
   });
 const session = (id: string) => ({ session: { id, worktree: `work-${id}` } });
-const greenRead = (commit: string) => ({
-  worktree: { repo: TARGET, path: 'w', branch: 'b', commit },
+const greenRead = (commit: string, path = 'w') => ({
+  worktree: { repo: TARGET, path, branch: 'b', commit },
 });
 const pushed = (round: number, commit: string) =>
   event({
@@ -222,6 +222,10 @@ describe('the Flight (ADR 0409)', () => {
         refusal({ recipe: 'nip', brewer: 'brewmaster', model: 'strong', effort: 'full' }),
         /brewmaster.*nip/,
       );
+    });
+
+    it('a recipe that opens no pull request is refused: none of its runs would leave a head', () => {
+      assert.match(refusal({ recipe: 'mash' }), /mash.*pull request/);
     });
 
     it('a --model that is neither a level nor an id is refused', () => {
@@ -408,13 +412,13 @@ describe('the Flight (ADR 0409)', () => {
       );
     });
 
-    it('with no pull request, the commit the green step read last is the head', () => {
+    it('with no pull request, the commit the green step read last is the head, in the worktree it read it in', () => {
       assert.deepEqual(
         headOf([
-          started('green', 1, greenRead(FIRST_PUSH)),
-          started('green', 2, greenRead(GREEN_READ)),
+          started('green', 1, greenRead(FIRST_PUSH, 'green-1')),
+          started('green', 2, greenRead(GREEN_READ, 'green-2')),
         ]),
-        { head: GREEN_READ, headFrom: 'green' },
+        { head: GREEN_READ, headFrom: 'green', headTree: 'green-2' },
       );
     });
 
@@ -444,7 +448,14 @@ describe('the Flight (ADR 0409)', () => {
   });
 
   it('the hidden tests passed on exit 0, failed on another code, and timed out with none', () => {
-    assert.deepEqual([hiddenOf(0), hiddenOf(1), hiddenOf(null)], ['passed', 'failed', 'timed out']);
+    assert.deepEqual(
+      [hiddenOf(0), hiddenOf(1), hiddenOf(null, 'timed-out')],
+      ['passed', 'failed', 'timed out'],
+    );
+  });
+
+  it('hidden tests killed for their output, or that could not start, failed: they did not time out', () => {
+    assert.deepEqual([hiddenOf(null, 'too-much-output'), hiddenOf(null)], ['failed', 'failed']);
   });
 
   describe("a run's record", () => {
