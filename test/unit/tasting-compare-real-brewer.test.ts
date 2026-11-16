@@ -3,6 +3,7 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { describe, it } from 'node:test';
 import { BREWERY, localConfig, TARGET, USER } from '../../scripts/demo/core.ts';
+import { scratchNameOf } from '../../scripts/tasting-compare/core.ts';
 import {
   type BrewerRecord,
   type BrewerSettings,
@@ -33,7 +34,6 @@ import {
   REAL_SETUPS,
   realBreweryFiles,
   refuseMissingTexts,
-  scratchNameOf,
   scriptedPlan,
   scriptedTranscript,
   splitHead,

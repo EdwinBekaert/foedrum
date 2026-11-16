@@ -1259,9 +1259,6 @@ const MAP = 'map';
 /** The part of a brewer's setup that says it ran with a map, before any `-plan` (ADR 0398). */
 const MAP_TEXT = '-map';
 
-/** A run's scratch folder name: a setup's name with what Windows refuses in a folder's name replaced. */
-export const scratchNameOf = (name: string): string => name.replace(/[^A-Za-z0-9._-]/g, '_');
-
 /** The folder of a head's test files, which the scripted Gauger commits (ADR 0394). */
 const TESTS = 'test/';
 

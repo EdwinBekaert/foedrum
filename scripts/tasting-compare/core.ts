@@ -71,6 +71,9 @@ export const tasterModelOf = (model: string, effort: string): { model: string; e
   return { model, effort: parsed.data };
 };
 
+/** A run's scratch folder name: a setup's name with what Windows refuses in a folder's name replaced. */
+export const scratchNameOf = (name: string): string => name.replace(/[^A-Za-z0-9._-]/g, '_');
+
 /** The step that commits the seeded change: a scripted Cellarman, no model. */
 export const IMPLEMENT = 'implement';
 /** The step id of a together setup's one Taster, and of the apart setup's group. */
