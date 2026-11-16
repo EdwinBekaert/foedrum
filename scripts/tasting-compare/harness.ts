@@ -46,7 +46,7 @@ export const patchedTarget = async (base: string, scratch: string, git: RunGit):
 };
 
 /** What a run's record reads beyond the store: the scratch folder of its run, and its git. */
-export interface RunPlace {
+interface RunPlace {
   scratch: string;
   git: RunGit;
 }
@@ -96,7 +96,7 @@ export interface Mode<Setup extends string, Run extends RunRecord<Setup> = RunRe
 }
 
 /** Where `compare` keeps a mode's records and files, how many runs of each setup it brews, and with what. */
-export interface CompareSettings {
+interface CompareSettings {
   folder: string;
   runs: number;
   /** The brewers scripted, never the real claude. */
