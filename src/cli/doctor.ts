@@ -76,6 +76,11 @@ export interface DoctorFacts {
   keepAwake?: AwakeMechanism | undefined;
   /** Each repository of the Brewery read at its base for the system map (ADR 0317). */
   systemMap?: readonly DoctorMapRepository[] | undefined;
+  /**
+   * ANTHROPIC_BASE_URL as doctor's environment has it, which every brewer is given (ADR 0063,
+   * ADR 0087); absent when it is not set. Never printed as it is: it may hold a key.
+   */
+  modelBaseUrl?: string | undefined;
 }
 
 /** The denylist's state as doctor reports it: its path, never its words or their count. */
@@ -132,6 +137,8 @@ export interface Diagnosis {
   tools: readonly ToolLine[];
   /** On Linux with a stack, which one a setup's network comes from and whether it is isolated (ADR 0400). */
   setupNetwork?: string;
+  /** Where brewers' model traffic goes, when ANTHROPIC_BASE_URL is set (ADR 0063, ADR 0087); never a problem. */
+  modelTraffic?: string;
   /** How this machine is kept awake while an attempt runs (ADR 0195); never a problem. */
   keepAwake?: AwakeMechanism;
   isolation: { level: IsolationLevel; why: string };
@@ -295,6 +302,20 @@ const setupNetworkLine = (facts: DoctorFacts): string | undefined => {
       throw new Error(`no network stack ${String(never)}`);
     }
   }
+};
+
+/**
+ * Where brewers' model traffic goes: `brewerBaseEnv` gives every brewer ANTHROPIC_BASE_URL (ADR 0063,
+ * ADR 0087). Only the origin is shown, since a user, password, path, query or fragment may hold
+ * a key; an address that is not http or https is not quoted at all.
+ */
+const modelTrafficLine = (address: string | undefined): string | undefined => {
+  if (address === undefined || address === '') return undefined;
+  const url = URL.parse(address);
+  const cited = '(ADR 0063, ADR 0087)';
+  return url === null || (url.protocol !== 'http:' && url.protocol !== 'https:')
+    ? `Model traffic: ANTHROPIC_BASE_URL is set, but not to an http or https address doctor can read; every brewer started from this terminal is given it ${cited}`
+    : `Model traffic: ${url.origin} (ANTHROPIC_BASE_URL); every brewer started from this terminal sends its prompts and the code it reads there ${cited}`;
 };
 
 /** A setup does not start on Linux without a stack; a Brewery without one needs neither. */
@@ -787,6 +808,7 @@ export const diagnose = (facts: DoctorFacts): Diagnosis => {
     ...stackProblems(facts),
   ];
   const setupNetwork = setupNetworkLine(facts);
+  const modelTraffic = modelTrafficLine(facts.modelBaseUrl);
   return {
     tools: [
       { name: 'node', version: facts.node, path: undefined },
@@ -800,6 +822,7 @@ export const diagnose = (facts: DoctorFacts): Diagnosis => {
         : []),
     ],
     ...(setupNetwork === undefined ? {} : { setupNetwork }),
+    ...(modelTraffic === undefined ? {} : { modelTraffic }),
     isolation,
     advice,
     problems,
@@ -853,6 +876,7 @@ const keepAwakeLine = (mechanism: AwakeMechanism): string => {
 export const formatDiagnosis = ({
   tools,
   setupNetwork,
+  modelTraffic,
   isolation,
   advice,
   problems,
@@ -876,6 +900,7 @@ export const formatDiagnosis = ({
     ),
     '',
     ...(setupNetwork === undefined ? [] : [setupNetwork]),
+    ...(modelTraffic === undefined ? [] : [modelTraffic]),
     `Isolation: ${isolation.level} (${isolation.why})`,
     ...advice.map((line) => `  ${line}`),
     ...(defaults === undefined

@@ -1544,3 +1544,54 @@ describe("diagnose: the setup's network stack", () => {
     );
   });
 });
+
+describe("formatDiagnosis: where brewers' model traffic goes (ADR 0063, ADR 0087)", () => {
+  const report = (modelBaseUrl: string) => formatDiagnosis(diagnose({ ...linux(), modelBaseUrl }));
+  const goesTo = (address: string) =>
+    `\nModel traffic: ${address} (ANTHROPIC_BASE_URL); every brewer started from this terminal sends its prompts and the code it reads there (ADR 0063, ADR 0087)\nIsolation: `;
+  const unreadable =
+    '\nModel traffic: ANTHROPIC_BASE_URL is set, but not to an http or https address doctor can read; every brewer started from this terminal is given it (ADR 0063, ADR 0087)\nIsolation: ';
+
+  it('names the address brewers send their model traffic to, under the tools', () => {
+    assert.ok(
+      report('https://gateway.example.com/v1').includes(goesTo('https://gateway.example.com')),
+    );
+  });
+
+  it('leaves the user name and password out of the address', () => {
+    const shown = report('https://gw-user:gw-pass@gateway.example.com/v1');
+    assert.ok(shown.includes(goesTo('https://gateway.example.com')));
+    assert.doesNotMatch(shown, /gw-user|gw-pass/);
+  });
+
+  it('leaves the query and the fragment out of the address', () => {
+    const shown = report('https://gateway.example.com/v1?key=gw-key#gw-frag');
+    assert.ok(shown.includes(goesTo('https://gateway.example.com')));
+    assert.doesNotMatch(shown, /gw-key|gw-frag/);
+  });
+
+  it('leaves the path out of the address, where a gateway may keep a key', () => {
+    const shown = report('https://gateway.example.com/k/gw-path-key/v1');
+    assert.ok(shown.includes(goesTo('https://gateway.example.com')));
+    assert.doesNotMatch(shown, /gw-path-key/);
+  });
+
+  it('says the variable is set without quoting an address that does not parse', () => {
+    const shown = report('gw-pass at the gateway');
+    assert.ok(shown.includes(unreadable));
+    assert.doesNotMatch(shown, /gw-pass/);
+  });
+
+  it('says the variable is set without quoting an address of another scheme', () => {
+    const shown = report('socks5://gw-user:gw-pass@proxy.example.com:1080');
+    assert.ok(shown.includes(unreadable));
+    assert.doesNotMatch(shown, /gw-user|gw-pass|proxy\.example/);
+  });
+
+  it('is no problem and leaves doctor ok, with the line shown', () => {
+    const diagnosis = diagnose({ ...linux(), modelBaseUrl: 'https://gateway.example.com/v1' });
+    assert.ok(formatDiagnosis(diagnosis).includes(goesTo('https://gateway.example.com')));
+    assert.equal(diagnosis.ok, true);
+    assert.deepStrictEqual(diagnosis.problems, diagnose(linux()).problems);
+  });
+});

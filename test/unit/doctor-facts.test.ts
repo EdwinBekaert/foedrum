@@ -454,3 +454,47 @@ describe('gatherDoctorFacts: systemd that is not running (ADR 0195)', () => {
     assert.deepStrictEqual(facts.keepAwake, { kind: 'none', why: 'systemd is not running' });
   });
 });
+
+describe("gatherDoctorFacts: where brewers' model traffic goes (ADR 0063, ADR 0087)", () => {
+  const report = async (env: NodeJS.ProcessEnv) =>
+    formatDiagnosis(diagnose(await gatherDoctorFacts({ ...fakeShell().shell, env })));
+
+  it('shows no model traffic line when ANTHROPIC_BASE_URL is not set', async () => {
+    assert.doesNotMatch(await report({ PATH: '/usr/bin' }), /Model traffic/);
+  });
+
+  it('shows no model traffic line when ANTHROPIC_BASE_URL is set to nothing', async () => {
+    assert.doesNotMatch(
+      await report({ PATH: '/usr/bin', ANTHROPIC_BASE_URL: '' }),
+      /Model traffic/,
+    );
+  });
+});
+
+describe("gatherDoctorFacts: the address of brewers' model traffic (ADR 0063, ADR 0087)", () => {
+  it("records ANTHROPIC_BASE_URL from doctor's environment", async () => {
+    const env = { PATH: '/usr/bin', ANTHROPIC_BASE_URL: 'https://gateway.example.com/v1' };
+    const facts = await gatherDoctorFacts({ ...fakeShell().shell, env });
+    assert.equal(facts.modelBaseUrl, 'https://gateway.example.com/v1');
+  });
+
+  it('records it on Windows whatever the case of its name', async () => {
+    const node: ExecResult = { exitCode: 0, stdout: '', stderr: '', output: '' };
+    const { shell } = fakeShell({ onPath: {}, answers: { '/usr/bin/node': node } });
+    const env = { Path: 'C:\\Windows', anthropic_base_url: 'https://gateway.example.com/v1' };
+    const facts = await gatherDoctorFacts({ ...shell, platform: 'win32', env });
+    assert.equal(facts.modelBaseUrl, 'https://gateway.example.com/v1');
+  });
+
+  it("records it from this process's environment when given none, as foedrum doctor runs", async () => {
+    const before = process.env.ANTHROPIC_BASE_URL;
+    process.env.ANTHROPIC_BASE_URL = 'https://process.example.com/v1';
+    try {
+      const facts = await gatherDoctorFacts(fakeShell().shell);
+      assert.equal(facts.modelBaseUrl, 'https://process.example.com/v1');
+    } finally {
+      if (before === undefined) delete process.env.ANTHROPIC_BASE_URL;
+      else process.env.ANTHROPIC_BASE_URL = before;
+    }
+  });
+});
