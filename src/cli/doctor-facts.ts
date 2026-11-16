@@ -8,6 +8,7 @@ import type { BreweryFiles } from '../engine/recipe-files.ts';
 import type { DenylistState } from '../platform/denylist.ts';
 import { withoutGitHubTokens } from '../platform/env.ts';
 import { messageOf } from '../platform/errors.ts';
+import { environmentVariable } from '../platform/executables.ts';
 import { awakeMechanism } from '../platform/keep-awake.ts';
 import { type ExecProcess, whyKilled } from '../platform/processes.ts';
 import {
@@ -138,6 +139,12 @@ export const gatherDoctorFacts = async (shell: DoctorShell): Promise<DoctorFacts
   const [login, credentials] = await asking;
   const systemMap = await shell.systemMap?.();
   const restrictsUserns = shell.restrictsUserns?.();
+  // What every brewer of this terminal is given (ADR 0063, ADR 0087); doctor.ts cleans it.
+  const modelBaseUrl = environmentVariable(
+    shell.env ?? process.env,
+    'ANTHROPIC_BASE_URL',
+    shell.platform,
+  );
   return {
     platform: shell.platform,
     kernelRelease: shell.kernelRelease,
@@ -159,5 +166,6 @@ export const gatherDoctorFacts = async (shell: DoctorShell): Promise<DoctorFacts
     ...(shell.readBrewery === undefined ? {} : { brewery: shell.readBrewery() }),
     ...(shell.denylist === undefined ? {} : { denylist: denylistFact(shell.denylist()) }),
     ...(systemMap === undefined ? {} : { systemMap }),
+    ...(modelBaseUrl === undefined ? {} : { modelBaseUrl }),
   };
 };

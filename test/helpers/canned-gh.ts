@@ -89,6 +89,10 @@ export const doctorHere = async (
         denylist: noDenylist,
         // The machine's AppArmor is not the test's.
         restrictsUserns: () => undefined,
+        // Nor is a model gateway the machine's terminal names (ADR 0063, ADR 0087).
+        env: Object.fromEntries(
+          Object.entries(process.env).filter(([name]) => !/^ANTHROPIC_BASE_URL$/i.test(name)),
+        ),
       }),
     openStore: notForDoctor('store'),
     openWritableStore: notForDoctor('store'),
