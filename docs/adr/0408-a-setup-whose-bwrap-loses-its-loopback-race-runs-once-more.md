@@ -21,12 +21,13 @@ A real Brewery's setup on Linux meets the same race: ADR 0218 reads the run as u
 
 ## Decision
 - A setup whose bwrap run is unstarted with words that start `bwrap: loopback: Failed RTM_NEWADDR` runs once more: the line did not run, and the namespace and its stack ended with bwrap.
+- The second run gets only the time the first run left of the setup's timeout, so the setup's deadline of ADR 0140 and ADR 0163 holds for both runs together.
 - A second such failure is unstarted with bwrap's words, `twice`, and the likely race in plain words, citing this record.
 - Nothing else is run again: another bwrap failure, a stack's, and a line that ran and passed, was killed or ended on a signal, whatever it printed.
 - This stands in for the upstream fix, bubblewrap PR #821, which accepts a lo that is already up with 127.0.0.1/8, until the bwrap of the hosts Foedrum runs on has it.
 
 ## Consequences
 - A setup that loses the race costs one more start of bwrap and the stack; two in a row is about one in 250,000 setups, if the estimate holds.
-- A line that ran, wrote bwrap's loopback words first on stderr and exited non-zero already reads as bwrap's own failure (ADR 0076), so it now runs once more: the repository's own code gets one more run in the same sandbox, with a timeout of its own, and nothing else.
+- A line that ran, wrote bwrap's loopback words first on stderr and exited non-zero already reads as bwrap's own failure (ADR 0076), so it now runs once more: the repository's own code gets one more run in the same sandbox, within the time its first run left, and nothing else.
 - `--userns-block-fd` would not help: it holds the child until the stack is up, which makes the stack win the race every time.
 - No Brewery's files change.
