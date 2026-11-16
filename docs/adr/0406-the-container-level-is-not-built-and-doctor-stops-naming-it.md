@@ -1,6 +1,6 @@
 # 0406. The container level is not built, and doctor stops naming it
 
-Date: 2026-11-16 · Status: Accepted · Amends [0010](0010-cross-platform-and-isolation-levels.md) (its third isolation level), [0075](0075-only-a-lower-bound-reads-the-wall-clock-and-doctor-runs-against-stub-tools.md) (doctor's integration case of a container runtime that hangs) and [0082](0082-brewers-never-allow-gh.md) (doctor's sentence that the container level closes both)
+Date: 2026-11-16 · Status: Accepted · Amends [0010](0010-cross-platform-and-isolation-levels.md) (its third isolation level), [0073](0073-github-only-through-gh-s-own-login.md) (that the container level keeps a brewer's commands apart from gh's login), [0075](0075-only-a-lower-bound-reads-the-wall-clock-and-doctor-runs-against-stub-tools.md) (doctor's integration case of a container runtime that hangs) and [0082](0082-brewers-never-allow-gh.md) (doctor's sentence that the container level closes both)
 
 ## Context
 ADR 0010 defined three isolation levels: sandboxed, permissions only, and an optional container level, where `claude` runs in a container that mounts only the worktree.
