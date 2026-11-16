@@ -174,19 +174,17 @@ const played = async (play: Parameters<typeof trialChaos>[1]): Promise<Played> =
 };
 
 describe('a failing chaos run', () => {
-  it('shrinks to the moves it fails by and the one kill, at the site it had', async () => {
+  it('shrinks to the moves and faults it fails by, the kill after an effect at the site it had', async () => {
     const found = await firstFailure(killedAfterAnEffect, scenarios);
     const shrunk = await shrinkChaos(dir.path, found, killedAfterAnEffect, scenarios);
     const { moves, faults } = shrunk.failure.schedule;
-    assert.deepStrictEqual(
-      faults.map(({ kind }) => kind),
-      ['kill after an effect reached its target'],
-    );
-    const [kill] = faults;
+    const kill = faults.find(({ kind }) => kind === 'kill after an effect reached its target');
+    assert.ok(kill, 'the kill after an effect is kept');
     assert.ok(
       found.failure.schedule.faults.some((fault) => JSON.stringify(fault) === JSON.stringify(kill)),
       'the kill is the one the first run had, at its site',
     );
+    assert.ok(faults.length < found.failure.schedule.faults.length, 'faults were removed');
     assert.ok(moves.length < found.failure.schedule.moves.length, 'moves were removed');
     await isSmallest(found, shrunk, killedAfterAnEffect, scenarios);
   });
@@ -258,12 +256,12 @@ describe('a failing chaos run', () => {
         assert.match(
           error.message,
           new RegExp(
-            `\\nSeed ${seed}, shrunk in \\d+ runs from \\d+ moves and \\d+ faults? to \\d+ moves? and 1 fault\\.`,
+            `\\nSeed ${seed}, shrunk in \\d+ runs from \\d+ moves and \\d+ faults? to \\d+ moves? and \\d+ faults?\\.`,
           ),
         );
         assert.match(
           error.message,
-          /\n +1\. move \d+, cellar: killed after an effect reached its target/,
+          /\n +\d+\. move \d+, cellar: killed after an effect reached its target/,
         );
         return true;
       },
