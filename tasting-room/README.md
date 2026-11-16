@@ -25,10 +25,10 @@ A commit that adds an order says in its message that the integration tests it ad
 | `invoice-discount` | house rule | The instruction file says every amount is whole cents, a share is computed multiplying before dividing and rounded once through `roundCents`; the order does not repeat it. |
 | `shelf-tags` | design page | `docs/format.md` is the one description of the shelf file and lists every field; the order adds a field and never names the page. |
 | `timesheet-night` | edge case | A night shift ends the next morning, before its start time; the order mentions night shifts once and asks nothing of them. |
-| `plant-watering` | house rule | The instruction file says functions never change the data they are given and return new data; the order asks for a function that records a watering and does not repeat it. |
-| `parcel-weights` | house rule | The instruction file says a typed value that cannot be read is refused with an `InputError`, never a plain `Error`; the order says only to refuse it. |
+| `plant-watering` | house rule | The instruction file says functions never change the data they are given, a list or an object in it, and return new data; the order does not repeat it. |
+| `parcel-weights` | house rule | The instruction file says a typed value that cannot be read is refused with an `InputError` from `src/errors.mjs`, never a plain `Error`; the order says only to refuse it. |
 | `quiz-rank` | design page | `docs/commands.md` is the one list of the program's commands; the order adds a command and never names the page. |
 | `room-booking` | design page | `docs/errors.md` is the one list of the codes `book` answers; the order adds a code and never names the page. |
-| `post-slugs` | edge case | A title typed with punctuation and extra spaces gives no extra hyphens, nor one at either end; the order mentions how writers type titles once, and its example has neither. |
-| `recent-files` | edge case | A file opened again moves to the front instead of showing twice; the order asks for the files opened most recently and never speaks of opening one again. |
+| `post-slugs` | edge case | A title typed with punctuation and extra spaces must give no extra hyphens, nor one at either end; the order mentions how writers type titles once and its example has neither. |
+| `recent-files` | edge case | A file opened again that is already on the list moves to the front instead of showing twice; the order asks for the files opened most recently and never speaks of opening one again. |
 | `contacts-csv` | edge case | A field between double quotes keeps its comma and loses its quotes; the order says once how the export quotes such a field and asks only for a line's fields. |
