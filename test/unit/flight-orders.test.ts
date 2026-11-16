@@ -81,6 +81,22 @@ test('refuses a hidden file outside test/hidden/', () => {
   assert.match(message, /timesheet: hidden\/test\/shift\.test\.mjs is not under test\/hidden\//);
 });
 
+test('refuses a hidden file in a sibling folder whose name starts with hidden', () => {
+  const message = refusal({ 'hidden/test/hiddenx/shift.test.mjs': 'x\n' });
+  assert.match(
+    message,
+    /timesheet: hidden\/test\/hiddenx\/shift\.test\.mjs is not under test\/hidden\//,
+  );
+});
+
+test('reads the title of an order.md with CRLF line ends', () => {
+  const order = readOrder(
+    'timesheet',
+    files({ 'order.md': 'Count a shift\r\n\r\nAdd shiftMinutes.\r\n' }),
+  );
+  assert.equal(order.title, 'Count a shift');
+});
+
 test('refuses an order with no base', () => {
   const message = refusal({
     'base/INSTRUCTIONS.fixture.md': undefined,
