@@ -157,7 +157,16 @@ export const scoredTable = ({ key, codes, marks }: ScoreInput): string => {
   const runs = runsOf(codes);
   // A file an editor saved with a BOM is the same marks (CLAUDE.md, Cross-platform).
   const bare = marks.charCodeAt(0) === 0xfeff ? marks.slice(1) : marks;
-  const marked = Marks.parse(JSON.parse(bare)).runs;
+  const marked = (() => {
+    try {
+      return Marks.parse(JSON.parse(bare)).runs;
+    } catch (error) {
+      // A parser's message can quote the scorer's text, so it goes on one line too.
+      throw new Error(
+        `the marks are not the JSON the scorer is asked for: ${escapeCell((error as Error).message)}`,
+      );
+    }
+  })();
   const problems: string[] = [];
   const seen = new Set<string>();
   for (const { order, code: written, caught } of marked) {
