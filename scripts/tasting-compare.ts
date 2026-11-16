@@ -15,6 +15,12 @@
 // dry-run, to show the table before any token is spent. The decisions are
 // scripts/tasting-compare/core.ts.
 //
+// With --model <level or id> --effort <effort> (#602, ADR 0405) every Taster step of the three
+// setups runs on that level, or on a model id through models.jsonc's strong as --brewer taster maps
+// it, at that effort; no other step moves. Its records, runs and table are kept apart under
+// .foedrum/tmp/tasting-compare/seeded/<model>-<effort>, and the table's first line names the model
+// and effort asked and the models the Tasters' receipts named.
+//
 // With --plan (#804, ADR 0323) it tastes the seeded plan of test/fixtures/tasting-compare/plan
 // instead, on the same base: the seven default plan lenses apart and together and mash's three
 // together, each run a scripted plan (no model), then its Tasters on the real claude, or scripted
@@ -102,14 +108,19 @@ import {
   type RunRecord,
   readKey,
   readRecordsIn,
-  recipeText,
   recordOf,
   runFailure,
   SETUPS,
+  type SeededTaster,
   type SetupName,
+  scratchNameOf,
   scriptedTastings,
+  seededBreweryFiles,
+  seededFolders,
+  seededTasterOf,
   summarize,
   tableMarkdown,
+  tasterLine,
 } from './tasting-compare/core.ts';
 import {
   nextPlanRun,
@@ -166,7 +177,6 @@ import {
   realTable,
   refuseMissingTexts,
   refuseSameTaster,
-  scratchNameOf,
   scriptedPlan,
   scriptedRealTastings,
   scriptedTranscript,
@@ -223,6 +233,15 @@ if (values.setups !== undefined && values.real !== true) {
 const brewerSettings = (() => {
   try {
     return brewerSettingsOf({ ...values, orderText: values['order-text'] });
+  } catch (error) {
+    process.stderr.write(`${(error as Error).message}\n`);
+    process.exit(2);
+  }
+})();
+/** The seeded change's Tasters' model and effort, when --model and --effort give them alone (ADR 0405). */
+const seededTaster = (() => {
+  try {
+    return seededTasterOf(values);
   } catch (error) {
     process.stderr.write(`${(error as Error).message}\n`);
     process.exit(2);
@@ -354,14 +373,14 @@ interface Mode<Setup extends string, Run extends RunRecord<Setup> = RunRecord<Se
   comments?: (setup: Setup, author: string) => FakeApiComment[];
 }
 
-const diffMode = (): Mode<SetupName> => {
+const diffMode = (taster?: SeededTaster): Mode<SetupName> => {
   const key = readKey(readFileSync(join(fixture, 'key.json'), 'utf8'));
   return {
-    folders: [],
+    folders: seededFolders(taster),
     setups: Object.keys(SETUPS) as SetupName[],
     order: () => join(fixture, 'order.md'),
     recipeOf: (setup) => setup,
-    breweryFiles: (setup) => ({ [`recipes/${setup}.jsonc`]: recipeText(setup) }),
+    breweryFiles: (setup) => seededBreweryFiles(setup, taster),
     target: (_setup, scratch, git) => patchedTarget(scratch, git),
     script: async (setup, scratch, git) => {
       // The change's files as the scripted Cellarman writes them: the change patch applied elsewhere.
@@ -389,7 +408,10 @@ const diffMode = (): Mode<SetupName> => {
     scriptedStep: IMPLEMENT,
     next: nextRun,
     recordOf: async (events, setup) => recordOf(events, setup),
-    table: (records) => tableMarkdown(summarize(records, key), key),
+    table: (records) => {
+      const table = tableMarkdown(summarize(records, key), key);
+      return taster === undefined ? table : `${tasterLine(taster, records)}\n\n${table}`;
+    },
   };
 };
 
@@ -856,4 +878,4 @@ await (subOrders
         ? compare(await realMode())
         : values.plan === true
           ? compare(planMode())
-          : compare(diffMode()));
+          : compare(diffMode(seededTaster)));

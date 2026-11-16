@@ -21,8 +21,12 @@ import {
   SETUPS,
   scoreRun,
   scriptedTastings,
+  seededBreweryFiles,
+  seededFolders,
+  seededTasterOf,
   summarize,
   tableMarkdown,
+  tasterLine,
 } from '../../scripts/tasting-compare/core.ts';
 import { attemptLimits } from '../../src/brewers/attempt-plan.ts';
 import { settleAttempt } from '../../src/engine/brewer-runner.ts';
@@ -817,5 +821,121 @@ describe('tableMarkdown', () => {
       /\n- Nip's three lenses as measured, which nip has a fourth beside since ADR 0343: not measured /,
     );
     assert.match(text, /\n- Seven lenses: not measured /);
+  });
+});
+
+describe('a seeded run on a given model and effort', () => {
+  const SETUP_NAMES = ['apart-7', 'together-7', 'together-nip'] as const;
+  const ON_LEVEL = { model: 'strong', effort: 'full' } as const;
+  const ON_ID = { model: 'claude-opus-5-5', effort: 'moderate' } as const;
+
+  /** The recipe a seeded run's Brewery gets for `setup`. */
+  const recipeOf = (setup: RunRecord['setup'], taster?: typeof ON_LEVEL | typeof ON_ID) =>
+    Recipe.parse(parseJsonc(seededBreweryFiles(setup, taster)[`recipes/${setup}.jsonc`] ?? ''));
+
+  /** Every brewer step of a recipe, a parallel group's included, as brewer, model and effort. */
+  const brewerSteps = (recipe: Recipe) =>
+    recipe.steps
+      .flatMap((step) => ('parallel' in step ? step.parallel : [step]))
+      .flatMap((step) =>
+        'brewer' in step ? [{ brewer: step.brewer, model: step.model, effort: step.effort }] : [],
+      );
+
+  it('puts every Taster step of every setup on the level and effort given', () => {
+    for (const setup of SETUP_NAMES) {
+      const tasters = brewerSteps(recipeOf(setup, ON_LEVEL)).filter(
+        ({ brewer }) => brewer === 'taster',
+      );
+      assert.equal(tasters.length, setup === 'apart-7' ? 7 : 1, setup);
+      for (const step of tasters) {
+        assert.deepEqual(step, { brewer: 'taster', model: 'strong', effort: 'full' }, setup);
+      }
+      assert.equal(seededBreweryFiles(setup, ON_LEVEL)['models.jsonc'], undefined, setup);
+    }
+  });
+
+  it("reaches a model id through models.jsonc's strong, which no other step names", () => {
+    for (const setup of SETUP_NAMES) {
+      const models = seededBreweryFiles(setup, ON_ID)['models.jsonc'];
+      assert.deepEqual(parseJsonc(models ?? ''), {
+        claude: { models: { strong: 'claude-opus-5-5' } },
+      });
+      for (const { brewer, model, effort } of brewerSteps(recipeOf(setup, ON_ID))) {
+        if (brewer === 'taster')
+          assert.deepEqual({ model, effort }, { model: 'strong', effort: 'moderate' }, setup);
+        else assert.notEqual(model, 'strong', `${setup}: ${brewer}`);
+      }
+    }
+  });
+
+  it('keeps the scripted implement step and every other step as they are', () => {
+    for (const setup of SETUP_NAMES) {
+      for (const taster of [ON_LEVEL, ON_ID]) {
+        const others = (recipe: Recipe) =>
+          recipe.steps.filter((step) => !('id' in step) || step.id !== 'taste');
+        assert.deepEqual(
+          others(recipeOf(setup, taster)),
+          others(Recipe.parse(parseJsonc(recipeText(setup)))),
+          setup,
+        );
+      }
+    }
+  });
+
+  it('keeps the records of a run given them apart, in a folder per model and effort', () => {
+    assert.deepEqual(seededFolders(ON_ID), ['seeded', 'claude-opus-5-5-moderate']);
+    assert.deepEqual(seededFolders(ON_LEVEL), ['seeded', 'strong-full']);
+    assert.deepEqual(seededFolders({ model: 'claude-opus-5-5[1m]', effort: 'larger' }), [
+      'seeded',
+      'claude-opus-5-5_1m_-larger',
+    ]);
+  });
+
+  it('leaves a run without them as it is: its recipe, no models.jsonc, and the default folder', () => {
+    assert.equal(seededTasterOf({}), undefined);
+    assert.deepEqual(seededFolders(), []);
+    for (const setup of SETUP_NAMES) {
+      assert.deepEqual(seededBreweryFiles(setup), {
+        [`recipes/${setup}.jsonc`]: recipeText(setup),
+      });
+      for (const { brewer, model, effort } of brewerSteps(recipeOf(setup))) {
+        if (brewer === 'taster')
+          assert.deepEqual({ model, effort }, { model: 'standard', effort: 'moderate' });
+      }
+    }
+  });
+
+  it('heads the table with the model and effort asked and the models the receipts named', () => {
+    const records = [
+      run('together-7', 2, [
+        attempt('taste', ['diff/correctness'], [], { models: ['claude-opus-5-5'] }),
+      ]),
+      run('apart-7', 1, [
+        attempt('correctness', ['diff/correctness'], [], { models: ['claude-haiku-5-5'] }),
+        attempt('security', ['diff/security'], [], { models: ['claude-opus-5-5'] }),
+      ]),
+      run('together-nip', 1, [attempt('taste', ['diff/correctness'], [])]),
+    ];
+    assert.equal(
+      tasterLine(ON_ID, records),
+      'Tasters on claude-opus-5-5 at moderate; ran on claude-opus-5-5, claude-haiku-5-5',
+    );
+    assert.equal(
+      tasterLine(ON_LEVEL, [run('together-7', 1, [attempt('taste', ['diff/correctness'], [])])]),
+      'Tasters on strong at full; ran on: not named',
+    );
+  });
+
+  it('reads --model and --effort for the seeded mode alone, and refuses each wrong one', () => {
+    assert.deepEqual(seededTasterOf({ ...ON_ID }), ON_ID);
+    assert.deepEqual(seededTasterOf({ ...ON_LEVEL }), ON_LEVEL);
+    assert.equal(seededTasterOf({ real: true, ...ON_ID }), undefined);
+    assert.equal(seededTasterOf({ brewer: 'taster', ...ON_ID }), undefined);
+    assert.equal(seededTasterOf({ plan: true }), undefined);
+    assert.throws(() => seededTasterOf({ plan: true, ...ON_ID }), /--plan/);
+    assert.throws(() => seededTasterOf({ model: 'strong' }), /needs --effort/);
+    assert.throws(() => seededTasterOf({ effort: 'moderate' }), /needs --model/);
+    assert.throws(() => seededTasterOf({ model: 'Opus!', effort: 'moderate' }), /--model takes/);
+    assert.throws(() => seededTasterOf({ model: 'strong', effort: 'max' }), /--effort takes/);
   });
 });
