@@ -104,6 +104,10 @@ test('refuses an order.json with no allowed paths', () => {
   assert.match(refusal({ 'order.json': json }), /timesheet: order\.json .*at allowedPaths/);
 });
 
+test('refuses an order with no order.json', () => {
+  assert.match(refusal({ 'order.json': undefined }), /timesheet: no order\.json/);
+});
+
 test('refuses an order.json that is not JSON', () => {
   assert.match(refusal({ 'order.json': '{ trap' }), /timesheet: order\.json is not JSON/);
 });
@@ -171,6 +175,15 @@ test('the proof runs the hidden tests on the base, to fail, and with the solutio
   assert.equal(withSolution?.tree['src/shift.mjs'], 'export const shiftMinutes = () => 0;\n');
   assert.equal(withSolution?.tree['test/hidden/shift.test.mjs'], 'night\n');
   assert.equal(withSolution?.tree['CLAUDE.md'], '# Rules\n');
+});
+
+test("the hidden tests are laid over the solution, so a solution's file at a hidden test's path is replaced", () => {
+  const order = readOrder(
+    'timesheet',
+    files({ 'solution/test/hidden/shift.test.mjs': 'from the solution\n' }),
+  );
+  const withSolution = proofRuns(order).find((each) => each.expect === 'pass');
+  assert.equal(withSolution?.tree['test/hidden/shift.test.mjs'], 'night\n');
 });
 
 const run = (expect: ProofRun['expect']): ProofRun => ({
