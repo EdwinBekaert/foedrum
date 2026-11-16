@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { test } from 'node:test';
+import { fileURLToPath } from 'node:url';
 import * as quiz from '../../src/quiz.mjs';
 
 const SCORES = [
@@ -17,6 +19,30 @@ test('ranks the teams by their points over every round, the most first', () => {
     { team: 'Quizzly Bears', points: 9 },
     { team: 'Moths', points: 8 },
   ]);
+});
+
+test('the rank command prints one team a line, the most points first', () => {
+  const file = fileURLToPath(new URL('./rank-night.json', import.meta.url));
+  writeFileSync(
+    file,
+    JSON.stringify([
+      { team: 'Moths', points: 4 },
+      { team: 'Owls', points: 7 },
+    ]),
+  );
+  try {
+    const output = execFileSync(process.execPath, ['src/cli.mjs', 'rank', file], {
+      cwd: fileURLToPath(new URL('../..', import.meta.url)),
+      encoding: 'utf8',
+      timeout: 30_000,
+    });
+    const lines = output.split(/\r?\n/).filter((line) => line.trim() !== '');
+    assert.equal(lines.length, 2, output);
+    assert.ok(lines[0].includes('Owls') && lines[0].includes('7'), output);
+    assert.ok(lines[1].includes('Moths') && lines[1].includes('4'), output);
+  } finally {
+    rmSync(file, { force: true });
+  }
 });
 
 test('docs/commands.md lists the rank command', () => {
