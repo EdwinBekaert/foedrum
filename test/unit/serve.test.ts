@@ -25,6 +25,7 @@ import { StateBranchStopError } from '../../src/engine/state-branch.ts';
 import type { Event } from '../../src/schemas/events.ts';
 import type { Git } from '../../src/workspace/git.ts';
 import { testGuidance } from '../helpers/brewery-files.ts';
+import { fakeBranchPush } from '../helpers/fake-branch-push.ts';
 import {
   type FakeApiReview,
   fakeGitHubApi,
@@ -196,18 +197,13 @@ describe('runServe', () => {
         ],
       },
     });
-    const push = (repository: { repo: string }) => ({
-      commit: async () => FAKE_COMMIT,
-      baseTip: async () => 'b'.repeat(40),
-      isAncestor: async (commit: string, of: string) => commit === of,
-      remoteTip: async () => undefined,
-      push: async (commit: string, branch: string) => {
-        f.pushes.push(`${repository.repo} ${commit} ${branch}`);
-      },
-      secretScan: async () => [],
-      touchedFiles: async () => ['README.md', 'src/auth/login.ts'],
-      fileAt: async () => undefined,
-    });
+    const push = (repository: { repo: string }) =>
+      fakeBranchPush({
+        push: async (commit: string, branch: string) => {
+          f.pushes.push(`${repository.repo} ${commit} ${branch}`);
+        },
+        touchedFiles: async () => ['README.md', 'src/auth/login.ts'],
+      });
     assert.equal(await runServe(f.setup, shell({ fetch: github.fetch, push })), 0);
     const pushed =
       f.store.findEffect({ batchId: '12-1', effect: 'push' }) ?? assert.fail('no push');
@@ -272,16 +268,10 @@ describe('runServe', () => {
         ],
       },
     });
-    const push = () => ({
-      commit: async () => FAKE_COMMIT,
-      baseTip: async () => 'b'.repeat(40),
-      isAncestor: async (commit: string, of: string) => commit === of,
-      remoteTip: async () => undefined,
-      push: async () => {},
-      secretScan: async () => [],
-      touchedFiles: async () => ['README.md', '.foedrum/test-map.jsonc'],
-      fileAt: async () => undefined,
-    });
+    const push = () =>
+      fakeBranchPush({
+        touchedFiles: async () => ['README.md', '.foedrum/test-map.jsonc'],
+      });
     assert.equal(await runServe(f.setup, shell({ fetch: github.fetch, push, git })), 0);
     const pushed =
       f.store.findEffect({ batchId: '12-1', effect: 'push' }) ?? assert.fail('no push');
@@ -457,18 +447,13 @@ describe('runServe', () => {
           throw new Error('no red proof or guarded step runs here');
         },
         // The bottle branch holds what was pushed; the base moved to 'b…' since.
-        push: (repository) => ({
-          commit: async () => FAKE_COMMIT,
-          baseTip: async () => 'b'.repeat(40),
-          isAncestor: async (commit, of) => commit === of,
-          remoteTip: async () => (f.pushes.length > 0 ? FAKE_COMMIT : undefined),
-          push: async (commit, branch) => {
-            f.pushes.push(`${repository.repo} ${commit} ${branch}`);
-          },
-          secretScan: async () => [],
-          touchedFiles: async () => [],
-          fileAt: async () => undefined,
-        }),
+        push: (repository) =>
+          fakeBranchPush({
+            remoteTip: async () => (f.pushes.length > 0 ? FAKE_COMMIT : undefined),
+            push: async (commit, branch) => {
+              f.pushes.push(`${repository.repo} ${commit} ${branch}`);
+            },
+          }),
         mergeTree: () => async (head, tip) => {
           merged.push(`${head} ${tip}`);
           return passed ? { kind: 'clean' } : { kind: 'conflicts', files: ['src/cli.ts'] };
@@ -616,18 +601,13 @@ describe('runServe', () => {
         git: async () => {
           throw new Error('no red proof or guarded step runs here');
         },
-        push: (repository) => ({
-          commit: async () => FAKE_COMMIT,
-          baseTip: async () => 'b'.repeat(40),
-          isAncestor: async (commit, of) => commit === of,
-          remoteTip: async () => (f.pushes.length > 0 ? FAKE_COMMIT : undefined),
-          push: async (commit, branch) => {
-            f.pushes.push(`${repository.repo} ${commit} ${branch}`);
-          },
-          secretScan: async () => [],
-          touchedFiles: async () => [],
-          fileAt: async () => undefined,
-        }),
+        push: (repository) =>
+          fakeBranchPush({
+            remoteTip: async () => (f.pushes.length > 0 ? FAKE_COMMIT : undefined),
+            push: async (commit, branch) => {
+              f.pushes.push(`${repository.repo} ${commit} ${branch}`);
+            },
+          }),
         mergeTree: () => async () => ({ kind: 'clean' }),
       }),
     );

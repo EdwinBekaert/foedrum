@@ -25,6 +25,7 @@ import { checkPairs } from '../../src/engine/pull-request-pairs.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import type { Event } from '../../src/schemas/events.ts';
 import { defaultLimits } from '../helpers/brewing.ts';
+import { fakeBranchPush } from '../helpers/fake-branch-push.ts';
 import { fakeLock } from '../helpers/fake-lock.ts';
 import { fakeRecipe, fakeRecipes } from '../helpers/fake-recipes.ts';
 import { FAKE_COMMIT, fakeWorktrees } from '../helpers/fake-worktrees.ts';
@@ -98,7 +99,7 @@ const codeHost = (kills: readonly AnyPoint[]) => {
     killed++;
     throw new Killed(at);
   };
-  const push: BranchPush = {
+  const push: BranchPush = fakeBranchPush({
     // The task tree is at FAKE_COMMIT, the base elsewhere.
     commit: async () => {
       point('before the push reached the remote');
@@ -108,7 +109,6 @@ const codeHost = (kills: readonly AnyPoint[]) => {
       point('before the push reached the remote');
       return 'b'.repeat(40);
     },
-    isAncestor: async (commit, of) => commit === of,
     remoteTip: async (branch) => remote.get(branch),
     push: async (commit, branch) => {
       point('before the push reached the remote');
@@ -116,10 +116,7 @@ const codeHost = (kills: readonly AnyPoint[]) => {
       remote.set(branch, commit);
       point('after the push reached the remote');
     },
-    secretScan: async () => [],
-    touchedFiles: async () => [],
-    fileAt: async () => undefined,
-  };
+  });
   const host: PullRequestHost = {
     find: async (_repo, head) => opened.get(head),
     open: async (_repo, request) => {

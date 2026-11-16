@@ -20,6 +20,7 @@ import type { MutantEdit } from '../../src/schemas/out-doc.ts';
 import type { Git } from '../../src/workspace/git.ts';
 import type { CommitTree } from '../../src/workspace/merge-tree-git.ts';
 import { testGuidance } from '../helpers/brewery-files.ts';
+import { fakeBranchPush } from '../helpers/fake-branch-push.ts';
 import { ghOver } from '../helpers/fake-gh.ts';
 import { fakeGitHubApi } from '../helpers/fake-github-api.ts';
 import { fakeLock } from '../helpers/fake-lock.ts';
@@ -220,16 +221,7 @@ describe('runServe: a Brett step (ADR 0313)', () => {
       }),
       worktrees: async () => fakeWorktrees({ root: join(dir.path, 'acme.web', 'attempts') }),
       merge: () => fakeWorktreeMerge(),
-      push: () => ({
-        commit: async () => FAKE_COMMIT,
-        baseTip: async () => 'b'.repeat(40),
-        isAncestor: async (commit, of) => commit === of,
-        remoteTip: async () => undefined,
-        push: async () => {},
-        secretScan: async () => [],
-        touchedFiles: async () => [],
-        fileAt: async () => undefined,
-      }),
+      push: () => fakeBranchPush(),
       commitTree: () => commitTree,
       runner: () => runner,
       exec,

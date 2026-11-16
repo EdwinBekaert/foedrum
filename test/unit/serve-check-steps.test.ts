@@ -14,6 +14,7 @@ import { createCommandLog } from '../../src/engine/command-log.ts';
 import { StateBranchStopError } from '../../src/engine/state-branch.ts';
 import type { ExecOptions, ExecProcess } from '../../src/platform/processes.ts';
 import type { Git } from '../../src/workspace/git.ts';
+import { fakeBranchPush } from '../helpers/fake-branch-push.ts';
 import { FAKE_COMMIT, fakeWorktreeMerge } from '../helpers/fake-worktrees.ts';
 import { clone, config, home, local, serveInputs } from '../helpers/serve-brewery.ts';
 import { serveFixture, t0 } from '../helpers/serve-fixture.ts';
@@ -203,20 +204,16 @@ describe('runServe', () => {
         shell({
           runner: () => succeeding,
           exec,
-          push: (repository) => ({
-            commit: async () => FAKE_COMMIT,
-            // green merged the base at 'b…'; once the pull request is open it moves to 'e…'.
-            baseTip: async () => (f.pushes.length > 0 ? 'e' : 'b').repeat(40),
-            isAncestor: async (commit, of) => commit === of,
-            // The bottle branch holds what was pushed.
-            remoteTip: async () => (f.pushes.length > 0 ? FAKE_COMMIT : undefined),
-            push: async (commit, branch) => {
-              f.pushes.push(`${repository.repo} ${commit} ${branch}`);
-            },
-            secretScan: async () => [],
-            touchedFiles: async () => [],
-            fileAt: async () => undefined,
-          }),
+          push: (repository) =>
+            fakeBranchPush({
+              // green merged the base at 'b…'; once the pull request is open it moves to 'e…'.
+              baseTip: async () => (f.pushes.length > 0 ? 'e' : 'b').repeat(40),
+              // The bottle branch holds what was pushed.
+              remoteTip: async () => (f.pushes.length > 0 ? FAKE_COMMIT : undefined),
+              push: async (commit, branch) => {
+                f.pushes.push(`${repository.repo} ${commit} ${branch}`);
+              },
+            }),
           mergeTree: () => async () => ({ kind: 'clean' }),
           mergedTree: () => async (head, tip, use) => {
             trees.push(`${head} ${tip}`);
@@ -283,18 +280,14 @@ describe('runServe', () => {
               return { kind: 'unchanged' };
             },
           }),
-          push: (repository) => ({
-            commit: async () => FAKE_COMMIT,
-            baseTip: async () => (f.pushes.length > 0 ? 'e' : 'b').repeat(40),
-            isAncestor: async (commit, of) => commit === of,
-            remoteTip: async () => (f.pushes.length > 0 ? FAKE_COMMIT : undefined),
-            push: async (commit, branch) => {
-              f.pushes.push(`${repository.repo} ${commit} ${branch}`);
-            },
-            secretScan: async () => [],
-            touchedFiles: async () => [],
-            fileAt: async () => undefined,
-          }),
+          push: (repository) =>
+            fakeBranchPush({
+              baseTip: async () => (f.pushes.length > 0 ? 'e' : 'b').repeat(40),
+              remoteTip: async () => (f.pushes.length > 0 ? FAKE_COMMIT : undefined),
+              push: async (commit, branch) => {
+                f.pushes.push(`${repository.repo} ${commit} ${branch}`);
+              },
+            }),
           mergeTree: () => async () => ({ kind: 'clean' }),
           mergedTree: () => async (_head, _tip, _use, signal) => {
             run.started = true;
@@ -372,18 +365,14 @@ describe('runServe', () => {
               return { kind: 'unchanged' };
             },
           }),
-          push: (repository) => ({
-            commit: async () => FAKE_COMMIT,
-            baseTip: async () => (f.pushes.length > 0 ? 'e' : 'b').repeat(40),
-            isAncestor: async (commit, of) => commit === of,
-            remoteTip: async () => (f.pushes.length > 0 ? FAKE_COMMIT : undefined),
-            push: async (commit, branch) => {
-              f.pushes.push(`${repository.repo} ${commit} ${branch}`);
-            },
-            secretScan: async () => [],
-            touchedFiles: async () => [],
-            fileAt: async () => undefined,
-          }),
+          push: (repository) =>
+            fakeBranchPush({
+              baseTip: async () => (f.pushes.length > 0 ? 'e' : 'b').repeat(40),
+              remoteTip: async () => (f.pushes.length > 0 ? FAKE_COMMIT : undefined),
+              push: async (commit, branch) => {
+                f.pushes.push(`${repository.repo} ${commit} ${branch}`);
+              },
+            }),
           mergeTree: () => async () => ({ kind: 'clean' }),
           mergedTree: () => async (_head, _tip, _use, signal) => {
             started = true;
