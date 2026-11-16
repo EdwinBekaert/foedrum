@@ -437,6 +437,25 @@ describe('the fake GitHub API answers like GitHub', () => {
     ]);
   });
 
+  it('gives a label a test puts on after a read to whoever opened the issue (regression test)', async () => {
+    const github = fakeGitHubApi({
+      login: 'ann',
+      issues: { 'acme/web': [{ number: 7, labels: [], author: 'bob', created: T0 }] },
+    });
+    const events = async () => {
+      const answer = await github.fetch(`${api}/repos/acme/web/issues/7/events`);
+      const listed = (await answer.json()) as {
+        actor: { login: string };
+        label: { name: string };
+        created_at: string;
+      }[];
+      return listed.map((each) => [each.label.name, each.actor.login, each.created_at]);
+    };
+    assert.deepStrictEqual(await events(), []);
+    github.issue('acme/web', 7)?.labels.push('foedrum');
+    assert.deepStrictEqual(await events(), [['foedrum', 'bob', T0]]);
+  });
+
   it('records no event for a label the issue already has', async () => {
     const github = fakeGitHubApi({
       login: 'ann',
