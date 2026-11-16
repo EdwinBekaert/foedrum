@@ -1,0 +1,40 @@
+From 8c142213ec7a2e36454f1b1a1b2483fdd8893d75 Mon Sep 17 00:00:00 2001
+From: Sample <sample@example.test>
+Date: Mon, 16 Nov 2026 17:55:16 +0100
+Subject: [PATCH 1/2] Report the tools the doctor found
+
+---
+ src/doctor.mjs       | 4 ++++
+ test/doctor.test.mjs | 9 +++++++++
+ 2 files changed, 13 insertions(+)
+ create mode 100644 src/doctor.mjs
+ create mode 100644 test/doctor.test.mjs
+
+diff --git a/src/doctor.mjs b/src/doctor.mjs
+new file mode 100644
+index 0000000..35ad949
+--- /dev/null
++++ b/src/doctor.mjs
+@@ -0,0 +1,4 @@
++// The doctor's report: one line per tool it found, with its version.
++export function doctorReport(facts) {
++  return [`node: ${facts.node}`, `git: ${facts.git}`].join('\n') + '\n';
++}
+diff --git a/test/doctor.test.mjs b/test/doctor.test.mjs
+new file mode 100644
+index 0000000..7efe6bf
+--- /dev/null
++++ b/test/doctor.test.mjs
+@@ -0,0 +1,9 @@
++import assert from 'node:assert/strict';
++import { test } from 'node:test';
++import { doctorReport } from '../src/doctor.mjs';
++
++const facts = { platform: 'linux', node: '24.15.0', git: '2.51.0' };
++
++test('reports every tool with its version', () => {
++  assert.equal(doctorReport(facts), 'node: 24.15.0\ngit: 2.51.0\n');
++});
+-- 
+2.56.0.windows.2
+

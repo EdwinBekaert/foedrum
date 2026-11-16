@@ -1,0 +1,63 @@
+From b8c427c3e059d5c8520293939a58e04c32e4acd9 Mon Sep 17 00:00:00 2001
+From: Sample <sample@example.test>
+Date: Mon, 16 Nov 2026 17:54:40 +0100
+Subject: [PATCH 2/2] Give a step sent back for another round fresh attempts
+
+---
+ src/recipe.mjs      |  4 ++--
+ src/retry.mjs       |  7 ++++---
+ test/retry.test.mjs | 16 ++++++++++++++++
+ 3 files changed, 22 insertions(+), 5 deletions(-)
+ create mode 100644 test/retry.test.mjs
+
+diff --git a/src/recipe.mjs b/src/recipe.mjs
+index 48f9b90..9107cde 100644
+--- a/src/recipe.mjs
++++ b/src/recipe.mjs
+@@ -1,6 +1,6 @@
+ import { mayRetry } from './retry.mjs';
+ 
+-// The step a recipe runs in a round, with its brewer's limit on attempts.
++// The step a recipe runs in a round, with its brewer's limit on attempts in that round.
+ export function stepOf(brewer, round) {
+-  return { round, mayRetry: (attempts) => mayRetry(attempts, brewer.maxAttempts) };
++  return { round, mayRetry: (attempts) => mayRetry(attempts, brewer.maxAttempts, round) };
+ }
+diff --git a/src/retry.mjs b/src/retry.mjs
+index 847f32b..00888a5 100644
+--- a/src/retry.mjs
++++ b/src/retry.mjs
+@@ -1,4 +1,5 @@
+-// Whether a step may start another attempt: fewer attempts than its brewer allows.
+-export function mayRetry(attempts, max) {
+-  return attempts.length < max;
++// Whether a step may start another attempt: fewer attempts in the current round than its
++// brewer allows. A round back starts the count afresh, so a step sent back gets new attempts.
++export function mayRetry(attempts, max, round) {
++  return attempts.filter((attempt) => attempt.round === round).length < max;
+ }
+diff --git a/test/retry.test.mjs b/test/retry.test.mjs
+new file mode 100644
+index 0000000..0eb650f
+--- /dev/null
++++ b/test/retry.test.mjs
+@@ -0,0 +1,16 @@
++import assert from 'node:assert/strict';
++import { test } from 'node:test';
++import { mayRetry } from '../src/retry.mjs';
++
++const failed = (round) => ({ round, ok: false });
++
++test('may retry while the round has fewer attempts than the limit', () => {
++  assert.equal(mayRetry([failed(1)], 2, 1), true);
++  assert.equal(mayRetry([failed(1), failed(1)], 2, 1), false);
++});
++
++test("a round back starts the count afresh: an earlier round's attempts do not count", () => {
++  assert.equal(mayRetry([failed(1), failed(1)], 2, 2), true);
++  assert.equal(mayRetry([failed(1), failed(1), failed(2)], 2, 2), true);
++  assert.equal(mayRetry([failed(1), failed(1), failed(2), failed(2)], 2, 2), false);
++});
+-- 
+2.56.0.windows.2
+

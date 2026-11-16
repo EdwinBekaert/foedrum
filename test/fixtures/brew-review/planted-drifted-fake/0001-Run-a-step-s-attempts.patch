@@ -1,0 +1,101 @@
+From f2029efc60aa8b689f7c61a4873472a0f37ce4ba Mon Sep 17 00:00:00 2001
+From: Sample <sample@example.test>
+Date: Mon, 16 Nov 2026 17:54:22 +0100
+Subject: [PATCH 1/2] Run a step's attempts
+
+---
+ src/recipe.mjs             |  6 ++++++
+ src/retry.mjs              |  4 ++++
+ src/run-step.mjs           | 11 +++++++++++
+ test/helpers/fake-step.mjs |  5 +++++
+ test/run-step.test.mjs     | 24 ++++++++++++++++++++++++
+ 5 files changed, 50 insertions(+)
+ create mode 100644 src/recipe.mjs
+ create mode 100644 src/retry.mjs
+ create mode 100644 src/run-step.mjs
+ create mode 100644 test/helpers/fake-step.mjs
+ create mode 100644 test/run-step.test.mjs
+
+diff --git a/src/recipe.mjs b/src/recipe.mjs
+new file mode 100644
+index 0000000..48f9b90
+--- /dev/null
++++ b/src/recipe.mjs
+@@ -0,0 +1,6 @@
++import { mayRetry } from './retry.mjs';
++
++// The step a recipe runs in a round, with its brewer's limit on attempts.
++export function stepOf(brewer, round) {
++  return { round, mayRetry: (attempts) => mayRetry(attempts, brewer.maxAttempts) };
++}
+diff --git a/src/retry.mjs b/src/retry.mjs
+new file mode 100644
+index 0000000..847f32b
+--- /dev/null
++++ b/src/retry.mjs
+@@ -0,0 +1,4 @@
++// Whether a step may start another attempt: fewer attempts than its brewer allows.
++export function mayRetry(attempts, max) {
++  return attempts.length < max;
++}
+diff --git a/src/run-step.mjs b/src/run-step.mjs
+new file mode 100644
+index 0000000..6487cd1
+--- /dev/null
++++ b/src/run-step.mjs
+@@ -0,0 +1,11 @@
++// Runs a step's attempts after the ones it already had, until one succeeds or the step may
++// not try again.
++export async function runStep(step, earlier, attempt) {
++  const attempts = [...earlier];
++  for (;;) {
++    const ok = await attempt();
++    attempts.push({ round: step.round, ok });
++    if (ok) return { done: true, attempts };
++    if (!step.mayRetry(attempts)) return { done: false, attempts };
++  }
++}
+diff --git a/test/helpers/fake-step.mjs b/test/helpers/fake-step.mjs
+new file mode 100644
+index 0000000..6da5038
+--- /dev/null
++++ b/test/helpers/fake-step.mjs
+@@ -0,0 +1,5 @@
++// A step for the runner's tests without a recipe, standing in for stepOf in src/recipe.mjs:
++// it may try again while it has fewer attempts than `max`.
++export function fakeStep({ round = 1, max = 2 } = {}) {
++  return { round, mayRetry: (attempts) => attempts.length < max };
++}
+diff --git a/test/run-step.test.mjs b/test/run-step.test.mjs
+new file mode 100644
+index 0000000..42643ca
+--- /dev/null
++++ b/test/run-step.test.mjs
+@@ -0,0 +1,24 @@
++import assert from 'node:assert/strict';
++import { test } from 'node:test';
++import { runStep } from '../src/run-step.mjs';
++import { fakeStep } from './helpers/fake-step.mjs';
++
++const failed = { round: 1, ok: false };
++
++test('stops at the first attempt that succeeds', async () => {
++  const { done, attempts } = await runStep(fakeStep(), [], async () => true);
++  assert.equal(done, true);
++  assert.equal(attempts.length, 1);
++});
++
++test('gives up after the last attempt the step allows', async () => {
++  const { done, attempts } = await runStep(fakeStep({ max: 2 }), [], async () => false);
++  assert.equal(done, false);
++  assert.equal(attempts.length, 2);
++});
++
++test('counts the attempts the step already had', async () => {
++  const { done, attempts } = await runStep(fakeStep({ max: 2 }), [failed], async () => false);
++  assert.equal(done, false);
++  assert.equal(attempts.length, 2);
++});
+-- 
+2.56.0.windows.2
+
