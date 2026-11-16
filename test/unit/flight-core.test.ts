@@ -350,6 +350,13 @@ describe('the Flight (ADR 0409)', () => {
       assert.deepEqual(mappedLevels(files), { extreme: 'claude-sonnet-5-5' });
     });
 
+    it('a model id on a recipe whose other steps name every level writes no files', () => {
+      assert.throws(
+        () => flightBreweryFiles(swapped('claude-opus-5-5', 'every-level'), EVERY_LEVEL, NAMES),
+        /no level of every-level is free/,
+      );
+    });
+
     it("a swapped Taster moves every child of nip's parallel group", () => {
       const files = flightBreweryFiles(swapped('light', 'nip', 'taster'), NIP, NAMES);
       const steps = stepsOf(copyOf(files, 'nip'));
@@ -387,6 +394,12 @@ describe('the Flight (ADR 0409)', () => {
         'src/posts.mjs',
         'test/posts.test.mjs',
       ]);
+    });
+
+    it('the Finer simplifies nothing', () => {
+      assert.deepEqual(dryRunScript(ORDER, NIP).fine?.[0]?.fining, {
+        unchanged: 'The dry run simplifies nothing.',
+      });
     });
 
     it('every Taster approves with no finding', () => {
