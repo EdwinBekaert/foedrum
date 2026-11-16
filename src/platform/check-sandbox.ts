@@ -386,13 +386,13 @@ const unstarted = (why: string, adr = '0076'): ExecResult => {
 /**
  * What bwrap says when its child fails to give the loopback its address, before the line runs.
  * With a stack, that can be a race the stack won by bringing lo up first, which gave lo the
- * address already; bwrap prints a stale errno for it (ADR 0407).
+ * address already; bwrap prints a stale errno for it (ADR 0408).
  */
 const LOOPBACK_FAILED = 'bwrap: loopback: Failed RTM_NEWADDR';
 const LOOPBACK_RACE = 'likely a race in which the network stack brought lo up first';
 
 /**
- * Whether a setup did not start because bwrap's loopback setup failed (ADR 0407): unstarted, as
+ * Whether a setup did not start because bwrap's loopback setup failed (ADR 0408): unstarted, as
  * Foedrum reads bwrap's own failure, never a line that ran and was killed or signalled.
  */
 const lostLoopbackRace = (result: ExecResult): boolean =>
@@ -649,12 +649,12 @@ export function sandboxedChecks(options: SandboxedChecksOptions): ExecProcess {
       const resolver = resolverIn(realPath);
       const args = bwrapArgs(paths, file, { network, resolver });
       const run = () => inOwnNamespace(exec, bwrap, { tool, path }, args, call);
-      // bwrap's loopback setup fails before the line runs, so running it again is safe (ADR 0407).
+      // bwrap's loopback setup fails before the line runs, so running it again is safe (ADR 0408).
       const first = await run();
       if (!lostLoopbackRace(first)) return first;
       const second = await run();
       return lostLoopbackRace(second)
-        ? unstarted(`${bwrapSaid(second)}, twice: ${LOOPBACK_RACE}`, '0407')
+        ? unstarted(`${bwrapSaid(second)}, twice: ${LOOPBACK_RACE}`, '0408')
         : second;
     }
     if (!hasSandboxExec()) {
