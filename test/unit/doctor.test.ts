@@ -673,13 +673,13 @@ describe("diagnose: what each isolation level keeps from gh's login (ADR 0082, #
     }
   });
 
-  it('says on native Windows and WSL 1 what WSL2 hides and that the container level closes it', () => {
+  it('says on native Windows and WSL 1 what WSL2 hides, and names no container level', () => {
     for (const facts of [windows, wsl1]) {
       const [line = ''] = keyring(facts);
       assert.match(line, /In WSL2, the sandboxed level hides/);
       hidesFileAndVariables(line);
       leavesKeyringOpen(line);
-      assert.match(line, /the container level mounts only the worktree, which closes both/);
+      assert.doesNotMatch(line, /container/i);
     }
   });
 
@@ -688,14 +688,28 @@ describe("diagnose: what each isolation level keeps from gh's login (ADR 0082, #
     assert.match(line, /The sandboxed level \(bubblewrap and socat\) hides/);
     hidesFileAndVariables(line);
     leavesKeyringOpen(line);
-    assert.match(line, /the container level mounts only the worktree, which closes both/);
+    assert.doesNotMatch(line, /container/i);
     assert.doesNotMatch(line, /WSL2/);
   });
 
-  it('names only the container level on an operating system without a sandbox', () => {
+  it('names no other level on an operating system without a sandbox', () => {
     const [line = ''] = keyring(freebsd);
-    assert.match(line, /The container level mounts only the worktree, which closes both/);
-    assert.doesNotMatch(line, /WSL2|sandboxed level/);
+    assert.ok(
+      line.startsWith(
+        "A brewer runs as you here, so it can still read gh's login from the OS keyring or its hosts file. A login a brewer did read",
+      ),
+      line,
+    );
+    assert.doesNotMatch(line, /container|WSL2|sandboxed level/i);
+  });
+
+  // ADR 0406: the container level is not built, so no advice points a person at it.
+  it('names no container level in the advice on any permissions-only level', () => {
+    for (const facts of permissionsOnly) {
+      const { advice } = diagnose(facts);
+      assert.equal(keyring(facts).length, 1, 'the advice says what can read the login');
+      for (const line of advice) assert.doesNotMatch(line, /container/i);
+    }
   });
 
   it('says on the sandboxed level what the sandbox hides from a brewer and what it leaves open', () => {
