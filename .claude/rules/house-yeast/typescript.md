@@ -37,6 +37,10 @@ Code that decides whether a path lies inside a folder has a test with a sibling 
 
 Code that adds up what claude reports across attempts treats a resumed run's figures and transcript as the session's so far, not the run's (ADR 0042, ADR 0175), and counts each session once.
 
+## scoped-refusal-has-an-accept-test-for-the-other-kind (semantic)
+
+A refusal that applies to one kind of input only (a Brewery issue and not a target-repository issue of the same number, an option with one mode and not without it) has a test that the other kind is accepted, so dropping the guard that scopes it fails a test.
+
 ## tool-error-fixture-from-the-tool (semantic)
 
 A test fixture that stands for another tool's or module's output (an error text, a report it prints) builds it from that tool or module when the test can call it in process, so the test breaks when the real format drifts.

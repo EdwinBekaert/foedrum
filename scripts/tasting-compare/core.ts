@@ -8,6 +8,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { onFindings } from '../../src/engine/fold.ts';
 import type { Event, Usage } from '../../src/schemas/events.ts';
+import { Effort, ModelId, ModelLevel } from '../../src/schemas/models.ts';
 import { lensOfFinding, TastingFinding } from '../../src/schemas/out-doc.ts';
 import type { StepOutcome } from '../../src/schemas/step-outcome.ts';
 import { z } from '../../src/schemas/zod.ts';
@@ -35,6 +36,87 @@ export const SETUPS = {
 } as const;
 export type SetupName = keyof typeof SETUPS;
 const SETUP_NAMES = Object.keys(SETUPS) as SetupName[];
+
+/**
+ * The level a measured brewer's step names, which the run's models.jsonc maps to the given model:
+ * no other step of its recipe runs on it (ADR 0397).
+ */
+export const MEASURED: ModelLevel = 'strong';
+
+/** The level Taster steps on `model` name: the level itself, or `strong`, which models.jsonc maps to an id (ADR 0402). */
+export const levelOf = (model: string): ModelLevel => {
+  const level = ModelLevel.safeParse(model);
+  return level.success ? level.data : MEASURED;
+};
+
+/** The models.jsonc of a run whose Tasters are on `model`: none for a level, `strong` mapped to an id (ADR 0402). */
+export const modelsFileOf = (model: string): Record<string, string> =>
+  ModelLevel.safeParse(model).success
+    ? {}
+    : {
+        'models.jsonc': `${JSON.stringify({ claude: { models: { [MEASURED]: model } } }, null, 2)}\n`,
+      };
+
+/** `--model`, a level or a model id, and `--effort`, checked; throws on either (ADR 0402). */
+export const tasterModelOf = (model: string, effort: string): { model: string; effort: Effort } => {
+  if (!ModelLevel.safeParse(model).success && !ModelId.safeParse(model).success) {
+    throw new Error(
+      `--model takes a level, ${ModelLevel.options.join(', ')}, or a model id models.jsonc accepts, such as claude-opus-5-5, not "${model}"`,
+    );
+  }
+  const parsed = Effort.safeParse(effort);
+  if (!parsed.success) {
+    throw new Error(`--effort takes one of ${Effort.options.join(', ')}, not "${effort}"`);
+  }
+  return { model, effort: parsed.data };
+};
+
+/** A run's scratch folder name: a setup's name with what Windows refuses in a folder's name replaced. */
+export const scratchNameOf = (name: string): string => name.replace(/[^A-Za-z0-9._-]/g, '_');
+
+/** The Tasters' model, a level or a model id, and effort, which a seeded run is given (ADR 0405). */
+export interface SeededTaster {
+  model: string;
+  effort: Effort;
+}
+
+/**
+ * The seeded mode's `--model` and `--effort`, or undefined without them, and with `--real` or
+ * `--brewer`, whose runs read them; throws on a wrong combination (ADR 0405).
+ */
+export const seededTasterOf = (given: {
+  real?: boolean;
+  plan?: boolean;
+  brewer?: string;
+  model?: string;
+  effort?: string;
+}): SeededTaster | undefined => {
+  const { real, plan, brewer, model, effort } = given;
+  if (real === true || brewer !== undefined) return undefined;
+  if (model === undefined && effort === undefined) return undefined;
+  if (plan === true) {
+    throw new Error("--model and --effort set the seeded change's Tasters: not with --plan");
+  }
+  if (model === undefined) throw new Error('--effort needs --model <level or id>');
+  if (effort === undefined) throw new Error('--model needs --effort <effort>');
+  return tasterModelOf(model, effort);
+};
+
+/** The folders of a seeded run's records: none by default, `seeded/<model>-<effort>` given a Taster (ADR 0405). */
+export const seededFolders = (taster?: SeededTaster): string[] =>
+  taster === undefined ? [] : ['seeded', scratchNameOf(`${taster.model}-${taster.effort}`)];
+
+/** The line that heads the table of a run given a Taster: what it asked for, and what the receipts named (ADR 0405). */
+export const tasterLine = (
+  { model, effort }: SeededTaster,
+  records: readonly RunRecord[],
+): string => {
+  const named = [
+    ...new Set(records.flatMap(({ attempts }) => attempts.flatMap(({ models = [] }) => models))),
+  ];
+  const ran = named.length === 0 ? ': not named' : ` ${named.join(', ')}`;
+  return escapeCell(`Tasters on ${model} at ${effort}; ran on${ran}`);
+};
 
 /** The step that commits the seeded change: a scripted Cellarman, no model. */
 export const IMPLEMENT = 'implement';
@@ -77,12 +159,16 @@ const tasterSteps = (setup: SetupName): Map<string, readonly string[]> => {
 
 /**
  * The recipe of `setup`: the scripted implementer, then its Tasters, each the default `taster`
- * with its model, and the pull request a recipe that commits must open (ADR 0084), on the fake
+ * on `standard` at `moderate`, or on the level and effort of `taster` (ADR 0405), and the pull request a recipe that commits must open (ADR 0084), on the fake
  * code host. No check runs, and Nip's Gauger is skipped as testFirst off skips it, so the
  * Cellarman's tests input is skipped too: the seeded change is not test-first (ADR 0064).
  */
-export const recipeText = (setup: SetupName): string => {
+export const recipeText = (
+  setup: SetupName,
+  taster: SeededTaster = { model: 'standard', effort: 'moderate' },
+): string => {
   const { lenses } = SETUPS[setup];
+  const levels = { model: levelOf(taster.model), effort: taster.effort };
   const taste =
     setup === 'apart-7'
       ? {
@@ -90,8 +176,7 @@ export const recipeText = (setup: SetupName): string => {
           parallel: lenses.map((lens) => ({
             id: stepIdOf(lens),
             brewer: 'taster',
-            model: 'standard',
-            effort: 'moderate',
+            ...levels,
             lens,
           })),
           ...backTo(IMPLEMENT),
@@ -99,8 +184,7 @@ export const recipeText = (setup: SetupName): string => {
       : {
           id: TASTE,
           brewer: 'taster',
-          model: 'standard',
-          effort: 'moderate',
+          ...levels,
           lenses,
           ...backTo(IMPLEMENT),
         };
@@ -129,6 +213,15 @@ export const recipeText = (setup: SetupName): string => {
   };
   return `// node scripts/tasting-compare.ts's setup ${setup} (ADR 0224).\n${JSON.stringify(recipe, null, 2)}\n`;
 };
+
+/** The Brewery's files of a seeded run beyond Nip's: its recipe, and with a model id its models.jsonc (ADR 0405). */
+export const seededBreweryFiles = (
+  setup: SetupName,
+  taster?: SeededTaster,
+): Record<string, string> => ({
+  [`recipes/${setup}.jsonc`]: recipeText(setup, taster),
+  ...(taster === undefined ? {} : modelsFileOf(taster.model)),
+});
 
 /** One planted defect: its lens, its file, the line ranges it is in, and what it is. */
 export interface Defect {
