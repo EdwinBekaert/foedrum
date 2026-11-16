@@ -155,17 +155,26 @@ export const scoredTable = ({ key, codes, marks }: ScoreInput): string => {
   const items = keyOf(key).sort((a, b) => a.order - b.order);
   const orders = new Set(items.map(({ order }) => order));
   const runs = runsOf(codes);
-  const marked = Marks.parse(JSON.parse(marks)).runs;
+  // A file an editor saved with a BOM is the same marks (CLAUDE.md, Cross-platform).
+  const bare = marks.charCodeAt(0) === 0xfeff ? marks.slice(1) : marks;
+  const marked = Marks.parse(JSON.parse(bare)).runs;
   const problems: string[] = [];
-  for (const { order, code, caught } of marked) {
+  const seen = new Set<string>();
+  for (const { order, code: written, caught } of marked) {
+    // The scorer's values go on one line each, so none can forge a refusal line.
+    const code = escapeCell(written);
     if (!orders.has(order)) {
       problems.push(`the mark of ${code} is of #${order}, which is not in the key`);
-    } else if (runs.get(code)?.order !== order) {
+    } else if (runs.get(written)?.order !== order) {
       problems.push(`the mark's code ${code} is not in codes.md for #${order}`);
     }
+    if (seen.has(written)) problems.push(`the mark's code ${code} is given more than once`);
+    seen.add(written);
     for (const id of caught) {
       if (!items.some((item) => item.id === id && item.order === order)) {
-        problems.push(`${id}, marked caught in ${code}, is not a key item of #${order}`);
+        problems.push(
+          `${escapeCell(id)}, marked caught in ${code}, is not a key item of #${order}`,
+        );
       }
     }
   }
