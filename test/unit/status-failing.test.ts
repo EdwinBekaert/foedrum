@@ -211,11 +211,21 @@ describe('the status comment', () => {
   it('leaves out a summary that reads like a secret, on the mark and on the Stuck', () => {
     const token = `ghp_${'a'.repeat(36)}`;
     const secret = { ...failing, summary: token };
-    assert.doesNotMatch(renderStatus(batch('1-1', 1, { failing: secret })), /ghp_/);
+    const marked = renderStatus(batch('1-1', 1, { failing: secret }));
+    assert.doesNotMatch(marked, /ghp_/);
+    assert.match(
+      marked,
+      /\*\*Failing\*\*: the effects pass has failed since 2026-11-06T11:00:00\.000Z: \\\[left out: a text of step .*that looks like a secret\\\]/,
+    );
     const stuck = stuckFailing('1-1', 1);
     const reason = { kind: 'failing', stepId: 'plan', ...secret } as const;
     const lane = { ...stuck.lane, reason } as Batch['lane'];
-    assert.doesNotMatch(renderStatus({ ...stuck, lane }), /ghp_/);
+    const waiting = renderStatus({ ...stuck, lane });
+    assert.doesNotMatch(waiting, /ghp_/);
+    assert.match(
+      waiting,
+      /\*\*Waiting for you\*\*: look at a failure: `plan` could not go on: the effects pass has failed since 2026-11-06T11:00:00\.000Z: \\\[left out: a text of step plan that looks like a secret\\\]/,
+    );
   });
 
   it('shows why a batch is Stuck on failing, with no second line for its mark', () => {

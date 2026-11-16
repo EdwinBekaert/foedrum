@@ -1,6 +1,6 @@
 # Coverage reports of spike #618
 
-These are captured reports for [the coverage spike](../../../docs/design/checks/coverage-spike.md). They are data only: no test reads them yet, and the sample sources are not here.
+These are captured reports for [the coverage spike](../../../docs/design/checks/coverage-spike.md). Five unit tests read them: `test/unit/check-runner-coverage.test.ts`, `cobertura.test.ts`, `coverage-files.test.ts`, `lcov.test.ts` and `red-proof-mapped.test.ts`. The sample sources are not here.
 
 They were made on 2026-10-30, on Windows 11, from two sample repositories under `.foedrum/tmp/618-spike/`, each a git repository whose commits act out a brew.
 For each step, the folder holds the coverage of the whole run at that commit and `step.diff`, which is `git show` of the commit (the base's diff adds every file).

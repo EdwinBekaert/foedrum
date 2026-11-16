@@ -4,3 +4,4 @@
 *.jpeg binary
 *.ico binary
 test/fixtures/**/*.patch -text
+tasting-room/**/*.patch -text
