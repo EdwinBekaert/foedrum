@@ -22,8 +22,12 @@ A model-upgrade pull request changes one brewer's level in a recipe; to judge it
 - **A run's target is its order's starting tree** (`startingTree`) on the scratch remote, and its issue the order's `order.md`; the hidden tests stay out of it.
   The target's only check is `node --test`, with a TAP report for the Maltster's test map to name; the bases have no dependencies, so no setup runs.
 - **After each batch**, the runner clones the scratch remote, checks out the head a person gets from the batch, lays the order's hidden tests over it (`withLayer`), and runs them with `node --test` on their files, 120 seconds at most, as the proof does.
+  **Decided with the maintainer on 2026-11-16:** they run as a check line through the check sandbox, `sandboxedChecks`, as a check step's line does ([ADR 0076](0076-check-steps-run-in-an-os-sandbox-with-no-network.md)): no network, an empty home, the clone the only folder it writes.
+  They run code a brewer wrote, and that is the guard Foedrum already keeps for such code; the clone's `.git` is a folder, so `worktreeGitDir` binds no repository besides it.
+  On native Windows they run unsandboxed through cmd.exe in a Job Object, as a check step does, and the Flight says so in a line at its start.
+  A line names only plain paths (`^[A-Za-z0-9._/-]+$`), and a sandbox that cannot start them, such as bwrap missing from the PATH, stops the Flight with the sandbox's own line: it is the harness's fault, never a brewer's.
   The head is the batch's pull request's latest push, or, with no pull request, the commit the green step read last, fetched from the worktree it read it in; `headFrom` records which.
-  The hidden tests timed out only when their deadline killed them; killed for their output, or never started, they failed.
+  The hidden tests timed out only when their deadline killed them; killed for their output, they failed.
 - **Each run's record**, one line of `results.jsonl`, holds how the batch ended, the head and `headFrom`, whether the hidden tests passed, failed or timed out and the end of their output, the files changed from the base, those outside the order's `allowedPaths`, each step's attempts, tokens, turns and time (`stepRunsOf`), and the models each brewer step's transcripts name.
   - An `allowedPaths` entry that ends in `/` holds the files under that folder, never a sibling whose name starts with it; any other entry holds only that one file.
   - `.foedrum/test-map.jsonc` is never outside: the Maltster of a test-first recipe commits it, and it is Foedrum's file, not the order's.
