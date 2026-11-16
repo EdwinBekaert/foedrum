@@ -1,0 +1,53 @@
+From 50c97f30cbecfd5629d43dc27b51816395473d6f Mon Sep 17 00:00:00 2001
+From: Sample <sample@example.test>
+Date: Mon, 16 Nov 2026 17:55:32 +0100
+Subject: [PATCH 2/2] Recommend WSL2 on native Windows
+
+---
+ src/doctor.mjs                | 10 ++++++++--
+ test/doctor.test.mjs          |  4 ++++
+ test/doctor.test.mjs.snapshot |  3 +++
+ 3 files changed, 15 insertions(+), 2 deletions(-)
+ create mode 100644 test/doctor.test.mjs.snapshot
+
+diff --git a/src/doctor.mjs b/src/doctor.mjs
+index 35ad949..5ca2cef 100644
+--- a/src/doctor.mjs
++++ b/src/doctor.mjs
+@@ -1,4 +1,10 @@
+-// The doctor's report: one line per tool it found, with its version.
++// The doctor's report: one line per tool it found, with its version, and on native Windows,
++// where no sandbox holds the checks, what the checks may reach and the setup it recommends.
+ export function doctorReport(facts) {
+-  return [`node: ${facts.node}`, `git: ${facts.git}`].join('\n') + '\n';
++  const lines = [`node: ${facts.node}`, `git: ${facts.git}`];
++  if (facts.platform === 'win32') {
++    lines.push('permissions: checks run with your user account, outside any sandbox');
++    lines.push('recommended: run Foedrum inside WSL2, where the checks run in a sandbox');
++  }
++  return lines.join('\n') + '\n';
+ }
+diff --git a/test/doctor.test.mjs b/test/doctor.test.mjs
+index 7efe6bf..6c0bbd4 100644
+--- a/test/doctor.test.mjs
++++ b/test/doctor.test.mjs
+@@ -7,3 +7,7 @@ const facts = { platform: 'linux', node: '24.15.0', git: '2.51.0' };
+ test('reports every tool with its version', () => {
+   assert.equal(doctorReport(facts), 'node: 24.15.0\ngit: 2.51.0\n');
+ });
++
++test('reports permissions only on native Windows, and recommends WSL2', (t) => {
++  t.assert.snapshot(doctorReport({ ...facts, platform: 'win32' }));
++});
+diff --git a/test/doctor.test.mjs.snapshot b/test/doctor.test.mjs.snapshot
+new file mode 100644
+index 0000000..942881b
+--- /dev/null
++++ b/test/doctor.test.mjs.snapshot
+@@ -0,0 +1,3 @@
++exports[`reports permissions only on native Windows, and recommends WSL2 1`] = `
++"node: 24.15.0\\ngit: 2.51.0\\npermissions: checks run with your user account, outside any sandbox\\nrecommended: run Foedrum inside WSL2, where the checks run in a sandbox\\n"
++`;
+-- 
+2.56.0.windows.2
+

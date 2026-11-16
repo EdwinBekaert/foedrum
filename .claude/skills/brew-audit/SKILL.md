@@ -6,7 +6,7 @@ argument-hint: "[--since <sha> | --full]"
 
 # Audit Foedrum's code
 
-An audit reads the code as it stands, not a change: `/brew-review` judges a pull request, this judges the codebase ([ADR 0245](../../../docs/adr/0245-brew-audit-a-read-only-audit-of-the-code-at-every-last-call.md)). It runs the saved workflow `.claude/workflows/brew-audit.js`: one auditor per area (engine core, engine GitHub side, brewers and checks, CLI, I/O boundary, schemas, tooling), one for a sample of the tests and one for the ADRs; one skeptic per area tries to refute every finding; one agent writes the report from what survives. The auditors use the diff lenses in `defaults/lenses/diff/` as their checklists, so improving a lens improves both reviews.
+An audit reads the code as it stands, not a change: `/brew-review` judges a pull request, this judges the codebase ([ADR 0245](../../../docs/adr/0245-brew-audit-a-read-only-audit-of-the-code-at-every-last-call.md)). It runs the saved workflow `.claude/workflows/brew-audit.js`: one auditor per area (engine core, engine GitHub side, brewers and checks, CLI, I/O boundary, schemas, tooling), one for the tests and one for the ADRs; one skeptic per area tries to refute every finding; one agent writes the report from what survives. The auditors use the diff lenses in `defaults/lenses/diff/` as their checklists, so improving a lens improves both reviews.
 
 Arguments: `$ARGUMENTS`
 

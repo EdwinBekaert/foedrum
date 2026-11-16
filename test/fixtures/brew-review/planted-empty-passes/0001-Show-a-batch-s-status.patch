@@ -1,0 +1,43 @@
+From 40cb678a4e087830d116a64b7ebcf244b4a5c3f8 Mon Sep 17 00:00:00 2001
+From: Sample <sample@example.test>
+Date: Mon, 16 Nov 2026 17:54:51 +0100
+Subject: [PATCH 1/2] Show a batch's status
+
+---
+ src/status.mjs       |  4 ++++
+ test/status.test.mjs | 12 ++++++++++++
+ 2 files changed, 16 insertions(+)
+ create mode 100644 src/status.mjs
+ create mode 100644 test/status.test.mjs
+
+diff --git a/src/status.mjs b/src/status.mjs
+new file mode 100644
+index 0000000..73d3aee
+--- /dev/null
++++ b/src/status.mjs
+@@ -0,0 +1,4 @@
++// The status comment of a batch: its id, its lane and the summary its last step wrote.
++export function renderStatus(batch) {
++  return [`## Batch ${batch.id}`, `**Lane**: ${batch.lane}`, `**Summary**: ${batch.summary}`].join('\n');
++}
+diff --git a/test/status.test.mjs b/test/status.test.mjs
+new file mode 100644
+index 0000000..ef1dddb
+--- /dev/null
++++ b/test/status.test.mjs
+@@ -0,0 +1,12 @@
++import assert from 'node:assert/strict';
++import { test } from 'node:test';
++import { renderStatus } from '../src/status.mjs';
++
++const batch = { id: '7-1', lane: 'brewing', summary: 'Added the parser.' };
++
++test("shows a batch's lane and its last summary", () => {
++  assert.equal(
++    renderStatus(batch),
++    '## Batch 7-1\n**Lane**: brewing\n**Summary**: Added the parser.',
++  );
++});
+-- 
+2.56.0.windows.2
+
