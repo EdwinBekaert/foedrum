@@ -543,7 +543,6 @@ describe('the Flight (ADR 0409)', () => {
       assert.deepEqual(calls[0]?.args, []);
       assert.equal(calls[0]?.options.shell, true);
       assert.equal(calls[0]?.options.cwd, 'C:\\runs\\hidden');
-      assert.deepEqual(calls[0]?.options.env, { A: '1' });
     });
 
     it("a sandbox that cannot start stops the Flight with its own line: it is no brewer's failure", async () => {
@@ -553,6 +552,42 @@ describe('the Flight (ADR 0409)', () => {
         /bubblewrap \(bwrap\) is not on PATH/,
       );
       assert.equal(calls.length, 0);
+    });
+
+    it("the hidden tests get a check step's environment: the PATH kept, no token", async () => {
+      const { calls, exec } = recording();
+      const env = { PATH: '/usr/bin', GH_TOKEN: 'a-token', NODE_TEST_CONTEXT: 'child-v8' };
+      await runHiddenTests(linux(exec, '/usr/bin/bwrap'), '/runs/hidden', TESTS, env);
+      const given = calls[0]?.options.env ?? {};
+      assert.equal(given.PATH, '/usr/bin');
+      assert.equal(given.GH_TOKEN, undefined);
+      assert.equal(given.NODE_TEST_CONTEXT, undefined);
+      assert.equal(given.npm_config_ignore_scripts, 'true');
+    });
+
+    it("a line whose shell cannot find node stops the Flight: exit 127 is the harness's", async () => {
+      const { exec } = recording({
+        exitCode: 127,
+        stdout: '',
+        stderr: '/bin/sh: 1: node: not found\n',
+        output: '/bin/sh: 1: node: not found\n',
+      });
+      await assert.rejects(
+        runHiddenTests(linux(exec, '/usr/bin/bwrap'), '/runs/hidden', TESTS, {}),
+        /node: not found/,
+      );
+    });
+
+    it("hidden tests a signal ended failed: the brewer's code crashed them", async () => {
+      const { exec } = recording({
+        exitCode: null,
+        signal: 'SIGABRT',
+        stdout: '',
+        stderr: '',
+        output: 'FATAL ERROR: heap out of memory',
+      });
+      const ran = await runHiddenTests(linux(exec, '/usr/bin/bwrap'), '/runs/hidden', TESTS, {});
+      assert.equal(ran.hidden, 'failed');
     });
 
     it('a hidden test path that is not a plain path is refused before anything runs', async () => {
