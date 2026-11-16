@@ -481,7 +481,7 @@ describe("gatherDoctorFacts: the address of brewers' model traffic (ADR 0063, AD
   it('records it on Windows whatever the case of its name', async () => {
     const node: ExecResult = { exitCode: 0, stdout: '', stderr: '', output: '' };
     const { shell } = fakeShell({ onPath: {}, answers: { '/usr/bin/node': node } });
-    const env = { Path: 'C:Windows', anthropic_base_url: 'https://gateway.example.com/v1' };
+    const env = { Path: 'C:\\Windows', anthropic_base_url: 'https://gateway.example.com/v1' };
     const facts = await gatherDoctorFacts({ ...shell, platform: 'win32', env });
     assert.equal(facts.modelBaseUrl, 'https://gateway.example.com/v1');
   });
