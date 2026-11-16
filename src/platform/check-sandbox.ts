@@ -280,6 +280,8 @@ export const insideFolders =
 export interface SandboxedChecksOptions {
   /** The process runner the sandbox is started through. */
   exec: ExecProcess;
+  /** The clock, in milliseconds, that a setup's second run takes its time left from (ADR 0408). */
+  now?: () => number;
   /** Default this process's. */
   platform?: NodeJS.Platform;
   /** Default `os.homedir()`. */
@@ -382,6 +384,27 @@ const unstarted = (why: string, adr = '0076'): ExecResult => {
   const output = `${why} (ADR ${adr})\n`;
   return { exitCode: null, stdout: '', stderr: output, output };
 };
+
+/**
+ * What bwrap says when its child fails to give the loopback its address, before the line runs.
+ * With a stack, that can be a race the stack won by bringing lo up first, which gave lo the
+ * address already; bwrap prints a stale errno for it (ADR 0408).
+ */
+const LOOPBACK_FAILED = 'bwrap: loopback: Failed RTM_NEWADDR';
+const LOOPBACK_RACE = 'likely a race in which the network stack brought lo up first';
+
+/**
+ * Whether a setup did not start because bwrap's loopback setup failed (ADR 0408): unstarted, as
+ * Foedrum reads bwrap's own failure, never a line that ran and was killed or signalled.
+ */
+const lostLoopbackRace = (result: ExecResult): boolean =>
+  result.exitCode === null &&
+  result.killed === undefined &&
+  result.signal === undefined &&
+  result.stderr.startsWith(LOOPBACK_FAILED);
+
+/** What bwrap said, without the ADR `unstarted` added. */
+const bwrapSaid = (result: ExecResult): string => result.stderr.replace(/ \(ADR \d{4}\)\n$/, '');
 
 /** The arguments that attach a stack to the namespace of `pid`, closed to the host (ADR 0218). */
 const stackArgs = (tool: NetworkStackTool, pid: number): string[] => {
@@ -577,6 +600,7 @@ export function sandboxedChecks(options: SandboxedChecksOptions): ExecProcess {
   const findStackTool =
     options.findStackTool ?? ((tool: NetworkStackTool) => resolveExecutable(tool, { platform }));
   const readResolvConf = options.readResolvConf ?? readResolvConfFile;
+  const now = options.now ?? Date.now;
   const hasSandboxExec =
     options.hasSandboxExec ?? (() => resolveExecutable(SANDBOX_EXEC, { platform }) !== undefined);
   return async (file, args, call) => {
@@ -626,13 +650,21 @@ export function sandboxedChecks(options: SandboxedChecksOptions): ExecProcess {
         );
       }
       const resolver = resolverIn(realPath);
-      return inOwnNamespace(
-        exec,
-        bwrap,
-        { tool, path },
-        bwrapArgs(paths, file, { network, resolver }),
-        call,
+      const args = bwrapArgs(paths, file, { network, resolver });
+      const run = (timeoutMs = call.timeoutMs) =>
+        inOwnNamespace(exec, bwrap, { tool, path }, args, { ...call, timeoutMs });
+      const started = now();
+      const first = await run();
+      if (!lostLoopbackRace(first)) return first;
+      // bwrap's loopback failure ends a run before its line, so it runs once more, with the time
+      // the first left (ADR 0408); a line that wrote those words itself and failed runs again too.
+      const spent = now() - started;
+      const second = await run(
+        call.timeoutMs === undefined ? undefined : Math.max(0, call.timeoutMs - spent),
       );
+      return lostLoopbackRace(second)
+        ? unstarted(`${bwrapSaid(second)}, twice: ${LOOPBACK_RACE}`, '0408')
+        : second;
     }
     if (!hasSandboxExec()) {
       return unstarted(`${SANDBOX_EXEC} is not there: check steps run only in its sandbox here`);
