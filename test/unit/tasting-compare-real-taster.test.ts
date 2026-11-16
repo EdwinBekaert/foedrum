@@ -393,6 +393,24 @@ describe('tasting-compare --real --brewer taster (ADR 0402)', () => {
       assert.deepEqual(rows.slice(0, at), fixedRows.slice(0, at));
       assert.deepEqual(rows.slice(at + 1), fixedRows.slice(at));
     });
+
+    it('the table lists each settings setup once, in the order its runs first came, below every fixed setup', () => {
+      const other = { ...ON_LEVEL, model: 'light' };
+      const rows = realTable([
+        settingsRecord(other, 867, 1, 'claude-haiku-5-5'),
+        settings,
+        settingsRecord(other, 867, 2, 'claude-haiku-5-5'),
+        fixed,
+        settingsRecord(ON_ID, 855, 2, 'claude-opus-5-5'),
+      ]).split('\n');
+      const setups = rows.map((row) => row.split(' | ')[0]?.slice(2));
+      assert.deepEqual(
+        setups.filter((setup) => setup?.includes('-taster-')),
+        ['867-taster-light-larger-apart-reads', '855-taster-claude-opus-5-5-full-together-bare'],
+      );
+      const first = setups.findIndex((setup) => setup?.includes('-taster-'));
+      for (const setup of REAL_SETUPS) assert.ok(setups.indexOf(setup) < first, setup);
+    });
   });
 
   describe('the fixed profiles', () => {
