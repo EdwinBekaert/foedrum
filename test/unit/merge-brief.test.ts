@@ -1057,6 +1057,23 @@ describe('the merge brief (ADR 0225)', () => {
       assert.doesNotMatch(body, /<b>web/);
     });
 
+    it('leaves out a stale path the Maltster wrote that looks like a secret', async () => {
+      const secret = `ghp_${'A1b2C3d4E5'.repeat(4)}`;
+      surveyed({
+        status: 'done',
+        summary: 'Refreshed the test map',
+        map: 'stale',
+        stale: ['web/package.json (added)', `token ${secret}`],
+      });
+      const body = await brief();
+      assert.match(
+        body,
+        /was stale \(web\/package\.json \(added\), \\?\[?left out: a text of step survey that looks like a secret\\?\]?\)/,
+      );
+      // `plain` escapes the token's `_`, so its tail is what would show.
+      assert.ok(!body.includes(secret.slice(4)));
+    });
+
     it('says the Maltster proposed the test map where the base had none', async () => {
       surveyed({ status: 'done', summary: 'Proposed the test map', map: 'new' });
       assert.match(
