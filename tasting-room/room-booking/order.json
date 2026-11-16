@@ -1,0 +1,7 @@
+{
+  "trap": {
+    "kind": "design-page",
+    "line": "docs/errors.md is the one list of the codes book answers; the order adds a code and never names the page."
+  },
+  "allowedPaths": ["src/", "test/", "docs/errors.md"]
+}

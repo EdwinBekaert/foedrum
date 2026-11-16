@@ -1,0 +1,7 @@
+{
+  "trap": {
+    "kind": "edge-case",
+    "line": "A title typed with punctuation and extra spaces must give no extra hyphens, nor one at either end; the order mentions how writers type titles once and its example has neither."
+  },
+  "allowedPaths": ["src/", "test/"]
+}

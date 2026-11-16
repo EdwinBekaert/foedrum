@@ -1,0 +1,7 @@
+{
+  "trap": {
+    "kind": "house-rule",
+    "line": "The instruction file says a typed value that cannot be read is refused with an InputError from src/errors.mjs, never a plain Error; the order says only to refuse it."
+  },
+  "allowedPaths": ["src/", "test/"]
+}

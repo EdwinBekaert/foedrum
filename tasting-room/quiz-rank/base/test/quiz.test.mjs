@@ -1,0 +1,20 @@
+import assert from 'node:assert/strict';
+import { test } from 'node:test';
+import { addScore, teams } from '../src/quiz.mjs';
+
+const SCORES = [
+  { team: 'Owls', points: 7 },
+  { team: 'Quizzly Bears', points: 9 },
+  { team: 'Owls', points: 6 },
+];
+
+test('adds a score at the end', () => {
+  assert.deepEqual(addScore(SCORES, { team: 'Moths', points: 4 }).at(-1), {
+    team: 'Moths',
+    points: 4,
+  });
+});
+
+test('lists each team once, in the order they first scored', () => {
+  assert.deepEqual(teams(SCORES), ['Owls', 'Quizzly Bears']);
+});
