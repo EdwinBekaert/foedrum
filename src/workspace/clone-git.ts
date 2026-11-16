@@ -8,7 +8,7 @@ import { devNull } from 'node:os';
 import { join } from 'node:path';
 import { removeTree } from '../platform/remove.ts';
 import { isCommitSha, noCommitSha } from '../schemas/store.ts';
-import type { Git, GitOptions, GitResult } from './git.ts';
+import { type Git, type GitOptions, type GitResult, gitFailure } from './git.ts';
 
 /**
  * The repository's remote as Foedrum names it, which the base fetch reaches from git directories
@@ -47,13 +47,6 @@ const OWN_CONFIG = { 'core.hooksPath': devNull, 'gc.auto': '0', 'maintenance.aut
 const PROMISOR = 'foedrum';
 const FILTER = 'blob:none';
 
-export const firstLine = ({ code, stderr }: GitResult): string =>
-  stderr
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .find((line) => line !== '') ??
-  (code === null ? 'git did not finish in time' : `git exited with ${code}`);
-
 /** The signal as git's options take it. */
 export const aborts = (signal: AbortSignal | undefined): GitOptions =>
   signal === undefined ? {} : { signal };
@@ -75,7 +68,7 @@ export const gitOutput = async (
   if (result.code !== 0) {
     // The git command, after git's own options such as `--git-dir`.
     const command = args.find((arg) => !arg.startsWith('-')) ?? 'git';
-    throw new Error(`git ${command} failed: ${firstLine(result)}`);
+    throw new Error(`git ${command} failed: ${gitFailure(result)}`);
   }
   return result.stdout;
 };

@@ -4,6 +4,7 @@
 import type { Batch } from '../engine/fold.ts';
 import { ranIn } from '../engine/session-resume.ts';
 import { type DiffFile, parseDiff } from '../formats/unified-diff.ts';
+import { lastLine } from '../platform/errors.ts';
 import { type GaugeReport, gaugeOf } from '../schemas/out-doc.ts';
 import { attemptBranch } from '../workspace/attempt-worktrees.ts';
 import type { Git } from '../workspace/git.ts';
@@ -46,14 +47,6 @@ export function stepTests(batch: Batch, stepId: string): GaugeReport | undefined
     ? gaugeOf(done.outcome.output)
     : undefined;
 }
-
-/** The last line of `text` that is not blank. */
-const lastLine = (text: string): string | undefined =>
-  text
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter((line) => line !== '')
-    .at(-1);
 
 /** More than the runner's default 4 MiB: a large but ordinary change (fixtures, a lock file). */
 const MAX_DIFF_BYTES = 16 * 1024 * 1024;

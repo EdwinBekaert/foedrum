@@ -297,6 +297,18 @@ describe('surveyed: the Maltster runs only for a missing or stale map (ADR 0298)
     });
   });
 
+  it("names git's last line of a CRLF stderr when it cannot list the commits: regression test", async () => {
+    const { run } = setup({
+      listed: { code: 128, stdout: '', stderr: 'warning: x\r\nfatal: bad object\r\n  \r\n' },
+    });
+    const end = await run();
+    assert.deepEqual(end.ending, {
+      kind: 'blocked',
+      blockerKind: 'environment',
+      summary: 'the guard testMapOnly cannot read the commits of step survey: fatal: bad object',
+    });
+  });
+
   it('names ten of the files beside the test map and counts the rest: regression test', async () => {
     const files = Array.from({ length: 12 }, (_, at) => `src/f${at + 1}.ts`);
     const { run } = setup({ changed: ['.foedrum/test-map.jsonc', ...files] });

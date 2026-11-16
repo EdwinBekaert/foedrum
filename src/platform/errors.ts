@@ -11,6 +11,14 @@ export const messageOf = (error: unknown): string =>
 export const firstLineOf = (text: string): string =>
   text.split(/\r\n?|\n|\x85|[\p{Zl}\p{Zp}]/u, 1)[0] ?? '';
 
+/** The last line of `text` that is not blank, trimmed. */
+export const lastLine = (text: string): string | undefined =>
+  text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line !== '')
+    .at(-1);
+
 /** The `code` a thrown value carries as a string (`ENOENT`, `EPERM`), or undefined. */
 export const errorCode = (error: unknown): string | undefined =>
   error instanceof Error && 'code' in error && typeof error.code === 'string'

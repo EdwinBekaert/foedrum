@@ -37,7 +37,7 @@ import { Recipe } from '../../src/schemas/recipe.ts';
 const USAGE = { inputTokens: 100, outputTokens: 20, cacheReadTokens: 1000, cacheWriteTokens: 300 };
 
 const root = join(import.meta.dirname, '..', '..');
-const fixture = join(root, 'test', 'fixtures', 'tasting-compare');
+const fixture = join(root, 'tasting-room', 'seeded');
 const planFixture = join(fixture, 'plan');
 const readText = (...path: string[]): string => readFileSync(join(...path), 'utf8');
 const SETUP_NAMES = Object.keys(PLAN_SETUPS) as PlanSetupName[];

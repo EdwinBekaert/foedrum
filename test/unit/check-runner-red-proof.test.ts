@@ -978,6 +978,17 @@ describe('createCheckRunner: the red proof reads every module of the test map (A
     }
   });
 
+  it("names git's last line without its leading spaces when it cannot list the deleted files", async () => {
+    const maps = { [gaugeStart]: mapOf(web), [tip]: mapOf(web) };
+    const deleted: GitResult = { code: 128, stdout: '', stderr: 'error: x\n   fatal: y\n' };
+    const { run } = setup({ ...wrote, maps, deleted });
+    assert.deepEqual((await run()).ending, {
+      kind: 'blocked',
+      blockerKind: 'environment',
+      summary: `the files deleted since ${gaugeStart} cannot be read: fatal: y`,
+    });
+  });
+
   it("places a test the run writes under the worktree's real path, which the runner asks the file system for", async () => {
     const real = join('/private', redTree);
     const located = [

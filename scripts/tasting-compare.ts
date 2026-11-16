@@ -1,5 +1,5 @@
 // node scripts/tasting-compare.ts [--runs <n>] [--dry-run] (#567, ADR 0224): tastes the seeded
-// change of test/fixtures/tasting-compare 3 times in each of three setups, the seven default diff
+// change of tasting-room/seeded 3 times in each of three setups, the seven default diff
 // lenses apart, the seven together and the three lenses Nip had when this was measured together
 // (Nip has a fourth since ADR 0343), and prints one table of the planted
 // defects found, the other findings, the tokens and the time. Each run brews one order with
@@ -22,7 +22,7 @@
 // .foedrum/tmp/tasting-compare/seeded/<model>-<effort>, and the table's first line names the model
 // and effort asked and the models the Tasters' receipts named.
 //
-// With --plan (#804, ADR 0323) it tastes the seeded plan of test/fixtures/tasting-compare/plan
+// With --plan (#804, ADR 0323) it tastes the seeded plan of tasting-room/seeded/plan
 // instead, on the same base: the seven default plan lenses apart and together and mash's three
 // together, each run a scripted plan (no model), then its Tasters on the real claude, or scripted
 // with --dry-run, until the batch waits for the plan's review. Its records, runs and table are kept
@@ -162,7 +162,7 @@ import {
 } from './tasting-compare/real.ts';
 
 const root = resolve(import.meta.dirname, '..');
-const fixture = join(root, 'test', 'fixtures', 'tasting-compare');
+const fixture = join(root, 'tasting-room', 'seeded');
 const BASE = join(fixture, '0001-Start-pantry.patch');
 const CHANGE = join(fixture, '0002-Remind-of-the-items-best-before-soon.patch');
 const planFixture = join(fixture, 'plan');
@@ -277,7 +277,7 @@ const realCommits = async (): Promise<void> => {
 };
 
 /** The real modes' folder of the orders' texts. */
-const realFixture = join(fixture, 'real');
+const realFixture = join(root, 'tasting-room', 'real');
 
 /** The target of a real mode's run: its order's base alone on main, fetched from this checkout. */
 const realTarget = async (

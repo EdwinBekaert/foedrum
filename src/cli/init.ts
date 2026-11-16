@@ -23,8 +23,7 @@ import { ModelsConfig } from '../schemas/models.ts';
 import { CheckName, Command } from '../schemas/primitives.ts';
 import { readJsonc } from '../schemas/read.ts';
 import type { z } from '../schemas/zod.ts';
-import { firstLine } from '../workspace/clone-git.ts';
-import type { GitResult } from '../workspace/git.ts';
+import { type GitResult, gitFailure } from '../workspace/git.ts';
 import { offerShim, type ShimPorts, shimChoice } from './init-shim.ts';
 import type { CliResult } from './run.ts';
 
@@ -283,7 +282,7 @@ const placeOf = async (ports: InitPorts, folder: string): Promise<Place | string
   const shownCdup = await ports.git(folder, ['rev-parse', '--show-cdup']);
   if (shownCdup.code !== 0) {
     if (/not a git repository/i.test(shownCdup.stderr)) return { kind: 'none' };
-    return `git rev-parse failed: ${firstLine(shownCdup)}`;
+    return `git rev-parse failed: ${gitFailure(shownCdup)}`;
   }
   const top = folderPath(posix.join(folder, shownCdup.stdout.trim()));
   const brewery = ports.files.exists(posix.join(top, 'foedrum.jsonc'));
@@ -530,7 +529,7 @@ export const runInit = async (ports: InitPorts, given: InitAnswers = {}): Promis
         } else if (named.isPrivate === undefined) {
           // A repository GitHub has is cloned now, to read what it holds (ADR 0393).
           const cloned = await ports.git('', ['clone', '--', urlOf(asked), shown(folder)]);
-          if (cloned.code !== 0) return refuse(`git clone failed: ${firstLine(cloned)}`);
+          if (cloned.code !== 0) return refuse(`git clone failed: ${gitFailure(cloned)}`);
           say(`Cloned ${asked} into ${shown(folder)}`);
           created = `; ${asked} is cloned into the folder ${shown(folder)}`;
           const read = readConfig();
@@ -741,7 +740,7 @@ export const runInit = async (ports: InitPorts, given: InitAnswers = {}): Promis
       }
       say(`Created ${isPrivate ? 'the private' : 'the public'} repository ${brewery}`);
       const cloned = await ports.git('', ['clone', '--', urlOf(brewery), shown(folder)]);
-      if (cloned.code !== 0) return refuse(`git clone failed: ${firstLine(cloned)}`);
+      if (cloned.code !== 0) return refuse(`git clone failed: ${gitFailure(cloned)}`);
       say(`Cloned it into ${shown(folder)}`);
       created = `; ${brewery} is created and cloned into the folder ${shown(folder)}`;
     }
@@ -937,7 +936,7 @@ const commitAndPush = async (
   let listed = files;
   let ok = status.code === 0;
   if (!ok) {
-    say(`git status failed: ${firstLine(status)}`);
+    say(`git status failed: ${gitFailure(status)}`);
   } else {
     const entries = status.stdout.split('\0').map((entry) => entry.slice(3));
     listed = files.filter((file) => entries.includes(file));
@@ -961,7 +960,7 @@ const commitAndPush = async (
         for (const args of [['add', '--', ...listed], commit, PUSH]) {
           const done = await ports.git(folder, args);
           if (done.code !== 0) {
-            say(`git ${args[0]} failed: ${firstLine(done)}`);
+            say(`git ${args[0]} failed: ${gitFailure(done)}`);
             ok = false;
             break;
           }
@@ -995,7 +994,7 @@ const commitsNotPushed = async (
       ? await ports.git(folder, ['log', '--format=%h %s', 'HEAD', '--not', '--remotes=origin'])
       : head;
   if (log.code !== 0) {
-    ports.say(`git ${head.code === 0 ? 'log' : 'rev-parse'} failed: ${firstLine(log)}`);
+    ports.say(`git ${head.code === 0 ? 'log' : 'rev-parse'} failed: ${gitFailure(log)}`);
     return undefined;
   }
   return log.stdout.split(/\r?\n/).filter((line) => line !== '');

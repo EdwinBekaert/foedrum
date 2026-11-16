@@ -459,15 +459,19 @@ describe("gatherDoctorFacts: where brewers' model traffic goes (ADR 0063, ADR 00
   const report = async (env: NodeJS.ProcessEnv) =>
     formatDiagnosis(diagnose(await gatherDoctorFacts({ ...fakeShell().shell, env })));
 
+  /** The two lines doctor writes before and after where the model traffic line goes. */
+  const besideModelTraffic = /^Setup network: .*\nIsolation: /m;
+
   it('shows no model traffic line when ANTHROPIC_BASE_URL is not set', async () => {
-    assert.doesNotMatch(await report({ PATH: '/usr/bin' }), /Model traffic/);
+    const text = await report({ PATH: '/usr/bin' });
+    assert.doesNotMatch(text, /Model traffic/);
+    assert.match(text, besideModelTraffic);
   });
 
   it('shows no model traffic line when ANTHROPIC_BASE_URL is set to nothing', async () => {
-    assert.doesNotMatch(
-      await report({ PATH: '/usr/bin', ANTHROPIC_BASE_URL: '' }),
-      /Model traffic/,
-    );
+    const text = await report({ PATH: '/usr/bin', ANTHROPIC_BASE_URL: '' });
+    assert.doesNotMatch(text, /Model traffic/);
+    assert.match(text, besideModelTraffic);
   });
 });
 

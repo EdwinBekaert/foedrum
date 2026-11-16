@@ -512,7 +512,7 @@ const briefRest = (
       ...checkStepLines(steps, proof),
       ...notRunLines(steps, proof, told),
       tastedLine(steps, ready),
-      ...surveyLines(onHead),
+      ...surveyLines(onHead, told),
     ],
     ['**Findings**', ...(findings.length === 0 ? ['No finding was recorded.'] : findings)],
     ['**Risk left**', ...(risks.length === 0 ? ['None recorded.'] : risks)],
@@ -527,15 +527,15 @@ const briefRest = (
  * Why the pull request changes the test map (ADR 0282, ADR 0298): one line for each repository a
  * survey proposed a map of, new or refreshed, from its first proposal on the batch's path of every
  * recipe it brewed (ADR 0363), since a survey its check sent back reads its own proposal as stale,
- * with the stale paths the Maltster named, which are model text.
+ * with the stale paths the Maltster named, which are model text, told as every other (ADR 0088).
  */
-const surveyLines = ({ batch, ids }: Steps): string[] => {
+const surveyLines = ({ batch, ids }: Steps, told: Told): string[] => {
   const proposals = (batch.path ?? []).flatMap(({ stepId, attempt: n }) => {
     const attempt = ids.includes(stepId) ? batch.steps.get(stepId)?.attempts.get(n) : undefined;
     if (attempt?.phase !== 'finished' || attempt.outcome.kind !== 'succeeded') return [];
     const survey = surveyOf(attempt.outcome.output);
     const repo = attempt.worktree?.repo;
-    return survey === undefined || repo === undefined ? [] : [{ survey, repo }];
+    return survey === undefined || repo === undefined ? [] : [{ survey, repo, stepId }];
   });
   // GitHub names are case-insensitive.
   const repos = [...new Set(proposals.map(({ repo }) => repo.toLowerCase()))];
@@ -544,12 +544,13 @@ const surveyLines = ({ batch, ids }: Steps): string[] => {
     const first =
       ofRepo.find(({ survey }) => survey.map === 'new' || survey.map === 'stale') ?? ofRepo[0];
     if (first === undefined) return [];
-    const { survey, repo } = first;
+    const { survey, repo, stepId } = first;
     switch (survey.map) {
       case 'new':
         return [`- The test map of ${repo} is new: the Maltster proposed it.`];
       case 'stale': {
-        const paths = survey.stale.length === 0 ? '' : ` (${survey.stale.map(plain).join(', ')})`;
+        const stale = survey.stale.map((path) => told(path, stepId));
+        const paths = stale.length === 0 ? '' : ` (${stale.join(', ')})`;
         return [`- The test map of ${repo} was stale${paths}: the Maltster refreshed it.`];
       }
       case 'fresh':

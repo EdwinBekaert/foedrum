@@ -7,7 +7,7 @@ import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 
 // The planted-defect sample of /brew-review (its README). The patches are data, never applied
 // here: this reads the lines they add.
-const sample = join(import.meta.dirname, '..', 'fixtures', 'brew-review', 'planted-demo');
+const sample = join(import.meta.dirname, '..', '..', 'tasting-room', 'lenses', 'planted-demo');
 
 // Adds the lines a patch adds to `added`, by the path of the file it adds them to.
 const addLines = (patch: string, added: Map<string, string[]>): void => {

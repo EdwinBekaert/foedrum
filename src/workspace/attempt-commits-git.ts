@@ -7,8 +7,8 @@ import type { CommitsScanned, CommitsSeen } from '../engine/brewer-runner.ts';
 import { messageOf } from '../platform/errors.ts';
 import { isCommitSha, noCommitSha } from '../schemas/store.ts';
 import { openBranchPush } from './branch-push-git.ts';
-import { firstLine, inClone } from './clone-git.ts';
-import type { Git } from './git.ts';
+import { inClone } from './clone-git.ts';
+import { type Git, gitFailure } from './git.ts';
 
 /**
  * Counts the commits on `branch` in `clone` after `since`; never throws, git's failure is
@@ -45,11 +45,11 @@ export const countCommits =
     // 0: an ancestor, 1: not one; anything else is git failing.
     if (ancestor.code === 1) return { kind: 'rewritten' };
     if (ancestor.code !== 0) {
-      return { kind: 'uncounted', reason: `git merge-base failed: ${firstLine(ancestor)}` };
+      return { kind: 'uncounted', reason: `git merge-base failed: ${gitFailure(ancestor)}` };
     }
     const listed = await git(clone, ['rev-list', '--count', `${since}..${tip}`], options);
     if (listed.code !== 0) {
-      return { kind: 'uncounted', reason: `git rev-list failed: ${firstLine(listed)}` };
+      return { kind: 'uncounted', reason: `git rev-list failed: ${gitFailure(listed)}` };
     }
     const count = listed.stdout.trim();
     if (!/^\d+$/.test(count)) {
@@ -87,7 +87,7 @@ export const changedPaths =
       ...(signal === undefined ? {} : { signal }),
     });
     if (listed.code !== 0) {
-      return { kind: 'unlisted', reason: `git diff failed: ${firstLine(listed)}` };
+      return { kind: 'unlisted', reason: `git diff failed: ${gitFailure(listed)}` };
     }
     return { kind: 'listed', paths: listed.stdout.split('\0').filter((path) => path !== '') };
   };

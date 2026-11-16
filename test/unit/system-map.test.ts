@@ -320,6 +320,14 @@ describe('the system map', () => {
     assert.deepEqual(late, { again: 'git did not read p1/package.json: git timed out' });
   });
 
+  it('says git exited with no code when a listing ends without a code or a word (regression test)', async () => {
+    const commit = 'a'.repeat(40);
+    const silent = async () => ({ code: null, stdout: '', stderr: '' });
+    await assert.rejects(manifestsAt(silent)('/clone', commit), {
+      message: `git could not list ${commit}: git exited with no code`,
+    });
+  });
+
   it('an npm and a .NET repository map as before (regression test)', () => {
     const library = lib(
       entryOf(
