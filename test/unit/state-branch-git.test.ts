@@ -830,6 +830,24 @@ describe('openStateBranch with a fake git', () => {
       assert.equal(store.pushedThrough(), undefined);
     });
 
+    it('names the first line of a CRLF stderr when a commit fails: regression test', async () => {
+      const state = await started();
+      append(ordered('b1'));
+      fake.answer = (args) =>
+        args[0] === 'commit' ? exit(128, '\r\nfatal: one\r\nfatal: two\r\n') : undefined;
+      assert.deepEqual(await state.flush(), { kind: 'failed', reason: 'fatal: one' });
+    });
+
+    it('says git did not finish in time when a commit is killed silently: regression test', async () => {
+      const state = await started();
+      append(ordered('b1'));
+      fake.answer = (args) => (args[0] === 'commit' ? exit(null, '  \n') : undefined);
+      assert.deepEqual(await state.flush(), {
+        kind: 'failed',
+        reason: 'git did not finish in time',
+      });
+    });
+
     it('does nothing without new events', async () => {
       const state = await started();
       assert.deepEqual(await state.flush(), { kind: 'unchanged' });
