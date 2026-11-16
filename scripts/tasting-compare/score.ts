@@ -216,3 +216,20 @@ export const scoredTable = ({ key, codes, marks }: ScoreInput): string => {
   ];
   return `${[`| ${header.join(' | ')} |`, `|${'---|'.repeat(header.length)}`, ...rows].join('\n')}\n`;
 };
+
+/** What tasting-score.ts reads and writes: a file's text by its path, and a file written. */
+export interface ScoreFiles {
+  read: (path: string) => string;
+  write: (path: string, text: string) => void;
+}
+
+/**
+ * tasting-score.ts's command line (#1094): the table of `--folder`'s codes.md, `--key` and
+ * `--marks`, written to the folder's scored.md, or the refusal that stops it with exit 2.
+ */
+export const scoreRun = (
+  _values: { folder?: string; key?: string; marks?: string },
+  _files: ScoreFiles,
+): { kind: 'scored'; table: string } | { kind: 'refused'; message: string } => {
+  throw new Error('not implemented');
+};
