@@ -1,6 +1,9 @@
 # Evaluation: Flight and blind tasting
 
-- A public **tasting room** repository with seeded issues per recipe and **hidden acceptance tests** brewers never see; planted bugs for Infection check; pull requests with planted defects for Guest tasting.
+- The **tasting room** is a folder of Foedrum's, `test/fixtures/flight/`, not a repository of its own: small made-up orders, each on a tiny repository with one trap a weaker setup can miss, **hidden acceptance tests** brewers never see and a reference solution ([ADR 0404](../adr/0404-the-flight-s-tasting-room-is-a-folder-of-orders-each-proved-by-its-hidden-tests.md)).
+  Its README gives an order's files; `test/integration/flight-orders.test.ts` proves that every order's hidden tests fail on its starting repository and pass with its reference solution.
+  As ADR 0404 decides, a Flight will brew each order 3 times per setup on the fake code host (#1083), and a report will call a difference only when one setup passes every run and the other at most one (#1084).
+  Planted bugs for Infection check and pull requests with planted defects for Guest tasting are later.
 - **Real batches become samples:** any batch that got stuck or needed human fixes can be exported into the Flight.
 - **Metrics per recipe × brewer × model:** hidden-test pass rate, first-attempt gravity pass rate, retries, stuck rate, tokens, duration, diff size, planted-defect recall.
 - **Blind tasting:** `foedrum taste --model <id> [--brewer <name>]` swaps one brewer's model, runs the Flight several times (agent runs are noisy) and compares with the baseline.
