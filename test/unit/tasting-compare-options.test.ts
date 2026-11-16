@@ -208,6 +208,59 @@ describe("tasting-compare's command line (#1094)", () => {
     );
   });
 
+  it("--setups without --real is refused before a brewer's settings are checked", () => {
+    assert.deepEqual(
+      tastingModeOf({ setups: 'opus', map: true }),
+      refusal('--setups chooses among the setups of --real: give --real too'),
+    );
+  });
+
+  it("a brewer's settings are checked before the seeded Tasters' settings", () => {
+    assert.deepEqual(
+      tastingModeOf({ map: true, model: 'strong' }),
+      refusal('--map maps the code before a --brewer run: give --brewer too'),
+    );
+  });
+
+  it("the seeded Tasters' settings are checked before --sub-orders", () => {
+    assert.deepEqual(
+      tastingModeOf({ model: 'strong', 'sub-orders': true }),
+      refusal('--model needs --effort <effort>'),
+    );
+  });
+
+  it('a setup --setups does not know is refused before --comparison is checked', () => {
+    assert.deepEqual(
+      tastingModeOf({ real: true, setups: 'nobody', comparison: 'Bad' }),
+      refusal(
+        `--setups names no setup "nobody": it knows ${[...new Set(REAL_SETUPS.map((setup) => setup.replace(/^\d+-/, '')))].join(', ')}`,
+      ),
+    );
+  });
+
+  it('--comparison without --real is refused before its name is checked', () => {
+    assert.deepEqual(
+      tastingModeOf({ comparison: 'Bad' }),
+      refusal('--comparison names a comparison of --real: give --real too'),
+    );
+  });
+
+  it('a --comparison that is not one folder is refused before --runs is checked', () => {
+    assert.deepEqual(
+      tastingModeOf({ real: true, comparison: 'Bad', runs: '0' }),
+      refusal(
+        '--comparison takes lower-case letters, digits and -, starting with a letter or a digit, as one folder\'s name and no Windows device\'s, not "Bad"',
+      ),
+    );
+  });
+
+  it("--runs is checked before --orders is read for a brewer's runs", () => {
+    assert.deepEqual(
+      tastingModeOf({ ...CELLARMAN, orders: '999', runs: '0' }),
+      refusal('--runs must be a whole number of at least 1, not 0'),
+    );
+  });
+
   it('--real --sub-orders runs the planning runs of every order in the real folder', () => {
     const mode = modeOf({ real: true, 'sub-orders': true });
     assert.deepEqual(mode, {
