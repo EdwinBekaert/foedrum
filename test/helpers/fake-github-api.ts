@@ -169,12 +169,11 @@ const notFound = (): Response => json(404, { message: 'Not Found' });
 const paged = (url: URL, items: readonly unknown[]): Response => {
   const size = Math.min(100, Number(url.searchParams.get('per_page') ?? '30'));
   const page = Number(url.searchParams.get('page') ?? '1');
-  if (page * size >= items.length) return json(200, items.slice((page - 1) * size));
+  const shown = items.slice((page - 1) * size, page * size);
+  if (page * size >= items.length) return json(200, shown);
   const next = new URL(url);
   next.searchParams.set('page', String(page + 1));
-  return json(200, items.slice((page - 1) * size, page * size), {
-    link: `<${next}>; rel="next"`,
-  });
+  return json(200, shown, { link: `<${next}>; rel="next"` });
 };
 
 export const fakeGitHubApi = (options: FakeGitHubApiOptions): FakeGitHubApi => {
