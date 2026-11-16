@@ -114,7 +114,12 @@ const mode: Mode<string, FlightRecord> = {
       .filter((path) => path !== '');
     const tests = withLayer({}, order.hidden);
     for (const [path, body] of Object.entries(tests)) write(join(hidden, ...path.split('/')), body);
-    const ran = await runHiddenTests({ exec: execProcess }, hidden, Object.keys(tests), process.env);
+    const ran = await runHiddenTests(
+      { exec: execProcess },
+      hidden,
+      Object.keys(tests),
+      process.env,
+    );
     return {
       ...record,
       flight: {
