@@ -1,0 +1,7 @@
+{
+  "trap": {
+    "kind": "design-page",
+    "line": "docs/format.md is the one description of the shelf file and lists every field; the order adds a field and never names the page."
+  },
+  "allowedPaths": ["src/", "test/", "docs/format.md"]
+}

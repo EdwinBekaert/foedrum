@@ -1,0 +1,7 @@
+{
+  "trap": {
+    "kind": "house-rule",
+    "line": "The instruction file says every amount is whole cents, a share is computed multiplying before dividing and rounded once through roundCents; the order does not repeat it."
+  },
+  "allowedPaths": ["src/", "test/"]
+}

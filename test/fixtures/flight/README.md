@@ -16,3 +16,6 @@ Each folder here is one order a Flight brews ([ADR 0404](../../../docs/adr/0404-
 
 | Order | Trap | The trap |
 |---|---|---|
+| `invoice-discount` | house rule | The instruction file says every amount is whole cents, a share is computed multiplying before dividing and rounded once through `roundCents`; the order does not repeat it. |
+| `shelf-tags` | design page | `docs/format.md` is the one description of the shelf file and lists every field; the order adds a field and never names the page. |
+| `timesheet-night` | edge case | A night shift ends the next morning, before its start time; the order mentions night shifts once and asks nothing of them. |
