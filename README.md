@@ -104,6 +104,8 @@ The full line as designed. Each recipe picks its own steps: Nip, which builds a 
 
 - [Architecture](docs/architecture.md), the map of the [design pages](docs/design/)
 - [Brewers and recipes](docs/design/recipes/README.md)
+- [Testing](docs/design/testing/README.md)
+- [Evaluation: the tasting room and the Flight](docs/design/evaluation.md)
 - [Glossary](docs/glossary.md)
 - [Architecture decision records](docs/adr/README.md)
 - [Dependencies](DEPENDENCIES.md)
