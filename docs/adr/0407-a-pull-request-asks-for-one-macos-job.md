@@ -1,6 +1,6 @@
 # 0407. A pull request asks for one macOS job
 
-Date: 2026-11-16 · Status: Accepted · Amends [0377](0377-the-package-ships-the-javascript-tsc-emits-and-ci-starts-the-installed-tarball.md) (the `package` job on macOS for every pull request) and [0399](0399-ci-runs-the-tests-against-the-installed-claude-with-a-claude-pinned-in-a-lockfile-of-its-own.md) (the `real-claude` job on macOS for every pull request)
+Date: 2026-11-16 · Status: Accepted · Amends [0377](0377-the-package-ships-the-javascript-tsc-emits-and-ci-starts-the-installed-tarball.md) (the `package` job on macOS for every pull request), [0388](0388-a-tag-on-a-green-main-publishes-through-trusted-publishing-and-a-dry-run-proves-the-rest.md) (the package workflow takes an input, and a pull request's run of it leaves out macOS) and [0399](0399-ci-runs-the-tests-against-the-installed-claude-with-a-claude-pinned-in-a-lockfile-of-its-own.md) (the `real-claude` job on macOS for every pull request)
 
 ## Context
 Every pull request's CI run asked GitHub for three macOS jobs: `check`, `real claude` and `package`.
