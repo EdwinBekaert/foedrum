@@ -11,7 +11,7 @@ import { githubReleaseReader } from '../../src/github/releases.ts';
 import { repositoryVisibilities } from '../../src/github/repository-visibility.ts';
 import { githubTargetTracker } from '../../src/github/tracker.ts';
 import { ghOver } from '../helpers/fake-gh.ts';
-import { fakeGitHubApi, headOf } from '../helpers/fake-github-api.ts';
+import { type FakeGitHubApi, fakeGitHubApi, headOf } from '../helpers/fake-github-api.ts';
 
 const api = 'https://api.github.com';
 
@@ -300,7 +300,7 @@ describe("the fake GitHub API's releases", () => {
   });
 
   it("keeps each repository's merges and releases to itself (regression test)", async () => {
-    const { github, number } = await merged();
+    const { github } = await merged();
     // A merge of acme/web, a release of acme/lib: neither reaches the other repository.
     const answer = await github.fetch(`${api}/repos/acme/web/pulls`, {
       method: 'POST',
@@ -313,7 +313,7 @@ describe("the fake GitHub API's releases", () => {
     assert.equal(((await compared.json()) as { status: string }).status, 'ahead');
     assert.equal((await github.fetch(`${api}/repos/acme/lib/git/commits/${LATER}`)).status, 404);
     assert.equal((await github.fetch(`${api}/repos/acme/web/git/commits/${MERGE}`)).status, 404);
-    assert.throws(() => github.merge('acme/web', number, { sha: MERGE, at: T1 }), /acme\/web#/);
+    assert.throws(() => github.merge('acme/web', web + 1, { sha: MERGE, at: T1 }), /acme\/web#/);
   });
 
   it('holds no merge made after a release, though dated before it', async () => {
@@ -331,5 +331,182 @@ describe("the fake GitHub API's releases", () => {
     const latest = await reader.latest('acme/lib');
     assert.ok(latest !== undefined);
     assert.equal(await reader.holds('acme/lib', latest, url), false);
+  });
+});
+
+describe('the fake GitHub API answers like GitHub', () => {
+  type Item = { number: number; pull_request?: unknown };
+  const post = (github: FakeGitHubApi, path: string, body: unknown) =>
+    github.fetch(`${api}/repos/${path}`, { method: 'POST', body: JSON.stringify(body) });
+  const opens = async (github: FakeGitHubApi, repo: string, head: string): Promise<number> => {
+    const body = { title: head, head, base: 'main', body: 'B' };
+    return ((await (await post(github, `${repo}/pulls`, body)).json()) as Item).number;
+  };
+  const listed = async (github: FakeGitHubApi, path: string) =>
+    (await (await github.fetch(`${api}/repos/${path}`)).json()) as Item[];
+  const readsOf = (github: FakeGitHubApi) =>
+    createGitHubReads(createGitHubClient({ exec: ghOver(github.fetch).exec }));
+
+  it('numbers a pull request after the issues of its repository, and a comment after the last comment', async () => {
+    const github = fakeGitHubApi({
+      login: 'ann',
+      issues: { 'acme/web': [{ number: 3, labels: [], author: 'bob' }] },
+    });
+    const comment = async () => {
+      const answer = await post(github, 'acme/web/issues/3/comments', { body: 'C' });
+      return ((await answer.json()) as { id: number }).id;
+    };
+    assert.equal(await comment(), 1);
+    assert.equal(await opens(github, 'acme/web', 'foedrum/3'), 4);
+    assert.equal(await comment(), 2);
+    assert.equal(await opens(github, 'acme/lib', 'foedrum/1'), 1);
+    const issue = (await (await post(github, 'acme/web/issues', { title: 'T' })).json()) as Item;
+    assert.equal(issue.number, 5);
+  });
+
+  it('lists the pull requests it opened among the issues, with pull_request set, and a merged one only for every state', async () => {
+    const github = fakeGitHubApi({
+      login: 'ann',
+      issues: { 'acme/web': [{ number: 3, labels: [], author: 'bob' }] },
+    });
+    const open = await opens(github, 'acme/web', 'foedrum/a');
+    const merged = await opens(github, 'acme/web', 'foedrum/b');
+    github.merge('acme/web', merged, { sha: MERGE, at: T1 });
+    const shown = (items: Item[]) => items.map((each) => [each.number, 'pull_request' in each]);
+    assert.deepStrictEqual(shown(await listed(github, 'acme/web/issues')), [
+      [3, false],
+      [open, true],
+    ]);
+    assert.deepStrictEqual(shown(await listed(github, 'acme/web/issues?state=all')), [
+      [3, false],
+      [open, true],
+      [merged, true],
+    ]);
+  });
+
+  it('records a labeled event by its login at its clock for each label added through the API, and an unlabeled event for each removed', async () => {
+    const times = [T2, T1];
+    const github = fakeGitHubApi({
+      login: 'ann',
+      issues: { 'acme/web': [{ number: 7, labels: ['bug'], author: 'bob', created: T0 }] },
+      clock: () => new Date(times.shift() ?? T3),
+    });
+    await post(github, 'acme/web/issues/7/labels', { labels: ['foedrum'] });
+    await github.fetch(`${api}/repos/acme/web/issues/7/labels/bug`, { method: 'DELETE' });
+    const answer = await github.fetch(`${api}/repos/acme/web/issues/7/events`);
+    const events = (await answer.json()) as {
+      event: string;
+      actor: { login: string };
+      label: { name: string };
+      created_at: string;
+    }[];
+    assert.deepStrictEqual(
+      events.map((each) => [each.event, each.label.name, each.actor.login, each.created_at]),
+      [
+        ['labeled', 'bug', 'bob', T0],
+        ['labeled', 'foedrum', 'ann', T2],
+        ['unlabeled', 'bug', 'ann', T1],
+      ],
+    );
+  });
+
+  it('records a label a test adds as the actor it names, so the tracker reads a stranger as its last adder', async () => {
+    const github = fakeGitHubApi({
+      login: 'ann',
+      issues: { 'acme/web': [{ number: 7, labels: [], author: 'ann' }] },
+    });
+    assert.doesNotThrow(() => github.label('acme/web', 7, 'foedrum', 'mallory'));
+    assert.deepStrictEqual(await githubTargetTracker(readsOf(github)).labelsAdded('acme/web', 7), [
+      { label: 'foedrum', by: 'mallory' },
+    ]);
+  });
+
+  it('records no event for a label the issue already has', async () => {
+    const github = fakeGitHubApi({
+      login: 'ann',
+      issues: { 'acme/web': [{ number: 7, labels: ['foedrum'], author: 'bob' }] },
+    });
+    await post(github, 'acme/web/issues/7/labels', { labels: ['foedrum'] });
+    assert.deepStrictEqual(github.issue('acme/web', 7)?.labels, ['foedrum']);
+    assert.deepStrictEqual(await githubTargetTracker(readsOf(github)).labelsAdded('acme/web', 7), [
+      { label: 'foedrum', by: 'bob' },
+    ]);
+  });
+
+  it('pages a list by per_page and page with a Link to the next page, 30 by default and never more than 100', async () => {
+    const issues = Array.from({ length: 101 }, (_, index) => ({
+      number: index + 1,
+      labels: [],
+      author: 'bob',
+    }));
+    const github = fakeGitHubApi({ login: 'ann', issues: { 'acme/web': issues } });
+    const page = async (query: string) => {
+      const answer = await github.fetch(`${api}/repos/acme/web/issues${query}`);
+      const items = (await answer.json()) as Item[];
+      return [items.map((each) => each.number), answer.headers.get('link')];
+    };
+    const numbers = (from: number, to: number) =>
+      Array.from({ length: to - from + 1 }, (_, index) => from + index);
+    assert.deepStrictEqual(await page('?per_page=100'), [
+      numbers(1, 100),
+      `<${api}/repos/acme/web/issues?per_page=100&page=2>; rel="next"`,
+    ]);
+    assert.deepStrictEqual(await page('?per_page=100&page=2'), [[101], null]);
+    assert.deepStrictEqual((await page('?per_page=500'))[0], numbers(1, 100));
+    assert.deepStrictEqual(await page(''), [
+      numbers(1, 30),
+      `<${api}/repos/acme/web/issues?page=2>; rel="next"`,
+    ]);
+  });
+
+  it('pages every list it answers', async () => {
+    const github = fakeGitHubApi({
+      login: 'ann',
+      issues: {
+        'acme/web': [
+          { number: 1, labels: ['a', 'b'], author: 'bob', subIssues: [2, 3], blockedBy: [2, 3] },
+          { number: 2, labels: [], author: 'bob' },
+          { number: 3, labels: [], author: 'bob' },
+        ],
+      },
+    });
+    await post(github, 'acme/web/issues/1/comments', { body: 'C' });
+    await post(github, 'acme/web/issues/1/comments', { body: 'D' });
+    const pull = await opens(github, 'acme/web', 'foedrum/a');
+    await opens(github, 'acme/web', 'foedrum/b');
+    const comments = [
+      { path: 'a.ts', body: 'A' },
+      { path: 'b.ts', body: 'B' },
+    ];
+    github.review('acme/web', pull, { id: 8, by: 'bob', state: 'COMMENTED', body: 'R', comments });
+    github.review('acme/web', pull, { id: 9, by: 'bob', state: 'APPROVED', body: 'S', comments });
+    const lists = [
+      'issues',
+      'issues/1/comments',
+      'issues/1/events',
+      'issues/1/sub_issues',
+      'issues/1/dependencies/blocked_by',
+      'pulls',
+      `pulls/${pull}/reviews`,
+      `pulls/${pull}/reviews/8/comments`,
+    ];
+    for (const list of lists) {
+      const answer = await github.fetch(`${api}/repos/acme/web/${list}?per_page=1`);
+      assert.equal(((await answer.json()) as unknown[]).length, 1, list);
+      assert.match(answer.headers.get('link') ?? '', /page=2>; rel="next"$/, list);
+    }
+  });
+
+  it('reads every item of a list longer than one page through the GitHub reads', async () => {
+    const issues = Array.from({ length: 25 }, (_, index) => ({
+      number: index + 1,
+      labels: [],
+      author: 'bob',
+    }));
+    const github = fakeGitHubApi({ login: 'ann', issues: { 'acme/web': issues } });
+    const found = await githubTargetTracker(readsOf(github)).issues('acme/web');
+    assert.equal(found.length, 25);
+    const pages = github.requests.filter((each) => each.startsWith('GET /repos/acme/web/issues?'));
+    assert.equal(pages.length, 3);
   });
 });

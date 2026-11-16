@@ -113,6 +113,8 @@ export interface FakeGitHubApiOptions {
   visibilities?: Record<string, FakeApiVisibility>;
   /** The answer to send instead for a request, or undefined for the fake's own. */
   instead?: (method: string, url: URL) => Instead | undefined;
+  /** The time a label added or removed through the API is recorded at; by default the wall clock. */
+  clock?: () => Date;
 }
 
 export interface FakeGitHubApi {
@@ -138,6 +140,8 @@ export interface FakeGitHubApi {
   release(repo: string, release: FakeApiRelease): void;
   /** Submits `review` on the pull request `repo#number` it opened, as a person would on GitHub. */
   review(repo: string, number: number, review: FakeApiReview): void;
+  /** Adds `label` to the issue `repo#number` as `by` would on GitHub, which records who did. */
+  label(repo: string, number: number, label: string, by: string): void;
 }
 
 const json = (status: number, body: unknown, headers: Record<string, string> = {}): Response =>
@@ -635,6 +639,9 @@ export const fakeGitHubApi = (options: FakeGitHubApiOptions): FakeGitHubApi => {
       const pull = pulls.find((each) => each.repo === repo.toLowerCase() && each.number === number);
       if (pull === undefined) throw new Error(`The fake opened no pull request ${repo}#${number}`);
       pull.reviews = [...(pull.reviews ?? []), review];
+    },
+    label: () => {
+      throw new Error('not implemented');
     },
     release: (repo, release) => {
       const key = repo.toLowerCase();
