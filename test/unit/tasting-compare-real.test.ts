@@ -178,10 +178,7 @@ const attempt = (
 });
 
 /** The Taster that reads the rules, which a scratch Brewery loads as its brewer (ADR 0352). */
-const READS = readFileSync(
-  join(root, 'test', 'fixtures', 'tasting-compare', 'real', 'taster-reads.md'),
-  'utf8',
-);
+const READS = readFileSync(join(root, 'tasting-room', 'real', 'taster-reads.md'), 'utf8');
 const TASTERS = { today: 'the old text', reads: READS };
 
 const SETUPS: readonly RealSetup[] = [
@@ -2272,7 +2269,7 @@ describe('tasting-compare --real: the opus and high setups (ADR 0344)', () => {
 
 describe('tasting-compare --real: 867-comments (ADR 0333)', () => {
   const read = (file: string) =>
-    readFileSync(new URL(`../fixtures/tasting-compare/real/${file}`, import.meta.url), 'utf8');
+    readFileSync(new URL(`../../tasting-room/real/${file}`, import.meta.url), 'utf8');
 
   it('holds the one comment #867 had before it brewed, in its exact words and date', () => {
     const comments = realCommentsOf('867-comments', 'the-maintainer', read);

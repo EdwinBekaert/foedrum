@@ -16,7 +16,6 @@ import {
 import { COMMIT_HEX, isCommitSha, noCommitSha } from '../schemas/store.ts';
 import {
   aborts,
-  firstLine,
   fullSha,
   gitOutput,
   inClone,
@@ -24,7 +23,7 @@ import {
   type OwnRemote,
   withOwnGitDir,
 } from './clone-git.ts';
-import type { Git, GitOptions } from './git.ts';
+import { type Git, type GitOptions, gitFailure } from './git.ts';
 
 export interface BranchPushOptions {
   git: Git;
@@ -184,7 +183,7 @@ export const openBranchPush = (options: BranchPushOptions): BranchPush => {
       const result = await local(clone, args, aborts(signal));
       // 0: an ancestor, 1: not one; anything else is git failing.
       if (result.code === 0 || result.code === 1) return result.code === 0;
-      throw new Error(`git merge-base failed: ${firstLine(result)}`);
+      throw new Error(`git merge-base failed: ${gitFailure(result)}`);
     },
     // The fetch runs in a git directory of its own (ADR 0090): no fetch at the same time, and
     // nothing a fetch killed at its deadline left (a ref's lock, a ref of a commit the clone has
@@ -250,7 +249,7 @@ export const openBranchPush = (options: BranchPushOptions): BranchPush => {
       const read = async (args: string[]): Promise<string | undefined> => {
         const result = await local(clone, args, options);
         if (result.killed === 'too-much-output') return undefined;
-        if (result.code !== 0) throw new Error(`git ${args[0]} failed: ${firstLine(result)}`);
+        if (result.code !== 0) throw new Error(`git ${args[0]} failed: ${gitFailure(result)}`);
         return result.stdout;
       };
       const messages = await read([...MESSAGES, ...range]);

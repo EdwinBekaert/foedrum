@@ -179,13 +179,16 @@ describe('withoutHandover', () => {
   it('takes out a key JSON spells another way, or gives twice', () => {
     const escaped = `---\n{ "status": "done", "\\u0068andover": ["${LESSON}"] }\n---\nBody\n`;
     assert.doesNotMatch(withoutHandover(escaped), /fixture parser/);
+    assert.equal(withoutHandover(escaped), '---\n{"status":"done"}\n---\nBody\n');
     const twice = `---\n{ "handover": ["${LESSON}"], "status": "done", "handover": ["${LESSON}"] }\n---\nBody\n`;
     assert.doesNotMatch(withoutHandover(twice), /fixture parser/);
+    assert.equal(withoutHandover(twice), '---\n{"status":"done"}\n---\nBody\n');
   });
 
   it('takes it out behind a BOM, as the reader reads one', () => {
     const text = `﻿${withLesson()}`;
     assert.doesNotMatch(withoutHandover(text), /fixture parser/);
+    assert.equal(withoutHandover(text), docWith(done));
   });
 
   it('leaves a text with no frontmatter as it is: there is no field in it', () => {
@@ -195,6 +198,7 @@ describe('withoutHandover', () => {
   it('takes it out of a frontmatter with CRLF line ends', () => {
     const text = `---\r\n{ "status": "done", "handover": ["${LESSON}"] }\r\n---\r\nBody\r\n`;
     assert.doesNotMatch(withoutHandover(text), /fixture parser/);
+    assert.equal(withoutHandover(text), '---\n{"status":"done"}\n---\nBody\r\n');
   });
 
   it('leaves a text whose first line only starts with the delimiter as it is', () => {

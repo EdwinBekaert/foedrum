@@ -1,4 +1,4 @@
-// The Flight's orders in tasting-room/ (ADR 0404): each order's files read and checked, the
+// The Flight's orders in tasting-room/orders/ (ADR 0404): each order's files read and checked, the
 // trees its proof lays down, and what a proof run's exit means. The proof itself runs in
 // test/integration/flight-orders.test.ts. The Flight, scripts/flight.ts, builds its target from the
 // same starting tree and lays the hidden tests over a brewed head with `withLayer` (ADR 0409).
@@ -43,6 +43,9 @@ export interface ProofRun {
  * review loads a fixture's rules as its own; a laid-down tree holds it as `CLAUDE.md`.
  */
 export const INSTRUCTIONS_FILE = 'INSTRUCTIONS.fixture.md';
+
+/** The folder of the Flight's orders, one folder per order: the one place it is named. */
+export const ORDERS = join(import.meta.dirname, '..', 'tasting-room', 'orders');
 
 /** Where every hidden test sits in a tree, so none replaces a test a brewer wrote. */
 export const HIDDEN_FOLDER = 'test/hidden/';
@@ -142,9 +145,6 @@ export const proofProblem = (run: ProofRun, exitCode: number | null): string | u
   return undefined;
 };
 
-/** The tasting room's folder of orders, the one place a reader of the orders finds them. */
-export const TASTING_ROOM = join(import.meta.dirname, '..', 'tasting-room');
-
 /** The files under `folder`, by their path from it. */
 export const folderFiles = (folder: string): Files =>
   Object.fromEntries(
@@ -158,8 +158,8 @@ export const folderFiles = (folder: string): Files =>
 
 /** Every order of the tasting room, read from its folder in the order of their names. */
 export const tastingRoomOrders = (): FlightOrder[] =>
-  readdirSync(TASTING_ROOM, { withFileTypes: true })
+  readdirSync(ORDERS, { withFileTypes: true })
     .filter((entry) => entry.isDirectory())
     .map((entry) => entry.name)
     .sort()
-    .map((name) => readOrder(name, folderFiles(join(TASTING_ROOM, name))));
+    .map((name) => readOrder(name, folderFiles(join(ORDERS, name))));

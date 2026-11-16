@@ -8,7 +8,7 @@ import { join } from 'node:path';
 import type { AttemptRef } from '../engine/attempt-key.ts';
 import type { Batch } from '../engine/fold.ts';
 import { matchesWithDots } from '../engine/path-globs.ts';
-import { messageOf } from '../platform/errors.ts';
+import { lastLine, messageOf } from '../platform/errors.ts';
 import { pathInside } from '../platform/paths.ts';
 import { realPath } from '../platform/real-path.ts';
 import { readJsonc } from '../schemas/read.ts';
@@ -78,14 +78,8 @@ const MAX_MAP_BYTES = 1024 * 1024;
 const MAP_READ_MS = 10_000;
 
 /** Why git failed: the last line it wrote on stderr, or how it ended. */
-const gitFailedWhy = (result: GitResult): string => {
-  const last = result.stderr
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter((line) => line !== '')
-    .at(-1);
-  return last ?? `git exited with ${result.code ?? result.killed ?? 'no code'}`;
-};
+const gitFailedWhy = (result: GitResult): string =>
+  lastLine(result.stderr) ?? `git exited with ${result.code ?? result.killed ?? 'no code'}`;
 
 /** Why git could not read the map. */
 const gitFailed = (result: GitResult): MapRead =>

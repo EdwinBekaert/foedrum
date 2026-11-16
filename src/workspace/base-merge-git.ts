@@ -6,8 +6,8 @@
 import type { WorktreeMerge } from '../engine/base-merge.ts';
 import { samePath } from '../platform/paths.ts';
 import { isCommitSha, type KeptFile, MAX_CONFLICTS, noCommitSha } from '../schemas/store.ts';
-import { aborts, firstLine, fullSha, gitOutput, inClone } from './clone-git.ts';
-import type { Git } from './git.ts';
+import { aborts, fullSha, gitOutput, inClone } from './clone-git.ts';
+import { type Git, gitFailure } from './git.ts';
 import { readRecords } from './worktree-records.ts';
 
 /** What `git status --porcelain=v2` calls each kind of unmerged file, by its XY. */
@@ -90,7 +90,7 @@ export const openWorktreeMerge = ({ git, clone }: WorktreeMergeOptions): Worktre
     const grep = ['--literal-pathspecs', 'grep', '-l', '-z', '-I', '-e', '^<<<<<<< ', '--'];
     const found = await local(path, [...grep, ...named], aborts(signal));
     if (found.code !== 0 && found.code !== 1)
-      throw new Error(`git grep failed: ${firstLine(found)}`);
+      throw new Error(`git grep failed: ${gitFailure(found)}`);
     const marked = new Set(found.stdout.split('\0'));
     return files.map((file, index) =>
       index < MAX_CONFLICTS && !marked.has(file.path) ? { ...file, unmarked: true } : file,
@@ -129,7 +129,7 @@ export const openWorktreeMerge = ({ git, clone }: WorktreeMergeOptions): Worktre
       );
       const files = unmerged.split('\0').filter((file) => file !== '');
       await abort(path, signal);
-      if (files.length === 0) throw new Error(`git merge failed: ${firstLine(result)}`);
+      if (files.length === 0) throw new Error(`git merge failed: ${gitFailure(result)}`);
       return { kind: 'conflicts', files };
     },
   };

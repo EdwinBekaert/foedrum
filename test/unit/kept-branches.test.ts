@@ -224,6 +224,19 @@ describe('readKeptBranches', () => {
     });
   });
 
+  it('says git did not finish in time when it was killed without a word', async () => {
+    const { git } = fakeGit(() => ({ code: null, stdout: '', stderr: '' }));
+    const readings = await readKeptBranches(
+      state(batch('12-1', 'acme/app')),
+      new Map([[branch, START]]),
+      { git, cloneOf },
+    );
+    assert.deepEqual(readings.get(branch), {
+      kind: 'unread',
+      reason: `git rev-parse in ${CLONE} failed: git did not finish in time`,
+    });
+  });
+
   it('lists a branch rev-parse failed on silently with another code as not read, never gone', async () => {
     const { git } = fakeGit(() => ({ code: 128, stdout: '', stderr: '' }));
     const readings = await readKeptBranches(

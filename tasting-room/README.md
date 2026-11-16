@@ -1,14 +1,26 @@
-# The tasting room: the Flight's orders
+# The tasting room: Foedrum's benchmark
 
-The tasting room is Foedrum's benchmark: a Flight, `node scripts/flight.ts`, brews these orders to judge a change to a recipe, a prompt or a model, by whether the brewed change passes each order's hidden tests.
+The tasting room holds the material that measures how well Foedrum's brewers, recipes, lenses and models do, apart from `test/fixtures/`, which holds inputs for tests of Foedrum's own code.
+How each comparison runs, and what is built and what is not yet, is in [Evaluation](../docs/design/evaluation.md).
+
+| Folder | What it is for |
+|---|---|
+| `orders/` | The Flight's orders, one folder per order: a tiny made-up repository with one trap, its order, hidden tests and a reference solution ([ADR 0404](../docs/adr/0404-the-flight-s-tasting-room-is-a-folder-of-orders-each-proved-by-its-hidden-tests.md)) |
+| `seeded/` | The seeded change and its key, which `node scripts/tasting-compare.ts` tastes, and `plan/`, the seeded plan `--plan` tastes |
+| `real/` | The three orders of #879 whose brewed heads `node scripts/tasting-compare.ts --real` tastes, and the pinned Taster its setups start from |
+| `lenses/` | Planted-defect samples that check the review skill and a lens after its prompt changes |
+
+Each folder's README says what its files are and what a run should find.
+
+## The Flight's orders
+
+A Flight, `node scripts/flight.ts`, brews the orders in `orders/` to judge a change to a recipe, a prompt or a model, by whether the brewed change passes each order's hidden tests ([ADR 0409](../docs/adr/0409-a-flight-brews-every-tasting-room-order-on-a-recipe-as-it-ships-or-with-one-brewer-swapped.md)).
 CI runs only the proof that each order is fair, its hidden tests failing on the starting repository and passing with the reference solution, and no model.
+`scripts/flight-orders.ts` reads them from `ORDERS`, and `test/integration/flight-orders.test.ts` proves, for every order, that its hidden tests fail on the starting repository and pass with its reference solution.
 
-Each folder here is one order a Flight brews ([ADR 0404](../docs/adr/0404-the-flight-s-tasting-room-is-a-folder-of-orders-each-proved-by-its-hidden-tests.md)): a tiny made-up repository, the order's text, one trap a weaker setup can miss, hidden tests a brewer never sees, and a reference solution.
-`scripts/flight-orders.ts` reads them, and `test/integration/flight-orders.test.ts` proves, for every order, that its hidden tests fail on the starting repository and pass with its reference solution.
+### One order's files
 
-## One order's files
-
-- `order.md`: the order's issue text, its title on the first line. A Flight's brewer gets it and the starting repository, nothing else ([ADR 0409](../docs/adr/0409-a-flight-brews-every-tasting-room-order-on-a-recipe-as-it-ships-or-with-one-brewer-swapped.md)).
+- `order.md`: the order's issue text, its title on the first line. A Flight's brewer gets it and the starting repository, nothing else.
 - `order.json`: `trap`, its `kind` (`house-rule`, `design-page` or `edge-case`) and a `line` a person reads, and `allowedPaths`, the path prefixes the change may touch (one that ends in `/` is a folder).
 - `base/`: the starting repository, plain Node with `node:test` and no dependencies.
   Its instruction file is `base/INSTRUCTIONS.fixture.md`, laid down as `CLAUDE.md`: a file named `CLAUDE.md` here would be loaded as a rule by Foedrum's own sessions and reviews.
@@ -18,7 +30,7 @@ Each folder here is one order a Flight brews ([ADR 0404](../docs/adr/0404-the-fl
 The proof runs every order's hidden tests as a whole: they must fail on the base and pass with the solution. Whether they catch the order's trap is checked by review and by a break per test, not by the proof.
 A commit that adds an order says in its message that the integration tests it adds are tests of new behaviour, and its pull request shows a break per test: the order changed so that test, and only it, fails.
 
-## The orders
+### The orders
 
 | Order | Trap | The trap |
 |---|---|---|

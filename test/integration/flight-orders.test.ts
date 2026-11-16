@@ -1,4 +1,4 @@
-// The Flight's proof (ADR 0404): for every order in tasting-room/, its hidden tests fail on
+// The Flight's proof (ADR 0404): for every order in tasting-room/orders/, its hidden tests fail on
 // the starting repository and pass with its reference solution, each run by a real `node --test`.
 
 import assert from 'node:assert/strict';

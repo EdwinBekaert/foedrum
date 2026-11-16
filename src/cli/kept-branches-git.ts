@@ -5,7 +5,7 @@
 import type { State } from '../engine/fold.ts';
 import { messageOf } from '../platform/errors.ts';
 import { parseAttemptBranch } from '../workspace/attempt-worktrees.ts';
-import type { Git, GitResult } from '../workspace/git.ts';
+import { type Git, type GitResult, gitFailure } from '../workspace/git.ts';
 import type { BranchReading } from './kept-branches.ts';
 
 export interface KeptBranchesShell {
@@ -15,12 +15,6 @@ export interface KeptBranchesShell {
 }
 
 class Unread extends Error {}
-
-const firstLine = (text: string): string =>
-  text
-    .split(/\r?\n/)
-    .find((line) => line.trim() !== '')
-    ?.trim() ?? '';
 
 // git's output, or Unread with the first line of why it failed.
 const output = async (
@@ -38,7 +32,7 @@ const output = async (
   }
   // `rev-parse --verify --quiet` says nothing when the ref is not there.
   if (result.code === 0 || (quietMiss && result.code === 1 && result.stderr === '')) return result;
-  throw failed(firstLine(result.stderr) || `git exited with ${result.code}`);
+  throw failed(gitFailure(result));
 };
 
 const readOne = async (

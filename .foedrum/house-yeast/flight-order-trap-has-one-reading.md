@@ -3,7 +3,7 @@
   "id": "flight-order-trap-has-one-reading",
   "scope": {
     "globs": [
-      "tasting-room/**"
+      "tasting-room/orders/**"
     ]
   },
   "kind": "semantic",

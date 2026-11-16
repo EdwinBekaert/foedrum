@@ -12,7 +12,6 @@ import { realPath } from '../platform/real-path.ts';
 import { removeTree } from '../platform/remove.ts';
 import { isCommitSha } from '../schemas/store.ts';
 import {
-  firstLine,
   fullSha,
   gitOutput,
   inClone,
@@ -20,7 +19,7 @@ import {
   type OwnRemote,
   withOwnGitDir,
 } from './clone-git.ts';
-import type { Git, GitResult } from './git.ts';
+import { type Git, type GitResult, gitFailure } from './git.ts';
 
 export interface MergeTreeOptions {
   git: Git;
@@ -67,14 +66,14 @@ const mergeArgs = (head: string, tip: string): string[] => [
 const mergeOf = (result: GitResult): { tree: string; conflicts: string[] } => {
   // 0: clean, 1: conflicts; anything else is git failing.
   if (result.code !== 0 && result.code !== 1) {
-    throw new Error(`git merge-tree failed: ${firstLine(result)}`);
+    throw new Error(`git merge-tree failed: ${gitFailure(result)}`);
   }
   // The merged tree, then each conflicting file, each after a NUL.
   const [tree = '', ...named] = result.stdout.split('\0');
   if (result.code === 0) return { tree: tree.trim(), conflicts: [] };
   const conflicts = [...new Set(named.filter((file) => file !== ''))];
   if (conflicts.length === 0) {
-    throw new Error(`git merge-tree named no conflicting file: ${firstLine(result)}`);
+    throw new Error(`git merge-tree named no conflicting file: ${gitFailure(result)}`);
   }
   return { tree: tree.trim(), conflicts };
 };
@@ -170,7 +169,7 @@ const checkedOut = async <T>(
       ['worktree', 'add', '--quiet', '--detach', '--end-of-options', worktree, commit],
       { timeoutMs: CHECKOUT_TIMEOUT_MS },
     );
-    if (added.code !== 0) throw new Error(`git worktree add failed: ${firstLine(added)}`);
+    if (added.code !== 0) throw new Error(`git worktree add failed: ${gitFailure(added)}`);
     return await use(worktree);
   } finally {
     await removeTree(worktree);

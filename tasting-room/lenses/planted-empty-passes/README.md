@@ -3,7 +3,6 @@
 A change and the base it is made on, used to check `defaults/lenses/diff/test-design.md` after a prompt changes (CLAUDE.md, Tests), with [planted-drifted-fake](../planted-drifted-fake/README.md) and [planted-snapshot-only](../planted-snapshot-only/README.md) (#1099).
 It is built from `test/unit/status-failing.test.ts`, whose test of a summary that reads like a secret asserts only that the token is not there.
 The files are data: no test applies them.
-#1096 moves this sample, with the other lens samples, into the tasting room.
 
 - `0001`: the base, a tiny repository: `src/status.mjs` renders a batch's status, and its test checks the whole text.
 - `0002`: the change: a summary that holds a GitHub token is left out, with a test whose only assertion is `doesNotMatch(…, /ghp_/)`.

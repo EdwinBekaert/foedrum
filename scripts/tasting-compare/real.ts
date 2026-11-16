@@ -456,7 +456,7 @@ export const realBreweryFiles = (setup: RealSetup, tasters: Tasters): Record<str
 
 /**
  * The comments on the fake host's issue in a run of `setup`, `author` a maintainer's login, the
- * text from `read` of a file of `test/fixtures/tasting-compare/real/`.
+ * text from `read` of a file of `tasting-room/real/`.
  */
 export const realCommentsOf = (
   setup: RealSetup,

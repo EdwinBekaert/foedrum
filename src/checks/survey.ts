@@ -8,6 +8,7 @@ import { type AttemptRef, attemptKey } from '../engine/attempt-key.ts';
 import type { AttemptEnd, AttemptStart, BrewerRunner } from '../engine/brewer-runner.ts';
 import { roundRouteOf, type State } from '../engine/fold.ts';
 import type { AttemptProgress } from '../engine/supervisor.ts';
+import { lastLine } from '../platform/errors.ts';
 import { type SurveyMap, surveyOf } from '../schemas/out-doc.ts';
 import { attemptBranch } from '../workspace/attempt-worktrees.ts';
 import type { Git } from '../workspace/git.ts';
@@ -60,11 +61,7 @@ const blocked = (summary: string): AttemptEnd => ({
 
 /** Why git failed: its last line on stderr, or how it ended. */
 const gitFailed = (stderr: string, code: number | null): string =>
-  stderr
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter((line) => line !== '')
-    .at(-1) ?? `git exited with ${code ?? 'no code'}`;
+  lastLine(stderr) ?? `git exited with ${code ?? 'no code'}`;
 
 export function surveyed(options: SurveyOptions): BrewerRunner {
   const { runner, state, surveys, mapOnly, testMap, keptIn, git, clone } = options;

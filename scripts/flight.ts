@@ -35,7 +35,7 @@ import {
   nextFlightRun,
   outsidePaths,
 } from './flight/core.ts';
-import { startingTree, TASTING_ROOM, tastingRoomOrders, withLayer } from './flight-orders.ts';
+import { ORDERS, startingTree, tastingRoomOrders, withLayer } from './flight-orders.ts';
 import { compare, type Mode, transcriptOf, write } from './tasting-compare/harness.ts';
 import { scriptedTranscript } from './tasting-compare/real.ts';
 
@@ -75,7 +75,7 @@ const OUTPUT_KEPT = 4096;
 const mode: Mode<string, FlightRecord> = {
   folders: ['flight'],
   setups: [...orders.keys()],
-  order: (name) => join(TASTING_ROOM, name, 'order.md'),
+  order: (name) => join(ORDERS, name, 'order.md'),
   recipeOf: () => settings.recipe,
   breweryFiles: () =>
     flightBreweryFiles(settings, text, { brewery: BREWERY, target: TARGET, user: USER }),
