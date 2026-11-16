@@ -13,7 +13,8 @@
 // comparison goes on where it stopped; a failed run is brewed once more. --dry-run plays the
 // Tasters too, each reporting the key's defects of its lenses, in .foedrum/tmp/tasting-compare/
 // dry-run, to show the table before any token is spent. The decisions are
-// scripts/tasting-compare/core.ts, and which mode the options run is scripts/tasting-compare/options.ts.
+// scripts/tasting-compare/core.ts, which mode the options run is scripts/tasting-compare/options.ts,
+// and the brewing of each run is scripts/tasting-compare/harness.ts.
 //
 // With --model <level or id> --effort <effort> (#602, ADR 0405) every Taster step of the three
 // setups runs on that level, or on a model id through models.jsonc's strong as --brewer taster maps
