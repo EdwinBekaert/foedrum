@@ -20,7 +20,7 @@ export interface FlightOrder {
   name: string;
   /** The first line of order.md. */
   title: string;
-  /** order.md as a whole: the issue text a brewer gets, and the only file it gets. */
+  /** order.md as a whole: the issue text, the only file a brewer is to get once #1083 brews it. */
   text: string;
   trap: { kind: TrapKind; line: string };
   /** Path prefixes the change may touch; one that ends in `/` is a folder. */
