@@ -9,7 +9,7 @@
 
 import assert from 'node:assert/strict';
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname, join, parse, win32 } from 'node:path';
+import { dirname, join, win32 } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { assembleBrewerPrompt } from '../../src/brewers/prompt.ts';
 import { columns } from '../../src/cli/columns.ts';
@@ -27,13 +27,7 @@ import {
   MADE_UP_CONFIG,
   MADE_UP_HOST,
 } from '../helpers/canned-gh.ts';
-import {
-  cuedTimers,
-  descheduled,
-  hangGuardMs,
-  hangGuardTimers,
-  waitUntil,
-} from '../helpers/load.ts';
+import { hangGuardTimers } from '../helpers/load.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 import { type CapturedAnswer, stubPath, writeStubTools } from './stub-tools.ts';
 
@@ -97,7 +91,7 @@ const KEEP_AWAKE_LINE =
 // What each tool prints for its version, in its own format, with the versions of the captures in
 // test/unit (doctor.test.ts, doctor-facts.test.ts and cli.test.ts's report); gh's come from
 // test/helpers/canned-gh.ts. The real tools' output is no longer read here (ADR 0075).
-const answers = (started: string): Record<string, CapturedAnswer> => ({
+const answers = (): Record<string, CapturedAnswer> => ({
   'npm --version': { stdout: '11.6.2\n' },
   'gh --version': { stdout: GH_VERSION_ANSWER },
   [`gh auth status --hostname ${MADE_UP_HOST}`]: { stdout: GH_LOGGED_IN_ANSWER },
@@ -107,23 +101,8 @@ const answers = (started: string): Record<string, CapturedAnswer> => ({
     stdout:
       'socat by Gerhard Rieger and contributors - see www.dest-unreach.org\nsocat version 1.7.4.4 on 06 Nov 2022 08:15:51\n',
   },
-  'podman --version': started === '' ? { stdout: 'podman version 5.2.0\n' } : { hang: started },
-  'docker --version': { stdout: 'Docker version 27.3.1, build ce12230\n' },
 });
 const ghHelper = `[credential "https://${MADE_UP_HOST}"]\n\thelper =\n\thelper = !gh auth git-credential\n`;
-
-// A loaded machine (#212): right after doctor has started its probes, the test process loses
-// 3.1 s, more than a container runtime's 3 s, without using the CPU (ADR 0070).
-const loaded = (exec: ExecProcess): ExecProcess => {
-  let first = true;
-  return (file, args, options) => {
-    if (first) {
-      first = false;
-      setImmediate(() => descheduled(3_100));
-    }
-    return exec(file, args, options);
-  };
-};
 
 // A tool's name in the report, padded to its column: on Linux the column fits slirp4netns, the
 // network stack's row (ADR 0218).
@@ -179,7 +158,7 @@ const writtenDown =
 // Where check steps run (ADR 0076): outside any sandbox only on native Windows.
 const onWindows = process.platform === 'win32';
 const keyring = (sandboxedLevel: string) =>
-  `  ${onWindows ? 'A brewer or a check step runs' : 'A brewer runs'} as you here, so it can still read gh's login from the OS keyring or its hosts file. ${sandboxedLevel} ${sandboxHides}${sandboxedLevel.startsWith('In WSL2') ? " Under WSL, the user folders include the Windows user's logins under /mnt (ADR 0160)." : ''} For brewers, the container level mounts only the worktree, which closes both. ${writtenDown} ${onWindows ? "On native Windows, check steps run outside any sandbox, so they can still read gh's login (ADR 0076)." : "Check steps run only in bubblewrap's sandbox, with no network and the home folder hidden; where it cannot start, they do not run (ADR 0076)."}`;
+  `  ${onWindows ? 'A brewer or a check step runs' : 'A brewer runs'} as you here, so it can still read gh's login from the OS keyring or its hosts file. ${sandboxedLevel} ${sandboxHides}${sandboxedLevel.startsWith('In WSL2') ? " Under WSL, the user folders include the Windows user's logins under /mnt (ADR 0160)." : ''} ${writtenDown} ${onWindows ? "On native Windows, check steps run outside any sandbox, so they can still read gh's login (ADR 0076)." : "Check steps run only in bubblewrap's sandbox, with no network and the home folder hidden; where it cannot start, they do not run (ADR 0076)."}`;
 const checkStepKeyring = `  The sandbox ${sandboxHides} ${writtenDown} Check steps run in an OS sandbox of their own, with no network and the home folder hidden, so they can't read gh's login (ADR 0076).`;
 
 // The lines that differ by platform: the sandbox's tools, the isolation level, its advice and its
@@ -244,7 +223,7 @@ describe('foedrum doctor with stub tools', () => {
   afterEach(() => removeTree(dir.path));
 
   it('reports every tool, its version and its path, and exits 0', async () => {
-    const run = await doctorWithStubs(dir.path, answers(''), ghHelper, loaded(guarded));
+    const run = await doctorWithStubs(dir.path, answers(), ghHelper, guarded);
     const { at } = run;
     const platform = sandbox(at, true);
     assert.equal(run.stderr, '');
@@ -261,7 +240,6 @@ describe('foedrum doctor with stub tools', () => {
         ...platform.rows,
         '',
         ...platform.isolation,
-        `Container: podman 5.2.0 at ${at('podman')}; the container level is available`,
         DEFAULTS_LINE,
         DENYLIST_LINE,
         KEEP_AWAKE_LINE,
@@ -275,15 +253,15 @@ describe('foedrum doctor with stub tools', () => {
   });
 
   it('reports the tools that are missing, a missing login and credential helper, and exits 1', async () => {
-    const all = answers('');
+    const all = answers();
     const stubs = Object.fromEntries(
-      Object.entries(all).filter(([line]) => !/^(?:npm|claude|bwrap|podman) /.test(line)),
+      Object.entries(all).filter(([line]) => !/^(?:npm|claude|bwrap) /.test(line)),
     );
     stubs[`gh auth status --hostname ${MADE_UP_HOST}`] = {
       exitCode: 1,
       stderr: GH_NO_LOGIN_ANSWER,
     };
-    const run = await doctorWithStubs(dir.path, stubs, '', loaded(guarded));
+    const run = await doctorWithStubs(dir.path, stubs, '', guarded);
     const { at } = run;
     const platform = sandbox(at, false);
     const host = MADE_UP_HOST;
@@ -301,7 +279,6 @@ describe('foedrum doctor with stub tools', () => {
         ...platform.rows,
         '',
         ...platform.isolation,
-        `Container: docker 27.3.1 at ${at('docker')}; the container level is available`,
         DEFAULTS_LINE,
         DENYLIST_LINE,
         KEEP_AWAKE_LINE,
@@ -320,48 +297,6 @@ describe('foedrum doctor with stub tools', () => {
     );
     assert.equal(run.exitCode, 1);
   });
-
-  it('passes over a container runtime that hangs for the next one', {
-    timeout: hangGuardMs,
-  }, async () => {
-    const started = join(dir.path, 'started');
-    // podman's deadline comes once its stub runs, however late a loaded machine starts it.
-    const deadline = cuedTimers();
-    const cued = execProcessWith(processSpawner, deadline);
-    const exec: ExecProcess = (file, args, options) =>
-      (parse(file).name === 'podman' ? cued : guarded)(file, args, options);
-    const running = doctorWithStubs(dir.path, answers(started), ghHelper, loaded(exec));
-    await waitUntil('podman to start', () => existsSync(started));
-    deadline.fire();
-    const run = await running;
-    const { at } = run;
-    const platform = sandbox(at, true);
-    assert.equal(run.stderr, '');
-    assert.equal(
-      run.report,
-      [
-        'Foedrum doctor',
-        '',
-        `${name('node')}${process.versions.node}`,
-        `${name('npm')}11.6.2    ${at('npm')}`,
-        `${name('git')}<real git>`,
-        `${name('gh')}${CANNED_GH_VERSION}  ${at('gh')}`,
-        `${name('claude')}2.1.301   ${at('claude')}`,
-        ...platform.rows,
-        '',
-        ...platform.isolation,
-        `Container: docker 27.3.1 at ${at('docker')}; the container level is available`,
-        DEFAULTS_LINE,
-        DENYLIST_LINE,
-        KEEP_AWAKE_LINE,
-        '',
-        ...PROMPT_LINES,
-        ...optional(platform.problems),
-        '',
-      ].join('\n'),
-    );
-    assert.equal(run.exitCode, 0);
-  });
 });
 
 // doctor reads git's own credential settings (ADR 0073): the format the unit tests' fixtures stand
@@ -372,7 +307,7 @@ describe("foedrum doctor and git's credential helper", () => {
     try {
       const lines = helpers.map((helper) => `\thelper = ${helper}\n`).join('');
       const gitconfig = `[credential "https://${MADE_UP_HOST}"]\n${lines}`;
-      const { report } = await doctorWithStubs(dir.path, answers(''), gitconfig, guarded);
+      const { report } = await doctorWithStubs(dir.path, answers(), gitconfig, guarded);
       return report
         .split('\n')
         .filter((line) => /credential helper|credentials, not gh/.test(line));

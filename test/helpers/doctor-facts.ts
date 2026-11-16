@@ -25,8 +25,6 @@ const linuxTools: Record<ToolName, ToolRun | undefined> = {
     '/usr/bin/slirp4netns',
     'slirp4netns version 1.2.1\ncommit: 09e31e92fa3d2a1d3ca261adaf7a2c1d3a1b4c5d\nlibslirp: 4.7.0\nSLIRP_CONFIG_VERSION_MAX: 4\nlibseccomp: 2.5.5\n',
   ),
-  podman: undefined,
-  docker: undefined,
 };
 
 /**
@@ -64,8 +62,6 @@ export const windows: DoctorFacts = {
     socat: undefined,
     pasta: undefined,
     slirp4netns: undefined,
-    podman: undefined,
-    docker: undefined,
   },
   jobObject: { exitCode: 0, output: '' },
   github: loggedIn('github.com', "'C:\\Program Files\\GitHub CLI\\gh.exe'"),

@@ -467,9 +467,8 @@ describe('foedrum: the command line', () => {
 });
 
 describe('foedrum doctor', () => {
-  it('reports every tool, a sandbox and a container runtime on Linux, and exits 0', async (t) => {
-    const facts = linux({ podman: ran('/usr/bin/podman', 'podman version 5.2.0\n') });
-    const result = await run(['doctor'], { gatherDoctorFacts: async () => facts });
+  it('reports every tool and a sandbox on Linux, and exits 0', async (t) => {
+    const result = await run(['doctor'], { gatherDoctorFacts: async () => linux() });
     assert.equal(result.exitCode, 0);
     assert.equal(result.stderr, '');
     snapshot(t, result.stdout);
