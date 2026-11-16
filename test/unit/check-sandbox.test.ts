@@ -156,7 +156,7 @@ describe('sandboxedChecks on Linux and WSL2: bwrap', () => {
     assert.match(result.output, /bwrap: setting up uid map: Permission denied/);
   });
 
-  // ADR 0407: only a setup's namespace has a stack that can win the race, so a check runs once.
+  // ADR 0408: only a setup's namespace has a stack that can win the race, so a check runs once.
   it('does not run a check again when its bwrap fails setting up the loopback, with no stack in its namespace', async () => {
     const stderr = 'bwrap: loopback: Failed RTM_NEWADDR: No child processes\n';
     const { calls, exec } = fake({ exitCode: 1, stderr, output: stderr });
@@ -799,7 +799,7 @@ describe('sandboxedChecks with the network kept, for a setup', () => {
     assert.match(result.output, /^bwrap: setting up uid map: Permission denied \(ADR 0076\)/);
   });
 
-  // ADR 0407: bwrap's loopback setup can lose a race with the stack bringing lo up, before the
+  // ADR 0408: bwrap's loopback setup can lose a race with the stack bringing lo up, before the
   // line runs, and prints a stale errno (#1090).
   const LOOPBACK = 'bwrap: loopback: Failed RTM_NEWADDR: No child processes\n';
   const bwrapRuns = (calls: readonly { file: string }[]) =>
@@ -825,7 +825,7 @@ describe('sandboxedChecks with the network kept, for a setup', () => {
     assert.equal(result.killed, undefined);
     assert.equal(
       result.output,
-      'bwrap: loopback: Failed RTM_NEWADDR: No child processes, twice: likely a race in which the network stack brought lo up first (ADR 0407)\n',
+      'bwrap: loopback: Failed RTM_NEWADDR: No child processes, twice: likely a race in which the network stack brought lo up first (ADR 0408)\n',
     );
     assert.ok(!events.includes('the line runs'));
   });
