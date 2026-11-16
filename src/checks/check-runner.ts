@@ -29,6 +29,7 @@ import { MAX_REPORT_BYTES } from '../formats/test-report.ts';
 import type { DiffFile } from '../formats/unified-diff.ts';
 import { type BoundedRead, readOutDocFile } from '../platform/bounded-read.ts';
 import { checksRunUnsandboxed } from '../platform/check-sandbox.ts';
+import { lastLine } from '../platform/errors.ts';
 import { foldsCase, pathInside } from '../platform/paths.ts';
 import type { ExecProcess, ExecResult } from '../platform/processes.ts';
 import { realPath } from '../platform/real-path.ts';
@@ -436,8 +437,7 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
         const options = { maxOutputBytes: MAX_REPORT_BYTES, signal };
         const result = await git(clone(repo), args, options);
         if (result.code === 0) return result.stdout.split('\0').filter((path) => path !== '');
-        const last = result.stderr.trim().split(/\r?\n/).at(-1);
-        return last === undefined || last === '' ? `git exited with ${result.code}` : last;
+        return lastLine(result.stderr) ?? `git exited with ${result.code}`;
       };
       const deleted = await list([
         'diff',

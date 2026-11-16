@@ -5,8 +5,8 @@
 import type { PathsRead, ReadPaths } from '../engine/plan-touches.ts';
 import { RelativePath } from '../schemas/primitives.ts';
 import { isCommitSha, noCommitSha } from '../schemas/store.ts';
-import { firstLine, inClone } from './clone-git.ts';
-import type { Git } from './git.ts';
+import { inClone } from './clone-git.ts';
+import { type Git, gitFailure } from './git.ts';
 
 /** The most characters of paths one call gives git: Windows' command line holds 32,767. */
 const MOST_PATH_CHARS = 24_000;
@@ -53,7 +53,7 @@ export const readPathsAt =
         options,
       );
       if (listed.code !== 0) {
-        return { kind: 'unread', reason: `git ls-tree failed: ${firstLine(listed)}` };
+        return { kind: 'unread', reason: `git ls-tree failed: ${gitFailure(listed)}` };
       }
       for (const name of listed.stdout.split('\0')) if (name !== '') present.add(name);
     }

@@ -35,7 +35,7 @@ import {
   worktreeStatus,
 } from './attempt-worktrees.ts';
 import { inClone, type OwnRemote } from './clone-git.ts';
-import type { Git, GitOptions, GitResult } from './git.ts';
+import { type Git, type GitOptions, gitFailure } from './git.ts';
 import { type ListedWorktree, parseWorktreeList } from './worktree-list.ts';
 import { readRecords } from './worktree-records.ts';
 import type { FolderState } from './worktree-removal.ts';
@@ -127,10 +127,6 @@ const CLONE_TIMEOUT_MS = 1_800_000;
 
 const lines = (text: string): string[] => text.split(/\r?\n/).filter((line) => line !== '');
 
-const why = ({ code, stderr }: GitResult): string =>
-  lines(stderr)[0]?.trim() ??
-  (code === null ? 'git did not finish in time' : `git exited with ${code}`);
-
 // The output of a git call that must succeed.
 const must = async (
   git: Git,
@@ -141,7 +137,7 @@ const must = async (
   const result = await git(cwd, args, options);
   // `worktree list` or `worktree add`, not just `worktree`.
   const command = args.slice(0, args[0] === 'worktree' ? 2 : 1).join(' ');
-  if (result.code !== 0) throw new Error(`git ${command} failed: ${why(result)}`);
+  if (result.code !== 0) throw new Error(`git ${command} failed: ${gitFailure(result)}`);
   return result.stdout;
 };
 
@@ -615,7 +611,7 @@ export const ensureManagedClone = async (options: ManagedCloneOptions): Promise<
   const cloned = await git(folder, args, { timeoutMs: CLONE_TIMEOUT_MS });
   if (cloned.code !== 0) {
     await removeTree(partial);
-    throw new Error(`git clone of ${withoutCredentials(url)} failed: ${why(cloned)}`);
+    throw new Error(`git clone of ${withoutCredentials(url)} failed: ${gitFailure(cloned)}`);
   }
   // A bare clone fetches into nothing by default; into origin/* like any clone, so a fetch
   // never moves Foedrum's own branches.
