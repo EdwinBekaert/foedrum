@@ -1,0 +1,7 @@
+{
+  "trap": {
+    "kind": "edge-case",
+    "line": "A file opened again that is already on the list moves to the front instead of showing twice; the order asks for the files opened most recently and never speaks of opening one again."
+  },
+  "allowedPaths": ["src/", "test/"]
+}
