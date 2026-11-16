@@ -146,7 +146,9 @@ jobs:
   # The tests against the installed claude (ADR 0057), with the claude pinned in ci/claude/ and
   # the fake Messages API: no login, no token (ADR 0399). Every one in the nightly run and by hand;
   # on a pull request, the ones its change reaches (scripts/affected-tests.ts --real-claude, which
-  # lists every one when the change reaches every test file); none on a push to main.
+  # lists every one when the change reaches every test file). On a push to main, every one on macOS
+  # and none on Linux and Windows: a pull request leaves out macOS, whose runners a busy day runs out
+  # of, so the merge's run is where a macOS-only break shows before a tag (ADR 0407).
   real-claude:
     name: real claude (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
@@ -154,7 +156,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        os: ${{ github.event_name == 'pull_request' && fromJSON('["ubuntu-latest","windows-latest"]') || fromJSON('["ubuntu-latest","windows-latest","macos-latest"]') }}
     defaults:
       run:
         shell: bash
@@ -174,9 +176,11 @@ jobs:
         id: tests
         env:
           EVENT: ${{ github.event_name }}
+          OS: ${{ matrix.os }}
         run: |
           all=""
           if [ "$EVENT" = schedule ] || [ "$EVENT" = workflow_dispatch ]; then all=--all; fi
+          if [ "$EVENT" = push ] && [ "$OS" = macos-latest ]; then all=--all; fi
           node scripts/affected-tests.ts --real-claude $all | tee "$RUNNER_TEMP/real-claude.txt"
           if [ -s "$RUNNER_TEMP/real-claude.txt" ]; then echo "any=true" >> "$GITHUB_OUTPUT"; fi
 
@@ -222,9 +226,11 @@ jobs:
       - run: npm run audit:advisories
 
   # The package as a user gets it, in its own workflow, which the release workflow also runs before it
-  # publishes (ADR 0377, ADR 0388).
+  # publishes (ADR 0377, ADR 0388); on macOS except on a pull request (ADR 0407).
   package:
     uses: ./.github/workflows/package.yml
+    with:
+      macos: ${{ github.event_name != 'pull_request' }}
 
   # The pull request's author has signed CLA.md in .github/cla-signatures.md at the pull request's
   # head; the repository owner and Dependabot are exempt (ADR 0391). Only node runs: no npm ci, no

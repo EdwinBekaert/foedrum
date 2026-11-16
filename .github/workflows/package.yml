@@ -1,11 +1,16 @@
 # The package as a user gets it (ADR 0377): the JavaScript tsc emits, packed, installed into an
 # empty folder outside the checkout, so no module or dependency of the checkout can stand in for one
-# the package lacks, and started there on every platform. CI runs it for every pull request, push and
-# nightly run, and the release workflow before it publishes (ADR 0388): one copy of the steps.
+# the package lacks, and started there. CI runs it for every pull request, push and nightly run, and
+# the release workflow before it publishes (ADR 0388): one copy of the steps. It runs on Linux,
+# Windows and macOS, except on CI's pull requests, which pass macos: false (ADR 0407).
 name: Package
 
 on:
   workflow_call:
+    inputs:
+      macos:
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -18,7 +23,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        os: ${{ inputs.macos && fromJSON('["ubuntu-latest","windows-latest","macos-latest"]') || fromJSON('["ubuntu-latest","windows-latest"]') }}
     defaults:
       run:
         shell: bash
