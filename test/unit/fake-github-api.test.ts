@@ -459,6 +459,26 @@ describe('the fake GitHub API answers like GitHub', () => {
     ]);
   });
 
+  it('sends no Link from a page that ends the list exactly', async () => {
+    const issues = Array.from({ length: 100 }, (_, index) => ({
+      number: index + 1,
+      labels: [],
+      author: 'bob',
+    }));
+    const github = fakeGitHubApi({ login: 'ann', issues: { 'acme/web': issues } });
+    const answer = await github.fetch(`${api}/repos/acme/web/issues?per_page=50&page=2`);
+    assert.equal(((await answer.json()) as Item[]).length, 50);
+    assert.equal(answer.headers.get('link'), null);
+  });
+
+  it('refuses to label an issue it does not have', () => {
+    const github = fakeGitHubApi({
+      login: 'ann',
+      issues: { 'acme/web': [{ number: 7, labels: [], author: 'ann' }] },
+    });
+    assert.throws(() => github.label('acme/web', 99, 'foedrum', 'mallory'), /acme\/web#99/);
+  });
+
   it('pages every list it answers', async () => {
     const github = fakeGitHubApi({
       login: 'ann',
