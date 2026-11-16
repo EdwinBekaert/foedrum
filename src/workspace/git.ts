@@ -13,6 +13,14 @@ export interface GitResult {
   killed?: Killed;
 }
 
+/** Why git failed: its first line on stderr that is not blank, or how it ended. */
+export const gitFailure = ({ code, stderr }: Pick<GitResult, 'code' | 'stderr'>): string =>
+  stderr
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .find((line) => line !== '') ??
+  (code === null ? 'git did not finish in time' : `git exited with ${code}`);
+
 export interface GitOptions {
   /** Kills git after this long; default 60 s. */
   timeoutMs?: number;
