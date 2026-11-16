@@ -1,7 +1,8 @@
 // A fake GitHub API behind a `fetch`, for `foedrum serve`'s tests (ADR 0068): the issues of each
 // repository, its claim refs with their commits, the marks of its issues, its pull requests, which
 // a test merges, and its releases, which a test makes as a repository's CI would, answered by
-// method and path the way the GitHub layer asks (src/github/). No network (ADR 0021).
+// method and path the way the GitHub layer asks (src/github/), each list a page at a time as
+// GitHub's are. No network (ADR 0021).
 
 export interface FakeApiIssue {
   number: number;
@@ -98,6 +99,15 @@ export interface FakeApiRelease {
   tagOnly?: boolean;
 }
 
+/** A `labeled` or `unlabeled` event of an issue, as `GET …/issues/{n}/events` lists it. */
+interface IssueEvent {
+  id: number;
+  event: string;
+  actor: { login: string };
+  label: { name: string };
+  created_at: string;
+}
+
 /** Who can read a repository, as `GET /repos/{owner}/{repo}` says. */
 export type FakeApiVisibility = 'public' | 'private' | 'internal';
 
@@ -152,6 +162,21 @@ const json = (status: number, body: unknown, headers: Record<string, string> = {
 
 const notFound = (): Response => json(404, { message: 'Not Found' });
 
+/**
+ * One page of `items`, as `per_page` (30 by default, at most 100) and `page` ask, with a `Link`
+ * to the next page when there is one, as GitHub pages a list.
+ */
+const paged = (url: URL, items: readonly unknown[]): Response => {
+  const size = Math.min(100, Number(url.searchParams.get('per_page') ?? '30'));
+  const page = Number(url.searchParams.get('page') ?? '1');
+  if (page * size >= items.length) return json(200, items.slice((page - 1) * size));
+  const next = new URL(url);
+  next.searchParams.set('page', String(page + 1));
+  return json(200, items.slice((page - 1) * size, page * size), {
+    link: `<${next}>; rel="next"`,
+  });
+};
+
 export const fakeGitHubApi = (options: FakeGitHubApiOptions): FakeGitHubApi => {
   const { login } = options;
   const requests: string[] = [];
@@ -183,7 +208,15 @@ export const fakeGitHubApi = (options: FakeGitHubApiOptions): FakeGitHubApi => {
   let ids = 0;
   let commits = 0;
   const repoIssues = (repo: string): FakeApiIssue[] => options.issues[repo.toLowerCase()] ?? [];
-  // An issue opened through the API, numbered after every issue and pull request of its repository.
+  // The number after every issue and pull request of a repository: GitHub numbers both in one
+  // sequence per repository.
+  const nextNumber = (key: string): number =>
+    Math.max(
+      0,
+      ...repoIssues(key).map((each) => each.number),
+      ...pulls.filter((pull) => pull.repo === key).map((pull) => pull.number),
+    ) + 1;
+  // An issue opened through the API.
   const openIssue = (
     repo: string,
     fields: { title?: string; body?: string; labels?: string[] },
@@ -191,12 +224,8 @@ export const fakeGitHubApi = (options: FakeGitHubApiOptions): FakeGitHubApi => {
     const key = repo.toLowerCase();
     const listed = options.issues[key] ?? [];
     options.issues[key] = listed;
-    const numbers = [
-      ...listed.map((each) => each.number),
-      ...pulls.filter((pull) => pull.repo === key).map((pull) => pull.number),
-    ];
     const made: FakeApiIssue = {
-      number: Math.max(0, ...numbers) + 1,
+      number: nextNumber(key),
       labels: [...(fields.labels ?? [])],
       author: login,
       title: fields.title ?? '',
@@ -221,6 +250,38 @@ export const fakeGitHubApi = (options: FakeGitHubApiOptions): FakeGitHubApi => {
     ...(found.pullRequest === true ? { pull_request: { url: `pulls/${found.number}` } } : {}),
   });
   const labelsOf = (found: FakeApiIssue) => found.labels.map((name) => ({ name }));
+  const clock = options.clock ?? (() => new Date());
+  // The `labeled` and `unlabeled` events of each issue, by `<repo>#<n>` in lower case (ADR 0359).
+  const history = new Map<string, IssueEvent[]>();
+  let events = 0;
+  const eventOf = (event: string, name: string, by: string, at: string): IssueEvent => ({
+    id: ++events,
+    event,
+    actor: { login: by },
+    label: { name },
+    created_at: at,
+  });
+  // A label the issue was given, or put on by a test since, was added by whoever opened it, when
+  // they opened it.
+  const historyOf = (repo: string, found: FakeApiIssue): IssueEvent[] => {
+    const key = `${repo.toLowerCase()}#${found.number}`;
+    const list = history.get(key) ?? [];
+    history.set(key, list);
+    for (const name of found.labels) {
+      if (list.some((each) => each.event === 'labeled' && each.label.name === name)) continue;
+      list.push(eventOf('labeled', name, found.author, found.created ?? createdOf(found.number)));
+    }
+    return list;
+  };
+  // Adds the labels the issue does not have yet, each recorded as added by `by` now.
+  const addLabels = (repo: string, found: FakeApiIssue, names: string[], by: string): void => {
+    const list = historyOf(repo, found);
+    for (const name of names) {
+      if (found.labels.includes(name)) continue;
+      found.labels = [...found.labels, name];
+      list.push(eventOf('labeled', name, by, clock().toISOString()));
+    }
+  };
 
   // The GraphQL requests of the claim host, a repository's id and a conditional delete, and the
   // release reader's newest tag by its commit's date.
@@ -274,6 +335,7 @@ export const fakeGitHubApi = (options: FakeGitHubApiOptions): FakeGitHubApi => {
   // REST id, a number where the id belongs is not found, and a repeated add answers 422.
   const onLinks = (
     method: string,
+    url: URL,
     repo: string,
     found: FakeApiIssue,
     what: 'sub_issues' | 'blocked_by',
@@ -287,7 +349,7 @@ export const fakeGitHubApi = (options: FakeGitHubApiOptions): FakeGitHubApi => {
         const each = issue(repo, number);
         return each === undefined ? [] : [asIssue(each)];
       });
-      return json(200, listed);
+      return paged(url, listed);
     }
     if (method !== 'POST') return notFound();
     const fields = (body ?? {}) as { sub_issue_id?: number; issue_id?: number };
@@ -312,14 +374,20 @@ export const fakeGitHubApi = (options: FakeGitHubApiOptions): FakeGitHubApi => {
     return json(201, asIssue(found));
   };
 
-  const onIssue = (method: string, repo: string, rest: string, body: unknown): Response => {
+  const onIssue = (
+    method: string,
+    url: URL,
+    repo: string,
+    rest: string,
+    body: unknown,
+  ): Response => {
     const [, linkedTo, link] =
       /^issues\/(\d+)\/(sub_issues|dependencies\/blocked_by)$/.exec(rest) ?? [];
     if (linkedTo !== undefined) {
       const found = issue(repo, Number(linkedTo));
       if (found === undefined) return notFound();
       const what = link === 'sub_issues' ? 'sub_issues' : 'blocked_by';
-      return onLinks(method, repo, found, what, body);
+      return onLinks(method, url, repo, found, what, body);
     }
     const [, number, what = '', label] =
       /^issues\/(\d+)(?:\/(assignees|labels|comments|events)(?:\/(.+))?)?$/.exec(rest) ?? [];
@@ -333,20 +401,13 @@ export const fakeGitHubApi = (options: FakeGitHubApiOptions): FakeGitHubApi => {
       (each) => each.repo === repo.toLowerCase() && each.number === Number(number),
     );
     if (found === undefined && asIssueOfPull !== undefined && method === 'GET' && what === '') {
-      return json(200, {
-        number: asIssueOfPull.number,
-        state: asIssueOfPull.merged === undefined ? 'open' : 'closed',
-        user: { login: asIssueOfPull.author },
-        labels: [],
-        title: asIssueOfPull.title,
-        pull_request: {},
-      });
+      return json(200, asPullIssue(asIssueOfPull));
     }
     if (found === undefined && !(pull && what === 'comments')) return notFound();
     const key = `${repo.toLowerCase()}#${Number(number)}`;
     const fieldsOf = (body ?? {}) as { body?: string };
     if (method === 'GET' && what === 'comments') {
-      return json(200, (comments.get(key) ?? []).map(asComment));
+      return paged(url, (comments.get(key) ?? []).map(asComment));
     }
     if (method === 'POST' && what === 'comments') {
       const made = { id: ++ids, author: login, body: fieldsOf.body ?? '' };
@@ -361,18 +422,7 @@ export const fakeGitHubApi = (options: FakeGitHubApiOptions): FakeGitHubApi => {
       state?: 'open' | 'closed';
     };
     if (method === 'GET' && what === '') return json(200, asIssue(found));
-    if (method === 'GET' && what === 'events') {
-      // Each label added by whoever opened the issue (ADR 0359).
-      const actor = { login: found.author };
-      const events = found.labels.map((name, index) => ({
-        id: index + 1,
-        event: 'labeled',
-        actor,
-        label: { name },
-        created_at: found.created ?? createdOf(found.number),
-      }));
-      return json(200, events);
-    }
+    if (method === 'GET' && what === 'events') return paged(url, historyOf(repo, found));
     if (method === 'PATCH' && what === '') {
       if (fields.state !== undefined) found.state = fields.state;
       return json(200, asIssue(found));
@@ -382,12 +432,13 @@ export const fakeGitHubApi = (options: FakeGitHubApiOptions): FakeGitHubApi => {
       return json(201, asIssue(found));
     }
     if (method === 'POST' && what === 'labels') {
-      found.labels = [...found.labels, ...(fields.labels ?? [])];
+      addLabels(repo, found, fields.labels ?? [], login);
       return json(200, labelsOf(found));
     }
     if (method === 'DELETE' && what === 'labels' && label !== undefined) {
       const name = decodeURIComponent(label);
       if (!found.labels.includes(name)) return json(404, { message: 'Label does not exist' });
+      historyOf(repo, found).push(eventOf('unlabeled', name, login, clock().toISOString()));
       found.labels = found.labels.filter((each) => each !== name);
       return json(200, labelsOf(found));
     }
@@ -408,6 +459,17 @@ export const fakeGitHubApi = (options: FakeGitHubApiOptions): FakeGitHubApi => {
   };
 
   const pulls: FakeApiPull[] = [];
+  // A pull request as GitHub's issue reads and issue list give it: an issue with `pull_request` set.
+  const asPullIssue = (pull: FakeApiPull) => ({
+    id: idOf(pull.number),
+    number: pull.number,
+    state: pull.merged === undefined ? 'open' : 'closed',
+    user: { login: pull.author },
+    labels: [],
+    title: pull.title,
+    created_at: createdOf(pull.number),
+    pull_request: {},
+  });
   const asPull = (pull: FakeApiPull) => ({
     number: pull.number,
     html_url: `https://github.com/${pull.repo}/pull/${pull.number}`,
@@ -444,8 +506,8 @@ export const fakeGitHubApi = (options: FakeGitHubApiOptions): FakeGitHubApi => {
     if (method === 'GET') {
       const head = url.searchParams.get('head')?.split(':').slice(1).join(':');
       const listed = url.searchParams.get('state') === 'all' ? ofRepo : open;
-      return json(
-        200,
+      return paged(
+        url,
         listed.filter((pull) => head === undefined || pull.head === head).map(asPull),
       );
     }
@@ -453,13 +515,14 @@ export const fakeGitHubApi = (options: FakeGitHubApiOptions): FakeGitHubApi => {
     if (open.some((pull) => pull.head === fields.head)) {
       return json(422, { message: 'A pull request already exists' });
     }
-    const pull = { repo: repo.toLowerCase(), number: ++ids, author: login, ...fields };
+    const key = repo.toLowerCase();
+    const pull = { repo: key, number: nextNumber(key), author: login, ...fields };
     pulls.push(pull);
     return json(201, asPull(pull));
   };
 
   // The reviews of a pull request the fake opened, and the comments of one (ADR 0382).
-  const onReviews = (method: string, repo: string, rest: string): Response => {
+  const onReviews = (method: string, url: URL, repo: string, rest: string): Response => {
     const [, number, review] = /^pulls\/(\d+)\/reviews(?:\/(\d+)\/comments)?$/.exec(rest) ?? [];
     const pull = pulls.find(
       (each) => each.repo === repo.toLowerCase() && each.number === Number(number),
@@ -467,8 +530,8 @@ export const fakeGitHubApi = (options: FakeGitHubApiOptions): FakeGitHubApi => {
     if (method !== 'GET' || pull === undefined) return notFound();
     const reviews = pull.reviews ?? [];
     if (review === undefined) {
-      return json(
-        200,
+      return paged(
+        url,
         reviews.map(({ id, by, state, body }) => ({
           id,
           user: { login: by },
@@ -480,8 +543,8 @@ export const fakeGitHubApi = (options: FakeGitHubApiOptions): FakeGitHubApi => {
     }
     const found = reviews.find(({ id }) => id === Number(review));
     if (found === undefined) return notFound();
-    return json(
-      200,
+    return paged(
+      url,
       found.comments.map(({ path, line, body }) => ({ path, line: line ?? null, body })),
     );
   };
@@ -570,13 +633,16 @@ export const fakeGitHubApi = (options: FakeGitHubApiOptions): FakeGitHubApi => {
       const wanted = url.searchParams.get('labels')?.split(',') ?? [];
       const all = url.searchParams.get('state') === 'all';
       const creator = url.searchParams.get('creator');
-      const listed = repoIssues(repo).filter(
+      const listed = [
+        ...repoIssues(repo).map(asIssue),
+        ...pulls.filter((pull) => pull.repo === repo.toLowerCase()).map(asPullIssue),
+      ].filter(
         (each) =>
-          (all || (each.state ?? 'open') === 'open') &&
-          (creator === null || each.author === creator) &&
-          wanted.every((label) => each.labels.includes(label)),
+          (all || each.state === 'open') &&
+          (creator === null || each.user.login === creator) &&
+          wanted.every((label) => each.labels.some(({ name }) => name === label)),
       );
-      return json(200, listed.map(asIssue));
+      return paged(url, listed);
     }
     if (method === 'POST' && rest === 'issues') {
       const fields = body as { title?: string; body?: string; labels?: string[] };
@@ -584,10 +650,10 @@ export const fakeGitHubApi = (options: FakeGitHubApiOptions): FakeGitHubApi => {
     }
     const [, id] = /^issues\/comments\/(\d+)$/.exec(rest) ?? [];
     if (id !== undefined) return onComment(method, repo, Number(id), body);
-    if (rest.startsWith('issues/')) return onIssue(method, repo, rest, body);
+    if (rest.startsWith('issues/')) return onIssue(method, url, repo, rest, body);
     if (rest.startsWith('git/')) return onGit(method, repo, rest, body);
     if (/^pulls(?:\/\d+)?$/.test(rest)) return onPulls(method, repo, url, body);
-    if (/^pulls\/\d+\/reviews/.test(rest)) return onReviews(method, repo, rest);
+    if (/^pulls\/\d+\/reviews/.test(rest)) return onReviews(method, url, repo, rest);
     if (rest.startsWith('commits/')) return onCommit(method, repo, rest);
     if (rest === 'releases/latest' || rest.startsWith('compare/')) {
       return onRelease(method, repo, rest);
@@ -640,8 +706,10 @@ export const fakeGitHubApi = (options: FakeGitHubApiOptions): FakeGitHubApi => {
       if (pull === undefined) throw new Error(`The fake opened no pull request ${repo}#${number}`);
       pull.reviews = [...(pull.reviews ?? []), review];
     },
-    label: () => {
-      throw new Error('not implemented');
+    label: (repo, number, label, by) => {
+      const found = issue(repo, number);
+      if (found === undefined) throw new Error(`The fake has no issue ${repo}#${number}`);
+      addLabels(repo, found, [label], by);
     },
     release: (repo, release) => {
       const key = repo.toLowerCase();
