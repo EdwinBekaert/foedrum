@@ -23,7 +23,7 @@ export interface FlightOrder {
   /** order.md as a whole: the issue text, the only file of the order a Flight's brewer gets. */
   text: string;
   trap: { kind: TrapKind; line: string };
-  /** Path prefixes the change may touch; one that ends in `/` is a folder. */
+  /** The paths the change may touch: one that ends in `/` is a folder, any other one file. */
   allowedPaths: readonly string[];
   base: Files;
   solution: Files;
