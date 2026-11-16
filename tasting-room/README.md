@@ -29,3 +29,4 @@ A commit that adds an order says in its message that the integration tests it ad
 | `parcel-weights` | house rule | The instruction file says a typed value that cannot be read is refused with an `InputError`, never a plain `Error`; the order says only to refuse it. |
 | `quiz-rank` | design page | `docs/commands.md` is the one list of the program's commands; the order adds a command and never names the page. |
 | `room-booking` | design page | `docs/errors.md` is the one list of the codes `book` answers; the order adds a code and never names the page. |
+| `post-slugs` | edge case | A title typed with punctuation and extra spaces gives no extra hyphens, nor one at either end; the order mentions how writers type titles once, and its example has neither. |
