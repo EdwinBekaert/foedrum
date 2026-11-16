@@ -18,6 +18,7 @@ import {
   flightTable,
   headOf,
   hiddenOf,
+  layHiddenTests,
   nextFlightRun,
   outsidePaths,
   runHiddenTests,
@@ -641,6 +642,43 @@ describe('the Flight (ADR 0409)', () => {
         /test\/hidden\/\$\(id\)\.test\.mjs/,
       );
       assert.equal(calls.length, 0);
+    });
+  });
+
+  describe('the hidden tests laid over the head', () => {
+    const CLONE = join('runs', 'hidden');
+    const TESTS = { 'test/hidden/b.test.mjs': 'b', 'test/hidden/a.test.mjs': 'a' };
+    /** A file system whose links are `links`, by path; it keeps every write. */
+    const io = (links: readonly string[]) => {
+      const written: string[] = [];
+      return {
+        written,
+        isLink: (path: string) => links.includes(path),
+        write: (path: string, text: string) => {
+          written.push(`${path}=${text}`);
+        },
+      };
+    };
+
+    it('with no link in the head the hidden tests are written over it', () => {
+      const fs = io([]);
+      layHiddenTests(CLONE, TESTS, fs);
+      assert.deepEqual(fs.written.sort(), [
+        `${join(CLONE, 'test', 'hidden', 'a.test.mjs')}=a`,
+        `${join(CLONE, 'test', 'hidden', 'b.test.mjs')}=b`,
+      ]);
+    });
+
+    it("a link on a hidden test's folder in the head stops the Flight, and nothing is written", () => {
+      const fs = io([join(CLONE, 'test', 'hidden')]);
+      assert.throws(() => layHiddenTests(CLONE, TESTS, fs), /link at test\/hidden\b/);
+      assert.deepEqual(fs.written, []);
+    });
+
+    it('a hidden test file the head holds as a link stops the Flight, and nothing is written', () => {
+      const fs = io([join(CLONE, 'test', 'hidden', 'b.test.mjs')]);
+      assert.throws(() => layHiddenTests(CLONE, TESTS, fs), /link at test\/hidden\/b\.test\.mjs/);
+      assert.deepEqual(fs.written, []);
     });
   });
 

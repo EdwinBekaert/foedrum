@@ -16,7 +16,7 @@ import { type Effort, ModelLevel } from '../../src/schemas/models.ts';
 import { Recipe } from '../../src/schemas/recipe.ts';
 import { PushResult } from '../../src/schemas/store.ts';
 import type { Scripted } from '../../test/helpers/nip-fixture.ts';
-import type { FlightOrder } from '../flight-orders.ts';
+import type { Files, FlightOrder } from '../flight-orders.ts';
 import {
   escapeCell,
   nextRunOf,
@@ -340,6 +340,19 @@ const HIDDEN_DEADLINE_MS = 120_000;
 
 /** The most of the hidden tests' output a record keeps: its end, where node --test sums up. */
 const OUTPUT_KEPT = 4096;
+
+/**
+ * Writes the hidden tests over the head in `clone`, outside the sandbox, after checking that no
+ * folder on their paths and no file of theirs is a link the brewed head holds (ADR 0409); throws,
+ * writing nothing, when one is.
+ */
+export const layHiddenTests = (
+  _clone: string,
+  _tests: Files,
+  _io: { isLink: (path: string) => boolean; write: (path: string, text: string) => void },
+): void => {
+  throw new Error('not implemented');
+};
 
 /**
  * Runs `tests`, the hidden tests laid over the head in `clone`, as a check line through the check
