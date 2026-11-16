@@ -1449,27 +1449,34 @@ export const brewerFailure = ({
     ? `the batch ended ${ended} before the checks read any code of ${brewer.brewer}`
     : undefined;
 
+/** A model's name without `[1m]`, which is no part of the name a transcript gives. */
+const nameOf = (model: string): string => model.replace(/\[1m\]$/, '');
+
+/**
+ * Whether `model`, as a transcript names it, is one `asked` asks for (ADR 0394): a family, a name
+ * with no `-` such as `opus`, asks for any id that holds it; an id asks for itself or a dated
+ * snapshot of it, never for another id it starts; `[1m]` is no part of either name, since a dry
+ * run's scripted transcript names the model as planned, `[1m]` and all.
+ */
+const isAsked = (asked: string, model: string): boolean => {
+  const [want, name] = [nameOf(asked), nameOf(model)];
+  return want.includes('-')
+    ? name === want || (name.startsWith(`${want}-`) && /^\d{8}$/.test(name.slice(want.length + 1)))
+    : name.includes(want);
+};
+
 /**
  * Why the comparison must stop after a brewer's run, or undefined: a transcript that cannot say,
- * or a model the run did not ask for, is the harness's, so every later run would be too (ADR 0344).
- * A family, a name with no `-` such as `opus`, asks for any id that holds it; an id asks for itself
- * or a dated snapshot of it, never for another id it starts; `[1m]` is no part of the name a
- * transcript gives.
+ * or a model the run did not ask for (`isAsked`), is the harness's, so every later run would be
+ * too (ADR 0344, ADR 0394).
  */
 export const brewerStop = ({
   setup,
   brewer,
 }: Pick<BrewerRecord, 'setup' | 'brewer'>): string | undefined => {
   if (brewer.unreadable !== undefined) return escapeCell(brewer.unreadable);
-  const asked = brewer.model.replace(/\[1m\]$/, '');
-  // A dry run's scripted transcript names the model as planned, `[1m]` and all.
-  const nameOf = (model: string): string => model.replace(/\[1m\]$/, '');
-  const isAsked = (model: string): boolean =>
-    asked.includes('-')
-      ? model === asked ||
-        (model.startsWith(`${asked}-`) && /^\d{8}$/.test(model.slice(asked.length + 1)))
-      : model.includes(asked);
-  const other = brewer.models.find((model) => !isAsked(nameOf(model)));
+  const asked = nameOf(brewer.model);
+  const other = brewer.models.find((model) => !isAsked(asked, model));
   return other === undefined
     ? undefined
     : escapeCell(`${IMPLEMENT}: it ran on ${other}, and ${setup} asks for ${asked}`);
