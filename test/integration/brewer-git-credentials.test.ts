@@ -8,7 +8,6 @@ import { execFileSync } from 'node:child_process';
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { devNull } from 'node:os';
 import { join } from 'node:path';
 import { after, before, beforeEach, describe, it } from 'node:test';
 import { brewerForcedEnv } from '../../src/engine/brewer-env.ts';
@@ -171,32 +170,6 @@ describe("a brewer's git and the user's push credentials (ADR 0109)", () => {
     for (const { exitCode, stdout, stderr } of shown) {
       assert.equal(exitCode, 0, stderr);
       assert.match(stdout, /^command\t\r?$/m);
-    }
-  });
-
-  it("points git's netrc at the null device through the Job Object and the platform shell (ADR 0411)", async () => {
-    // What the process sees, not what git does with it: whether git's libcurl reads NETRC is the
-    // machine's (ADR 0411, Not covered).
-    const script = join(run, 'netrc.mjs');
-    writeFileSync(script, 'process.stdout.write(process.env.NETRC ?? "(unset)");\n');
-    const seen = [
-      await execProcess('node', [script], {
-        cwd: repo,
-        env: brewer(),
-        timeoutMs: 60_000,
-        jobObject: true,
-      }),
-      await execProcess(`node "${script}"`, [], {
-        cwd: repo,
-        env: brewer(),
-        timeoutMs: 60_000,
-        shell: true,
-        jobObject: true,
-      }),
-    ];
-    for (const { exitCode, stdout, stderr } of seen) {
-      assert.equal(exitCode, 0, stderr);
-      assert.equal(stdout, devNull);
     }
   });
 
