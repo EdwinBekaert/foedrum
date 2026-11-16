@@ -111,7 +111,6 @@ import {
   recordOf,
   runFailure,
   SETUPS,
-  type SeededTaster,
   type SetupName,
   scratchNameOf,
   scriptedTastings,
@@ -121,7 +120,7 @@ import {
   tableMarkdown,
   tasterLine,
 } from './tasting-compare/core.ts';
-import { TASTING_OPTIONS, tastingModeOf } from './tasting-compare/options.ts';
+import { TASTING_OPTIONS, type TastingMode, tastingModeOf } from './tasting-compare/options.ts';
 import {
   nextPlanRun,
   PLAN_SETUPS,
@@ -137,7 +136,6 @@ import {
 } from './tasting-compare/plan.ts';
 import {
   type BrewerRecord,
-  type BrewerSettings,
   type BrewerSetup,
   blinded,
   brewerBlinded,
@@ -178,7 +176,6 @@ import {
   splitHead,
   TASTER_RECIPE,
   type TastedRecord,
-  type TasterSettings,
   type TasterSetup,
   TODAY_COMMIT,
   tasterBreweryFiles,
@@ -203,6 +200,8 @@ if (chosen.kind === 'refused') {
 /** The planning runs' folder, where a brewer's run from a kept sub-order reads it (ADR 0396). */
 const SUB_ORDERS = 'sub-orders';
 const { runs, dryRun } = chosen;
+/** The mode of one kind, with the settings `tastingModeOf` chose for it. */
+type ModeOf<Kind extends TastingMode['kind']> = Extract<TastingMode, { kind: Kind }>;
 const claude = dryRun ? 'the scripted Taster, never started' : resolveExecutable('claude');
 if (claude === undefined) {
   process.stderr.write('claude is not on the PATH: the comparison tastes with the real claude\n');
@@ -276,7 +275,7 @@ interface Mode<Setup extends string, Run extends RunRecord<Setup> = RunRecord<Se
   comments?: (setup: Setup, author: string) => FakeApiComment[];
 }
 
-const diffMode = (taster?: SeededTaster): Mode<SetupName> => {
+const diffMode = ({ taster }: ModeOf<'seeded'>): Mode<SetupName> => {
   const key = readKey(readFileSync(join(fixture, 'key.json'), 'utf8'));
   return {
     folders: seededFolders(taster),
@@ -423,10 +422,10 @@ const brewedHeadOf = async (setup: RealSetup | BrewerSetup, git: RunGit) => {
  * (ADR 0402), whose records go beside the fixed setups' and whose runs the same lists score.
  */
 const realMode = async (
-  setups: readonly (RealSetup | TasterSetup)[],
-  realFolderOf: readonly string[],
-  settings?: TasterSettings,
+  mode: ModeOf<'real' | 'taster'>,
 ): Promise<Mode<RealSetup | TasterSetup, TastedRecord>> => {
+  const { setups, folders: realFolderOf } = mode;
+  const settings = mode.kind === 'taster' ? mode.settings : undefined;
   await realCommits();
   const today = await runGit(root, [
     'show',
@@ -499,11 +498,11 @@ const realMode = async (
  * and the repository's checks on its code. Its records stay in a folder of their own beside the
  * Tasters' setups'.
  */
-const brewerMode = async (
-  settings: BrewerSettings,
-  setups: readonly BrewerSetup[],
-  realFolderOf: readonly string[],
-): Promise<Mode<BrewerSetup, BrewerRecord>> => {
+const brewerMode = async ({
+  settings,
+  setups,
+  folders: realFolderOf,
+}: ModeOf<'brewer'>): Promise<Mode<BrewerSetup, BrewerRecord>> => {
   await realCommits();
   const names = { brewery: BREWERY, target: TARGET, user: USER };
   const folders = { fixture: realFixture, kept: modeFolder([...realFolderOf, SUB_ORDERS]) };
@@ -561,10 +560,10 @@ const brewerMode = async (
  * or scripted with --dry-run, until its plan waits for its review; a plan of one sub-order is kept
  * as that sub-order's text, and a run with no out doc is planned once more.
  */
-const plannerMode = async (
-  setups: readonly PlannerSetup[],
-  realFolderOf: readonly string[],
-): Promise<Mode<PlannerSetup, PlannerRecord>> => {
+const plannerMode = async ({
+  setups,
+  folders: realFolderOf,
+}: ModeOf<'planner'>): Promise<Mode<PlannerSetup, PlannerRecord>> => {
   await realCommits();
   const order = (setup: PlannerSetup) => join(realFixture, `${orderOf(setup).order}.md`);
   return {
@@ -779,22 +778,20 @@ const compare = async <Setup extends string, Run extends RunRecord<Setup>>(
 
 switch (chosen.kind) {
   case 'planner':
-    await compare(await plannerMode(chosen.setups, chosen.folders));
+    await compare(await plannerMode(chosen));
     break;
   case 'taster':
-    await compare(await realMode(chosen.setups, chosen.folders, chosen.settings));
+  case 'real':
+    await compare(await realMode(chosen));
     break;
   case 'brewer':
-    await compare(await brewerMode(chosen.settings, chosen.setups, chosen.folders));
-    break;
-  case 'real':
-    await compare(await realMode(chosen.setups, chosen.folders));
+    await compare(await brewerMode(chosen));
     break;
   case 'plan':
     await compare(planMode());
     break;
   case 'seeded':
-    await compare(diffMode(chosen.taster));
+    await compare(diffMode(chosen));
     break;
   default: {
     const unknown: never = chosen;
