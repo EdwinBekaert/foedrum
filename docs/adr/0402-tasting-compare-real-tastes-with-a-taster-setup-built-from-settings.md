@@ -1,6 +1,6 @@
 # 0402. tasting-compare --real tastes with a Taster setup built from settings
 
-Date: 2026-11-16 · Status: Accepted · Amends [0394](0394-tasting-compare-real-runs-a-real-cellarman-on-a-model-and-effort-it-is-given.md) (`--brewer` takes `taster` too) and [0344](0344-tasting-compare-real-measures-a-stronger-model-and-more-effort-apart.md) (a Taster setup built from settings asks for its level's family or its model id)
+Date: 2026-11-16 · Status: Accepted · Amends [0394](0394-tasting-compare-real-runs-a-real-cellarman-on-a-model-and-effort-it-is-given.md) (`--brewer` takes `taster` too), [0348](0348-tasting-compare-real-tastes-three-lenses-together-on-sonnet-at-high-effort.md) (a together Taster's model and effort can be settings of a run, not only a named setup) and [0344](0344-tasting-compare-real-measures-a-stronger-model-and-more-effort-apart.md) (a Taster setup built from settings asks for its level's family or its model id)
 
 ## Context
 Each Taster setup of `--real` is a fixed profile: a new model, effort or Taster text meant a new profile in the code (#879, ADR 0344, ADR 0347, ADR 0348).
