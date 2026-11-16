@@ -307,6 +307,16 @@ describe('the Flight (ADR 0409)', () => {
       assert.equal(files['models.jsonc'], undefined);
     });
 
+    it("the target's test line writes the TAP report a Maltster's test map names", () => {
+      const config = parseJsonc(flightBreweryFiles(SHIPPED, NIP, NAMES)['foedrum.jsonc'] ?? '') as {
+        repositories: Record<string, { checks: { test: string } }>;
+      };
+      assert.match(
+        config.repositories[TARGET]?.checks.test ?? '',
+        / --test-reporter=tap --test-reporter-destination=flight\.tap$/,
+      );
+    });
+
     it("a swap on a level moves only the brewer's steps, with no models.jsonc", () => {
       const files = flightBreweryFiles(swapped('extreme'), NIP, NAMES);
       assert.equal(files['models.jsonc'], undefined);
@@ -421,6 +431,22 @@ describe('the Flight (ADR 0409)', () => {
         ]),
         { head: GREEN_READ, headFrom: 'green', headTree: 'green-2' },
       );
+    });
+
+    it("a later round's push is the head even when its event comes first", () => {
+      assert.deepEqual(headOf([pushed(2, SECOND_PUSH), pushed(1, FIRST_PUSH)]), {
+        head: SECOND_PUSH,
+        headFrom: 'pull request',
+      });
+    });
+
+    it('an effect of the batch that is no push gives no head, whatever its result holds', () => {
+      const opened = event({
+        type: 'effect.applied',
+        key: effectKey.encode({ batchId: '1-1', effect: 'pull_request' }),
+        result: { branch: 'foedrum/1', commit: FIRST_PUSH, from: 'c'.repeat(40) },
+      });
+      assert.deepEqual(headOf([opened]), {});
     });
 
     it('a batch with neither has no head', () => {
@@ -560,6 +586,19 @@ describe('the Flight (ADR 0409)', () => {
     assert.equal(
       nextFlightRun([...more, record('b', 1, {}, { retry: true })], 2, ['a', 'b']),
       undefined,
+    );
+  });
+
+  it('the table leaves a run that measured nothing out of its counts and lists it as failed', () => {
+    const { head: _, ...noHead } = record('post-slugs', 2).flight;
+    const table = flightTable([
+      record('post-slugs', 1),
+      { ...record('post-slugs', 2), ended: 'stuck: blocked', flight: noHead },
+    ]);
+    assert.match(table, /^\| post-slugs \| 1 \| 1 of 1 \| 0 \| 19 \| 20 s \|$/m);
+    assert.match(
+      table,
+      /^Failed: post-slugs run 2: the batch ended stuck: blocked before it left a head$/m,
     );
   });
 
