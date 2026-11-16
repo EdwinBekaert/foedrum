@@ -429,8 +429,17 @@ describe('tasting-compare --real --brewer taster (ADR 0402)', () => {
 
     it("a fixed profile's list and codes rows stay as they were beside a settings run: regression test", () => {
       const alone = blinded([fixed], 'a seed');
-      const beside = blinded([fixed, settingsRecord(ON_ID, 864, 1, 'claude-opus-5-5')], 'a seed');
-      assert.equal(beside.lists['855'], alone.lists['855']);
+      const beside = blinded([fixed, settingsRecord(ON_ID, 855, 1, 'claude-opus-5-5')], 'a seed');
+      // The fixed run's whole block is one of the blocks of its order's list beside the settings run's.
+      const blocks = (list = '') =>
+        list
+          .split('\n## Run ')
+          .slice(1)
+          .map((each) => each.trimEnd());
+      const [block] = blocks(alone.lists['855']);
+      assert.ok(block !== undefined, alone.lists['855']);
+      assert.equal(blocks(beside.lists['855']).length, 2);
+      assert.ok(blocks(beside.lists['855']).includes(block), beside.lists['855']);
       for (const row of alone.codes.split('\n').filter((line) => line.startsWith('| '))) {
         assert.ok(beside.codes.includes(row), row);
       }
