@@ -757,7 +757,7 @@ export const realRecordOf = (
 };
 
 /** Each level's family as `defaults/models.jsonc` maps it, which a settings run on a level asks for (ADR 0402). */
-const FAMILIES: Readonly<Record<ModelLevel, string>> = {
+export const FAMILIES: Readonly<Record<ModelLevel, string>> = {
   light: 'haiku',
   standard: 'sonnet',
   strong: 'opus',
@@ -1623,7 +1623,7 @@ const nameOf = (model: string): string => model.replace(/\[1m\]$/, '');
  * snapshot of it, never for another id it starts; `[1m]` is no part of either name, since a dry
  * run's scripted transcript names the model as planned, `[1m]` and all.
  */
-const isAsked = (asked: string, model: string): boolean => {
+export const isAsked = (asked: string, model: string): boolean => {
   const [want, name] = [nameOf(asked), nameOf(model)];
   return want.includes('-')
     ? name === want || (name.startsWith(`${want}-`) && /^\d{8}$/.test(name.slice(want.length + 1)))
