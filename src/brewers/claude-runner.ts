@@ -202,8 +202,6 @@ export async function scannedIfDone(
   return scannedEnding(ending, scanned, since);
 }
 
-// stderr is the CLI's, but it may quote what the brewer wrote: a reason quotes one line of it,
-// cut as the stream's are.
 /** Writes an attempt's system prompt file (ADR 0183). */
 export function writeSystemPromptFile(file: string, text: string): void {
   writeFileSync(file, text);
@@ -285,6 +283,8 @@ const environmentOf = (
   if (exit.kind !== 'exited' || exit.code === 0 || seen.lines > 0) return undefined;
   // Past 255 it is a Windows crash status (NTSTATUS), which claude never exits with: a crash.
   if (exit.code > 255) return undefined;
+  // stderr is the CLI's, but it may quote what the brewer wrote: a reason quotes one line of it,
+  // cut as the stream's are.
   const said = lastLine(stderr);
   return said === undefined
     ? `claude refused to start with exit code ${exit.code}`
