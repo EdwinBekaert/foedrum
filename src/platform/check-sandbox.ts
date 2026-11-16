@@ -383,6 +383,21 @@ const unstarted = (why: string, adr = '0076'): ExecResult => {
   return { exitCode: null, stdout: '', stderr: output, output };
 };
 
+/**
+ * What bwrap says when its child fails to give the loopback its address, before the line runs.
+ * With a stack, that can be a race the stack won by bringing lo up first, which gave lo the
+ * address already; bwrap prints a stale errno for it (ADR 0407).
+ */
+const LOOPBACK_FAILED = 'bwrap: loopback: Failed RTM_NEWADDR';
+const LOOPBACK_RACE = 'likely a race in which the network stack brought lo up first';
+
+/** Whether a setup did not start because bwrap's loopback setup failed (ADR 0407). */
+const lostLoopbackRace = (result: ExecResult): boolean =>
+  result.exitCode === null && result.stderr.startsWith(LOOPBACK_FAILED);
+
+/** What bwrap said, without the ADR `unstarted` added. */
+const bwrapSaid = (result: ExecResult): string => result.stderr.replace(/ \(ADR \d{4}\)\n$/, '');
+
 /** The arguments that attach a stack to the namespace of `pid`, closed to the host (ADR 0218). */
 const stackArgs = (tool: NetworkStackTool, pid: number): string[] => {
   switch (tool) {
@@ -626,13 +641,14 @@ export function sandboxedChecks(options: SandboxedChecksOptions): ExecProcess {
         );
       }
       const resolver = resolverIn(realPath);
-      return inOwnNamespace(
-        exec,
-        bwrap,
-        { tool, path },
-        bwrapArgs(paths, file, { network, resolver }),
-        call,
-      );
+      const args = bwrapArgs(paths, file, { network, resolver });
+      const run = () => inOwnNamespace(exec, bwrap, { tool, path }, args, call);
+      const first = await run();
+      if (!lostLoopbackRace(first)) return first;
+      const second = await run();
+      return lostLoopbackRace(second)
+        ? unstarted(`${bwrapSaid(second)}, twice: ${LOOPBACK_RACE}`, '0407')
+        : second;
     }
     if (!hasSandboxExec()) {
       return unstarted(`${SANDBOX_EXEC} is not there: check steps run only in its sandbox here`);
