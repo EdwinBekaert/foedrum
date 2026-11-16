@@ -1,6 +1,9 @@
 # The tasting room: the Flight's orders
 
-Each folder here is one order a Flight brews ([ADR 0404](../../../docs/adr/0404-the-flight-s-tasting-room-is-a-folder-of-orders-each-proved-by-its-hidden-tests.md)): a tiny made-up repository, the order's text, one trap a weaker setup can miss, hidden tests a brewer never sees, and a reference solution.
+The tasting room is Foedrum's benchmark: a Flight is to brew these orders to judge a change to a recipe, a prompt or a model, by whether the brewed change passes each order's hidden tests.
+CI runs only the proof that each order is fair, its hidden tests failing on the starting repository and passing with the reference solution, and no model.
+
+Each folder here is one order a Flight brews ([ADR 0404](../docs/adr/0404-the-flight-s-tasting-room-is-a-folder-of-orders-each-proved-by-its-hidden-tests.md)): a tiny made-up repository, the order's text, one trap a weaker setup can miss, hidden tests a brewer never sees, and a reference solution.
 `scripts/flight-orders.ts` reads them, and `test/integration/flight-orders.test.ts` proves, for every order, that its hidden tests fail on the starting repository and pass with its reference solution.
 
 ## One order's files

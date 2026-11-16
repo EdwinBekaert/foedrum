@@ -1,4 +1,4 @@
-// The Flight's proof (ADR 0404): for every order in test/fixtures/flight/, its hidden tests fail on
+// The Flight's proof (ADR 0404): for every order in tasting-room/, its hidden tests fail on
 // the starting repository and pass with its reference solution, each run by a real `node --test`.
 
 import assert from 'node:assert/strict';
@@ -17,7 +17,7 @@ import {
 import { execProcess } from '../../src/platform/processes.ts';
 import { makeTempDir } from '../helpers/temp-dir.ts';
 
-const ROOM = join(import.meta.dirname, '..', 'fixtures', 'flight');
+const ROOM = join(import.meta.dirname, '..', '..', 'tasting-room');
 
 const orders: FlightOrder[] = readdirSync(ROOM, { withFileTypes: true })
   .filter((entry) => entry.isDirectory())

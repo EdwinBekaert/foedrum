@@ -1,4 +1,4 @@
-// The Flight's orders in test/fixtures/flight/ (ADR 0404): each order's files read and checked, the
+// The Flight's orders in tasting-room/ (ADR 0404): each order's files read and checked, the
 // trees its proof lays down, and what a proof run's exit means. The proof itself runs in
 // test/integration/flight-orders.test.ts. When #1083 comes, the Flight's runner will build its
 // target from the same starting tree and lay the hidden tests over a brewed head with `withLayer`.

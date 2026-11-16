@@ -11,7 +11,7 @@ The milestone table names "the tasting room repository" for M4 without saying wh
 
 ## Decision
 - **Decided with the maintainer on 2026-11-16:**
-  - the tasting room is a folder in Foedrum, `test/fixtures/flight/`, not a repository of its own: each order will be brewed on the fake code host (#1083), as `scripts/tasting-compare.ts` brews its seeded change ([ADR 0224](0224-the-default-recipes-taste-apart-or-together-as-a-seeded-comparison-measured.md)), with no real GitHub. The milestone table's "tasting room repository" is this folder;
+  - the tasting room is a folder in Foedrum, `tasting-room/` at the repository's root beside `defaults/`, `docs/` and `src/`, not a repository of its own: each order will be brewed on the fake code host (#1083), as `scripts/tasting-compare.ts` brews its seeded change ([ADR 0224](0224-the-default-recipes-taste-apart-or-together-as-a-seeded-comparison-measured.md)), with no real GitHub. The milestone table's "tasting room repository" is this folder. It is kept apart from `test/fixtures/`, which holds inputs for tests of Foedrum's own code: the tasting room is Foedrum's benchmark, which people read and add orders to;
   - the first set will be 10 small made-up orders, 3 here and 7 in #1082, each on a tiny repository with one trap a weaker setup can miss: a house rule in the repository's instruction file, a design page the change must update, or an edge case only the hidden tests check;
   - a Flight will brew each order 3 times per setup (#1083), and a report will call a difference only when one setup passes every run and the other at most one (#1084); anything else is "too close to call".
 - **An order is a folder of plain files**, not patches as the seeded change keeps:
@@ -38,6 +38,7 @@ None: these are fixtures, a test and docs of Foedrum's own repository, and nothi
 - A new order is a folder of plain files that #1082 writes by hand.
 
 ## Alternatives considered
+- **Under `test/fixtures/`:** the orders would read as inputs of Foedrum's own tests, while they are a benchmark people read and add to.
 - **A tasting-room repository of its own:** a second repository and a login for each Flight, which the fake code host does not need.
 - **Patches, as the seeded change keeps:** see above.
 - **The proof as a unit test, as #562 first asked:** each run starts `node --test`, which a unit test may not.
