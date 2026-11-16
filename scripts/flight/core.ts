@@ -158,7 +158,7 @@ export const flightFolderOf = ({ recipe, swap }: FlightSettings): string =>
     swap === undefined ? recipe : `${recipe}-${swap.brewer}-${swap.model}-${swap.effort}`,
   );
 
-/** Where the target's test line writes its TAP report, which the dry run's test map names. */
+/** Where the target's test line writes its TAP report, for the Maltster's test map to name. */
 const REPORT = 'flight.tap';
 
 const json = (value: unknown): string => `${JSON.stringify(value, null, 2)}\n`;
@@ -169,7 +169,7 @@ const json = (value: unknown): string => `${JSON.stringify(value, null, 2)}\n`;
  * the model is an id; and always the target's test line.
  */
 export const flightBreweryFiles = (
-  { recipe, swap }: FlightSettings,
+  { recipe, swap, dryRun }: FlightSettings,
   recipeText: string,
   names: { brewery: string; target: string; user: string },
 ): Record<string, string> => {
@@ -190,21 +190,28 @@ export const flightBreweryFiles = (
       },
     }),
   };
-  if (swap === undefined) return config;
+  if (swap === undefined && !dryRun) return config;
   const copy = recipeOf(recipeText);
-  const level = swapLevelOf(swap, copy);
-  if (level === undefined) throw new Error(`no level of ${recipe} is free for ${swap.model}`);
-  eachBrewerStep(copy, (step) => {
-    if (step.brewer !== swap.brewer) return;
-    step.model = level;
-    step.effort = swap.effort;
-  });
+  // A dry run skips the test-first steps: they are the engine's, tested there, and a scripted
+  // Gauger's tests would fail to load on the base (ADR 0409).
+  if (dryRun) copy.testFirst = false;
+  const level = swap === undefined ? undefined : swapLevelOf(swap, copy);
+  if (swap !== undefined) {
+    if (level === undefined) throw new Error(`no level of ${recipe} is free for ${swap.model}`);
+    eachBrewerStep(copy, (step) => {
+      if (step.brewer !== swap.brewer) return;
+      step.model = level;
+      step.effort = swap.effort;
+    });
+  }
+  const what = swap === undefined ? '' : ` with ${swap.brewer} on ${swap.model} at ${swap.effort}`;
   return {
     ...config,
-    [`recipes/${recipe}.jsonc`]: `// node scripts/flight.ts's ${recipe} with ${swap.brewer} on ${swap.model} at ${swap.effort} (ADR 0409).\n${json(copy)}`,
-    ...(level === swap.model
+    [`recipes/${recipe}.jsonc`]: `// node scripts/flight.ts's ${recipe}${what}${dryRun ? ', test-first off for a dry run' : ''} (ADR 0409).
+${json(copy)}`,
+    ...(swap === undefined || level === swap.model
       ? {}
-      : { 'models.jsonc': json({ claude: { models: { [level]: swap.model } } }) }),
+      : { 'models.jsonc': json({ claude: { models: { [String(level)]: swap.model } } }) }),
   };
 };
 
@@ -219,41 +226,19 @@ export const askedModels = ({ swap }: FlightSettings, recipeText: string): Map<s
   return asked;
 };
 
-/** What the dry run's scripted brewers play for `order`, by step id of the recipe. */
+/**
+ * What the dry run's scripted brewers play for `order`, by step id of the recipe: Cellarman commits
+ * the whole solution, since a dry run skips the test-first steps, and every other brewer nothing.
+ */
 export const dryRunScript = (
   order: FlightOrder,
   recipeText: string,
 ): Record<string, readonly Scripted[]> => {
-  const solution = Object.entries(order.solution);
-  const filesOf = (tests: boolean) =>
-    Object.fromEntries(solution.filter(([path]) => path.startsWith('test/') === tests));
-  const manifests = Object.keys(order.base).filter((path) => path === 'package.json');
-  const testMap = {
-    derivedFrom: { globs: ['package.json'], paths: manifests },
-    modules: [
-      {
-        name: order.name,
-        code: ['src/**'],
-        tests: { paths: ['test/**/*.test.mjs'] },
-        testReport: { format: 'tap', path: REPORT },
-        coverage: 'none',
-      },
-    ],
-  };
   const turnOf = ({ id, brewer }: BrewerStep): Scripted => {
     const nothing = { files: {}, message: '', summary: `The dry run's ${brewer} of ${id}.` };
     switch (brewer) {
-      case 'maltster-survey':
-        return {
-          ...nothing,
-          files: { [TEST_MAP_PATH]: json(testMap) },
-          message: 'Map the tests of the order',
-          doc: { map: 'new' },
-        };
-      case 'gauger':
-        return { ...nothing, files: filesOf(true), message: `Test ${order.title}` };
       case 'cellarman':
-        return { ...nothing, files: filesOf(false), message: order.title };
+        return { ...nothing, files: { ...order.solution }, message: order.title };
       case 'finer':
         return { ...nothing, fining: { unchanged: 'The dry run simplifies nothing.' } };
       case 'taster':
