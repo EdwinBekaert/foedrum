@@ -8,6 +8,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { onFindings } from '../../src/engine/fold.ts';
 import type { Event, Usage } from '../../src/schemas/events.ts';
+import { Effort, ModelId, ModelLevel } from '../../src/schemas/models.ts';
 import { lensOfFinding, TastingFinding } from '../../src/schemas/out-doc.ts';
 import type { StepOutcome } from '../../src/schemas/step-outcome.ts';
 import { z } from '../../src/schemas/zod.ts';
@@ -35,6 +36,40 @@ export const SETUPS = {
 } as const;
 export type SetupName = keyof typeof SETUPS;
 const SETUP_NAMES = Object.keys(SETUPS) as SetupName[];
+
+/**
+ * The level a measured brewer's step names, which the run's models.jsonc maps to the given model:
+ * no other step of its recipe runs on it (ADR 0397).
+ */
+export const MEASURED: ModelLevel = 'strong';
+
+/** The level Taster steps on `model` name: the level itself, or `strong`, which models.jsonc maps to an id (ADR 0402). */
+export const levelOf = (model: string): ModelLevel => {
+  const level = ModelLevel.safeParse(model);
+  return level.success ? level.data : MEASURED;
+};
+
+/** The models.jsonc of a run whose Tasters are on `model`: none for a level, `strong` mapped to an id (ADR 0402). */
+export const modelsFileOf = (model: string): Record<string, string> =>
+  ModelLevel.safeParse(model).success
+    ? {}
+    : {
+        'models.jsonc': `${JSON.stringify({ claude: { models: { [MEASURED]: model } } }, null, 2)}\n`,
+      };
+
+/** `--model`, a level or a model id, and `--effort`, checked; throws on either (ADR 0402). */
+export const tasterModelOf = (model: string, effort: string): { model: string; effort: Effort } => {
+  if (!ModelLevel.safeParse(model).success && !ModelId.safeParse(model).success) {
+    throw new Error(
+      `--model takes a level, ${ModelLevel.options.join(', ')}, or a model id models.jsonc accepts, such as claude-opus-5-5, not "${model}"`,
+    );
+  }
+  const parsed = Effort.safeParse(effort);
+  if (!parsed.success) {
+    throw new Error(`--effort takes one of ${Effort.options.join(', ')}, not "${effort}"`);
+  }
+  return { model, effort: parsed.data };
+};
 
 /** The step that commits the seeded change: a scripted Cellarman, no model. */
 export const IMPLEMENT = 'implement';

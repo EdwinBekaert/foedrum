@@ -21,6 +21,9 @@ import {
   backTo,
   escapeCell,
   IMPLEMENT,
+  levelOf,
+  MEASURED,
+  modelsFileOf,
   nextRunOf,
   placeShown,
   type RunRecord,
@@ -30,6 +33,7 @@ import {
   stepIdOf,
   TASTE,
   type TasterAttempt,
+  tasterModelOf,
   tokensOf,
 } from './core.ts';
 
@@ -1090,12 +1094,6 @@ export type BrewerSetup = `${OrderNumber}-${MeasuredBrewer}-${string}`;
 /** The recipe of a real Cellarman's run (ADR 0394). */
 export const REAL_BREWER_RECIPE = 'real-brew-cellarman';
 
-/**
- * The level the measured brewer's step names, which the run's models.jsonc maps to the given model:
- * no other step of its recipe runs on it (ADR 0397).
- */
-const MEASURED: ModelLevel = 'strong';
-
 /** How `--lenses` runs a Taster setup's three lenses: a Taster each, or one Taster for all (ADR 0402). */
 export const TASTER_LENSES = ['apart', 'together'] as const;
 /** Whether `--rules` gives the Taster that reads the instruction file, or its bare cut (ADR 0402). */
@@ -1121,12 +1119,6 @@ export const tasterSetups = (settings: TasterSettings, orders?: string): TasterS
       `${order}-taster-${settings.model}-${settings.effort}-${settings.lenses}-${settings.rules}`,
   );
 
-/** The level a settings run's Taster steps name: its own, or `strong`, which models.jsonc maps to its id. */
-const tasterLevelOf = ({ model }: TasterSettings): ModelLevel => {
-  const level = ModelLevel.safeParse(model);
-  return level.success ? level.data : MEASURED;
-};
-
 /**
  * The recipe of a Taster setup built from settings: as `real-nip`'s, its three lenses a Taster each or
  * one Taster for all, every Taster step on the level and effort given (ADR 0402).
@@ -1140,7 +1132,7 @@ const tasterRecipeText = (settings: TasterSettings): string =>
         settings.lenses === 'apart'
           ? { id: TASTE, parallel: TASTERS, ...backTo(IMPLEMENT) }
           : { ...TOGETHER, ...backTo(IMPLEMENT) },
-        { model: tasterLevelOf(settings), effort: settings.effort },
+        { model: levelOf(settings.model), effort: settings.effort },
       ),
     },
     "node scripts/tasting-compare.ts --real --brewer taster's recipe (ADR 0402)",
@@ -1152,9 +1144,7 @@ export const tasterBreweryFiles = (
   tasters: Tasters,
 ): Record<string, string> => ({
   [`recipes/${TASTER_RECIPE}.jsonc`]: tasterRecipeText(settings),
-  ...(ModelLevel.safeParse(settings.model).success
-    ? {}
-    : { 'models.jsonc': json({ claude: { models: { [MEASURED]: settings.model } } }) }),
+  ...modelsFileOf(settings.model),
   'brewers/taster.md': withoutLevels(
     settings.rules === 'reads' ? tasters.reads : bareTaster(tasters.reads),
   ),
@@ -1245,15 +1235,7 @@ const tasterSettingsOf = (given: {
   if (effort === undefined) throw new Error('--brewer taster needs --effort <effort>');
   if (lenses === undefined) throw new Error('--brewer taster needs --lenses apart|together');
   if (rules === undefined) throw new Error('--brewer taster needs --rules reads|bare');
-  if (!ModelLevel.safeParse(model).success && !ModelId.safeParse(model).success) {
-    throw new Error(
-      `--model takes a level, ${ModelLevel.options.join(', ')}, or a model id models.jsonc accepts, such as claude-opus-5-5, not "${model}"`,
-    );
-  }
-  const parsed = Effort.safeParse(effort);
-  if (!parsed.success) {
-    throw new Error(`--effort takes one of ${Effort.options.join(', ')}, not "${effort}"`);
-  }
+  const levels = tasterModelOf(model, effort);
   const lensesAre = TASTER_LENSES.find((each) => each === lenses);
   if (lensesAre === undefined) {
     throw new Error(`--lenses takes ${TASTER_LENSES.join(', ')}, not "${lenses}"`);
@@ -1262,7 +1244,7 @@ const tasterSettingsOf = (given: {
   if (rulesAre === undefined) {
     throw new Error(`--rules takes ${TASTER_RULES.join(', ')}, not "${rules}"`);
   }
-  return { brewer: 'taster', model, effort: parsed.data, lenses: lensesAre, rules: rulesAre };
+  return { brewer: 'taster', ...levels, lenses: lensesAre, rules: rulesAre };
 };
 
 /** The setups of a brewer's runs, one per order, of the orders `--orders` names or of every order. */
