@@ -1831,7 +1831,7 @@ export const plannerBreweryFiles = (): Record<string, string> => {
  * or one of an attempt that succeeded and names no model, cannot say; one that failed by itself may
  * have called none (ADR 0344).
  */
-const stepModels = (
+export const stepModels = (
   events: readonly { event: Event }[],
   stepId: string,
   transcriptOf: (sessionId: string, worktree: string) => string | undefined,
