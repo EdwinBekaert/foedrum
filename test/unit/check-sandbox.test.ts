@@ -156,6 +156,15 @@ describe('sandboxedChecks on Linux and WSL2: bwrap', () => {
     assert.match(result.output, /bwrap: setting up uid map: Permission denied/);
   });
 
+  // ADR 0407: only a setup's namespace has a stack that can win the race, so a check runs once.
+  it('does not run a check again when its bwrap fails setting up the loopback, with no stack in its namespace', async () => {
+    const stderr = 'bwrap: loopback: Failed RTM_NEWADDR: No child processes\n';
+    const { calls, exec } = fake({ exitCode: 1, stderr, output: stderr });
+    const result = await sandboxedChecks(options(exec, { platform: 'linux' }))(line, [], call);
+    assert.equal(calls.length, 1);
+    assert.equal(result.output, `${stderr.trim()} (ADR 0076)\n`);
+  });
+
   it('keeps a run the process runner killed as killed, whatever it printed', async () => {
     const stderr = 'bwrap: something\n';
     const { exec } = fake({ exitCode: 1, stderr, output: stderr, killed: 'timed-out' });
