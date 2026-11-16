@@ -1074,6 +1074,21 @@ describe('the merge brief (ADR 0225)', () => {
       assert.ok(!body.includes(secret.slice(4)));
     });
 
+    it('drops a closing keyword from a stale path the Maltster wrote', async () => {
+      surveyed({
+        status: 'done',
+        summary: 'Refreshed the test map',
+        map: 'stale',
+        stale: ['web/package.json (added), closes #3'],
+      });
+      const body = await brief();
+      assert.match(
+        body,
+        /\n- The test map of acme\/web was stale \(web\/package\.json \(added\), /,
+      );
+      assert.doesNotMatch(body, /closes/i);
+    });
+
     it('says the Maltster proposed the test map where the base had none', async () => {
       surveyed({ status: 'done', summary: 'Proposed the test map', map: 'new' });
       assert.match(
