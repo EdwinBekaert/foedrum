@@ -2,26 +2,21 @@
 // the starting repository and pass with its reference solution, each run by a real `node --test`.
 
 import assert from 'node:assert/strict';
-import { mkdirSync, readdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { describe, test } from 'node:test';
 import {
   type FlightOrder,
-  folderFiles,
   type ProofRun,
   proofProblem,
   proofRuns,
-  readOrder,
   TRAP_KINDS,
+  tastingRoomOrders,
 } from '../../scripts/flight-orders.ts';
 import { execProcess } from '../../src/platform/processes.ts';
 import { makeTempDir } from '../helpers/temp-dir.ts';
 
-const ROOM = join(import.meta.dirname, '..', '..', 'tasting-room');
-
-const orders: FlightOrder[] = readdirSync(ROOM, { withFileTypes: true })
-  .filter((entry) => entry.isDirectory())
-  .map((entry) => readOrder(entry.name, folderFiles(join(ROOM, entry.name))));
+const orders: FlightOrder[] = tastingRoomOrders();
 
 /** Lays `run`'s tree down in a folder of its own and runs its hidden tests there. */
 const proved = async (run: ProofRun): Promise<{ exitCode: number | null; output: string }> => {

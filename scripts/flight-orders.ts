@@ -142,6 +142,9 @@ export const proofProblem = (run: ProofRun, exitCode: number | null): string | u
   return undefined;
 };
 
+/** The tasting room's folder of orders, the one place a reader of the orders finds them. */
+export const TASTING_ROOM = join(import.meta.dirname, '..', 'tasting-room');
+
 /** The files under `folder`, by their path from it. */
 export const folderFiles = (folder: string): Files =>
   Object.fromEntries(
@@ -152,3 +155,11 @@ export const folderFiles = (folder: string): Files =>
         return [relative(folder, file).split(sep).join('/'), readFileSync(file, 'utf8')];
       }),
   );
+
+/** Every order of the tasting room, read from its folder in the order of their names. */
+export const tastingRoomOrders = (): FlightOrder[] =>
+  readdirSync(TASTING_ROOM, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => entry.name)
+    .sort()
+    .map((name) => readOrder(name, folderFiles(join(TASTING_ROOM, name))));
