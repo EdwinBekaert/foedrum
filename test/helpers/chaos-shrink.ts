@@ -145,9 +145,10 @@ export interface Shrunk {
 
 /**
  * Shrinks `found` to a smallest schedule that still fails the same way (`failureKind`): it
- * removes chunks of moves, then of faults, halving the chunk down to one, over and over until
- * neither goes; then it makes each play that is left a success where that still fails. Each
- * removal keeps every other fault at its site.
+ * removes chunks of moves, then of faults, halving the chunk down to one, and makes each play
+ * that is left a success where that still fails, over and over until none of them changes: a play
+ * made a success can leave a move or a fault that no longer matters. Each removal keeps every
+ * other fault at its site.
  */
 export const shrinkChaos = async (
   dir: string,
@@ -197,15 +198,16 @@ export const shrinkChaos = async (
       (schedule) => schedule.faults,
       (schedule, items) => ({ ...schedule, faults: items }),
     );
-    changed = moves || faults;
-  }
-  for (let at = 0; at < best.schedule.plays.length; at++) {
-    const { plays } = best.schedule;
-    if (plays[at]?.play.kind === 'succeed') continue;
-    await fails({
-      ...best.schedule,
-      plays: plays.map((entry, i) => (i === at ? { ...entry, play: { kind: 'succeed' } } : entry)),
-    });
+    let plays = false;
+    for (let at = 0; at < best.schedule.plays.length; at++) {
+      const left = best.schedule.plays;
+      if (left[at]?.play.kind === 'succeed') continue;
+      const succeeds = left.map((entry, i) =>
+        i === at ? { ...entry, play: { kind: 'succeed' as const } } : entry,
+      );
+      if (await fails({ ...best.schedule, plays: succeeds })) plays = true;
+    }
+    changed = moves || faults || plays;
   }
   return { failure: best, runs, exhausted: runs >= budget };
 };
