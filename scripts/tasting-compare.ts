@@ -47,6 +47,13 @@
 // those orders. One blinded list per order shows each run's code diff under
 // .foedrum/tmp/tasting-compare/real/brewers, the setups named only in codes.md.
 //
+// With --real --brewer taster --model <level or id> --effort <effort> --lenses apart|together
+// --rules reads|bare (#937, ADR 0402) it tastes the three heads with a Taster setup built from
+// those settings instead of a fixed one: real-nip's three lenses, a Taster each or one for all,
+// with the Taster that reads the rules or its bare cut, on a level as the defaults map it or on a
+// model id through models.jsonc's strong. Its setup's name says all four, its records go beside the
+// fixed setups', and the same lists score its runs, the settings named only in codes.md.
+//
 // With --real --sub-orders (#1052, ADR 0396) it plans each order once through the real Brewmaster
 // as it ships, or scripted with --dry-run, and keeps a plan of one sub-order as that sub-order's
 // text in real/sub-orders/<order>.md; --real --brewer cellarman --order-text plan then builds
@@ -97,6 +104,7 @@ import {
   readRecordsIn,
   recipeText,
   recordOf,
+  runFailure,
   SETUPS,
   type SetupName,
   scriptedTastings,
@@ -134,7 +142,6 @@ import {
   comparisonStop,
   keptFiles,
   nextBrewerRun,
-  nextRealRun,
   orderFileOf,
   orderOf,
   PLANNER_RECIPE,
@@ -166,7 +173,13 @@ import {
   selectRealSetups,
   splitHead,
   subOrdersRunOf,
+  TASTER_RECIPE,
+  type TastedRecord,
+  type TasterSettings,
+  type TasterSetup,
   TODAY_COMMIT,
+  tasterBreweryFiles,
+  tasterSetups,
 } from './tasting-compare/real.ts';
 
 const root = resolve(import.meta.dirname, '..');
@@ -194,6 +207,8 @@ const { values } = parseArgs({
     'sub-orders': { type: 'boolean' },
     'order-text': { type: 'string' },
     map: { type: 'boolean' },
+    lenses: { type: 'string' },
+    rules: { type: 'string' },
   },
 });
 if (values.plan === true && values.real === true) {
@@ -204,7 +219,7 @@ if (values.setups !== undefined && values.real !== true) {
   process.stderr.write('--setups chooses among the setups of --real: give --real too\n');
   process.exit(2);
 }
-/** A real brewer's settings, when --brewer gives them (ADR 0394). */
+/** A real brewer's settings, or a Taster setup's, when --brewer gives them (ADR 0394, ADR 0402). */
 const brewerSettings = (() => {
   try {
     return brewerSettingsOf({ ...values, orderText: values['order-text'] });
@@ -478,7 +493,13 @@ const brewedHeadOf = async (setup: RealSetup | BrewerSetup, git: RunGit) => {
   return { head, changed, subject, textsOf };
 };
 
-const realMode = async (): Promise<Mode<RealSetup>> => {
+/**
+ * The real mode: the fixed setups --setups chooses, or with `settings` the Taster setup they build
+ * (ADR 0402), whose records go beside the fixed setups' and whose runs the same lists score.
+ */
+const realMode = async (
+  settings?: TasterSettings,
+): Promise<Mode<RealSetup | TasterSetup, TastedRecord>> => {
   await realCommits();
   const today = await runGit(root, [
     'show',
@@ -489,12 +510,18 @@ const realMode = async (): Promise<Mode<RealSetup>> => {
   }
   const reads = readFileSync(join(realFixture, READS_TASTER), 'utf8');
   refuseSameTaster(today.stdout, reads);
+  const tasters = { today: today.stdout, reads };
+  const setups = settings === undefined ? realSetups : tasterSetups(settings, values.orders);
   return {
     folders: realFolderOf,
-    setups: realSetups,
+    setups,
     order: (setup) => join(realFixture, `${orderOf(setup).order}.md`),
-    recipeOf: realRecipeOf,
-    breweryFiles: (setup) => realBreweryFiles(setup, { today: today.stdout, reads }),
+    recipeOf: (setup) =>
+      settings === undefined ? realRecipeOf(setup as RealSetup) : TASTER_RECIPE,
+    breweryFiles: (setup) =>
+      settings === undefined
+        ? realBreweryFiles(setup as RealSetup, tasters)
+        : tasterBreweryFiles(settings, tasters),
     target: realTarget,
     script: async (setup, _scratch, git) => {
       const { head, changed, subject, textsOf } = await brewedHeadOf(setup, git);
@@ -509,15 +536,22 @@ const realMode = async (): Promise<Mode<RealSetup>> => {
       };
     },
     scriptedStep: IMPLEMENT,
-    next: (records, runCount) => nextRealRun(records, runCount, realSetups),
+    next: (records, runCount) => nextRunOf(setups, records, runCount, runFailure),
     recordOf: async (events, _setup, planned) =>
-      realRecordOf(events, (id, worktree) =>
-        dryRun ? scriptedTranscript(worktree, planned.get(id) ?? 'no plan') : transcriptOf(id),
+      realRecordOf(
+        events,
+        (id, worktree) =>
+          dryRun ? scriptedTranscript(worktree, planned.get(id) ?? 'no plan') : transcriptOf(id),
+        settings,
       ),
     table: realTable,
     stop: comparisonStop,
     comments: (setup, author) =>
-      realCommentsOf(setup, author, (file) => readFileSync(join(realFixture, file), 'utf8')),
+      settings === undefined
+        ? realCommentsOf(setup as RealSetup, author, (file) =>
+            readFileSync(join(realFixture, file), 'utf8'),
+          )
+        : [],
     files: (records, reportFolder) => {
       const { lists, bodies, codes } = blinded(records, seedIn(reportFolder));
       return {
@@ -814,10 +848,12 @@ const compare = async <Setup extends string, Run extends RunRecord<Setup>>(
 
 await (subOrders
   ? compare(await plannerMode())
-  : brewerSettings !== undefined
-    ? compare(await brewerMode(brewerSettings))
-    : values.real === true
-      ? compare(await realMode())
-      : values.plan === true
-        ? compare(planMode())
-        : compare(diffMode()));
+  : brewerSettings?.brewer === 'taster'
+    ? compare(await realMode(brewerSettings))
+    : brewerSettings !== undefined
+      ? compare(await brewerMode(brewerSettings))
+      : values.real === true
+        ? compare(await realMode())
+        : values.plan === true
+          ? compare(planMode())
+          : compare(diffMode()));

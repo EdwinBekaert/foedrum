@@ -1080,7 +1080,7 @@ describe('tasting-compare --real --brewer (ADR 0394)', () => {
       assert.deepEqual(brewerSettingsOf({ real: true, ...OPUS, map: true }), MAP_RUN);
       assert.deepEqual(brewerSetups(MAP_RUN, '855'), [SETUP]);
       const both = brewerSettingsOf({ real: true, ...OPUS, map: true, orderText: 'plan' });
-      assert.ok(both !== undefined);
+      assert.ok(both !== undefined && both.brewer === 'cellarman');
       assert.deepEqual(brewerSetups(both, '855'), [`${SETUP}-plan`]);
       const folders = { fixture: 'fixture', kept: 'kept' };
       assert.equal(orderFileOf(`${SETUP}-plan`, folders), join('kept', '855.md'));

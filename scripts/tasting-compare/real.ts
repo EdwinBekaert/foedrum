@@ -11,7 +11,7 @@ import { planEntryText } from '../../src/engine/plan-comment.ts';
 import { pathInside } from '../../src/platform/paths.ts';
 import { ClaudeToolResult, ClaudeToolUse } from '../../src/schemas/claude-stream.ts';
 import type { Event, GravityReading, Usage } from '../../src/schemas/events.ts';
-import { Effort, ModelId } from '../../src/schemas/models.ts';
+import { Effort, ModelId, ModelLevel } from '../../src/schemas/models.ts';
 import { planOf } from '../../src/schemas/plan.ts';
 import { z } from '../../src/schemas/zod.ts';
 import type { FakeApiComment } from '../../test/helpers/fake-github-api.ts';
@@ -136,7 +136,7 @@ const profileOf = (setup: RealSetup): Profile | 'comments' =>
 
 /** The order `setup` tastes. */
 export const orderOf = (
-  setup: RealSetup | BrewerSetup | PlannerSetup,
+  setup: RealSetup | TasterSetup | BrewerSetup | PlannerSetup,
 ): (typeof REAL_ORDERS)[number] => {
   const number = Number(setup.slice(0, setup.indexOf('-')));
   const found = REAL_ORDERS.find(({ order }) => order === number);
@@ -272,6 +272,18 @@ const RECIPES: Record<string, { description: string; taste: Record<string, unkno
 export const realRecipeText = (setup: RealSetup): string => {
   const name = realRecipeOf(setup);
   const { description, taste } = RECIPES[name] ?? { description: '', taste: {} };
+  const profile = profileOf(setup);
+  return tastingRecipeText(
+    { name, description, taste: withLevels(taste, levelsOf(profile)) },
+    "node scripts/tasting-compare.ts --real's recipe (ADR 0332)",
+  );
+};
+
+/** A tasting recipe of `name` around its taste step, under a first line that says what brews it. */
+const tastingRecipeText = (
+  { name, description, taste }: { name: string; description: string; taste: object },
+  header: string,
+): string => {
   const recipe = {
     name,
     type: 'brew',
@@ -291,11 +303,11 @@ export const realRecipeText = (setup: RealSetup): string => {
         when: 'recipe.testFirst',
       },
       { id: IMPLEMENT, brewer: 'cellarman', model: 'standard', effort: 'larger' },
-      withTasterLevels(taste, profileOf(setup)),
+      taste,
       { action: 'openPullRequest' },
     ],
   };
-  return `// node scripts/tasting-compare.ts --real's recipe (ADR 0332).\n${JSON.stringify(recipe, null, 2)}\n`;
+  return `// ${header}.\n${JSON.stringify(recipe, null, 2)}\n`;
 };
 
 /** The two Taster texts the setups start from. */
@@ -310,15 +322,19 @@ export interface Tasters {
 const ON_HIGH: ReadonlySet<Profile | 'comments'> = new Set(['high', 'high-bare', 'high-together']);
 
 /**
- * `taste` with every Taster step's level and effort: `setup`'s, as its brewers swap and its Taster's
- * own effort set them before a step named both, and a step's own where it names one (ADR 0397).
+ * A fixed profile's Taster level and effort: as its brewers swap and its Taster's own effort set them
+ * before a step named both (ADR 0397).
  */
-const withTasterLevels = (
+const levelsOf = (profile: Profile | 'comments'): { model: string; effort: Effort } => ({
+  model: ON_OPUS.has(profile) ? 'strong' : 'standard',
+  effort: ON_HIGH.has(profile) ? 'larger' : 'moderate',
+});
+
+/** `taste` with every Taster step's level and effort: those given, and a step's own where it names one. */
+const withLevels = (
   taste: Record<string, unknown>,
-  profile: Profile | 'comments',
+  { model, effort }: { model: string; effort: Effort },
 ): Record<string, unknown> => {
-  const model = ON_OPUS.has(profile) ? 'strong' : 'standard';
-  const effort = ON_HIGH.has(profile) ? 'larger' : 'moderate';
   const levels = (step: Record<string, unknown>) => ({ model, effort, ...step });
   const { parallel } = taste;
   return Array.isArray(parallel) ? { ...taste, parallel: parallel.map(levels) } : levels(taste);
@@ -694,7 +710,7 @@ export const transcriptReads = (transcript: string, worktree: string): Transcrip
 export const realRecordOf = (
   events: readonly { event: Event }[],
   transcriptOf: (sessionId: string, worktree: string) => string | undefined,
-  _taster?: TasterSettings,
+  taster?: TasterSettings,
 ): Pick<TastedRecord, 'ended' | 'attempts' | 'taster'> => {
   const { ended, attempts } = recordIn(events, STEPS);
   const sessions = new Map<string, { id: string; worktree: string }>();
@@ -736,22 +752,41 @@ export const realRecordOf = (
         ...(body === undefined ? {} : { body }),
       };
     }),
+    ...(taster === undefined ? {} : { taster }),
   };
+};
+
+/** Each level's family as `defaults/models.jsonc` maps it, which a settings run on a level asks for (ADR 0402). */
+const FAMILIES: Readonly<Record<ModelLevel, string>> = {
+  light: 'haiku',
+  standard: 'sonnet',
+  strong: 'opus',
+  extreme: 'fable',
 };
 
 /**
  * Why a run on a model its setup did not ask for must stop the comparison, or undefined: it is the
- * harness's fault, and every later run would be on it too (ADR 0344). A family such as opus asks for
- * any id that holds it. A Taster that finished with no model named cannot say. An attempt that
- * failed by itself may have called no model, and is a failed run.
+ * harness's fault, and every later run would be on it too (ADR 0344). A fixed profile asks for its
+ * family, a settings run for its level's family or its model id (`isAsked`, ADR 0402). A Taster
+ * that finished with no model named cannot say. An attempt that failed by itself may have called
+ * no model, and is a failed run.
  */
 export const modelStop = ({
   setup,
   attempts,
+  taster,
 }: Pick<TastedRecord, 'setup' | 'attempts' | 'taster'>): string | undefined => {
-  const asked = ASKS_OPUS.has(profileOf(setup as RealSetup)) ? 'opus' : 'sonnet';
+  const level = ModelLevel.safeParse(taster?.model);
+  const asked =
+    taster === undefined
+      ? ASKS_OPUS.has(profileOf(setup as RealSetup))
+        ? 'opus'
+        : 'sonnet'
+      : level.success
+        ? FAMILIES[level.data]
+        : taster.model;
   for (const { stepId, failure, models = [] } of attempts) {
-    const other = models.find((model) => !model.includes(asked));
+    const other = models.find((model) => !isAsked(asked, model));
     if (other !== undefined) {
       return escapeCell(`${stepId}: it ran on ${other}, and ${setup} asks for ${asked}`);
     }
@@ -851,6 +886,12 @@ const bodyLines = ({ stepId, lenses, body }: TasterAttempt): string[] => [
   '',
 ];
 
+/** Every fixed setup, then the settings setups the records hold, in the order they first came (ADR 0402). */
+const setupsOf = (records: readonly TastedRecord[]): (RealSetup | TasterSetup)[] => [
+  ...REAL_SETUPS,
+  ...setupsIn(records.filter(({ taster }) => taster !== undefined)),
+];
+
 const codeRows = (code: string, { setup, run, attempts }: TastedRecord): string[] =>
   inRecipeOrder(attempts).map((attempt) => {
     const { stepId, models = [], usage } = attempt;
@@ -879,7 +920,7 @@ export const blinded = (
   const failures: string[] = [];
   for (const { order } of REAL_ORDERS) {
     const scored: { code: string; record: TastedRecord }[] = [];
-    for (const setup of REAL_SETUPS.filter((each) => orderOf(each).order === order)) {
+    for (const setup of setupsOf(records).filter((each) => orderOf(each).order === order)) {
       const runs = runsOfSetup<RealSetup | TasterSetup, TastedRecord>(records, setup, runFailure);
       for (const record of runs.scored) {
         const code = codeOf(seed, setup, record.run);
@@ -943,7 +984,7 @@ const INSTRUCTION_FILES: readonly string[] = ['claude.md', 'agents.md'];
  * unblinds no list.
  */
 export const realTable = (records: readonly TastedRecord[]): string => {
-  const rows = REAL_SETUPS.map((setup) => {
+  const rows = setupsOf(records).map((setup) => {
     const { scored, failed } = runsOfSetup<RealSetup | TasterSetup, TastedRecord>(
       records,
       setup,
@@ -1053,7 +1094,7 @@ export const REAL_BREWER_RECIPE = 'real-brew-cellarman';
  * The level the measured brewer's step names, which the run's models.jsonc maps to the given model:
  * no other step of its recipe runs on it (ADR 0397).
  */
-const MEASURED = 'strong';
+const MEASURED: ModelLevel = 'strong';
 
 /** How `--lenses` runs a Taster setup's three lenses: a Taster each, or one Taster for all (ADR 0402). */
 export const TASTER_LENSES = ['apart', 'together'] as const;
@@ -1074,19 +1115,55 @@ export interface TasterSettings {
 export const TASTER_RECIPE = 'real-nip-settings';
 
 /** The setups of a Taster setup's runs, one per order, of the orders `--orders` names or of every order. */
-export const tasterSetups = (_settings: TasterSettings, _orders?: string): TasterSetup[] => {
-  throw new Error('not implemented');
+export const tasterSetups = (settings: TasterSettings, orders?: string): TasterSetup[] =>
+  realOrdersOf(orders).map(
+    ({ order }): TasterSetup =>
+      `${order}-taster-${settings.model}-${settings.effort}-${settings.lenses}-${settings.rules}`,
+  );
+
+/** The level a settings run's Taster steps name: its own, or `strong`, which models.jsonc maps to its id. */
+const tasterLevelOf = ({ model }: TasterSettings): ModelLevel => {
+  const level = ModelLevel.safeParse(model);
+  return level.success ? level.data : MEASURED;
 };
+
+/**
+ * The recipe of a Taster setup built from settings: as `real-nip`'s, its three lenses a Taster each or
+ * one Taster for all, every Taster step on the level and effort given (ADR 0402).
+ */
+const tasterRecipeText = (settings: TasterSettings): string =>
+  tastingRecipeText(
+    {
+      name: TASTER_RECIPE,
+      description: `A head as it was brewed, tasted by correctness, acceptance and security ${settings.lenses}, one round tasted`,
+      taste: withLevels(
+        settings.lenses === 'apart'
+          ? { id: TASTE, parallel: TASTERS, ...backTo(IMPLEMENT) }
+          : { ...TOGETHER, ...backTo(IMPLEMENT) },
+        { model: tasterLevelOf(settings), effort: settings.effort },
+      ),
+    },
+    "node scripts/tasting-compare.ts --real --brewer taster's recipe (ADR 0402)",
+  );
 
 /** The Brewery's files of a run of a Taster setup built from settings beyond Nip's (ADR 0402). */
 export const tasterBreweryFiles = (
-  _settings: TasterSettings,
-  _tasters: Tasters,
-): Record<string, string> => {
-  throw new Error('not implemented');
-};
+  settings: TasterSettings,
+  tasters: Tasters,
+): Record<string, string> => ({
+  [`recipes/${TASTER_RECIPE}.jsonc`]: tasterRecipeText(settings),
+  ...(ModelLevel.safeParse(settings.model).success
+    ? {}
+    : { 'models.jsonc': json({ claude: { models: { [MEASURED]: settings.model } } }) }),
+  'brewers/taster.md': withoutLevels(
+    settings.rules === 'reads' ? tasters.reads : bareTaster(tasters.reads),
+  ),
+});
 
-/** The settings `--brewer`, `--model` and `--effort` give, or undefined without them; throws on a wrong combination. */
+/**
+ * The settings `--brewer`, `--model` and `--effort` give, with `--lenses` and `--rules` for
+ * `--brewer taster` (ADR 0402), or undefined without them; throws on a wrong combination.
+ */
 export const brewerSettingsOf = (given: {
   real?: boolean;
   brewer?: string;
@@ -1097,8 +1174,11 @@ export const brewerSettingsOf = (given: {
   map?: boolean;
   lenses?: string;
   rules?: string;
-}): BrewerSettings | undefined => {
-  const { real, brewer, model, effort, setups, orderText, map } = given;
+}): BrewerSettings | TasterSettings | undefined => {
+  const { real, brewer, model, effort, setups, orderText, map, lenses, rules } = given;
+  if ((lenses !== undefined || rules !== undefined) && brewer !== 'taster') {
+    throw new Error('--lenses and --rules set the Taster of --brewer taster: give --brewer taster');
+  }
   if (brewer === undefined) {
     if (model !== undefined || effort !== undefined) {
       throw new Error('--model and --effort set the brewer --brewer names: give --brewer too');
@@ -1116,9 +1196,12 @@ export const brewerSettingsOf = (given: {
   if (setups !== undefined) {
     throw new Error('--setups chooses Taster setups and --brewer a brewer run: give one of them');
   }
+  if (brewer === 'taster') return tasterSettingsOf(given);
   const measured = MEASURED_BREWERS.find((each) => each === brewer);
   if (measured === undefined) {
-    throw new Error(`--brewer takes ${MEASURED_BREWERS.join(', ')}, not "${brewer}"`);
+    throw new Error(
+      `--brewer takes ${[...MEASURED_BREWERS, 'taster'].join(', ')}, not "${brewer}"`,
+    );
   }
   if (model === undefined) throw new Error(`--brewer ${brewer} needs --model <id>`);
   if (effort === undefined) throw new Error(`--brewer ${brewer} needs --effort <effort>`);
@@ -1141,6 +1224,45 @@ export const brewerSettingsOf = (given: {
     ...(orderText === 'plan' ? { orderText } : {}),
     ...(map === true ? { map } : {}),
   };
+};
+
+/** `--brewer taster`'s settings: all four required, and no option of a brewer's run (ADR 0402). */
+const tasterSettingsOf = (given: {
+  model?: string;
+  effort?: string;
+  orderText?: string;
+  map?: boolean;
+  lenses?: string;
+  rules?: string;
+}): TasterSettings => {
+  const { model, effort, orderText, map, lenses, rules } = given;
+  if (map === true)
+    throw new Error('--map maps the code before a Cellarman: not with --brewer taster');
+  if (orderText !== undefined) {
+    throw new Error('--order-text chooses what a Cellarman builds from: not with --brewer taster');
+  }
+  if (model === undefined) throw new Error('--brewer taster needs --model <level or id>');
+  if (effort === undefined) throw new Error('--brewer taster needs --effort <effort>');
+  if (lenses === undefined) throw new Error('--brewer taster needs --lenses apart|together');
+  if (rules === undefined) throw new Error('--brewer taster needs --rules reads|bare');
+  if (!ModelLevel.safeParse(model).success && !ModelId.safeParse(model).success) {
+    throw new Error(
+      `--model takes a level, ${ModelLevel.options.join(', ')}, or a model id models.jsonc accepts, such as claude-opus-5-5, not "${model}"`,
+    );
+  }
+  const parsed = Effort.safeParse(effort);
+  if (!parsed.success) {
+    throw new Error(`--effort takes one of ${Effort.options.join(', ')}, not "${effort}"`);
+  }
+  const lensesAre = TASTER_LENSES.find((each) => each === lenses);
+  if (lensesAre === undefined) {
+    throw new Error(`--lenses takes ${TASTER_LENSES.join(', ')}, not "${lenses}"`);
+  }
+  const rulesAre = TASTER_RULES.find((each) => each === rules);
+  if (rulesAre === undefined) {
+    throw new Error(`--rules takes ${TASTER_RULES.join(', ')}, not "${rules}"`);
+  }
+  return { brewer: 'taster', model, effort: parsed.data, lenses: lensesAre, rules: rulesAre };
 };
 
 /** The setups of a brewer's runs, one per order, of the orders `--orders` names or of every order. */
@@ -1536,8 +1658,8 @@ export const nextBrewerRun = (
 const fenceOf = (text: string): string =>
   '`'.repeat(Math.max(3, ...[...text.matchAll(/`+/g)].map(([run]) => run.length + 1)));
 
-/** The setups a brewer's records hold, in the order they first came. */
-const setupsIn = (records: readonly BrewerRecord[]): BrewerSetup[] => [
+/** The setups records hold, in the order they first came. */
+const setupsIn = <Setup extends string>(records: readonly { setup: Setup }[]): Setup[] => [
   ...new Set(records.map(({ setup }) => setup)),
 ];
 
