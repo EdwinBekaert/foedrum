@@ -49,7 +49,7 @@ const LENSES = ['correctness', 'security', 'cross-platform', 'design-conformance
 
 /**
  * The tasting room's pull request: one planted defect per lens, from the planted-defect sample
- * (test/fixtures/brew-review/planted-demo), as each lens's Taster reports it.
+ * (tasting-room/lenses/planted-demo), as each lens's Taster reports it.
  */
 const PLANTED: Readonly<Record<string, Record<string, unknown>>> = {
   correctness: {

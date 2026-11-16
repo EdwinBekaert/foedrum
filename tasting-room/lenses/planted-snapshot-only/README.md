@@ -3,7 +3,6 @@
 A change and the base it is made on, used to check `defaults/lenses/diff/test-design.md` after a prompt changes (CLAUDE.md, Tests), with [planted-drifted-fake](../planted-drifted-fake/README.md) and [planted-empty-passes](../planted-empty-passes/README.md) (#1099).
 It is built from `test/unit/cli.test.ts`, whose doctor test "reports permissions only on native Windows, recommends WSL2" checks only a snapshot of the whole report.
 The files are data: no test applies them.
-#1096 moves this sample, with the other lens samples, into the tasting room.
 
 - `0001`: the base, a tiny repository: `src/doctor.mjs` reports each tool's version, and its test checks the whole text.
 - `0002`: the change: on native Windows the report adds a permissions line and recommends WSL2, with a test named for those lines that checks only `t.assert.snapshot`, and its snapshot file.
