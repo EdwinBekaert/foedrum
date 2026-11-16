@@ -146,8 +146,9 @@ jobs:
   # The tests against the installed claude (ADR 0057), with the claude pinned in ci/claude/ and
   # the fake Messages API: no login, no token (ADR 0399). Every one in the nightly run and by hand;
   # on a pull request, the ones its change reaches (scripts/affected-tests.ts --real-claude, which
-  # lists every one when the change reaches every test file); none on a push to main. A pull request
-  # leaves out macOS, whose runners a busy day runs out of; check still runs there (ADR 0407).
+  # lists every one when the change reaches every test file). On a push to main, every one on macOS
+  # and none on Linux and Windows: a pull request leaves out macOS, whose runners a busy day runs out
+  # of, so the merge's run is where a macOS-only break shows before a tag (ADR 0407).
   real-claude:
     name: real claude (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
@@ -175,9 +176,11 @@ jobs:
         id: tests
         env:
           EVENT: ${{ github.event_name }}
+          OS: ${{ matrix.os }}
         run: |
           all=""
           if [ "$EVENT" = schedule ] || [ "$EVENT" = workflow_dispatch ]; then all=--all; fi
+          if [ "$EVENT" = push ] && [ "$OS" = macos-latest ]; then all=--all; fi
           node scripts/affected-tests.ts --real-claude $all | tee "$RUNNER_TEMP/real-claude.txt"
           if [ -s "$RUNNER_TEMP/real-claude.txt" ]; then echo "any=true" >> "$GITHUB_OUTPUT"; fi
 
