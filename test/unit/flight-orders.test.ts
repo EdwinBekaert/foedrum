@@ -96,16 +96,16 @@ test('refuses an order with no order.md', () => {
 
 test('refuses an order.json whose trap is of no known kind', () => {
   const json = JSON.stringify({ trap: { kind: 'typo', line: 'x' }, allowedPaths: ['src/'] });
-  assert.match(refusal({ 'order.json': json }), /timesheet: order\.json /);
+  assert.match(refusal({ 'order.json': json }), /timesheet: order\.json .*at trap\.kind/);
 });
 
 test('refuses an order.json with no allowed paths', () => {
   const json = JSON.stringify({ trap: { kind: 'edge-case', line: 'x' }, allowedPaths: [] });
-  assert.match(refusal({ 'order.json': json }), /timesheet: order\.json /);
+  assert.match(refusal({ 'order.json': json }), /timesheet: order\.json .*at allowedPaths/);
 });
 
 test('refuses an order.json that is not JSON', () => {
-  assert.match(refusal({ 'order.json': '{ trap' }), /timesheet: order\.json /);
+  assert.match(refusal({ 'order.json': '{ trap' }), /timesheet: order\.json is not JSON/);
 });
 
 const BOM = String.fromCodePoint(0xfeff);
