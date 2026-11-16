@@ -16,10 +16,11 @@ import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import type { ExecProcess } from '../../src/platform/processes.ts';
 import type { Git } from '../../src/workspace/git.ts';
 import { testGuidance } from '../helpers/brewery-files.ts';
+import { fakeBranchPush } from '../helpers/fake-branch-push.ts';
 import { ghOver } from '../helpers/fake-gh.ts';
 import { fakeGitHubApi } from '../helpers/fake-github-api.ts';
 import { fakeLock } from '../helpers/fake-lock.ts';
-import { FAKE_COMMIT, fakeWorktreeMerge, fakeWorktrees } from '../helpers/fake-worktrees.ts';
+import { fakeWorktreeMerge, fakeWorktrees } from '../helpers/fake-worktrees.ts';
 import { brewer, config, local, serveInputs } from '../helpers/serve-brewery.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 
@@ -185,16 +186,7 @@ describe('runServe: the tests a Gauger named (ADR 0342)', () => {
       }),
       worktrees: async () => fakeWorktrees({ root: join(dir.path, 'acme.web', 'attempts') }),
       merge: () => fakeWorktreeMerge(),
-      push: () => ({
-        commit: async () => FAKE_COMMIT,
-        baseTip: async () => 'b'.repeat(40),
-        isAncestor: async (commit, of) => commit === of,
-        remoteTip: async () => undefined,
-        push: async () => {},
-        secretScan: async () => [],
-        touchedFiles: async () => [],
-        fileAt: async () => undefined,
-      }),
+      push: () => fakeBranchPush(),
       runner: () => runner,
       exec,
       setup: () => Promise.reject(new Error('no repository setup runs here')),

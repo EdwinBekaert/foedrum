@@ -15,10 +15,11 @@ import type { AttemptStart, BrewerRunner } from '../../src/engine/brewer-runner.
 import { createCommandLog } from '../../src/engine/command-log.ts';
 import type { EventStore } from '../../src/engine/event-store.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
+import { fakeBranchPush } from './fake-branch-push.ts';
 import { ghOver } from './fake-gh.ts';
 import { type FakeGitHubApi, fakeGitHubApi } from './fake-github-api.ts';
 import { fakeLock } from './fake-lock.ts';
-import { FAKE_COMMIT, fakeWorktreeMerge, fakeWorktrees } from './fake-worktrees.ts';
+import { fakeWorktreeMerge, fakeWorktrees } from './fake-worktrees.ts';
 import { local, serveInputs } from './serve-brewery.ts';
 import { makeTempDir, type TempDir } from './temp-dir.ts';
 
@@ -154,19 +155,12 @@ export const serveFixture = (): ServeFixture => {
       return fakeWorktrees({ root: join(f.dir.path, 'acme.web', 'attempts') });
     },
     merge: () => fakeWorktreeMerge(),
-    push: (repository) => ({
-      // The task tree is at FAKE_COMMIT, the base elsewhere.
-      commit: async () => FAKE_COMMIT,
-      baseTip: async () => 'b'.repeat(40),
-      isAncestor: async (commit, of) => commit === of,
-      remoteTip: async () => undefined,
-      push: async (commit, branch) => {
-        f.pushes.push(`${repository.repo} ${commit} ${branch}`);
-      },
-      secretScan: async () => [],
-      touchedFiles: async () => [],
-      fileAt: async () => undefined,
-    }),
+    push: (repository) =>
+      fakeBranchPush({
+        push: async (commit, branch) => {
+          f.pushes.push(`${repository.repo} ${commit} ${branch}`);
+        },
+      }),
     runner: (claude, plan) => {
       f.calls.push(`runner ${claude}`);
       return planningRunner(plan);
