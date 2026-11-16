@@ -20,6 +20,7 @@ import {
   hiddenOf,
   nextFlightRun,
   outsidePaths,
+  runHiddenTests,
 } from '../../scripts/flight/core.ts';
 import { type FlightOrder, readOrder } from '../../scripts/flight-orders.ts';
 import { scriptedTranscript } from '../../scripts/tasting-compare/real.ts';
@@ -27,6 +28,7 @@ import { TEST_MAP_PATH } from '../../src/checks/test-map.ts';
 import { effectKey } from '../../src/engine/effect-key.ts';
 import { pushKey } from '../../src/engine/pull-request.ts';
 import { parseJsonc } from '../../src/formats/jsonc.ts';
+import type { ExecOptions, ExecResult } from '../../src/platform/processes.ts';
 import type { Event } from '../../src/schemas/events.ts';
 import { Recipe } from '../../src/schemas/recipe.ts';
 
@@ -496,6 +498,76 @@ describe('the Flight (ADR 0409)', () => {
 
   it('hidden tests killed for their output, or that could not start, failed: they did not time out', () => {
     assert.deepEqual([hiddenOf(null, 'too-much-output'), hiddenOf(null)], ['failed', 'failed']);
+  });
+
+  describe('the hidden tests run', () => {
+    const TESTS = ['test/hidden/slug.test.mjs', 'test/hidden/a.test.mjs'];
+    const LINE = 'node --test test/hidden/a.test.mjs test/hidden/slug.test.mjs';
+    /** A process runner that starts nothing: it keeps each call and answers with `result`. */
+    const recording = (
+      result: ExecResult = { exitCode: 0, stdout: '', stderr: '', output: 'ok 1' },
+    ) => {
+      const calls: { file: string; args: readonly string[]; options: ExecOptions }[] = [];
+      const exec = async (file: string, args: readonly string[], options: ExecOptions) => {
+        calls.push({ file, args, options });
+        return result;
+      };
+      return { calls, exec };
+    };
+    const linux = (exec: ReturnType<typeof recording>['exec'], bwrap?: string) => ({
+      exec,
+      platform: 'linux' as const,
+      home: '/home/ann',
+      realPath: (path: string) => path,
+      gitDirOf: () => undefined,
+      findBwrap: () => bwrap,
+    });
+
+    it('the hidden tests run as a check line through the sandboxed runner, with no network', async () => {
+      const { calls, exec } = recording();
+      const ran = await runHiddenTests(linux(exec, '/usr/bin/bwrap'), '/runs/hidden', TESTS, {});
+      assert.deepEqual(ran, { hidden: 'passed', output: 'ok 1' });
+      assert.equal(calls.length, 1);
+      assert.equal(calls[0]?.file, '/usr/bin/bwrap');
+      assert.deepEqual(calls[0]?.args.slice(-3), ['/bin/sh', '-c', LINE]);
+      assert.ok(calls[0]?.args.includes('--unshare-net'));
+      assert.ok(!calls[0]?.args.includes('--info-fd'));
+      assert.equal(calls[0]?.options.timeoutMs, 120_000);
+    });
+
+    it('on native Windows the hidden tests run their line unsandboxed, as a check step does', async () => {
+      const { calls, exec } = recording();
+      await runHiddenTests({ exec, platform: 'win32' }, 'C:\\runs\\hidden', TESTS, { A: '1' });
+      assert.equal(calls.length, 1);
+      assert.equal(calls[0]?.file, LINE);
+      assert.deepEqual(calls[0]?.args, []);
+      assert.equal(calls[0]?.options.shell, true);
+      assert.equal(calls[0]?.options.cwd, 'C:\\runs\\hidden');
+      assert.deepEqual(calls[0]?.options.env, { A: '1' });
+    });
+
+    it("a sandbox that cannot start stops the Flight with its own line: it is no brewer's failure", async () => {
+      const { calls, exec } = recording();
+      await assert.rejects(
+        runHiddenTests(linux(exec), '/runs/hidden', TESTS, {}),
+        /bubblewrap \(bwrap\) is not on PATH/,
+      );
+      assert.equal(calls.length, 0);
+    });
+
+    it('a hidden test path that is not a plain path is refused before anything runs', async () => {
+      const { calls, exec } = recording();
+      await assert.rejects(
+        runHiddenTests(
+          linux(exec, '/usr/bin/bwrap'),
+          '/runs/hidden',
+          ['test/hidden/$(id).test.mjs'],
+          {},
+        ),
+        /test\/hidden\/\$\(id\)\.test\.mjs/,
+      );
+      assert.equal(calls.length, 0);
+    });
   });
 
   describe("a run's record", () => {

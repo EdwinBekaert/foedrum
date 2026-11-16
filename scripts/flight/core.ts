@@ -7,6 +7,7 @@ import type { parseArgs } from 'node:util';
 import { TEST_MAP_PATH } from '../../src/checks/test-map.ts';
 import { effectKey } from '../../src/engine/effect-key.ts';
 import { parseJsonc } from '../../src/formats/jsonc.ts';
+import type { SandboxedChecksOptions } from '../../src/platform/check-sandbox.ts';
 import type { Killed } from '../../src/platform/processes.ts';
 import type { Event, Usage } from '../../src/schemas/events.ts';
 import { type Effort, ModelLevel } from '../../src/schemas/models.ts';
@@ -325,6 +326,19 @@ export const outsidePaths = (
  */
 export const hiddenOf = (exitCode: number | null, killed?: Killed): Hidden =>
   killed === 'timed-out' ? 'timed out' : exitCode === 0 ? 'passed' : 'failed';
+
+/**
+ * Runs `tests`, the hidden tests laid over the head in `clone`, as a check line through the check
+ * sandbox (ADR 0076, ADR 0409); throws when the sandbox cannot start them.
+ */
+export const runHiddenTests = (
+  _sandbox: SandboxedChecksOptions,
+  _clone: string,
+  _tests: readonly string[],
+  _env: NodeJS.ProcessEnv,
+): Promise<{ hidden: Hidden; output: string }> => {
+  throw new Error('not implemented');
+};
 
 /** A run's record from its store's events, before its hidden tests ran. */
 export const flightRecordOf = (
