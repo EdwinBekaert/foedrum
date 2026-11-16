@@ -32,9 +32,7 @@ export type ToolName =
   | 'bwrap'
   | 'socat'
   | 'pasta'
-  | 'slirp4netns'
-  | 'podman'
-  | 'docker';
+  | 'slirp4netns';
 
 /** A tool found on PATH, and what its version command answered. */
 export interface ToolRun {
@@ -130,8 +128,6 @@ export interface PromptSize {
   tokens: number;
 }
 
-type ContainerName = 'podman' | 'docker';
-
 export interface Diagnosis {
   tools: readonly ToolLine[];
   /** On Linux with a stack, which one a setup's network comes from and whether it is isolated (ADR 0400). */
@@ -139,20 +135,6 @@ export interface Diagnosis {
   /** How this machine is kept awake while an attempt runs (ADR 0195); never a problem. */
   keepAwake?: AwakeMechanism;
   isolation: { level: IsolationLevel; why: string };
-  /**
-   * The container runtime that makes the optional container level possible; one that is on PATH
-   * but does not answer its version is not usable, with what it said first.
-   */
-  container:
-    | { name: ContainerName; version: string; path: string; usable: true }
-    | {
-        name: ContainerName;
-        version: undefined;
-        path: string;
-        usable: false;
-        said: string | undefined;
-      }
-    | undefined;
   advice: readonly string[];
   problems: readonly Problem[];
   /**
@@ -804,22 +786,6 @@ export const diagnose = (facts: DoctorFacts): Diagnosis => {
     ...sandboxProblems,
     ...stackProblems(facts),
   ];
-  // Podman first: it runs without a daemon or root. One that does not answer its version (a
-  // runtime waiting for its daemon) is passed over for the next; when none answers, the first
-  // is reported as not usable.
-  const containers = (['podman', 'docker'] as const).flatMap(
-    (name): NonNullable<Diagnosis['container']>[] => {
-      const run = tools[name];
-      if (run === undefined) return [];
-      const version = versionOf(run);
-      return [
-        version === undefined
-          ? { name, version, path: run.path, usable: false, said: firstLine(run) }
-          : { name, version, path: run.path, usable: true },
-      ];
-    },
-  );
-  const container = containers.find((found) => found.usable) ?? containers[0];
   const setupNetwork = setupNetworkLine(facts);
   return {
     tools: [
@@ -835,7 +801,6 @@ export const diagnose = (facts: DoctorFacts): Diagnosis => {
     ],
     ...(setupNetwork === undefined ? {} : { setupNetwork }),
     isolation,
-    container,
     advice,
     problems,
     ...(recipes.defaults === undefined ? {} : { defaults: recipes.defaults }),
@@ -889,7 +854,6 @@ export const formatDiagnosis = ({
   tools,
   setupNetwork,
   isolation,
-  container,
   advice,
   problems,
   defaults,
@@ -914,11 +878,6 @@ export const formatDiagnosis = ({
     ...(setupNetwork === undefined ? [] : [setupNetwork]),
     `Isolation: ${isolation.level} (${isolation.why})`,
     ...advice.map((line) => `  ${line}`),
-    container === undefined
-      ? 'Container: no Podman or Docker (optional)'
-      : container.usable
-        ? `Container: ${container.name} ${container.version} at ${container.path}; the container level is available`
-        : `Container: ${container.name} at ${container.path} does not answer its version${container.said === undefined ? '' : ` (${container.said})`}; the container level is not available`,
     ...(defaults === undefined
       ? []
       : [

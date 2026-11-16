@@ -7,12 +7,11 @@ import { join } from 'node:path';
 
 const tool = join(import.meta.dirname, '..', 'fixtures', 'doctor', 'tool.ts');
 
-/** What a stub prints for one command line; `hang` names the file it writes to, then hangs. */
+/** What a stub prints for one command line. */
 export interface CapturedAnswer {
   stdout?: string;
   stderr?: string;
   exitCode?: number;
-  hang?: string;
 }
 
 /** The file the stub `name` in the folder `bin` is: `name.cmd` on Windows, `name` elsewhere. */

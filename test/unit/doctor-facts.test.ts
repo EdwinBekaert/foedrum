@@ -139,8 +139,6 @@ describe('gatherDoctorFacts', () => {
         exitCode: 0,
         output: 'slirp4netns version 1.2.1\n',
       },
-      podman: undefined,
-      docker: undefined,
     });
   });
 
@@ -192,7 +190,6 @@ describe('gatherDoctorFacts', () => {
     assert.ok(calls.every(({ options }) => options.jobObject !== true));
   });
 
-  // A runtime waiting for its daemon is the common case (#99: docker.exe on the Windows runner).
   const timedOut: ExecResult = {
     exitCode: null,
     stdout: '',
@@ -200,43 +197,11 @@ describe('gatherDoctorFacts', () => {
     output: '',
     killed: 'timed-out',
   };
-  const hangingDocker: Extra = {
-    onPath: { docker: '/usr/bin/docker' },
-    answers: { '/usr/bin/docker': timedOut },
-  };
 
   it('says first that the Job Object probe was killed at its deadline', async () => {
     const { shell } = fakeShell({ onPath: {}, answers: { '/usr/bin/node': timedOut } });
     const facts = await gatherDoctorFacts({ ...shell, platform: 'win32' });
     assert.deepEqual(facts.jobObject, { exitCode: null, output: 'timed out after 10 s\n' });
-  });
-
-  it('gives a container runtime a shorter deadline than the other tools', async () => {
-    const { calls, shell } = fakeShell(hangingDocker);
-    await gatherDoctorFacts(shell);
-    const docker = calls.find(({ file }) => file === '/usr/bin/docker');
-    assert.equal(docker?.options.timeoutMs, 3_000);
-  });
-
-  it('gives Podman the same shorter deadline', async () => {
-    const { calls, shell } = fakeShell({
-      onPath: { podman: '/usr/bin/podman' },
-      answers: { '/usr/bin/podman': timedOut },
-    });
-    await gatherDoctorFacts(shell);
-    const podman = calls.find(({ file }) => file === '/usr/bin/podman');
-    assert.equal(podman?.options.timeoutMs, 3_000);
-  });
-
-  it('reports a container runtime that times out as not available', async () => {
-    const { shell } = fakeShell(hangingDocker);
-    const report = formatDiagnosis(diagnose(await gatherDoctorFacts(shell)));
-    assert.ok(
-      report.includes(
-        '\nContainer: docker at /usr/bin/docker does not answer its version (timed out after 3 s); the container level is not available\n',
-      ),
-      report,
-    );
   });
 });
 
