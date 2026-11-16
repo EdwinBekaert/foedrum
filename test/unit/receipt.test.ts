@@ -260,6 +260,7 @@ describe("a batch's receipts", () => {
     });
     const text = renderStatus(unreceipted, ['plan']);
     assert.doesNotMatch(text, /Receipts/);
+    assert.match(text, /^- ❌ `plan`: attempt 1 failed: crash$/m);
   });
 
   it('shows at most 30 receipt lines in the status comment, and counts the rest', () => {
