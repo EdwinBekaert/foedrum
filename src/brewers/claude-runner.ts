@@ -24,7 +24,7 @@ import type { Ending } from '../engine/decide.ts';
 import { type PlanRepository, type ReadPaths, touchesChecked } from '../engine/plan-touches.ts';
 import type { AttemptProgress } from '../engine/supervisor.ts';
 import { type BoundedRead, readOutDocFile } from '../platform/bounded-read.ts';
-import { errorCode, messageOf } from '../platform/errors.ts';
+import { errorCode, lastLine, messageOf } from '../platform/errors.ts';
 import { pathInside } from '../platform/paths.ts';
 import {
   DEFAULT_MAX_OUTPUT_BYTES,
@@ -204,13 +204,6 @@ export async function scannedIfDone(
 
 // stderr is the CLI's, but it may quote what the brewer wrote: a reason quotes one line of it,
 // cut as the stream's are.
-const lastLine = (text: string): string =>
-  text
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter((line) => line !== '')
-    .at(-1) ?? '';
-
 /** Writes an attempt's system prompt file (ADR 0183). */
 export function writeSystemPromptFile(file: string, text: string): void {
   writeFileSync(file, text);
@@ -293,7 +286,7 @@ const environmentOf = (
   // Past 255 it is a Windows crash status (NTSTATUS), which claude never exits with: a crash.
   if (exit.code > 255) return undefined;
   const said = lastLine(stderr);
-  return said === ''
+  return said === undefined
     ? `claude refused to start with exit code ${exit.code}`
     : `claude refused to start: ${cut(said)}`;
 };

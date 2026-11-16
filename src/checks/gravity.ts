@@ -5,6 +5,7 @@
 import type { Ending } from '../engine/decide.ts';
 import { findSecrets } from '../formats/secrets.ts';
 import type { TestReport } from '../formats/test-report.ts';
+import { lastLine } from '../platform/errors.ts';
 import {
   type GravityReading,
   MAX_TAIL_LENGTH,
@@ -207,14 +208,6 @@ export const checkName = ({
   command: string;
 }): string =>
   check === undefined ? `the check "${command}"` : `the check "${check}" (${command})`;
-
-/** The last line of `text` that is not blank. */
-const lastLine = (text: string): string | undefined =>
-  text
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter((line) => line !== '')
-    .at(-1);
 
 const environment = (summary: string): Ending => ({
   kind: 'blocked',
