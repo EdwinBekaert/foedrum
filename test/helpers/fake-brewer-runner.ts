@@ -2,6 +2,9 @@
 // scripted for its step. What a settled attempt did goes through the real settleAttempt, so the
 // tests exercise the same rules the real runner uses.
 
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { readClaudeStream } from '../../src/brewers/claude-stream.ts';
 import { settleReadings } from '../../src/checks/gravity.ts';
 import { attemptKey } from '../../src/engine/attempt-key.ts';
 import {
@@ -57,6 +60,24 @@ const settle = (doc: string | undefined, more: Partial<AttemptFacts> = {}): Beha
   },
 });
 
+/**
+ * The error claude's result reported when it stopped at `--max-turns`, read in process from the
+ * recorded stream, so the fake breaks when the real format drifts.
+ */
+const maxTurnsError = (): string => {
+  const file = join(import.meta.dirname, '..', 'fixtures', 'claude-stream', 'max-turns.jsonl');
+  const reader = readClaudeStream(
+    { sessionId: '00000000-0000-4000-8000-000000000059', tools: ['Read'] },
+    new Date(0),
+  );
+  for (const line of readFileSync(file, 'utf8').split('\n')) {
+    if (line !== '') reader.read(line, new Date(0));
+  }
+  const { streamError } = reader.facts();
+  if (streamError === undefined) throw new Error('max-turns.jsonl reports no error');
+  return streamError;
+};
+
 export const question: Question = {
   q: 'Which database should the cache use?',
   options: ['sqlite', 'redis'],
@@ -94,9 +115,14 @@ export const behave = {
   writes: (doc: string): Behaviour => settle(doc),
   missingOutDoc: (): Behaviour => settle(undefined),
   invalidOutDoc: (): Behaviour => settle(outDoc({ status: 'finished', summary: 'Done' })),
-  /** The runner stopped the brewer when it went past `maxTurns`. */
+  /** claude stopped at `--max-turns` after its init, as the recorded stream shows: exit 1. */
   exceedBudget: (turns: number): Behaviour =>
-    settle(undefined, { exit: { kind: 'stopped' }, turns }),
+    settle(undefined, {
+      exit: { kind: 'exited', code: 1 },
+      streamError: maxTurnsError(),
+      turns,
+      sessionStarted: true,
+    }),
   needInput: (questions: readonly Question[] = [question]): Behaviour =>
     settle(outDoc({ status: 'needs_input', summary: 'Needs a decision', questions })),
   blocked: (blockerKind: BlockerKind, summary = 'Blocked'): Behaviour =>

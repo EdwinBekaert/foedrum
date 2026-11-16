@@ -20,6 +20,7 @@ import type { Event } from '../../src/schemas/events.ts';
 import { PullRequestOutDoc, TastingOutDoc } from '../../src/schemas/out-doc.ts';
 import { StatusRevision } from '../../src/schemas/status-comment.ts';
 import { defaultLimits } from '../helpers/brewing.ts';
+import { fakeBranchPush } from '../helpers/fake-branch-push.ts';
 import { type Behaviour, behave, fakeBrewerRunner } from '../helpers/fake-brewer-runner.ts';
 import { fakeLock } from '../helpers/fake-lock.ts';
 import { fakeWorktrees } from '../helpers/fake-worktrees.ts';
@@ -57,19 +58,14 @@ const brewed = async (scripts: Record<string, Behaviour[]>) => {
       {
         repo: 'acme/api',
         base: 'main',
-        push: {
+        push: fakeBranchPush({
           commit: async () => String(pushes + 1).repeat(40),
-          baseTip: async () => 'b'.repeat(40),
-          isAncestor: async (commit, of) => commit === of,
           remoteTip: async (name) => remote[name],
           push: async (commit, name) => {
             pushes++;
             remote[name] = commit;
           },
-          secretScan: async () => [],
-          touchedFiles: async () => [],
-          fileAt: async () => undefined,
-        },
+        }),
       },
     ],
     host: {

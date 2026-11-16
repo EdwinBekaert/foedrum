@@ -12,10 +12,11 @@ import { type ServeSetup, serveSetup } from '../../src/cli/serve-config.ts';
 import { createCommandLog } from '../../src/engine/command-log.ts';
 import type { EventStore } from '../../src/engine/event-store.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
+import { fakeBranchPush } from '../helpers/fake-branch-push.ts';
 import { ghOver } from '../helpers/fake-gh.ts';
 import { type FakeGitHubApi, fakeGitHubApi } from '../helpers/fake-github-api.ts';
 import { fakeLock } from '../helpers/fake-lock.ts';
-import { FAKE_COMMIT, fakeWorktreeMerge, fakeWorktrees } from '../helpers/fake-worktrees.ts';
+import { fakeWorktreeMerge, fakeWorktrees } from '../helpers/fake-worktrees.ts';
 import { local, serveInputs } from '../helpers/serve-brewery.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 
@@ -79,16 +80,7 @@ describe('runApplyEffects (ADR 0355)', () => {
     }),
     worktrees: async () => fakeWorktrees({ root: join(dir.path, 'acme.web', 'attempts') }),
     merge: () => fakeWorktreeMerge(),
-    push: () => ({
-      commit: async () => FAKE_COMMIT,
-      baseTip: async () => 'b'.repeat(40),
-      isAncestor: async (commit, of) => commit === of,
-      remoteTip: async () => undefined,
-      push: async () => {},
-      secretScan: async () => [],
-      touchedFiles: async () => [],
-      fileAt: async () => undefined,
-    }),
+    push: () => fakeBranchPush(),
     runner: () => ({
       start: (attempt) => {
         started.push(`${attempt.ref.stepId}#${attempt.ref.attempt}`);
