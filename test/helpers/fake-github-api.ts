@@ -123,7 +123,10 @@ export interface FakeGitHubApiOptions {
   visibilities?: Record<string, FakeApiVisibility>;
   /** The answer to send instead for a request, or undefined for the fake's own. */
   instead?: (method: string, url: URL) => Instead | undefined;
-  /** The time a label added or removed through the API is recorded at; by default the wall clock. */
+  /**
+   * The time a label added or removed through the API is recorded at; by default the instant
+   * `createdOf` counts from, so no test reads the day it runs on.
+   */
   clock?: () => Date;
 }
 
@@ -249,7 +252,7 @@ export const fakeGitHubApi = (options: FakeGitHubApiOptions): FakeGitHubApi => {
     ...(found.pullRequest === true ? { pull_request: { url: `pulls/${found.number}` } } : {}),
   });
   const labelsOf = (found: FakeApiIssue) => found.labels.map((name) => ({ name }));
-  const clock = options.clock ?? (() => new Date());
+  const clock = options.clock ?? (() => new Date(createdOf(0)));
   // The `labeled` and `unlabeled` events of each issue, by `<repo>#<n>` in lower case (ADR 0359).
   const history = new Map<string, IssueEvent[]>();
   let events = 0;
