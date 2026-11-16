@@ -13,7 +13,7 @@
 // comparison goes on where it stopped; a failed run is brewed once more. --dry-run plays the
 // Tasters too, each reporting the key's defects of its lenses, in .foedrum/tmp/tasting-compare/
 // dry-run, to show the table before any token is spent. The decisions are
-// scripts/tasting-compare/core.ts.
+// scripts/tasting-compare/core.ts, and which mode the options run is scripts/tasting-compare/options.ts.
 //
 // With --model <level or id> --effort <effort> (#602, ADR 0405) every Taster step of the three
 // setups runs on that level, or on a model id through models.jsonc's strong as --brewer taster maps
@@ -117,11 +117,11 @@ import {
   scriptedTastings,
   seededBreweryFiles,
   seededFolders,
-  seededTasterOf,
   summarize,
   tableMarkdown,
   tasterLine,
 } from './tasting-compare/core.ts';
+import { TASTING_OPTIONS, tastingModeOf } from './tasting-compare/options.ts';
 import {
   nextPlanRun,
   PLAN_SETUPS,
@@ -144,8 +144,6 @@ import {
   brewerBreweryFiles,
   brewerRecordOf,
   brewerScript,
-  brewerSettingsOf,
-  brewerSetups,
   brewerStop,
   brewerTable,
   changedFiles,
@@ -161,17 +159,14 @@ import {
   plannerBreweryFiles,
   plannerFailure,
   plannerRecordOf,
-  plannerSetups,
   plannerStop,
   plannerTable,
   READS_TASTER,
   REAL_BREWER_RECIPE,
   REAL_ORDERS,
-  REAL_SETUPS,
   type RealSetup,
   realBreweryFiles,
   realCommentsOf,
-  realFolders,
   realRecipeOf,
   realRecordOf,
   realTable,
@@ -180,16 +175,13 @@ import {
   scriptedPlan,
   scriptedRealTastings,
   scriptedTranscript,
-  selectRealSetups,
   splitHead,
-  subOrdersRunOf,
   TASTER_RECIPE,
   type TastedRecord,
   type TasterSettings,
   type TasterSetup,
   TODAY_COMMIT,
   tasterBreweryFiles,
-  tasterSetups,
 } from './tasting-compare/real.ts';
 
 const root = resolve(import.meta.dirname, '..');
@@ -202,104 +194,16 @@ const say = (line: string): void => {
   process.stdout.write(`${line}\n`);
 };
 
-const { values } = parseArgs({
-  options: {
-    runs: { type: 'string' },
-    'dry-run': { type: 'boolean' },
-    plan: { type: 'boolean' },
-    real: { type: 'boolean' },
-    setups: { type: 'string' },
-    orders: { type: 'string' },
-    comparison: { type: 'string' },
-    brewer: { type: 'string' },
-    model: { type: 'string' },
-    effort: { type: 'string' },
-    'sub-orders': { type: 'boolean' },
-    'order-text': { type: 'string' },
-    map: { type: 'boolean' },
-    lenses: { type: 'string' },
-    rules: { type: 'string' },
-  },
-});
-if (values.plan === true && values.real === true) {
-  process.stderr.write('--plan and --real are two comparisons: give one of them\n');
+const { values } = parseArgs({ options: TASTING_OPTIONS });
+const chosen = tastingModeOf(values);
+if (chosen.kind === 'refused') {
+  process.stderr.write(`${chosen.message}
+`);
   process.exit(2);
 }
-if (values.setups !== undefined && values.real !== true) {
-  process.stderr.write('--setups chooses among the setups of --real: give --real too\n');
-  process.exit(2);
-}
-/** A real brewer's settings, or a Taster setup's, when --brewer gives them (ADR 0394, ADR 0402). */
-const brewerSettings = (() => {
-  try {
-    return brewerSettingsOf({ ...values, orderText: values['order-text'] });
-  } catch (error) {
-    process.stderr.write(`${(error as Error).message}\n`);
-    process.exit(2);
-  }
-})();
-/** The seeded change's Tasters' model and effort, when --model and --effort give them alone (ADR 0405). */
-const seededTaster = (() => {
-  try {
-    return seededTasterOf(values);
-  } catch (error) {
-    process.stderr.write(`${(error as Error).message}\n`);
-    process.exit(2);
-  }
-})();
-/** Whether --sub-orders plans the orders (ADR 0396). */
-const subOrders = (() => {
-  try {
-    return subOrdersRunOf({ ...values, subOrders: values['sub-orders'] });
-  } catch (error) {
-    process.stderr.write(`${(error as Error).message}\n`);
-    process.exit(2);
-  }
-})();
-if (
-  values.orders !== undefined &&
-  values.setups === undefined &&
-  brewerSettings === undefined &&
-  !subOrders
-) {
-  process.stderr.write(
-    '--orders chooses the orders of the setups --setups, the runs --brewer or the plans --sub-orders names: give one of them too\n',
-  );
-  process.exit(2);
-}
-/** The real mode's setups to run: those --setups names, of the orders --orders names, or all. */
-const chosenSetups = (): readonly RealSetup[] => {
-  if (values.setups === undefined) return REAL_SETUPS;
-  try {
-    return selectRealSetups(values.setups, values.orders);
-  } catch (error) {
-    process.stderr.write(`${(error as Error).message}\n`);
-    process.exit(2);
-  }
-};
-const realSetups = chosenSetups();
-if (values.comparison !== undefined && values.real !== true) {
-  process.stderr.write('--comparison names a comparison of --real: give --real too\n');
-  process.exit(2);
-}
-/** The real mode's folders: a comparison's own when --comparison names one (ADR 0347). */
-const realFolderNames = (): string[] => {
-  try {
-    return realFolders(values.comparison);
-  } catch (error) {
-    process.stderr.write(`${(error as Error).message}\n`);
-    process.exit(2);
-  }
-};
-const realFolderOf = realFolderNames();
 /** The planning runs' folder, where a brewer's run from a kept sub-order reads it (ADR 0396). */
 const SUB_ORDERS = 'sub-orders';
-const runs = Number(values.runs ?? '3');
-if (!Number.isSafeInteger(runs) || runs < 1) {
-  process.stderr.write(`--runs must be a whole number of at least 1, not ${values.runs}\n`);
-  process.exit(2);
-}
-const dryRun = values['dry-run'] === true;
+const { runs, dryRun } = chosen;
 const claude = dryRun ? 'the scripted Taster, never started' : resolveExecutable('claude');
 if (claude === undefined) {
   process.stderr.write('claude is not on the PATH: the comparison tastes with the real claude\n');
@@ -520,6 +424,8 @@ const brewedHeadOf = async (setup: RealSetup | BrewerSetup, git: RunGit) => {
  * (ADR 0402), whose records go beside the fixed setups' and whose runs the same lists score.
  */
 const realMode = async (
+  setups: readonly (RealSetup | TasterSetup)[],
+  realFolderOf: readonly string[],
   settings?: TasterSettings,
 ): Promise<Mode<RealSetup | TasterSetup, TastedRecord>> => {
   await realCommits();
@@ -533,7 +439,6 @@ const realMode = async (
   const reads = readFileSync(join(realFixture, READS_TASTER), 'utf8');
   refuseSameTaster(today.stdout, reads);
   const tasters = { today: today.stdout, reads };
-  const setups = settings === undefined ? realSetups : tasterSetups(settings, values.orders);
   return {
     folders: realFolderOf,
     setups,
@@ -595,9 +500,12 @@ const realMode = async (
  * and the repository's checks on its code. Its records stay in a folder of their own beside the
  * Tasters' setups'.
  */
-const brewerMode = async (settings: BrewerSettings): Promise<Mode<BrewerSetup, BrewerRecord>> => {
+const brewerMode = async (
+  settings: BrewerSettings,
+  setups: readonly BrewerSetup[],
+  realFolderOf: readonly string[],
+): Promise<Mode<BrewerSetup, BrewerRecord>> => {
   await realCommits();
-  const setups = brewerSetups(settings, values.orders);
   const names = { brewery: BREWERY, target: TARGET, user: USER };
   const folders = { fixture: realFixture, kept: modeFolder([...realFolderOf, SUB_ORDERS]) };
   try {
@@ -654,9 +562,11 @@ const brewerMode = async (settings: BrewerSettings): Promise<Mode<BrewerSetup, B
  * or scripted with --dry-run, until its plan waits for its review; a plan of one sub-order is kept
  * as that sub-order's text, and a run with no out doc is planned once more.
  */
-const plannerMode = async (): Promise<Mode<PlannerSetup, PlannerRecord>> => {
+const plannerMode = async (
+  setups: readonly PlannerSetup[],
+  realFolderOf: readonly string[],
+): Promise<Mode<PlannerSetup, PlannerRecord>> => {
   await realCommits();
-  const setups = plannerSetups(values.orders);
   const order = (setup: PlannerSetup) => join(realFixture, `${orderOf(setup).order}.md`);
   return {
     folders: [...realFolderOf, SUB_ORDERS],
@@ -868,14 +778,27 @@ const compare = async <Setup extends string, Run extends RunRecord<Setup>>(
   process.stdout.write(table);
 };
 
-await (subOrders
-  ? compare(await plannerMode())
-  : brewerSettings?.brewer === 'taster'
-    ? compare(await realMode(brewerSettings))
-    : brewerSettings !== undefined
-      ? compare(await brewerMode(brewerSettings))
-      : values.real === true
-        ? compare(await realMode())
-        : values.plan === true
-          ? compare(planMode())
-          : compare(diffMode(seededTaster)));
+switch (chosen.kind) {
+  case 'planner':
+    await compare(await plannerMode(chosen.setups, chosen.folders));
+    break;
+  case 'taster':
+    await compare(await realMode(chosen.setups, chosen.folders, chosen.settings));
+    break;
+  case 'brewer':
+    await compare(await brewerMode(chosen.settings, chosen.setups, chosen.folders));
+    break;
+  case 'real':
+    await compare(await realMode(chosen.setups, chosen.folders));
+    break;
+  case 'plan':
+    await compare(planMode());
+    break;
+  case 'seeded':
+    await compare(diffMode(chosen.taster));
+    break;
+  default: {
+    const unknown: never = chosen;
+    throw new Error(`no mode ${JSON.stringify(unknown)}`);
+  }
+}

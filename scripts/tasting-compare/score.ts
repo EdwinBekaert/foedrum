@@ -2,6 +2,7 @@
 // run, counted by setup through codes.md into the table #879's comments show. It counts marks and
 // judges nothing: whether a finding names a key item is the scorer's.
 
+import { join } from 'node:path';
 import { ModelLevel } from '../../src/schemas/models.ts';
 import { z } from '../../src/schemas/zod.ts';
 import { escapeCell } from './core.ts';
@@ -228,8 +229,21 @@ export interface ScoreFiles {
  * `--marks`, written to the folder's scored.md, or the refusal that stops it with exit 2.
  */
 export const scoreRun = (
-  _values: { folder?: string; key?: string; marks?: string },
-  _files: ScoreFiles,
+  { folder, key, marks }: { folder?: string; key?: string; marks?: string },
+  { read, write }: ScoreFiles,
 ): { kind: 'scored'; table: string } | { kind: 'refused'; message: string } => {
-  throw new Error('not implemented');
+  if (folder === undefined || key === undefined || marks === undefined) {
+    return { kind: 'refused', message: 'give --folder, --key and --marks' };
+  }
+  try {
+    const table = scoredTable({
+      key: read(key),
+      codes: read(join(folder, 'codes.md')),
+      marks: read(marks),
+    });
+    write(join(folder, 'scored.md'), table);
+    return { kind: 'scored', table };
+  } catch (error) {
+    return { kind: 'refused', message: `tasting-score: ${(error as Error).message}` };
+  }
 };

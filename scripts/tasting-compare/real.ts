@@ -1160,7 +1160,7 @@ export const brewerSettingsOf = (given: {
   model?: string;
   effort?: string;
   setups?: string;
-  orderText?: string;
+  orderText?: string | undefined;
   map?: boolean;
   lenses?: string;
   rules?: string;
@@ -1221,7 +1221,7 @@ export const brewerSettingsOf = (given: {
 const tasterSettingsOf = (given: {
   model?: string;
   effort?: string;
-  orderText?: string;
+  orderText?: string | undefined;
   map?: boolean;
   lenses?: string;
   rules?: string;
@@ -1769,7 +1769,7 @@ export type PlannerRecord = RunRecord<PlannerSetup> & { planner: PlannerRun };
 /** Whether `--sub-orders` plans the orders; throws on a wrong combination. */
 export const subOrdersRunOf = (given: {
   real?: boolean;
-  subOrders?: boolean;
+  subOrders?: boolean | undefined;
   brewer?: string;
   setups?: string;
 }): boolean => {

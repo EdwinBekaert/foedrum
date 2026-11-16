@@ -5,9 +5,8 @@
 // that do not fit the key or codes.md. Its decisions are scripts/tasting-compare/score.ts.
 
 import { readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
 import { parseArgs } from 'node:util';
-import { scoredTable } from './tasting-compare/score.ts';
+import { scoreRun } from './tasting-compare/score.ts';
 
 const { values } = parseArgs({
   options: {
@@ -16,20 +15,13 @@ const { values } = parseArgs({
     marks: { type: 'string' },
   },
 });
-const { folder, key, marks } = values;
-if (folder === undefined || key === undefined || marks === undefined) {
-  process.stderr.write('give --folder, --key and --marks\n');
+const scored = scoreRun(values, {
+  read: (path) => readFileSync(path, 'utf8'),
+  write: writeFileSync,
+});
+if (scored.kind === 'refused') {
+  process.stderr.write(`${scored.message}
+`);
   process.exit(2);
 }
-try {
-  const table = scoredTable({
-    key: readFileSync(key, 'utf8'),
-    codes: readFileSync(join(folder, 'codes.md'), 'utf8'),
-    marks: readFileSync(marks, 'utf8'),
-  });
-  writeFileSync(join(folder, 'scored.md'), table);
-  process.stdout.write(table);
-} catch (error) {
-  process.stderr.write(`tasting-score: ${(error as Error).message}\n`);
-  process.exit(2);
-}
+process.stdout.write(scored.table);

@@ -2,14 +2,22 @@
 // its settings, or the refusal that stops it before anything brews.
 
 import type { parseArgs } from 'node:util';
-import type { SeededTaster } from './core.ts';
-import type {
-  BrewerSettings,
-  BrewerSetup,
-  PlannerSetup,
-  RealSetup,
-  TasterSettings,
-  TasterSetup,
+import { type SeededTaster, seededTasterOf } from './core.ts';
+import {
+  type BrewerSettings,
+  type BrewerSetup,
+  brewerSettingsOf,
+  brewerSetups,
+  type PlannerSetup,
+  plannerSetups,
+  REAL_SETUPS,
+  type RealSetup,
+  realFolders,
+  selectRealSetups,
+  subOrdersRunOf,
+  type TasterSettings,
+  type TasterSetup,
+  tasterSetups,
 } from './real.ts';
 
 /** The options tasting-compare.ts reads, as `parseArgs` takes them. */
@@ -60,9 +68,60 @@ export type TastingMode = { runs: number; dryRun: boolean } & (
   | { kind: 'seeded'; taster?: SeededTaster }
 );
 
-/** The mode `values` run, or the refusal that stops the script with exit 2. */
+/**
+ * The mode `values` run, or the refusal that stops the script with exit 2, checked in the order
+ * the script has always checked them, so the first that applies is the one given.
+ */
 export const tastingModeOf = (
-  _values: TastingValues,
+  values: TastingValues,
 ): TastingMode | { kind: 'refused'; message: string } => {
-  throw new Error('not implemented');
+  try {
+    return modeOf(values);
+  } catch (error) {
+    // Every check of the options throws its refusal's message.
+    return { kind: 'refused', message: (error as Error).message };
+  }
+};
+
+const modeOf = (values: TastingValues): TastingMode => {
+  if (values.plan === true && values.real === true) {
+    throw new Error('--plan and --real are two comparisons: give one of them');
+  }
+  if (values.setups !== undefined && values.real !== true) {
+    throw new Error('--setups chooses among the setups of --real: give --real too');
+  }
+  const settings = brewerSettingsOf({ ...values, orderText: values['order-text'] });
+  const taster = seededTasterOf(values);
+  const subOrders = subOrdersRunOf({ ...values, subOrders: values['sub-orders'] });
+  const { orders } = values;
+  if (orders !== undefined && values.setups === undefined && settings === undefined && !subOrders) {
+    throw new Error(
+      '--orders chooses the orders of the setups --setups, the runs --brewer or the plans --sub-orders names: give one of them too',
+    );
+  }
+  const setups = values.setups;
+  const realSetups = setups === undefined ? REAL_SETUPS : selectRealSetups(setups, orders);
+  if (values.comparison !== undefined && values.real !== true) {
+    throw new Error('--comparison names a comparison of --real: give --real too');
+  }
+  const folders = realFolders(values.comparison);
+  const runs = Number(values.runs ?? '3');
+  if (!Number.isSafeInteger(runs) || runs < 1) {
+    throw new Error(`--runs must be a whole number of at least 1, not ${values.runs}`);
+  }
+  const common = { runs, dryRun: values['dry-run'] === true };
+  if (subOrders) {
+    return { kind: 'planner', setups: plannerSetups(orders), folders, ...common };
+  }
+  if (settings?.brewer === 'taster') {
+    const tasters = tasterSetups(settings, orders);
+    return { kind: 'taster', settings, setups: tasters, folders, ...common };
+  }
+  if (settings !== undefined) {
+    const brewers = brewerSetups(settings, orders);
+    return { kind: 'brewer', settings, setups: brewers, folders, ...common };
+  }
+  if (values.real === true) return { kind: 'real', setups: realSetups, folders, ...common };
+  if (values.plan === true) return { kind: 'plan', ...common };
+  return { kind: 'seeded', ...(taster === undefined ? {} : { taster }), ...common };
 };
