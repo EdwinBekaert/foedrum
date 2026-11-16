@@ -1,0 +1,7 @@
+{
+  "trap": {
+    "kind": "edge-case",
+    "line": "A night shift ends the next morning, before its start time; the order mentions night shifts once and asks nothing of them."
+  },
+  "allowedPaths": ["src/", "test/"]
+}
