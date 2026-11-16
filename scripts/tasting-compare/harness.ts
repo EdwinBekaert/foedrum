@@ -37,7 +37,7 @@ const say = (line: string): void => {
   process.stdout.write(`${line}\n`);
 };
 
-const write = (path: string, text: string): void => {
+export const write = (path: string, text: string): void => {
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, text);
 };

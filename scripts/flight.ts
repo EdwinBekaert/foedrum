@@ -14,8 +14,8 @@
 // it needs claude's login, which no test layer reaches (ADR 0057). Its decisions are
 // scripts/flight/core.ts.
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { existsSync, readFileSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { resolveExecutable } from '../src/platform/executables.ts';
 import { execProcess } from '../src/platform/processes.ts';
@@ -36,7 +36,7 @@ import {
   outsidePaths,
 } from './flight/core.ts';
 import { startingTree, TASTING_ROOM, tastingRoomOrders, withLayer } from './flight-orders.ts';
-import { compare, type Mode, transcriptOf } from './tasting-compare/harness.ts';
+import { compare, type Mode, transcriptOf, write } from './tasting-compare/harness.ts';
 import { scriptedTranscript } from './tasting-compare/real.ts';
 
 const root = resolve(import.meta.dirname, '..');
@@ -71,11 +71,6 @@ const orderOf = (name: string) => {
 
 /** The most of the hidden tests' output a record keeps: its end, where node --test sums up. */
 const OUTPUT_KEPT = 4096;
-
-const write = (path: string, body: string): void => {
-  mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, body);
-};
 
 const mode: Mode<string, FlightRecord> = {
   folders: ['flight'],
@@ -149,8 +144,7 @@ const mode: Mode<string, FlightRecord> = {
 
 if (dryRun) {
   process.stdout.write(
-    `flight: a dry run skips ${settings.recipe}'s test-first steps, which a real Flight runs
-`,
+    `flight: a dry run skips ${settings.recipe}'s test-first steps, which a real Flight runs\n`,
   );
 }
 await compare(mode, {

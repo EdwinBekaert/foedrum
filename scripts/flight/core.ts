@@ -72,18 +72,14 @@ interface BrewerStep {
 /** A recipe's text, read and checked as the engine reads a recipe. */
 const recipeOf = (text: string): Recipe => Recipe.parse(parseJsonc(text));
 
-/** Calls `use` on each brewer step of `recipe`, in order, a parallel group's children included. */
-const eachBrewerStep = (recipe: Recipe, use: (step: BrewerStep) => void): void => {
-  for (const step of recipe.steps) {
-    for (const each of 'parallel' in step ? step.parallel : [step]) {
-      if ('brewer' in each && each.id !== undefined) use(each as BrewerStep);
-    }
-  }
-};
-
+/** Each brewer step of `recipe`, in order, a parallel group's children included: its own objects. */
 const brewerSteps = (recipe: Recipe): BrewerStep[] => {
   const steps: BrewerStep[] = [];
-  eachBrewerStep(recipe, (step) => steps.push(step));
+  for (const step of recipe.steps) {
+    for (const each of 'parallel' in step ? step.parallel : [step]) {
+      if ('brewer' in each && each.id !== undefined) steps.push(each as BrewerStep);
+    }
+  }
   return steps;
 };
 
@@ -198,11 +194,11 @@ export const flightBreweryFiles = (
   const level = swap === undefined ? undefined : swapLevelOf(swap, copy);
   if (swap !== undefined) {
     if (level === undefined) throw new Error(`no level of ${recipe} is free for ${swap.model}`);
-    eachBrewerStep(copy, (step) => {
-      if (step.brewer !== swap.brewer) return;
+    for (const step of brewerSteps(copy)) {
+      if (step.brewer !== swap.brewer) continue;
       step.model = level;
       step.effort = swap.effort;
-    });
+    }
   }
   const what = swap === undefined ? '' : ` with ${swap.brewer} on ${swap.model} at ${swap.effort}`;
   return {
@@ -218,11 +214,11 @@ ${json(copy)}`,
 /** The model each brewer step of the recipe asks for, by step id: a family, or a model id. */
 export const askedModels = ({ swap }: FlightSettings, recipeText: string): Map<string, string> => {
   const asked = new Map<string, string>();
-  eachBrewerStep(recipeOf(recipeText), ({ id, brewer, model }) => {
+  for (const { id, brewer, model } of brewerSteps(recipeOf(recipeText))) {
     const wants = swap !== undefined && brewer === swap.brewer ? swap.model : model;
     const level = ModelLevel.safeParse(wants);
     asked.set(id, level.success ? FAMILIES[level.data] : wants);
-  });
+  }
   return asked;
 };
 
@@ -248,9 +244,7 @@ export const dryRunScript = (
     }
   };
   const script: Record<string, readonly Scripted[]> = {};
-  eachBrewerStep(recipeOf(recipeText), (step) => {
-    script[step.id] = [turnOf(step)];
-  });
+  for (const step of brewerSteps(recipeOf(recipeText))) script[step.id] = [turnOf(step)];
   return script;
 };
 
