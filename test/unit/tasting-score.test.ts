@@ -377,4 +377,31 @@ describe('tasting-score: the unblinding of a scored comparison (ADR 0403)', () =
         error.message.split(/\r\n|[\r\n\p{Zl}\p{Zp}]/u).every((line) => !line.startsWith('forged')),
     );
   });
+
+  it('marks that are not JSON are refused on one line that quotes none of their lines', () => {
+    const marks = '{ "runs": [\nforged line';
+    assert.throws(
+      () => scoredTable({ key: KEY, codes: blinded(RECORDS, SEED).codes, marks }),
+      (error: Error) =>
+        /^the marks are not the JSON the scorer is asked for/.test(error.message) &&
+        error.message.split(/\r\n|[\r\n\p{Zl}\p{Zp}]/u).length === 1,
+    );
+  });
+
+  it('a verdict other than true or false is refused', () => {
+    const marks = MARKS.map((each, at) =>
+      at === 0 ? { ...each, outside: [{ finding: 'a finding', verdict: 'maybe' }] } : each,
+    );
+    assert.throws(
+      () =>
+        scoredTable({
+          key: KEY,
+          codes: blinded(RECORDS, SEED).codes,
+          marks: JSON.stringify({ runs: marks }),
+        }),
+      (error: Error) =>
+        /^the marks are not the JSON the scorer is asked for/.test(error.message) &&
+        error.message.split(/\r\n|[\r\n\p{Zl}\p{Zp}]/u).length === 1,
+    );
+  });
 });
