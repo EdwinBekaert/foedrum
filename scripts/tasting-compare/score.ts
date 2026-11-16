@@ -2,6 +2,7 @@
 // run, counted by setup through codes.md into the table #879's comments show. It counts marks and
 // judges nothing: whether a finding names a key item is the scorer's.
 
+import { join } from 'node:path';
 import { ModelLevel } from '../../src/schemas/models.ts';
 import { z } from '../../src/schemas/zod.ts';
 import { escapeCell } from './core.ts';
@@ -215,4 +216,34 @@ export const scoredTable = ({ key, codes, marks }: ScoreInput): string => {
     'Ran on',
   ];
   return `${[`| ${header.join(' | ')} |`, `|${'---|'.repeat(header.length)}`, ...rows].join('\n')}\n`;
+};
+
+/** What tasting-score.ts reads and writes: a file's text by its path, and a file written. */
+export interface ScoreFiles {
+  read: (path: string) => string;
+  write: (path: string, text: string) => void;
+}
+
+/**
+ * tasting-score.ts's command line (#1094): the table of `--folder`'s codes.md, `--key` and
+ * `--marks`, written to the folder's scored.md, or the refusal that stops it with exit 2.
+ */
+export const scoreRun = (
+  { folder, key, marks }: { folder?: string; key?: string; marks?: string },
+  { read, write }: ScoreFiles,
+): { kind: 'scored'; table: string } | { kind: 'refused'; message: string } => {
+  if (folder === undefined || key === undefined || marks === undefined) {
+    return { kind: 'refused', message: 'give --folder, --key and --marks' };
+  }
+  try {
+    const table = scoredTable({
+      key: read(key),
+      codes: read(join(folder, 'codes.md')),
+      marks: read(marks),
+    });
+    write(join(folder, 'scored.md'), table);
+    return { kind: 'scored', table };
+  } catch (error) {
+    return { kind: 'refused', message: `tasting-score: ${(error as Error).message}` };
+  }
 };

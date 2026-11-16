@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import type { TasterAttempt } from '../../scripts/tasting-compare/core.ts';
 import {
@@ -8,7 +9,7 @@ import {
   type TastedRecord,
   type TasterSettings,
 } from '../../scripts/tasting-compare/real.ts';
-import { scoredTable } from '../../scripts/tasting-compare/score.ts';
+import { type ScoreFiles, scoredTable, scoreRun } from '../../scripts/tasting-compare/score.ts';
 
 const SEED = 'a seed';
 
@@ -451,5 +452,85 @@ describe('tasting-score: the unblinding of a scored comparison (ADR 0403)', () =
 
   it('a run of an order the key does not name needs no mark and leaves the table as it is', () => {
     assert.equal(tableOf([...RECORDS, record(ON_ID, 864, 1)], MARKS), tableOf(RECORDS, MARKS));
+  });
+});
+
+/** Files of a scored comparison in the folder `cmp`, read from and written to a map, as tasting-score.ts's are. */
+const filesOf = (texts: Record<string, string>) => {
+  const written = new Map<string, string>();
+  const files: ScoreFiles = {
+    read: (path) => {
+      const text = texts[path];
+      if (text === undefined) throw new Error(`ENOENT: no such file, open '${path}'`);
+      return text;
+    },
+    write: (path, text) => {
+      written.set(path, text);
+    },
+  };
+  return { files, written };
+};
+
+const SCORED = {
+  'key.md': KEY,
+  [join('cmp', 'codes.md')]: blinded(RECORDS, SEED).codes,
+  'marks.json': JSON.stringify({ runs: MARKS }),
+};
+const GIVEN = { folder: 'cmp', key: 'key.md', marks: 'marks.json' };
+
+describe("tasting-score's command line (#1094)", () => {
+  for (const left of ['folder', 'key', 'marks'] as const) {
+    it(`a run without --${left} is refused`, () => {
+      const { files, written } = filesOf(SCORED);
+      assert.deepEqual(scoreRun({ ...GIVEN, [left]: undefined }, files), {
+        kind: 'refused',
+        message: 'give --folder, --key and --marks',
+      });
+      assert.equal(written.size, 0);
+    });
+  }
+
+  it('a file it cannot read is refused with what the read said', () => {
+    const { 'marks.json': _, ...noMarks } = SCORED;
+    const { files } = filesOf(noMarks);
+    assert.deepEqual(scoreRun(GIVEN, files), {
+      kind: 'refused',
+      message: "tasting-score: ENOENT: no such file, open 'marks.json'",
+    });
+  });
+
+  it('marks that do not fit the key are refused with what scoredTable says', () => {
+    const { files, written } = filesOf({
+      ...SCORED,
+      'marks.json': JSON.stringify({ runs: [...MARKS, mark(ON_ID, 999, 1)] }),
+    });
+    const result = scoreRun(GIVEN, files);
+    assert.equal(result.kind, 'refused');
+    assert.ok(result.kind === 'refused');
+    assert.match(
+      result.message,
+      /^tasting-score: the mark of .* is of #999, which is not in the key$/,
+    );
+    assert.equal(written.size, 0);
+  });
+
+  it("a scored run writes the table to the folder's scored.md and gives it", () => {
+    const { files, written } = filesOf(SCORED);
+    assert.deepEqual(scoreRun(GIVEN, files), { kind: 'scored', table: tableOf(RECORDS, MARKS) });
+    assert.deepEqual([...written], [[join('cmp', 'scored.md'), tableOf(RECORDS, MARKS)]]);
+  });
+
+  it('a scored.md it cannot write is refused with what the write said', () => {
+    const { files } = filesOf(SCORED);
+    const result = scoreRun(GIVEN, {
+      ...files,
+      write: () => {
+        throw new Error('EACCES: permission denied');
+      },
+    });
+    assert.deepEqual(result, {
+      kind: 'refused',
+      message: 'tasting-score: EACCES: permission denied',
+    });
   });
 });
