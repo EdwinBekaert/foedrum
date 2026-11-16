@@ -229,6 +229,15 @@ describe("tasting-compare's command line (#1094)", () => {
     );
   });
 
+  it('--orders alone is refused before --comparison without --real', () => {
+    assert.deepEqual(
+      tastingModeOf({ orders: '867', comparison: 'c' }),
+      refusal(
+        '--orders chooses the orders of the setups --setups, the runs --brewer or the plans --sub-orders names: give one of them too',
+      ),
+    );
+  });
+
   it('a setup --setups does not know is refused before --comparison is checked', () => {
     assert.deepEqual(
       tastingModeOf({ real: true, setups: 'nobody', comparison: 'Bad' }),
