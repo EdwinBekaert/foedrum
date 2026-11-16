@@ -158,6 +158,7 @@ describe("a brewer's git and the user's push credentials (ADR 0109)", () => {
       HOME: home,
       USERPROFILE: home,
     });
+    assert.notEqual(pushed.exitCode, 0);
     assert.match(pushed.stderr, /terminal prompts disabled/);
     assert.ok(logins.length > 0);
     assert.deepEqual(
