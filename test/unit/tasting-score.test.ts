@@ -404,4 +404,46 @@ describe('tasting-score: the unblinding of a scored comparison (ADR 0403)', () =
         error.message.split(/\r\n|[\r\n\p{Zl}\p{Zp}]/u).length === 1,
     );
   });
+
+  it('a run tasted apart whose first Taster has no tokens is left out of tokens per batch', () => {
+    const partial = record(ON_LEVEL, 855, 2, 'claude-opus-5-5', 500_000);
+    const records = [
+      record(ON_LEVEL, 855, 1, 'claude-opus-5-5', 100_000),
+      {
+        ...partial,
+        attempts: partial.attempts.map((each, at) =>
+          at === 0 ? { ...each, usage: undefined } : each,
+        ),
+      },
+    ];
+    const table = tableOf(records, [mark(ON_LEVEL, 855, 1), mark(ON_LEVEL, 855, 2)]);
+    assert.equal(rowOf(table, 'taster-strong-larger-apart-reads')[5], '300k');
+  });
+
+  it('the key is read by its Id and Order headers wherever they stand, and a later table is no key', () => {
+    const key = [
+      '| What a Taster must name | Order | Id |',
+      '|---|---|---|',
+      '| A synthetic defect | #864 | X7 |',
+      '',
+      '| Note | Where | Who |',
+      '|---|---|---|',
+      '| not a key item | #864 | Z1 |',
+    ].join('\n');
+    const records = [record(ON_ID, 864, 1)];
+    const table = scoredTable({
+      key,
+      codes: blinded(records, SEED).codes,
+      marks: JSON.stringify({ runs: [mark(ON_ID, 864, 1, ['X7'])] }),
+    });
+    assert.deepEqual(rowOf(table, 'Setup').slice(0, 3), [
+      'Setup',
+      'X7',
+      'Findings outside the key',
+    ]);
+  });
+
+  it('a run of an order the key does not name needs no mark and leaves the table as it is', () => {
+    assert.equal(tableOf([...RECORDS, record(ON_ID, 864, 1)], MARKS), tableOf(RECORDS, MARKS));
+  });
 });
