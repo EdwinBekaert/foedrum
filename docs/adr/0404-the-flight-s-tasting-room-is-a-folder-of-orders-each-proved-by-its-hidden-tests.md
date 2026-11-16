@@ -34,7 +34,7 @@ None: these are fixtures, a test and docs of Foedrum's own repository, and nothi
 
 ## Consequences
 - An order is checked by a test before any Flight spends a token on it: hidden tests that all pass on the base, or that fail with the reference, are found by `npm run test:integration`.
-- The hidden tests are in Foedrum's repository, so anyone reading it, a person or a model, can see them; only a brewer working in its worktree cannot.
+- The hidden tests are in Foedrum's repository, so anyone reading it, a person or a model, can see them; a brewer working in its worktree is meant not to, which #1083 confirms on a dry run.
 - A new order is a folder of plain files that #1082 writes by hand.
 
 ## Alternatives considered
