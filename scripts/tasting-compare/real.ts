@@ -82,7 +82,11 @@ const PROFILES: readonly Profile[] = [
  * `867-reads` with the one maintainer's comment an order had before it brewed (ADR 0333).
  */
 export type RealSetup = `${OrderNumber}-${Profile}` | '867-comments';
+/** One order tasted by a Taster setup built from settings: the order first, then all four (ADR 0402). */
+export type TasterSetup = `${OrderNumber}-taster-${string}`;
 export type RealRecord = RunRecord<RealSetup>;
+/** A run of a Taster setup: a fixed profile's, or one built from settings, which it keeps (ADR 0402). */
+export type TastedRecord = RunRecord<RealSetup | TasterSetup> & { taster?: TasterSettings };
 
 /** Order by order, and setup by setup within one. */
 export const REAL_SETUPS: readonly RealSetup[] = [
@@ -684,12 +688,14 @@ export const transcriptReads = (transcript: string, worktree: string): Transcrip
  * what its session's transcript says it read. A read outside its worktree fails the attempt, and so
  * does a transcript that cannot say, since the run would then be no measurement (ADR 0332). The
  * attempt's own failure stays its reason. Its models are the transcript's, which `modelStop` reads
- * and codes.md shows (ADR 0344).
+ * and codes.md shows (ADR 0344). A run of a Taster setup built from settings keeps them, which
+ * `modelStop` asks by (ADR 0402).
  */
 export const realRecordOf = (
   events: readonly { event: Event }[],
   transcriptOf: (sessionId: string, worktree: string) => string | undefined,
-): Pick<RealRecord, 'ended' | 'attempts'> => {
+  _taster?: TasterSettings,
+): Pick<TastedRecord, 'ended' | 'attempts' | 'taster'> => {
   const { ended, attempts } = recordIn(events, STEPS);
   const sessions = new Map<string, { id: string; worktree: string }>();
   const finished: { stepId: string; attempt: number }[] = [];
@@ -742,8 +748,8 @@ export const realRecordOf = (
 export const modelStop = ({
   setup,
   attempts,
-}: Pick<RealRecord, 'setup' | 'attempts'>): string | undefined => {
-  const asked = ASKS_OPUS.has(profileOf(setup)) ? 'opus' : 'sonnet';
+}: Pick<TastedRecord, 'setup' | 'attempts' | 'taster'>): string | undefined => {
+  const asked = ASKS_OPUS.has(profileOf(setup as RealSetup)) ? 'opus' : 'sonnet';
   for (const { stepId, failure, models = [] } of attempts) {
     const other = models.find((model) => !model.includes(asked));
     if (other !== undefined) {
@@ -762,7 +768,7 @@ export const modelStop = ({
  * read outside fails only its run.
  */
 export const comparisonStop = (
-  record: Pick<RealRecord, 'setup' | 'attempts'>,
+  record: Pick<TastedRecord, 'setup' | 'attempts' | 'taster'>,
 ): string | undefined => {
   const lost = record.attempts.find(({ unreadable }) => unreadable !== undefined);
   return lost === undefined ? modelStop(record) : escapeCell(`${lost.stepId}: ${lost.unreadable}`);
@@ -845,7 +851,7 @@ const bodyLines = ({ stepId, lenses, body }: TasterAttempt): string[] => [
   '',
 ];
 
-const codeRows = (code: string, { setup, run, attempts }: RealRecord): string[] =>
+const codeRows = (code: string, { setup, run, attempts }: TastedRecord): string[] =>
   inRecipeOrder(attempts).map((attempt) => {
     const { stepId, models = [], usage } = attempt;
     const { total } = tokensOf([attempt]);
@@ -864,7 +870,7 @@ const codeRows = (code: string, { setup, run, attempts }: RealRecord): string[] 
  * run, each Taster's model and tokens, and the failed runs. Nothing here says which finding is right.
  */
 export const blinded = (
-  records: readonly RealRecord[],
+  records: readonly TastedRecord[],
   seed: string,
 ): { lists: Record<string, string>; bodies: Record<string, string>; codes: string } => {
   const lists: Record<string, string> = {};
@@ -872,9 +878,9 @@ export const blinded = (
   const rows: string[] = [];
   const failures: string[] = [];
   for (const { order } of REAL_ORDERS) {
-    const scored: { code: string; record: RealRecord }[] = [];
+    const scored: { code: string; record: TastedRecord }[] = [];
     for (const setup of REAL_SETUPS.filter((each) => orderOf(each).order === order)) {
-      const runs = runsOfSetup(records, setup, runFailure);
+      const runs = runsOfSetup<RealSetup | TasterSetup, TastedRecord>(records, setup, runFailure);
       for (const record of runs.scored) {
         const code = codeOf(seed, setup, record.run);
         scored.push({ code, record });
@@ -936,9 +942,13 @@ const INSTRUCTION_FILES: readonly string[] = ['claude.md', 'agents.md'];
  * instruction file, which a bare Taster may do by itself (ADR 0347). It holds no code, so it
  * unblinds no list.
  */
-export const realTable = (records: readonly RealRecord[]): string => {
+export const realTable = (records: readonly TastedRecord[]): string => {
   const rows = REAL_SETUPS.map((setup) => {
-    const { scored, failed } = runsOfSetup(records, setup, runFailure);
+    const { scored, failed } = runsOfSetup<RealSetup | TasterSetup, TastedRecord>(
+      records,
+      setup,
+      runFailure,
+    );
     const retried = records.filter((each) => each.setup === setup && each.retry === true).length;
     const tasters = scored.flatMap(({ attempts }) => attempts);
     const read = tasters.filter(({ opened = [] }) =>
@@ -1045,6 +1055,37 @@ export const REAL_BREWER_RECIPE = 'real-brew-cellarman';
  */
 const MEASURED = 'strong';
 
+/** How `--lenses` runs a Taster setup's three lenses: a Taster each, or one Taster for all (ADR 0402). */
+export const TASTER_LENSES = ['apart', 'together'] as const;
+/** Whether `--rules` gives the Taster that reads the instruction file, or its bare cut (ADR 0402). */
+export const TASTER_RULES = ['reads', 'bare'] as const;
+
+/** A Taster setup built from settings, `--brewer taster` (ADR 0402). */
+export interface TasterSettings {
+  brewer: 'taster';
+  /** A model level, which the Taster steps name, or a model id, which models.jsonc maps `strong` to. */
+  model: string;
+  effort: Effort;
+  lenses: (typeof TASTER_LENSES)[number];
+  rules: (typeof TASTER_RULES)[number];
+}
+
+/** The recipe of a Taster setup built from settings (ADR 0402). */
+export const TASTER_RECIPE = 'real-nip-settings';
+
+/** The setups of a Taster setup's runs, one per order, of the orders `--orders` names or of every order. */
+export const tasterSetups = (_settings: TasterSettings, _orders?: string): TasterSetup[] => {
+  throw new Error('not implemented');
+};
+
+/** The Brewery's files of a run of a Taster setup built from settings beyond Nip's (ADR 0402). */
+export const tasterBreweryFiles = (
+  _settings: TasterSettings,
+  _tasters: Tasters,
+): Record<string, string> => {
+  throw new Error('not implemented');
+};
+
 /** The settings `--brewer`, `--model` and `--effort` give, or undefined without them; throws on a wrong combination. */
 export const brewerSettingsOf = (given: {
   real?: boolean;
@@ -1054,6 +1095,8 @@ export const brewerSettingsOf = (given: {
   setups?: string;
   orderText?: string;
   map?: boolean;
+  lenses?: string;
+  rules?: string;
 }): BrewerSettings | undefined => {
   const { real, brewer, model, effort, setups, orderText, map } = given;
   if (brewer === undefined) {
