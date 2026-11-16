@@ -421,15 +421,18 @@ describe('sandboxedChecks on macOS: sandbox-exec', () => {
  * fd 3 (in the chunks `info` gives) and runs the line once fd 4 has a byte; the stack is up,
  * fails, exits without coming up, or hangs, as `stack` says. `bwrap` says how bwrap ends: when the
  * line is done, when it is stopped mid-line, at its deadline once the stack has started, or under
- * its own name before or after it would tell a pid. What it records: the calls, the order of
- * events and the resolver's file bwrap was given on fd 5.
+ * its own name before or after it would tell a pid. Its first runs end, once they told the pid,
+ * with what `failsAfterPid` says, one per run, under its own name. What it records: the calls,
+ * the order of events and the resolver's file bwrap was given on fd 5.
  */
 const fakeSetup = ({
   info = ['{\n    "child-pid": 4242\n}\n'],
   stack = 'up',
   bwrap = 'line-ends',
   answer = {},
+  failsAfterPid = [],
 }: {
+  failsAfterPid?: readonly string[];
   info?: readonly string[];
   stack?: 'up' | 'fails' | 'refuses-seccomp' | 'exits-before-up' | 'hangs';
   bwrap?:
@@ -487,6 +490,20 @@ const fakeSetup = ({
       }
       for (const chunk of info.slice(0, -1)) first.write(chunk);
       first.end(info.at(-1));
+      const said = failsAfterPid[calls.filter((c) => c.file === file).length - 1];
+      if (said !== undefined) {
+        // Its child dies in its own setup, before the line, while the stack may be joining.
+        const started = events.filter((event) => event.endsWith(' starts')).length;
+        await new Promise<void>((done) => {
+          const look = () =>
+            events.filter((event) => event.endsWith(' starts')).length > started
+              ? done()
+              : setImmediate(look);
+          look();
+        });
+        events.push('bwrap fails');
+        return ran({ exitCode: 1, stderr: said, output: said });
+      }
       if (bwrap === 'times-out') {
         return once(`${stack === 'up' ? 'the line runs' : 'slirp4netns starts'}`).then(() => {
           events.push('bwrap timed out');
@@ -771,6 +788,25 @@ describe('sandboxedChecks with the network kept, for a setup', () => {
     assert.equal(result.exitCode, null);
     assert.equal(result.killed, undefined);
     assert.match(result.output, /^bwrap: setting up uid map: Permission denied \(ADR 0076\)/);
+  });
+
+  // ADR 0407: bwrap's loopback setup can lose a race with the stack bringing lo up, before the
+  // line runs, and prints a stale errno (#1090).
+  const bwrapRuns = (calls: readonly { file: string }[]) =>
+    calls.filter((c) => c.file === '/usr/bin/bwrap').length;
+
+  it('does not run the setup again when bwrap fails under its own name for another reason', async () => {
+    for (const said of [
+      'bwrap: loopback: Failed RTM_NEWLINK: Operation not permitted\n',
+      "bwrap: Can't mount proc on /newroot/proc: Operation not permitted\n",
+    ]) {
+      const { calls, events, exec } = fakeSetup({ failsAfterPid: [said] });
+      const result = await linuxSetup(exec)(line, [], call);
+      assert.equal(bwrapRuns(calls), 1, said);
+      assert.ok(events.includes('bwrap fails'), said);
+      assert.equal(result.exitCode, null, said);
+      assert.equal(result.output, `${said.trim()} (ADR 0076)\n`);
+    }
   });
 
   // ADR 0218: a stack that fails to start reads with its own message; bwrap's only wins when it
