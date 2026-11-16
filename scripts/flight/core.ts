@@ -7,7 +7,7 @@ import type { parseArgs } from 'node:util';
 import { TEST_MAP_PATH } from '../../src/checks/test-map.ts';
 import { effectKey } from '../../src/engine/effect-key.ts';
 import { parseJsonc } from '../../src/formats/jsonc.ts';
-import type { SandboxedChecksOptions } from '../../src/platform/check-sandbox.ts';
+import { type SandboxedChecksOptions, sandboxedChecks } from '../../src/platform/check-sandbox.ts';
 import type { Killed } from '../../src/platform/processes.ts';
 import type { Event, Usage } from '../../src/schemas/events.ts';
 import { type Effort, ModelLevel } from '../../src/schemas/models.ts';
@@ -327,17 +327,42 @@ export const outsidePaths = (
 export const hiddenOf = (exitCode: number | null, killed?: Killed): Hidden =>
   killed === 'timed-out' ? 'timed out' : exitCode === 0 ? 'passed' : 'failed';
 
+/** A path a check line names as it is, with no quoting. */
+const PLAIN_PATH = /^[A-Za-z0-9._/-]+$/;
+
+/** How long the hidden tests may run, as the proof gives them (ADR 0404). */
+const HIDDEN_DEADLINE_MS = 120_000;
+
+/** The most of the hidden tests' output a record keeps: its end, where node --test sums up. */
+const OUTPUT_KEPT = 4096;
+
 /**
  * Runs `tests`, the hidden tests laid over the head in `clone`, as a check line through the check
  * sandbox (ADR 0076, ADR 0409); throws when the sandbox cannot start them.
  */
-export const runHiddenTests = (
-  _sandbox: SandboxedChecksOptions,
-  _clone: string,
-  _tests: readonly string[],
-  _env: NodeJS.ProcessEnv,
+export const runHiddenTests = async (
+  sandbox: SandboxedChecksOptions,
+  clone: string,
+  tests: readonly string[],
+  env: NodeJS.ProcessEnv,
 ): Promise<{ hidden: Hidden; output: string }> => {
-  throw new Error('not implemented');
+  const files = [...tests].sort();
+  const odd = files.find((file) => !PLAIN_PATH.test(file));
+  if (odd !== undefined) {
+    throw new Error(`the hidden test ${odd} is not a plain path, so no check line can name it`);
+  }
+  const ran = await sandboxedChecks(sandbox)(`node --test ${files.join(' ')}`, [], {
+    cwd: clone,
+    env,
+    timeoutMs: HIDDEN_DEADLINE_MS,
+    shell: true,
+    jobObject: true,
+  });
+  // A run that never started is the harness's, never the brewer's: the Flight stops on it.
+  if (ran.exitCode === null && ran.killed === undefined) {
+    throw new Error(`the hidden tests could not start: ${ran.output.trim()}`);
+  }
+  return { hidden: hiddenOf(ran.exitCode, ran.killed), output: ran.output.slice(-OUTPUT_KEPT) };
 };
 
 /** A run's record from its store's events, before its hidden tests ran. */

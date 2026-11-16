@@ -17,6 +17,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
+import { checksRunUnsandboxed } from '../src/platform/check-sandbox.ts';
 import { resolveExecutable } from '../src/platform/executables.ts';
 import { execProcess } from '../src/platform/processes.ts';
 import { BREWERY, TARGET, USER } from './demo/core.ts';
@@ -31,9 +32,9 @@ import {
   flightRecordOf,
   flightStop,
   flightTable,
-  hiddenOf,
   nextFlightRun,
   outsidePaths,
+  runHiddenTests,
 } from './flight/core.ts';
 import { ORDERS, startingTree, tastingRoomOrders, withLayer } from './flight-orders.ts';
 import { compare, type Mode, transcriptOf, write } from './tasting-compare/harness.ts';
@@ -68,9 +69,6 @@ const orderOf = (name: string) => {
   if (order === undefined) throw new Error(`no order ${name} in the tasting room`);
   return order;
 };
-
-/** The most of the hidden tests' output a record keeps: its end, where node --test sums up. */
-const OUTPUT_KEPT = 4096;
 
 const mode: Mode<string, FlightRecord> = {
   folders: ['flight'],
@@ -118,17 +116,13 @@ const mode: Mode<string, FlightRecord> = {
     for (const [path, body] of Object.entries(tests)) write(join(hidden, ...path.split('/')), body);
     // Without NODE_TEST_CONTEXT, which would make the hidden run report to a test runner above it.
     const { NODE_TEST_CONTEXT: __, ...env } = process.env;
-    const ran = await execProcess(process.execPath, ['--test', ...Object.keys(tests).sort()], {
-      cwd: hidden,
-      env,
-      timeoutMs: 120_000,
-    });
+    const ran = await runHiddenTests({ exec: execProcess }, hidden, Object.keys(tests), env);
     return {
       ...record,
       flight: {
         ...record.flight,
-        hidden: hiddenOf(ran.exitCode, ran.killed),
-        hiddenOutput: ran.output.slice(-OUTPUT_KEPT),
+        hidden: ran.hidden,
+        hiddenOutput: ran.output,
         changed,
         outside: outsidePaths(changed, order.allowedPaths),
       },
@@ -138,6 +132,11 @@ const mode: Mode<string, FlightRecord> = {
   stop: (record) => flightStop(record, asked),
 };
 
+if (checksRunUnsandboxed(process.platform)) {
+  process.stdout.write(
+    'flight: on native Windows the hidden tests run unsandboxed, as check steps do\n',
+  );
+}
 if (dryRun) {
   process.stdout.write(
     `flight: a dry run skips ${settings.recipe}'s test-first steps, which a real Flight runs\n`,
