@@ -821,6 +821,13 @@ describe('sandboxedChecks with the network kept, for a setup', () => {
     assert.ok(!events.includes('the line runs'));
   });
 
+  it("does not run the setup again when the line ran and its own output starts with bwrap's loopback failure", async () => {
+    const { calls, exec } = fakeSetup({ answer: { stderr: LOOPBACK, output: LOOPBACK } });
+    const result = await linuxSetup(exec)(line, [], call);
+    assert.equal(bwrapRuns(calls), 1);
+    assert.equal(result.exitCode, 0);
+  });
+
   it('does not run the setup again when bwrap fails under its own name for another reason', async () => {
     for (const said of [
       'bwrap: loopback: Failed RTM_NEWLINK: Operation not permitted\n',
