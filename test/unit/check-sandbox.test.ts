@@ -828,6 +828,22 @@ describe('sandboxedChecks with the network kept, for a setup', () => {
     assert.equal(result.exitCode, 0);
   });
 
+  // Review of #1105: a line that ran can print the words and then be killed or end on a signal.
+  it("does not run the setup again when the line ran, printed bwrap's loopback failure and was killed or ended by a signal", async () => {
+    const cases: Partial<ExecResult>[] = [
+      { exitCode: null, killed: 'timed-out' },
+      { exitCode: null, signal: 'SIGKILL' },
+    ];
+    for (const ended of cases) {
+      const { calls, exec } = fakeSetup({
+        answer: { ...ended, stderr: LOOPBACK, output: LOOPBACK },
+      });
+      const result = await linuxSetup(exec)(line, [], call);
+      assert.equal(bwrapRuns(calls), 1, JSON.stringify(ended));
+      assert.equal(result.stderr, LOOPBACK, JSON.stringify(ended));
+    }
+  });
+
   it('does not run the setup again when bwrap fails under its own name for another reason', async () => {
     for (const said of [
       'bwrap: loopback: Failed RTM_NEWLINK: Operation not permitted\n',
