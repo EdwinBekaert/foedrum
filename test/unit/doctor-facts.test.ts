@@ -454,3 +454,19 @@ describe('gatherDoctorFacts: systemd that is not running (ADR 0195)', () => {
     assert.deepStrictEqual(facts.keepAwake, { kind: 'none', why: 'systemd is not running' });
   });
 });
+
+describe("gatherDoctorFacts: where brewers' model traffic goes (ADR 0063, ADR 0087)", () => {
+  const report = async (env: NodeJS.ProcessEnv) =>
+    formatDiagnosis(diagnose(await gatherDoctorFacts({ ...fakeShell().shell, env })));
+
+  it('shows no model traffic line when ANTHROPIC_BASE_URL is not set', async () => {
+    assert.doesNotMatch(await report({ PATH: '/usr/bin' }), /Model traffic/);
+  });
+
+  it('shows no model traffic line when ANTHROPIC_BASE_URL is set to nothing', async () => {
+    assert.doesNotMatch(
+      await report({ PATH: '/usr/bin', ANTHROPIC_BASE_URL: '' }),
+      /Model traffic/,
+    );
+  });
+});
