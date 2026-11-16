@@ -11,9 +11,9 @@ The milestone table names "the tasting room repository" for M4 without saying wh
 
 ## Decision
 - **Decided with the maintainer on 2026-11-16:**
-  - the tasting room is a folder in Foedrum, `test/fixtures/flight/`, not a repository of its own: each order is brewed on the fake code host, as `scripts/tasting-compare.ts` brews its seeded change ([ADR 0224](0224-the-default-recipes-taste-apart-or-together-as-a-seeded-comparison-measured.md)), with no real GitHub. The milestone table's "tasting room repository" is this folder;
-  - the first set is 10 small made-up orders, each on a tiny repository with one trap a weaker setup can miss: a house rule in the repository's instruction file, a design page the change must update, or an edge case only the hidden tests check;
-  - a Flight brews each order 3 times per setup, and a report calls a difference only when one setup passes every run and the other at most one; anything else is "too close to call".
+  - the tasting room is a folder in Foedrum, `test/fixtures/flight/`, not a repository of its own: each order will be brewed on the fake code host (#1083), as `scripts/tasting-compare.ts` brews its seeded change ([ADR 0224](0224-the-default-recipes-taste-apart-or-together-as-a-seeded-comparison-measured.md)), with no real GitHub. The milestone table's "tasting room repository" is this folder;
+  - the first set will be 10 small made-up orders, 3 here and 7 in #1082, each on a tiny repository with one trap a weaker setup can miss: a house rule in the repository's instruction file, a design page the change must update, or an edge case only the hidden tests check;
+  - a Flight will brew each order 3 times per setup (#1083), and a report will call a difference only when one setup passes every run and the other at most one (#1084); anything else is "too close to call".
 - **An order is a folder of plain files**, not patches as the seeded change keeps:
   - `order.md`, the issue text, its title on the first line;
   - `order.json`, the trap's kind and a line a person reads, and `allowedPaths`, the path prefixes the change may touch;
