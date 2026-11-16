@@ -4,7 +4,9 @@
 // starts a process; scripts/flight.ts brews the runs through scripts/tasting-compare/harness.ts.
 
 import type { parseArgs } from 'node:util';
+import { checksEnv } from '../../src/checks/setup.ts';
 import { TEST_MAP_PATH } from '../../src/checks/test-map.ts';
+import { brewerBaseEnv, brewerForcedEnv } from '../../src/engine/brewer-env.ts';
 import { effectKey } from '../../src/engine/effect-key.ts';
 import { parseJsonc } from '../../src/formats/jsonc.ts';
 import { type SandboxedChecksOptions, sandboxedChecks } from '../../src/platform/check-sandbox.ts';
@@ -322,13 +324,16 @@ export const outsidePaths = (
 
 /**
  * How the hidden tests ended by their exit code, and how the runner killed them: timed out only at
- * their deadline; killed for their output, or never started, they failed.
+ * their deadline; killed for their output, or ended by a signal, they failed.
  */
 export const hiddenOf = (exitCode: number | null, killed?: Killed): Hidden =>
   killed === 'timed-out' ? 'timed out' : exitCode === 0 ? 'passed' : 'failed';
 
 /** A path a check line names as it is, with no quoting. */
 const PLAIN_PATH = /^[A-Za-z0-9._/-]+$/;
+
+/** The exit codes of a shell that found no program, or could not run it: sh's 126 and 127, cmd.exe's 9009. */
+const NOT_STARTED_CODES: ReadonlySet<number> = new Set([126, 127, 9009]);
 
 /** How long the hidden tests may run, as the proof gives them (ADR 0404). */
 const HIDDEN_DEADLINE_MS = 120_000;
@@ -351,17 +356,25 @@ export const runHiddenTests = async (
   if (odd !== undefined) {
     throw new Error(`the hidden test ${odd} is not a plain path, so no check line can name it`);
   }
+  const platform = sandbox.platform ?? process.platform;
+  // A check step's environment: what a process needs to start, never a token (ADR 0063).
+  const checkEnv = checksEnv(
+    { base: brewerBaseEnv(env, platform), forced: brewerForcedEnv() },
+    platform,
+  );
   const ran = await sandboxedChecks(sandbox)(`node --test ${files.join(' ')}`, [], {
     cwd: clone,
-    env,
+    env: checkEnv,
     timeoutMs: HIDDEN_DEADLINE_MS,
     shell: true,
     jobObject: true,
   });
-  // A run that never started is the harness's, never the brewer's: the Flight stops on it.
-  if (ran.exitCode === null && ran.killed === undefined) {
-    throw new Error(`the hidden tests could not start: ${ran.output.trim()}`);
-  }
+  // A run that never started, or whose shell found no node, is the harness's, never the
+  // brewer's: the Flight stops on it. A run a signal ended is the brewer's code's.
+  const unstarted =
+    (ran.exitCode === null && ran.killed === undefined && ran.signal === undefined) ||
+    (ran.exitCode !== null && NOT_STARTED_CODES.has(ran.exitCode));
+  if (unstarted) throw new Error(`the hidden tests could not start: ${ran.output.trim()}`);
   return { hidden: hiddenOf(ran.exitCode, ran.killed), output: ran.output.slice(-OUTPUT_KEPT) };
 };
 

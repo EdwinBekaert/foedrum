@@ -114,9 +114,7 @@ const mode: Mode<string, FlightRecord> = {
       .filter((path) => path !== '');
     const tests = withLayer({}, order.hidden);
     for (const [path, body] of Object.entries(tests)) write(join(hidden, ...path.split('/')), body);
-    // Without NODE_TEST_CONTEXT, which would make the hidden run report to a test runner above it.
-    const { NODE_TEST_CONTEXT: __, ...env } = process.env;
-    const ran = await runHiddenTests({ exec: execProcess }, hidden, Object.keys(tests), env);
+    const ran = await runHiddenTests({ exec: execProcess }, hidden, Object.keys(tests), process.env);
     return {
       ...record,
       flight: {
