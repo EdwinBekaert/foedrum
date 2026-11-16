@@ -485,4 +485,16 @@ describe("gatherDoctorFacts: the address of brewers' model traffic (ADR 0063, AD
     const facts = await gatherDoctorFacts({ ...shell, platform: 'win32', env });
     assert.equal(facts.modelBaseUrl, 'https://gateway.example.com/v1');
   });
+
+  it("records it from this process's environment when given none, as foedrum doctor runs", async () => {
+    const before = process.env.ANTHROPIC_BASE_URL;
+    process.env.ANTHROPIC_BASE_URL = 'https://process.example.com/v1';
+    try {
+      const facts = await gatherDoctorFacts(fakeShell().shell);
+      assert.equal(facts.modelBaseUrl, 'https://process.example.com/v1');
+    } finally {
+      if (before === undefined) delete process.env.ANTHROPIC_BASE_URL;
+      else process.env.ANTHROPIC_BASE_URL = before;
+    }
+  });
 });
