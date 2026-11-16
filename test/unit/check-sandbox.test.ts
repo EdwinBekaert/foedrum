@@ -792,8 +792,34 @@ describe('sandboxedChecks with the network kept, for a setup', () => {
 
   // ADR 0407: bwrap's loopback setup can lose a race with the stack bringing lo up, before the
   // line runs, and prints a stale errno (#1090).
+  const LOOPBACK = 'bwrap: loopback: Failed RTM_NEWADDR: No child processes\n';
   const bwrapRuns = (calls: readonly { file: string }[]) =>
     calls.filter((c) => c.file === '/usr/bin/bwrap').length;
+
+  it("runs the setup once more when bwrap's loopback setup fails, and reads the second run", async () => {
+    const { calls, events, exec } = fakeSetup({
+      failsAfterPid: [LOOPBACK],
+      answer: { exitCode: 3 },
+    });
+    const result = await linuxSetup(exec)(line, [], call);
+    assert.equal(bwrapRuns(calls), 2);
+    assert.equal(result.exitCode, 3);
+    assert.equal(events.filter((event) => event === 'the line runs').length, 1);
+    assert.ok(events.indexOf('bwrap fails') < events.indexOf('the line runs'));
+  });
+
+  it("reads as not started with bwrap's words and the likely race when its loopback setup fails twice", async () => {
+    const { calls, events, exec } = fakeSetup({ failsAfterPid: [LOOPBACK, LOOPBACK, LOOPBACK] });
+    const result = await linuxSetup(exec)(line, [], call);
+    assert.equal(bwrapRuns(calls), 2);
+    assert.equal(result.exitCode, null);
+    assert.equal(result.killed, undefined);
+    assert.equal(
+      result.output,
+      'bwrap: loopback: Failed RTM_NEWADDR: No child processes, twice: likely a race in which the network stack brought lo up first (ADR 0407)\n',
+    );
+    assert.ok(!events.includes('the line runs'));
+  });
 
   it('does not run the setup again when bwrap fails under its own name for another reason', async () => {
     for (const said of [
