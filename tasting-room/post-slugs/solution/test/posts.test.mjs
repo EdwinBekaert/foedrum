@@ -12,4 +12,5 @@ test('takes a minute for every 200 words begun, and at least one', () => {
 test("makes a post's address from its title's words", () => {
   assert.equal(slugOf('Ten Teas for 2026'), 'ten-teas-for-2026');
   assert.equal(slugOf('Tea, again!'), 'tea-again');
+  assert.equal(slugOf('Café crème'), 'café-crème');
 });

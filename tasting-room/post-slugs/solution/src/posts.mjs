@@ -10,5 +10,5 @@ export function readingMinutes(body) {
 
 /** A post's address from its `title`: its words, runs of letters and digits, in lower case and joined by hyphens. */
 export function slugOf(title) {
-  return (title.toLowerCase().match(/[a-z0-9]+/g) ?? []).join('-');
+  return (title.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []).join('-');
 }
