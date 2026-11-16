@@ -828,6 +828,14 @@ describe('sandboxedChecks with the network kept, for a setup', () => {
     assert.equal(result.exitCode, 0);
   });
 
+  it('reads the second run with its own words when it fails for another reason', async () => {
+    const proc = "bwrap: Can't mount proc on /newroot/proc: Operation not permitted\n";
+    const { calls, exec } = fakeSetup({ failsAfterPid: [LOOPBACK, proc] });
+    const result = await linuxSetup(exec)(line, [], call);
+    assert.equal(bwrapRuns(calls), 2);
+    assert.equal(result.output, `${proc.trim()} (ADR 0076)\n`);
+  });
+
   // Review of #1105: a line that ran can print the words and then be killed or end on a signal.
   it("does not run the setup again when the line ran, printed bwrap's loopback failure and was killed or ended by a signal", async () => {
     const cases: Partial<ExecResult>[] = [
