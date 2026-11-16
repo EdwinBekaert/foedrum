@@ -1554,20 +1554,26 @@ describe("formatDiagnosis: where brewers' model traffic goes (ADR 0063, ADR 0087
 
   it('names the address brewers send their model traffic to, under the tools', () => {
     assert.ok(
-      report('https://gateway.example.com/v1').includes(goesTo('https://gateway.example.com/v1')),
+      report('https://gateway.example.com/v1').includes(goesTo('https://gateway.example.com')),
     );
   });
 
   it('leaves the user name and password out of the address', () => {
     const shown = report('https://gw-user:gw-pass@gateway.example.com/v1');
-    assert.ok(shown.includes(goesTo('https://gateway.example.com/v1')));
+    assert.ok(shown.includes(goesTo('https://gateway.example.com')));
     assert.doesNotMatch(shown, /gw-user|gw-pass/);
   });
 
   it('leaves the query and the fragment out of the address', () => {
     const shown = report('https://gateway.example.com/v1?key=gw-key#gw-frag');
-    assert.ok(shown.includes(goesTo('https://gateway.example.com/v1')));
+    assert.ok(shown.includes(goesTo('https://gateway.example.com')));
     assert.doesNotMatch(shown, /gw-key|gw-frag/);
+  });
+
+  it('leaves the path out of the address, where a gateway may keep a key', () => {
+    const shown = report('https://gateway.example.com/k/gw-path-key/v1');
+    assert.ok(shown.includes(goesTo('https://gateway.example.com')));
+    assert.doesNotMatch(shown, /gw-path-key/);
   });
 
   it('says the variable is set without quoting an address that does not parse', () => {
@@ -1584,7 +1590,7 @@ describe("formatDiagnosis: where brewers' model traffic goes (ADR 0063, ADR 0087
 
   it('is no problem and leaves doctor ok, with the line shown', () => {
     const diagnosis = diagnose({ ...linux(), modelBaseUrl: 'https://gateway.example.com/v1' });
-    assert.ok(formatDiagnosis(diagnosis).includes(goesTo('https://gateway.example.com/v1')));
+    assert.ok(formatDiagnosis(diagnosis).includes(goesTo('https://gateway.example.com')));
     assert.equal(diagnosis.ok, true);
     assert.deepStrictEqual(diagnosis.problems, diagnose(linux()).problems);
   });
