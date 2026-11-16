@@ -306,8 +306,8 @@ const setupNetworkLine = (facts: DoctorFacts): string | undefined => {
 
 /**
  * Where brewers' model traffic goes: `brewerBaseEnv` gives every brewer ANTHROPIC_BASE_URL (ADR 0063,
- * ADR 0087). Only the origin and path are shown, since a user, password, query or fragment may
- * hold a key; an address that is not http or https is not quoted at all.
+ * ADR 0087). Only the origin is shown, since a user, password, path, query or fragment may hold
+ * a key; an address that is not http or https is not quoted at all.
  */
 const modelTrafficLine = (address: string | undefined): string | undefined => {
   if (address === undefined || address === '') return undefined;
@@ -315,7 +315,7 @@ const modelTrafficLine = (address: string | undefined): string | undefined => {
   const cited = '(ADR 0063, ADR 0087)';
   return url === null || (url.protocol !== 'http:' && url.protocol !== 'https:')
     ? `Model traffic: ANTHROPIC_BASE_URL is set, but not to an http or https address doctor can read; every brewer started from this terminal is given it ${cited}`
-    : `Model traffic: ${url.origin}${url.pathname} (ANTHROPIC_BASE_URL); every brewer started from this terminal sends its prompts and the code it reads there ${cited}`;
+    : `Model traffic: ${url.origin} (ANTHROPIC_BASE_URL); every brewer started from this terminal sends its prompts and the code it reads there ${cited}`;
 };
 
 /** A setup does not start on Linux without a stack; a Brewery without one needs neither. */
