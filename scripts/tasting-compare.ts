@@ -216,12 +216,12 @@ const write = (path: string, text: string): void => {
 /** A git of a run: its output, or a throw that says what failed. */
 type RunGit = (cwd: string, args: string[]) => Promise<string>;
 
-/** The target on main, as the diff and plan modes make it: the base patch, on its scratch remote. */
-const patchedTarget = async (scratch: string, git: RunGit): Promise<void> => {
+/** The target on main, as the diff and plan modes make it: the `base` patch, on its scratch remote. */
+const patchedTarget = async (base: string, scratch: string, git: RunGit): Promise<void> => {
   await git(scratch, ['init', '-q', '--bare', '--initial-branch=main', 'web.git']);
   await git(scratch, ['clone', '-q', 'web.git', 'web']);
   const web = join(scratch, 'web');
-  await git(web, ['am', '-q', BASE]);
+  await git(web, ['am', '-q', base]);
   await git(web, ['push', '-q', 'origin', 'main']);
 };
 
@@ -283,7 +283,7 @@ const diffMode = ({ taster }: ModeOf<'seeded'>): Mode<SetupName> => {
     order: () => join(fixture, 'order.md'),
     recipeOf: (setup) => setup,
     breweryFiles: (setup) => seededBreweryFiles(setup, taster),
-    target: (_setup, scratch, git) => patchedTarget(scratch, git),
+    target: (_setup, scratch, git) => patchedTarget(BASE, scratch, git),
     script: async (setup, scratch, git) => {
       // The change's files as the scripted Cellarman writes them: the change patch applied elsewhere.
       await git(scratch, ['clone', '-q', 'web.git', 'source']);
@@ -327,7 +327,7 @@ const planMode = (): Mode<PlanSetupName> => {
     recipeOf: (setup) => setup,
     breweryFiles: (setup) =>
       planRecipes(setup, readFileSync(join(planFixture, 'prose.jsonc'), 'utf8')),
-    target: (_setup, scratch, git) => patchedTarget(scratch, git),
+    target: (_setup, scratch, git) => patchedTarget(BASE, scratch, git),
     script: async (setup) => ({
       [PLAN_STEP]: [seeded, AFTER_ROUND_ONE],
       ...(dryRun ? scriptedPlanTastings(setup, key) : {}),
@@ -588,11 +588,21 @@ const plannerMode = async ({
   };
 };
 
+/** Where `compare` keeps a mode's records and files, how many runs of each setup it brews, and with what. */
+interface CompareSettings {
+  folder: string;
+  runs: number;
+  /** The brewers scripted, never the real claude. */
+  dryRun: boolean;
+  /** The claude serve's setup is told of. */
+  claude: string;
+}
+
 /** Brews every run of `mode` that has no record yet, and prints its one table. */
 const compare = async <Setup extends string, Run extends RunRecord<Setup>>(
   mode: Mode<Setup, Run>,
+  { folder, runs, dryRun, claude }: CompareSettings,
 ): Promise<void> => {
-  const folder = modeFolder(mode.folders);
   const resultsFile = join(folder, 'results.jsonl');
   const readRecords = (): Run[] => readRecordsIn<Setup, Run>(folder);
 
@@ -776,22 +786,27 @@ const compare = async <Setup extends string, Run extends RunRecord<Setup>>(
   process.stdout.write(table);
 };
 
+/** Brews `mode` in its folder with the options' runs. */
+const brew = <Setup extends string, Run extends RunRecord<Setup>>(
+  mode: Mode<Setup, Run>,
+): Promise<void> => compare(mode, { folder: modeFolder(mode.folders), runs, dryRun, claude });
+
 switch (chosen.kind) {
   case 'planner':
-    await compare(await plannerMode(chosen));
+    await brew(await plannerMode(chosen));
     break;
   case 'taster':
   case 'real':
-    await compare(await realMode(chosen));
+    await brew(await realMode(chosen));
     break;
   case 'brewer':
-    await compare(await brewerMode(chosen));
+    await brew(await brewerMode(chosen));
     break;
   case 'plan':
-    await compare(planMode());
+    await brew(planMode());
     break;
   case 'seeded':
-    await compare(diffMode(chosen));
+    await brew(diffMode(chosen));
     break;
   default: {
     const unknown: never = chosen;
