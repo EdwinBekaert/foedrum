@@ -5,7 +5,7 @@
 // the merged tree get a worktree of it from such a directory (ADR 0203).
 
 import { lstat, mkdir, readFile, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import type { MergeTreeResult } from '../engine/base-check.ts';
 import { pathInside } from '../platform/paths.ts';
 import { realPath } from '../platform/real-path.ts';
@@ -225,18 +225,23 @@ export const openBranchCommit =
           // The tip's tree with the files as the tree holds them, in an index of the directory's own.
           const index = { env: { GIT_INDEX_FILE: join(dir.path, 'foedrum.index') } };
           await dir.run(['read-tree', tip], index);
+          let changed = 0;
           for (const file of files) {
-            const path = join(worktree, ...file.split('/'));
-            // As a commit of that path stores it: a checkout's CRLF goes back to the repository's
-            // line ends (core.autocrlf, which Git for Windows sets).
-            const blob = (
-              await dir.run(['hash-object', '-w', `--path=${file}`, '--', path])
-            ).trim();
+            // Only a regular file of the tip's tree, with its mode: a link that a checkout without
+            // symlinks wrote as a file stays a link.
+            const entry = await dir.run(['ls-files', '-s', '--', file], index);
+            const mode = /^(100644|100755) /.exec(entry)?.[1];
+            if (mode === undefined) continue;
+            // As a commit of that path stores it, through the tree's attributes and core.autocrlf:
+            // a checkout's CRLF goes back to the repository's line ends.
+            const blob = (await hashInTree(git, dir, worktree, file, signal)).trim();
             await dir.run(
-              ['update-index', '--add', '--cacheinfo', `100644,${blob},${file}`],
+              ['update-index', '--add', '--cacheinfo', `${mode},${blob},${file}`],
               index,
             );
+            changed += 1;
           }
+          if (changed === 0) return { value };
           const tree = (await dir.run(['write-tree'], index)).trim();
           const made = await dir.run(['commit-tree', tree, '-p', tip, '-m', message], {
             env: FOEDRUM,
@@ -250,6 +255,33 @@ export const openBranchCommit =
       ),
     );
   };
+
+/**
+ * Writes `file` of the scratch tree `worktree` into the clone's objects as a commit of it would
+ * (ADR 0412): git runs inside the tree, so the tree's `.gitattributes` take part, with the tree's
+ * git directory named by Foedrum, never read from the tree's `.git` file.
+ */
+const hashInTree = (
+  git: Git,
+  dir: OwnGitDir,
+  worktree: string,
+  file: string,
+  signal: AbortSignal | undefined,
+): Promise<string> =>
+  gitOutput(
+    git,
+    worktree,
+    [
+      `--git-dir=${join(dir.path, 'worktrees', basename(worktree))}`,
+      `--work-tree=${worktree}`,
+      'hash-object',
+      '-w',
+      `--path=${file}`,
+      '--',
+      file,
+    ],
+    { ...aborts(signal), env: { GIT_OBJECT_DIRECTORY: dir.objects } },
+  );
 
 /** A file of a scratch tree rewritten after its checkout: a mutant's (ADR 0313). */
 export interface TreeEdit {
