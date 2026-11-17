@@ -61,6 +61,19 @@ const brewing = (batchId: string, issue: number, parentBatchId?: string): Event[
   ...ordered(batchId, issue, parentBatchId),
   ...at(batchId, 'archive'),
 ];
+/** `onTap`'s batch after one attempt whose deadline was `ago` milliseconds before now. */
+const ranOnTap = (batchId: string, issue: number, ago: number): Event[] => {
+  const ref = { batchId, stepId: 'archive', attempt: 1 };
+  const deadlineAt = new Date(now.getTime() - ago).toISOString();
+  const before = ordered(batchId, issue);
+  return [
+    ...before,
+    { type: 'step.scheduled', ...ref, deadlineAt },
+    { type: 'step.started', ...ref },
+    { type: 'step.finished', ...ref, outcome: { kind: 'succeeded', output: null } },
+    ...onTap(batchId, issue).slice(before.length),
+  ];
+};
 const pullRequest = 'https://github.com/acme/api/pull/3';
 /** The status comment's revision that shows a batch ended (ADR 0345). */
 const shown = (batchId: string): Event => ({
@@ -216,6 +229,13 @@ describe('rack (ADR 0383)', () => {
       { batchIds: ['9-1'], date: '2026-11-12', known: ['20-1', '7-1', '8-1'] },
     ]);
     assert.ok(!ran.reads.includes(`${brewery}#8`), 'a batch that brews needs no read');
+  });
+
+  it('archives a finished group once its newest attempt’s deadline is 30 days old (ADR 0419): regression test', async () => {
+    const events = [...ranOnTap('6-1', 6, 31 * day), ...ranOnTap('7-1', 7, 30 * day)];
+    const ran = await run('archive', events, [6, 7]);
+    assert.deepStrictEqual(ran.batches, ['20-1']);
+    assert.deepStrictEqual(ran.shelved[0]?.batchIds, ['6-1', '7-1']);
   });
 
   it('rack archives a split order only with all its sub-orders', async () => {
