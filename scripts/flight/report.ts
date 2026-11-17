@@ -6,7 +6,7 @@
 
 import { join } from 'node:path';
 import type { parseArgs } from 'node:util';
-import { parseJsonc } from '../../src/formats/jsonc.ts';
+import { checkedInput, parseJsonc } from '../../src/formats/jsonc.ts';
 import { ModelId, ModelsConfig, type TastedEntry, tastedKey } from '../../src/schemas/models.ts';
 import { escapeCell, runsOfSetup } from '../tasting-compare/core.ts';
 import {
@@ -243,7 +243,7 @@ const withTasted = (
       ? [...config.claude.tasted, entry]
       : config.claude.tasted.map((each) => (each === replaced ? entry : each));
   const header = [];
-  for (const line of modelsText.replace(/^﻿/, '').split(/\r?\n/)) {
+  for (const line of checkedInput(modelsText).split(/\r?\n/)) {
     if (!line.trimStart().startsWith('//')) break;
     header.push(`${line}\n`);
   }
