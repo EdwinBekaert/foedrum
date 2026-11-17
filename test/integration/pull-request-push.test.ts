@@ -394,10 +394,13 @@ describe('the openPullRequest push with real git', () => {
       assert.equal(reason?.kind, 'push_refused');
       // Not in any event, so neither on the state branch nor in the status comment.
       assert.doesNotMatch(JSON.stringify(store.eventsAfter(0)), /A1b2/);
-      // Each finding as the refused push's summary names it (ADR 0079, ADR 0418).
+      // Each finding as the refused push's summary names it, with its line (ADR 0079, ADR 0418).
       return reason?.kind === 'push_refused'
         ? reason.findings
-            .map(({ commit, place, kind }) => `commit ${commit}, ${kind} in ${place}`)
+            .map(
+              ({ commit, place, line, kind }) =>
+                `commit ${commit}, ${kind} in ${place}${line === undefined ? '' : ` line ${line}`}`,
+            )
             .join('; ')
         : '';
     };
@@ -509,6 +512,21 @@ describe('the openPullRequest push with real git', () => {
         git(path, ['config', 'diff.interHunkContext', '1000']);
       });
       assert.match(stopped(state, requests), /, GitHub token in b\.txt/);
+    });
+
+    it('names the line real git shows for a finding, past the unchanged part of the file (ADR 0418)', async () => {
+      const { state, requests } = await brew((path) => {
+        const lines = Array.from({ length: 20 }, (_, i) => `line ${i + 1}`);
+        writeFileSync(join(path, 'a.txt'), `${lines.join('\n')}\n`);
+        git(path, ['add', 'a.txt']);
+        git(path, ['commit', '-q', '-m', 'Add a']);
+        lines[2] = 'third';
+        lines[14] = `key ${token}`;
+        writeFileSync(join(path, 'a.txt'), `${lines.join('\n')}\n`);
+        git(path, ['add', 'a.txt']);
+        git(path, ['commit', '-q', '-m', 'Change a']);
+      });
+      assert.match(stopped(state, requests), /, GitHub token in a\.txt line 15$/);
     });
 
     it('stops the push of a credential that only a merge commit adds', async () => {
