@@ -1356,6 +1356,7 @@ describe('planAttempt', () => {
       deny: ['Read(.env)'],
       sandbox: true,
       toolchain: { PATH: '/usr/bin' },
+      agentKeys: [],
     });
     assert.equal(plan.settingsFile, join('/root', 'attempt-settings', '12-1', 'brew', '1.json'));
   });
@@ -1383,6 +1384,24 @@ describe('planAttempt', () => {
       HOME: '/home/brewer',
       PATH: '/home/brewer/.volta/bin:/usr/bin',
     });
+  });
+
+  // ADR 0414: the agent's variables brewerBaseEnv passes to claude, by name, from the base.
+  it('hands the attempt settings the names of the agent keys the driver passes to claude', () => {
+    const base = {
+      PATH: '/usr/bin',
+      ANTHROPIC_API_KEY: 'sk-test',
+      HOME: '/home/brewer',
+      ANTHROPIC_BASE_URL: 'http://127.0.0.1:9',
+    };
+    const plan = planAttempt({ ...facts(), env: { base, forced: {}, platform: 'linux' as const } });
+    assert.deepEqual(plan.permissions.agentKeys, ['ANTHROPIC_API_KEY', 'ANTHROPIC_BASE_URL']);
+  });
+
+  it('hands the attempt settings no agent key when the driver passes none', () => {
+    const base = { PATH: '/usr/bin', HOME: '/home/brewer' };
+    const plan = planAttempt({ ...facts(), env: { base, forced: {}, platform: 'linux' as const } });
+    assert.deepEqual(plan.permissions.agentKeys, []);
   });
 
   describe('an interactive step (ADR 0222)', () => {

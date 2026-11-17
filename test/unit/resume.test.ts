@@ -306,6 +306,17 @@ describe('foedrum resume (ADR 0126)', () => {
   });
 
   // ADR 0162: and re-open the toolchain folders of serve's PATH under its home.
+  // ADR 0414: and hide from sandboxed commands the agent keys serve passes to claude.
+  it('writes the settings again hiding the agent keys serve passes to claude', async () => {
+    const base = { PATH: '/bin', ANTHROPIC_AUTH_TOKEN: 'token-test' };
+    const withKey = { ...setup, brewerEnv: { ...setup.brewerEnv, base } };
+    await resume(undefined, { setup: async () => ({ kind: 'ready', setup: withKey }) });
+    const sandbox = settings[0]?.settings.sandbox as { credentials?: { envVars?: unknown } };
+    assert.deepEqual(sandbox.credentials?.envVars, [
+      { name: 'ANTHROPIC_AUTH_TOKEN', mode: 'deny' },
+    ]);
+  });
+
   it("writes the settings again with the toolchain folders of serve's PATH", async () => {
     const base = {
       PATH: '/home/brewer/.nvm/versions/node/v24.15.0/bin:/bin',

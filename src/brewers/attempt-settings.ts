@@ -15,6 +15,8 @@ export interface AttemptPermissions {
   sandbox: boolean;
   /** The driver's home and PATH, whose toolchain folders sandboxed commands may read (ADR 0162). */
   toolchain?: Toolchain;
+  /** The agent's variables the driver passes to claude, which sandboxed commands lose (ADR 0414). */
+  agentKeys?: readonly string[];
 }
 
 /** The variables of the driver's environment the toolchain's folders are found from (ADR 0162). */

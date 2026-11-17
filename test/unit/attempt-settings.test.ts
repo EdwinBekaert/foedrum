@@ -104,6 +104,23 @@ describe('attemptSettings', () => {
     assert.equal(Object.hasOwn(settings.sandbox ?? {}, 'credentials'), false);
   });
 
+  // ADR 0414: a sandboxed command inherits claude's environment, so the agent keys Foedrum passes
+  // to claude are hidden from it by name; no file and no login place is named.
+  it('hides from sandboxed commands the agent keys the driver passes to claude', () => {
+    const agentKeys = ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN'];
+    const settings = attemptSettings({ allow: ['Read'], deny: [], sandbox: true, agentKeys });
+    assert.deepEqual((settings.sandbox as { credentials?: unknown } | undefined)?.credentials, {
+      files: [],
+      envVars: agentKeys.map((name) => ({ name, mode: 'deny' })),
+    });
+  });
+
+  it('hides no agent key without a sandbox', () => {
+    const agentKeys = ['ANTHROPIC_API_KEY'];
+    const settings = attemptSettings({ allow: ['Read'], deny: [], sandbox: false, agentKeys });
+    assert.equal(Object.hasOwn(settings, 'sandbox'), false);
+  });
+
   // #247: a sandboxed command reads most of the machine, and a list of credential paths can't be
   // complete. The block denies it the home directory and the other user roots, `/mnt` with the
   // Windows home on WSL2 among them, and re-opens the working directories (ADR 0160).
@@ -1093,11 +1110,22 @@ describe('AttemptSettings: no login places', () => {
     try {
       const credentials = { files: [{ path: '~/.ssh', mode: 'deny' }], envVars: [] };
       const settings = sandboxed({ ...sandboxBlock, credentials }) as AttemptSettings;
-      assert.throws(() => writeAttemptSettings(file, settings), /Unrecognized key.*credentials/);
+      assert.throws(() => writeAttemptSettings(file, settings), /sandbox\.credentials\.files/);
       assert.equal(existsSync(file), false);
     } finally {
       dir.remove();
     }
+  });
+});
+
+// ADR 0414: the one credentials block the schema takes hides variables by name, and no file.
+describe('AttemptSettings: the agent keys', () => {
+  it('accepts a sandbox block that hides the agent keys by name', () => {
+    const credentials = { files: [], envVars: [{ name: 'ANTHROPIC_API_KEY', mode: 'deny' }] };
+    assert.equal(
+      AttemptSettings.safeParse(sandboxed({ ...sandboxBlock, credentials })).success,
+      true,
+    );
   });
 });
 
