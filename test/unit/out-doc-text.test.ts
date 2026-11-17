@@ -27,6 +27,13 @@ describe('withoutSecrets', () => {
     assert.equal(text, leftOut);
   });
 
+  it('puts a fixed line naming no step in place of a text that belongs to none', () => {
+    assert.equal(
+      withoutSecrets(`Used ${token} to read the API`, '', none),
+      '[left out: a text that looks like a secret]',
+    );
+  });
+
   it('reads the text as it is shown too, on one line', () => {
     assert.equal(withoutSecrets('the password\n= hunter2', 'brew', none), leftOut);
   });
