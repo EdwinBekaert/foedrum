@@ -5,7 +5,8 @@
 import assert from 'node:assert/strict';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
-import { createCheckRunner, type ReportFiles } from '../../src/checks/check-runner.ts';
+import { createCheckRunner } from '../../src/checks/check-runner.ts';
+import type { ReportFiles } from '../../src/checks/module-reports.ts';
 import type { MapRead } from '../../src/checks/test-map.ts';
 import { fold } from '../../src/engine/fold.ts';
 import type { StepChecks } from '../../src/engine/recipe-files.ts';

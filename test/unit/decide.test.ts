@@ -63,6 +63,7 @@ const context: Context = {
   recipes: fakeRecipes({
     pint: fakeRecipe({
       steps: ['plan', 'implement', 'green'],
+      checks: ['green'],
       routes: { green: { failed: 'implement' }, implement: { findings: 'plan' } },
       pullRequests: [pullRequest],
     }),
@@ -516,20 +517,20 @@ describe('decide finish', () => {
   });
 
   it('sends a retryable failure back along its route once the attempts are used up', () => {
-    accepts(brewing('green', 2), finish(retryable, 'green', 2), [
-      finished(retryable, 'green', 2),
+    accepts(brewing('green', 3), finish(retryable, 'green', 3), [
+      finished(retryable, 'green', 3),
       { ...next('implement'), route: { from: 'green', why: 'failed' } },
     ]);
   });
 
   it('never sends a cancelled attempt along a route', () => {
     const cancel = { kind: 'cancelled' } as const;
-    accepts(brewing('green', 2), finish(cancel, 'green', 2), [
-      finished(cancel, 'green', 2),
+    accepts(brewing('green', 3), finish(cancel, 'green', 3), [
+      finished(cancel, 'green', 3),
       stuckOn({
         kind: 'attempts_exhausted',
         stepId: 'green',
-        attempts: 2,
+        attempts: 3,
         lastReason: 'the attempt was cancelled',
       }),
     ]);
@@ -762,9 +763,9 @@ describe('decide lose: a lost attempt is retried (ADR 0027)', () => {
   });
 
   it('never sends a lost attempt along a route', () => {
-    accepts(brewing('green', 2), lose('green', 2), [
-      lost('green', 2),
-      stuckOn({ kind: 'attempts_exhausted', stepId: 'green', attempts: 2, lastReason }),
+    accepts(brewing('green', 3), lose('green', 3), [
+      lost('green', 3),
+      stuckOn({ kind: 'attempts_exhausted', stepId: 'green', attempts: 3, lastReason }),
     ]);
   });
 
