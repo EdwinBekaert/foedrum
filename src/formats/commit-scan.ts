@@ -1,7 +1,8 @@
 // What a batch's commits would publish that looks like a secret (ADR 0079), the pure core: the
 // messages, the headers and the added lines that `git log` shows for them, read with findSecrets.
-// A finding names the commit, the file (or the message, or the header) and the kind, never the
-// text it matched.
+// A finding names the commit, the file (or the message, or the header), the first line of its kind
+// there (none for a header, a binary file or a path, ADR 0418) and the kind, never the text it
+// matched.
 
 import { COMMIT_HEX, isCommitSha, type ScanFinding } from '../schemas/store.ts';
 import { findSecrets, type IsCommit } from './secrets.ts';
@@ -35,14 +36,16 @@ const INTEGRITY = /\bsha(?:1|256|384|512)-[A-Za-z0-9+/]+={0,2}/g;
 const LOCKS = new Set(['package-lock.json', 'npm-shrinkwrap.json', 'yarn.lock', 'pnpm-lock.yaml']);
 const isLock = (path: string): boolean => LOCKS.has(path.split('/').at(-1) ?? '');
 
-const HUNK = /^@@ -\d+(?:,(\d+))? \+\d+(?:,(\d+))? @@/;
+const HUNK = /^@@ -\d+(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/;
 
-/** The findings, one per commit, place and kind, in the order they were found. */
+/** The findings, one per commit, place and kind, at the first line found, in the order found. */
 const collect = () => {
   const found = new Map<string, ScanFinding>();
   return {
     add: (finding: ScanFinding): void => {
-      found.set(JSON.stringify(finding), finding);
+      const { commit, place, kind } = finding;
+      const key = JSON.stringify([commit, place, kind]);
+      if (!found.has(key)) found.set(key, finding);
     },
     list: (): ScanFinding[] => [...found.values()],
   };
@@ -55,8 +58,8 @@ export const scanMessages = (log: string, isCommit: IsCommit): ScanFinding[] => 
     const newline = chunk.indexOf('\n');
     const commit = newline === -1 ? chunk : chunk.slice(0, newline);
     const message = newline === -1 ? '' : chunk.slice(newline + 1);
-    for (const { kind } of findSecrets(message, isCommit)) {
-      found.add({ commit, place: MESSAGE, kind });
+    for (const { kind, line } of findSecrets(message, isCommit)) {
+      found.add({ commit, place: MESSAGE, line, kind });
     }
   }
   return found.list();
@@ -139,6 +142,9 @@ export const scanPatches = (log: string, isCommit: IsCommit): ScanFinding[] => {
   let commit = '';
   let path = '';
   let added: string[] = [];
+  // The line each added line has in the file as the commit has it (ADR 0418).
+  let lines: number[] = [];
+  let newLine = 0;
   let oldLeft = 0;
   let newLeft = 0;
   let deleted = false;
@@ -151,8 +157,12 @@ export const scanPatches = (log: string, isCommit: IsCommit): ScanFinding[] => {
     for (const { kind } of inPath) found.add({ commit, place, kind });
     const joined = added.join('\n');
     const text = isLock(path) ? joined.replace(INTEGRITY, '') : joined;
-    for (const { kind } of findSecrets(text, isCommit)) found.add({ commit, place, kind });
+    for (const { kind, line } of findSecrets(text, isCommit)) {
+      const at = lines[line - 1];
+      found.add({ commit, place, ...(at === undefined ? {} : { line: at }), kind });
+    }
     added = [];
+    lines = [];
   };
   for (const line of log.split(/\r?\n/)) {
     if (oldLeft > 0 || newLeft > 0) {
@@ -160,12 +170,15 @@ export const scanPatches = (log: string, isCommit: IsCommit): ScanFinding[] => {
       if (line.startsWith('\\')) continue;
       if (line.startsWith('+')) {
         added.push(line.slice(1));
+        lines.push(newLine);
+        newLine += 1;
         newLeft -= 1;
       } else if (line.startsWith('-')) {
         oldLeft -= 1;
       } else {
         oldLeft -= 1;
         newLeft -= 1;
+        newLine += 1;
       }
       continue;
     }
@@ -187,7 +200,8 @@ export const scanPatches = (log: string, isCommit: IsCommit): ScanFinding[] => {
       const hunk = HUNK.exec(line);
       if (hunk !== null) {
         oldLeft = Number(hunk[1] ?? 1);
-        newLeft = Number(hunk[2] ?? 1);
+        newLine = Number(hunk[2]);
+        newLeft = Number(hunk[3] ?? 1);
       }
     }
   }
