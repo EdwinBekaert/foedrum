@@ -1719,6 +1719,15 @@ describe('diagnose: what could be tasted next (ADR 0419)', () => {
     );
   });
 
+  it('keeps a models.jsonc read error that holds a line break and a control character on its line', () => {
+    const tasting = { used: [used('cellarman', 'claude-opus-5-6')], at };
+    const why = `EACCES\nFoedrum has everything it needs.${String.fromCodePoint(0x1b)}[2J`;
+    assert.equal(
+      lineOf({ tasting, modelsUnreadable: why }),
+      String.raw`Tasting: models.jsonc cannot be read (EACCES\u000aFoedrum has everything it needs.\u001b[2J).`,
+    );
+  });
+
   it('says the event log cannot be read in place of suggestions', () => {
     const tasting = { used: [], at, unreadable: 'file is not a database' };
     assert.equal(
