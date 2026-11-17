@@ -10,7 +10,7 @@ The maintainer settled the scope on #820 (2026-11-17): Foedrum computes the line
 
 ## Decision
 - **Recorded once, at the push**, as ADR 0384 records what to look at (`PushResult.size`, `src/schemas/store.ts`): the push effect reads the change's lines from where it starts to the commit pushed (`BranchPush.changedLines`, `git diff --numstat -z --no-renames`, read as committed as `touchedFiles` is) and records them with `sizeOf` (`src/engine/read-first.ts`).
-  - The lines of a file are the lines it adds and deletes; a binary file has none, though a push whose commits add one is refused by the secret scan today ([ADR 0079](0079-the-push-scans-the-batch-s-commits-for-secrets.md)), so no size of it is recorded.
+  - The lines of a file are the lines it adds and deletes; a binary file has none. The secret scan refuses a push whose commits add one ([ADR 0079](0079-the-push-scans-the-batch-s-commits-for-secrets.md)), and a push a person allows goes without a scan ([ADR 0420](0420-foedrum-answer-allow-lets-a-refused-push-of-one-exact-commit-go-with-who-and-why.md)), so a binary file reaches the size through such a push, counted among the files.
   - Lock files (ADR 0384's list) are left out: their churn is not review work, and the look line already names them.
   - The record keeps the changed lines, the changed files, a binary one too, and the 100 largest files with their lines, the most lines first, then by path; a binary file is never among them.
   - A change of lock files only records no size.
