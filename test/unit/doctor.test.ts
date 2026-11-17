@@ -1505,6 +1505,13 @@ describe('diagnose: which test the check step runs and what the full gate is (AD
     );
   });
 
+  it('foedrum doctor lists no tests of a foedrum.jsonc that does not pass its schema: regression test (ADR 0242)', () => {
+    const broken = config.replace('{base}', '');
+    const report = formatDiagnosis(diagnose({ ...linux(), config: broken }));
+    assert.match(report, /foedrum\.jsonc is not valid \(required\)/);
+    assert.doesNotMatch(report, /^Tests /m);
+  });
+
   it('foedrum doctor lists no tests without a foedrum.jsonc: regression test (ADR 0242)', () => {
     assert.doesNotMatch(formatDiagnosis(diagnose(linux())), /^Tests /m);
   });
