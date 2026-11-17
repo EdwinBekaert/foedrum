@@ -54,7 +54,9 @@ describe('scanMessages', () => {
   it('leaves out a commit hash the clone has, and keeps a hexadecimal key it does not', () => {
     const log = `\0${C1}\nRevert ${'a'.repeat(40)}\n\nkey ${'b'.repeat(40)}\n`;
     const found = scanMessages(log, (sha) => sha === 'a'.repeat(40));
-    assert.deepEqual(found, [{ commit: C1, place: MESSAGE, kind: 'long hexadecimal string' }]);
+    assert.deepEqual(found, [
+      { commit: C1, place: MESSAGE, line: 3, kind: 'long hexadecimal string' },
+    ]);
   });
 });
 

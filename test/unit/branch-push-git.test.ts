@@ -698,7 +698,7 @@ describe('openBranchPush: secretScan (ADR 0079)', () => {
         : ok(`${key} missing\n${blob} blob\n`);
     });
     assert.deepEqual(await openBranchPush({ git, clone }).secretScan(BASE, TIP), [
-      { commit: TIP, place: 'message', kind: 'long hexadecimal string' },
+      { commit: TIP, place: 'message', line: 1, kind: 'long hexadecimal string' },
     ]);
   });
 
