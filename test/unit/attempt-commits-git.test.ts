@@ -186,7 +186,7 @@ describe('scanAttemptCommits (ADR 0187)', () => {
     const signal = new AbortController().signal;
     assert.deepEqual(await scanAttemptCommits(git)(clone, branch, START, signal), {
       kind: 'scanned',
-      findings: [{ commit: NEW, place: 'keys.test.ts', kind: 'GitHub token' }],
+      findings: [{ commit: NEW, place: 'keys.test.ts', line: 1, kind: 'GitHub token' }],
     });
     assert.deepEqual(calls[0]?.args, [
       'rev-parse',
@@ -216,7 +216,7 @@ describe('scanAttemptCommits (ADR 0187)', () => {
     // The same history scanned from before the old commit finds it: the start is what keeps it out.
     assert.deepEqual(await scanAttemptCommits(git)(clone, branch, 'f'.repeat(40)), {
       kind: 'scanned',
-      findings: [{ commit: OLD, place: 'old.txt', kind: 'GitHub token' }],
+      findings: [{ commit: OLD, place: 'old.txt', line: 1, kind: 'GitHub token' }],
     });
   });
 

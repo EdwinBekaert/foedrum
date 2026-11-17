@@ -587,9 +587,9 @@ describe('openBranchPush: secretScan (ADR 0079)', () => {
     const { git, calls } = recordingGit(answers);
     const found = await openBranchPush({ git, clone }).secretScan(BASE, TIP);
     assert.deepEqual(found, [
-      { commit: TIP, place: 'message', kind: 'GitHub token' },
+      { commit: TIP, place: 'message', line: 3, kind: 'GitHub token' },
       { commit: TIP, place: 'author', kind: 'GitHub token' },
-      { commit: TIP, place: 'keys.txt', kind: 'GitHub token' },
+      { commit: TIP, place: 'keys.txt', line: 1, kind: 'GitHub token' },
     ]);
     assert.deepEqual(
       calls.map(({ cwd, args }) => [cwd, ...args]),
@@ -660,7 +660,7 @@ describe('openBranchPush: secretScan (ADR 0079)', () => {
   it('finds what a merge itself adds to its last parent', async () => {
     const { git } = merging(token);
     assert.deepEqual(await openBranchPush({ git, clone }).secretScan(BASE, TIP), [
-      { commit: MERGE, place: 'm.txt', kind: 'GitHub token' },
+      { commit: MERGE, place: 'm.txt', line: 1, kind: 'GitHub token' },
     ]);
   });
 

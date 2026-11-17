@@ -35,8 +35,16 @@ describe('scanMessages', () => {
   it('names the commit whose message holds a secret, and the kind, never the text', () => {
     const log = `\0${C1}\nAdd the flag\n\n\0${C2}\nUse the key\n\nGH=${token}\n\n`;
     const found = scanMessages(log, none);
-    assert.deepEqual(found, [{ commit: C2, place: MESSAGE, kind: 'GitHub token' }]);
+    assert.deepEqual(found, [{ commit: C2, place: MESSAGE, line: 3, kind: 'GitHub token' }]);
     assert.doesNotMatch(JSON.stringify(found), /A1b2|ghp_/);
+  });
+
+  it('names the line of the message a secret is on, its subject being line 1 (ADR 0418)', () => {
+    const log = `\0${C1}\nUse ${token}\n\n\0${C2}\nAdd the flag\n\nOne\nTwo\nKEY=${token}\n\n`;
+    assert.deepEqual(scanMessages(log, none), [
+      { commit: C1, place: MESSAGE, line: 1, kind: 'GitHub token' },
+      { commit: C2, place: MESSAGE, line: 5, kind: 'GitHub token' },
+    ]);
   });
 
   it('finds nothing in clean messages', () => {
@@ -175,7 +183,7 @@ describe('scanPatches', () => {
       ].join('\n'),
     );
     assert.deepEqual(scanPatches(log, none), [
-      { commit: C1, place: 'src/app.ts', kind: 'GitHub token' },
+      { commit: C1, place: 'src/app.ts', line: 4, kind: 'GitHub token' },
     ]);
   });
 
@@ -185,8 +193,8 @@ describe('scanPatches', () => {
       patch(C1, newFile('clean.txt', 'hello'), newFile('more.txt', `c ${token}`)),
     ].join('\n');
     assert.deepEqual(scanPatches(log, none), [
-      { commit: C2, place: 'notes/aws.txt', kind: 'GitHub token' },
-      { commit: C1, place: 'more.txt', kind: 'GitHub token' },
+      { commit: C2, place: 'notes/aws.txt', line: 1, kind: 'GitHub token' },
+      { commit: C1, place: 'more.txt', line: 1, kind: 'GitHub token' },
     ]);
   });
 
@@ -211,7 +219,7 @@ describe('scanPatches', () => {
       newFile('b.txt', 'clean'),
     );
     assert.deepEqual(scanPatches(log, none), [
-      { commit: C1, place: 'a.txt', kind: 'GitHub token' },
+      { commit: C1, place: 'a.txt', line: 2, kind: 'GitHub token' },
     ]);
   });
 
@@ -305,7 +313,7 @@ describe('scanPatches', () => {
       newFile('b.txt', token),
     );
     assert.deepEqual(scanPatches(log, none), [
-      { commit: C1, place: 'b.txt', kind: 'GitHub token' },
+      { commit: C1, place: 'b.txt', line: 1, kind: 'GitHub token' },
     ]);
   });
 
@@ -313,7 +321,7 @@ describe('scanPatches', () => {
     const disguised = `sha512-${'Ab1+'.repeat(21)}Q==`;
     const log = patch(C1, newFile('config.env', `AWS_KEY=${disguised}`));
     assert.deepEqual(scanPatches(log, none), [
-      { commit: C1, place: 'config.env', kind: 'long base64 string' },
+      { commit: C1, place: 'config.env', line: 1, kind: 'long base64 string' },
     ]);
   });
 
@@ -333,14 +341,14 @@ describe('scanPatches', () => {
       ].join('\n'),
     );
     assert.deepEqual(scanPatches(log, none), [
-      { commit: C1, place: 'a.txt', kind: 'GitHub token' },
+      { commit: C1, place: 'a.txt', line: 1, kind: 'GitHub token' },
     ]);
   });
 
   it('reads a path with spaces, which git does not quote', () => {
     const log = patch(C1, newFile('my notes.txt', token));
     assert.deepEqual(scanPatches(log, none), [
-      { commit: C1, place: 'my notes.txt', kind: 'GitHub token' },
+      { commit: C1, place: 'my notes.txt', line: 1, kind: 'GitHub token' },
     ]);
   });
 
@@ -359,7 +367,7 @@ describe('scanPatches', () => {
       ].join('\n'),
     );
     assert.deepEqual(scanPatches(log, none), [
-      { commit: C1, place: '"caf\\303\\251.txt"', kind: 'GitHub token' },
+      { commit: C1, place: '"caf\\303\\251.txt"', line: 1, kind: 'GitHub token' },
     ]);
   });
 
@@ -377,7 +385,45 @@ describe('scanPatches', () => {
     }
     const log = patch(C1, newFile('docs/package-lock.json.md', `  integrity ${sri}`));
     assert.deepEqual(scanPatches(log, none), [
-      { commit: C1, place: 'docs/package-lock.json.md', kind: 'long base64 string' },
+      { commit: C1, place: 'docs/package-lock.json.md', line: 1, kind: 'long base64 string' },
+    ]);
+  });
+
+  it('names the line of the file each finding is on, counted from its hunk (ADR 0418)', () => {
+    const log = patch(
+      C1,
+      [
+        'diff --git a/src/app.ts b/src/app.ts',
+        'index 1111111..2222222 100644',
+        '--- a/src/app.ts',
+        '+++ b/src/app.ts',
+        '@@ -3 +3,2 @@',
+        '-const x = 1;',
+        '+const x = 2;',
+        '+const y = 3;',
+        '@@ -20,2 +21,3 @@',
+        ' context',
+        '-old',
+        '+new',
+        `+const key = '${token}';`,
+      ].join('\n'),
+    );
+    assert.deepEqual(scanPatches(log, none), [
+      { commit: C1, place: 'src/app.ts', line: 23, kind: 'GitHub token' },
+    ]);
+  });
+
+  it('names the first line of a kind a file holds more than once, and each file apart (ADR 0418)', () => {
+    const disguised = `sha512-${'Ab1+'.repeat(21)}Q==`;
+    const log = patch(
+      C1,
+      newFile('a.txt', 'clean', `one ${token}`, `two ${token}`, `env ${disguised}`),
+      newFile('b.txt', 'clean', 'clean', `three ${token}`),
+    );
+    assert.deepEqual(scanPatches(log, none), [
+      { commit: C1, place: 'a.txt', line: 2, kind: 'GitHub token' },
+      { commit: C1, place: 'a.txt', line: 4, kind: 'long base64 string' },
+      { commit: C1, place: 'b.txt', line: 3, kind: 'GitHub token' },
     ]);
   });
 

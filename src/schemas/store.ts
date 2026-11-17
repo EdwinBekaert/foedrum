@@ -103,9 +103,15 @@ export const MAX_REFUSED = 50;
 
 /**
  * What the secret scan found in a batch's commits (ADR 0079): the commit, the place (the file's
- * path as git shows it, `message`, or why neither can be named) and the kind, never the text.
+ * path as git shows it, `message`, or why neither can be named) and the kind, never the text;
+ * the line, in the file as the commit has it or in the message, where one holds it (ADR 0418).
  */
-export const ScanFinding = z.strictObject({ commit: CommitSha, place: Filled, kind: Filled });
+export const ScanFinding = z.strictObject({
+  commit: CommitSha,
+  place: Filled,
+  line: z.number().int().positive().optional(),
+  kind: Filled,
+});
 export type ScanFinding = z.infer<typeof ScanFinding>;
 
 /** The most sensitive files the ledger names of one push (ADR 0201). */
