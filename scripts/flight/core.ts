@@ -407,7 +407,7 @@ export const runHiddenTests = async (
 /** A run's record from its store's events, before its hidden tests ran. */
 export const flightRecordOf = (
   events: readonly { event: Event }[],
-  { recipe, swap }: FlightSettings,
+  { recipe, swap, dryRun }: FlightSettings,
   asked: ReadonlyMap<string, string>,
   transcriptOf: (sessionId: string, worktree: string) => string | undefined,
 ): Pick<FlightRecord, 'ended' | 'attempts' | 'flight'> => {
@@ -430,6 +430,7 @@ export const flightRecordOf = (
       steps: stepRunsOf(events, transcriptOf),
       models,
       ...(unreadable === undefined ? {} : { unreadable }),
+      ...(dryRun ? { dryRun: true as const } : {}),
     },
   };
 };
