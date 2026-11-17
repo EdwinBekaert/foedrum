@@ -26,7 +26,12 @@ import type {
   UnreportedTests,
 } from '../../src/schemas/events.ts';
 import type { TastingFinding } from '../../src/schemas/out-doc.ts';
-import type { LookBeforeMerging, PushResult, SensitiveFiles } from '../../src/schemas/store.ts';
+import type {
+  ChangeSize,
+  LookBeforeMerging,
+  PushResult,
+  SensitiveFiles,
+} from '../../src/schemas/store.ts';
 import { fakeRecipe, fakeRecipes } from '../helpers/fake-recipes.ts';
 
 const url = 'https://github.com/acme/web/pull/12';
@@ -258,6 +263,7 @@ describe('the merge brief (ADR 0225)', () => {
     sensitive?: SensitiveFiles,
     batchId = 'web-7',
     look?: LookBeforeMerging,
+    size?: ChangeSize,
   ): void => {
     const pushed: PushResult = {
       branch: 'foedrum/web-7/acme.web',
@@ -265,6 +271,7 @@ describe('the merge brief (ADR 0225)', () => {
       from: 'start',
       ...(sensitive === undefined ? {} : { sensitive }),
       ...(look === undefined ? {} : { look }),
+      ...(size === undefined ? {} : { size }),
     };
     const attempts = log.state().batches.get(batchId)?.steps.get(OPEN)?.attempts;
     const attempt = Math.max(...(attempts?.keys() ?? []));
@@ -284,23 +291,25 @@ describe('the merge brief (ADR 0225)', () => {
     tastes: { correctness?: Ending; acceptance?: Ending } = {},
     sensitive?: SensitiveFiles,
     look?: LookBeforeMerging,
+    size?: ChangeSize,
   ): void => {
     run('implement');
     run('green', done, { readings: greenReadings });
     run('correctness', tastes.correctness ?? tasting(), { commit });
     run('acceptance', tastes.acceptance ?? tasting(), { commit });
-    open(round, commit, sensitive, 'web-7', look);
+    open(round, commit, sensitive, 'web-7', look, size);
   };
   /** A batch of Nip brewed to On tap, its pull request opened on `head`. */
   const nip = (
     tastes: { correctness?: Ending; acceptance?: Ending } = {},
     sensitive?: SensitiveFiles,
     look?: LookBeforeMerging,
+    size?: ChangeSize,
   ): void => {
     order('nip');
     run('gauge');
     run('red', done, { readings: [redReading] });
-    nipFromImplement(1, head, tastes, sensitive, look);
+    nipFromImplement(1, head, tastes, sensitive, look, size);
   };
   const finished = (checks: HeadCheck[], on = head, more?: number, batchId = 'web-7'): void =>
     accept({
@@ -994,6 +1003,85 @@ describe('the merge brief (ADR 0225)', () => {
       const body = await looked();
       assert.match(body, /\*\*Ready to merge\.\*\*[^\n]*\n\n\*\*What changed since it opened\*\*/);
       assert.doesNotMatch(body, /Look at before merging|sensitive paths/i);
+    });
+
+    /** A size of seven files, the largest first. */
+    const size: ChangeSize = {
+      lines: 312,
+      files: 7,
+      largest: [
+        { path: 'src/big.ts', lines: 150 },
+        { path: 'src/mid.ts', lines: 80 },
+        { path: 'src/small.ts', lines: 2 },
+      ],
+    };
+    /** A minor finding at `file`, which leaves the Taster approving. */
+    const minorAt = (file: string): TastingFinding => ({
+      severity: 'minor',
+      why: 'Naming',
+      introduced: true,
+      file,
+    });
+
+    it('the merge brief names the files to read first and the review effort, right after the look-before-merging line (ADR 0422)', async () => {
+      nip({}, undefined, { locks: { count: 1, files: ['package-lock.json'] } }, size);
+      finished([passed('ci/build')]);
+      const body = await brief();
+      assert.match(
+        body,
+        /\*\*Look at before merging:\*\* a lock file changed: package-lock\.json\.\n\n\*\*Read first:\*\* src\/big\.ts, src\/mid\.ts, src\/small\.ts · effort 3 of 5 \(312 changed lines in 7 files\)\.\n\n\*\*What changed since it opened\*\*/,
+      );
+    });
+
+    it('the read-first line sits right under the verdict when there is no look-before-merging line (ADR 0422)', async () => {
+      nip({}, undefined, undefined, size);
+      finished([passed('ci/build')]);
+      assert.match(
+        await brief(),
+        /\*\*Ready to merge\.\*\*[^\n]*\n\n\*\*Read first:\*\* src\/big\.ts[^\n]*\n\n\*\*What changed since it opened\*\*/,
+      );
+    });
+
+    it("the read-first line names first the files the Tasters' findings point at most (ADR 0422)", async () => {
+      nip(
+        {
+          correctness: tasting([minorAt('src/small.ts'), minorAt('src/mid.ts')]),
+          acceptance: tasting([minorAt('src/small.ts'), minorAt('src/elsewhere.ts')]),
+        },
+        undefined,
+        undefined,
+        size,
+      );
+      finished([passed('ci/build')]);
+      assert.match(
+        await brief(),
+        /\*\*Read first:\*\* src\/small\.ts, src\/mid\.ts, src\/big\.ts · effort 3 of 5/,
+      );
+    });
+
+    it('the read-first line counts the findings of a round a Taster blocked (ADR 0422)', async () => {
+      order('lined');
+      run('implement');
+      run('taste', {
+        kind: 'blocked',
+        blockerKind: 'findings',
+        summary: 'Changes asked',
+        findings: [{ ...minorAt('src/small.ts'), severity: 'major' }],
+      });
+      run('implement');
+      run('taste', tasting(), { commit: head });
+      open(1, head, undefined, 'web-7', undefined, size);
+      finished([passed('ci/build')]);
+      assert.match(
+        await brief(),
+        /\*\*Read first:\*\* src\/small\.ts, src\/big\.ts, src\/mid\.ts · effort 3 of 5/,
+      );
+    });
+
+    it('the merge brief has no read-first line when the push recorded no size: regression test', async () => {
+      const body = await looked({ locks: { count: 1, files: ['package-lock.json'] } });
+      assert.match(body, /Look at before merging/);
+      assert.doesNotMatch(body, /Read first|Effort:/);
     });
 
     /** A batch of Nip whose survey ended with `output`, brewed to On tap with the map's push. */

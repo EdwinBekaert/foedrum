@@ -175,13 +175,29 @@ export const LookBeforeMerging = z.strictObject({
 });
 export type LookBeforeMerging = z.infer<typeof LookBeforeMerging>;
 
+/** The most changed files a push's size names, the largest first (ADR 0422). */
+export const MAX_SIZED = 100;
+
+/**
+ * How large a batch's change is, for the merge brief's read-first line (ADR 0422), lock files left
+ * out: its changed lines, added and deleted, its files, a binary one too, and the largest files with
+ * their lines, a binary one never, the most lines first.
+ */
+export const ChangeSize = z.strictObject({
+  lines: z.int().min(0),
+  files: z.int().min(1),
+  largest: z.array(z.strictObject({ path: Filled, lines: z.int().min(0) })).max(MAX_SIZED),
+});
+export type ChangeSize = z.infer<typeof ChangeSize>;
+
 /**
  * The result the ledger keeps for the push of the openPullRequest action (ADR 0071): the branch,
  * the commit pushed, the revision it was resolved from, and whether the base already holds every
  * commit of it, so nothing was pushed; or what the secret scan found, so nothing was pushed either
  * (ADR 0079): each commit, place, line where it has one (ADR 0418), and kind, never the text. A
  * push that went keeps the sensitive files its change touches, when there are any (ADR 0201), and
- * what a person should look at before merging, when there is any (ADR 0384). A later round's push
+ * what a person should look at before merging, when there is any (ADR 0384), and how large its
+ * change is, when it holds a file other than a lock file (ADR 0422). A later round's push
  * that found the
  * branch at another commit than the round before pushed (`moved`), or gone (`gone`), pushed nothing
  * (ADR 0219).
@@ -194,6 +210,7 @@ export const PushResult = z.strictObject({
   refused: z.array(ScanFinding).min(1).max(MAX_REFUSED).optional(),
   sensitive: SensitiveFiles.optional(),
   look: LookBeforeMerging.optional(),
+  size: ChangeSize.optional(),
   moved: CommitSha.optional(),
   gone: z.literal(true).optional(),
 });

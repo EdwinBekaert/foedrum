@@ -42,6 +42,7 @@ import {
   stepReports,
 } from './pull-request.ts';
 import type { PushRefusal } from './push-refused.ts';
+import { type ChangedFile, sizeOf } from './read-first.ts';
 import { siblingSection, type VisibilityOf } from './sibling-pull-requests.ts';
 import { taskTreeStart } from './task-tree.ts';
 
@@ -97,6 +98,11 @@ export interface BranchPush {
    * and a rename at both paths (ADR 0201).
    */
   touchedFiles(since: string, commit: string, signal?: AbortSignal): Promise<string[]>;
+  /**
+   * Every path the diff from `since` to `commit` (both full shas) names, as `touchedFiles` does,
+   * with the lines it adds and deletes there; none for a binary file (ADR 0422).
+   */
+  changedLines(since: string, commit: string, signal?: AbortSignal): Promise<ChangedFile[]>;
   /**
    * The text of the file at `path` in `commit` (a full sha), as committed: `undefined` when the
    * commit has no such file, or why it cannot be read, such as one too large (ADR 0384).
@@ -157,7 +163,8 @@ type ActionEffect =
       branch: string;
       /**
        * Where the batch's change starts, and the globs its files are matched against (ADR 0201);
-       * its files are also checked for what to look at before merging (ADR 0384).
+       * its files are also checked for what to look at before merging (ADR 0384), and sized for
+       * the merge brief's read-first line (ADR 0422).
        */
       change?: {
         since: string;
@@ -347,12 +354,14 @@ export const pullRequestActions = (options: PullRequestActionsOptions): DriverAc
     switch (effect.kind) {
       case 'push': {
         const { push, revision, base, branch, change, previous, allowed } = effect;
-        // The files of the change that match a sensitive path, and what to look at before merging
-        // (ADR 0384), read once for commits that go.
+        // The files of the change that match a sensitive path, what to look at before merging
+        // (ADR 0384) and how large the change is (ADR 0422), read once for commits that go.
         const touched = async (commit: string, signal?: AbortSignal) => {
           if (change === undefined) return {};
           const { since, paths, unmeasured } = change;
           const changed = await push.touchedFiles(since, commit, signal);
+          // How large the change is, for the merge brief's read-first line (ADR 0422).
+          const size = sizeOf(await push.changedLines(since, commit, signal));
           const look = await lookOf(changed, since, commit, (at, path) =>
             push.fileAt(at, path, signal),
           );
@@ -373,6 +382,7 @@ export const pullRequestActions = (options: PullRequestActionsOptions): DriverAc
                   },
                 }),
             ...(look === undefined ? {} : { look }),
+            ...(size === undefined ? {} : { size }),
           };
         };
         // The commit to push, and whether the base holds all of it: a pull request with no commits,

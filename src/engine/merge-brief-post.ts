@@ -54,6 +54,7 @@ import {
   unlinked,
 } from './pull-request.ts';
 import { pairsOf } from './pull-request-pairs.ts';
+import { readFirstLine } from './read-first.ts';
 import type { Recipe, Recipes } from './recipes.ts';
 import { endedText } from './skip-past.ts';
 import { capped, checkOf, code, link, plain, readingText, shortSha } from './status-comment.ts';
@@ -419,6 +420,17 @@ const skippedOpenLines = (steps: Steps, told: Told): string[] =>
     ];
   });
 
+/**
+ * The file of each finding every finished attempt of a Taster's step recorded, once per round, as
+ * a later round's input reads them (ADR 0422).
+ */
+const findingFiles = (steps: Steps): (string | undefined)[] =>
+  tastingSteps(steps).flatMap((stepId) =>
+    [...(steps.batch.steps.get(stepId)?.attempts.values() ?? [])].flatMap((attempt) =>
+      attempt.phase === 'finished' ? roundFindings(attempt).map(({ file }) => file) : [],
+    ),
+  );
+
 /** The last Taster's risk left, each item after its step (ADR 0214). */
 const riskLines = (steps: Steps, told: Told): string[] =>
   lastTasters(steps).flatMap((stepId) =>
@@ -486,6 +498,9 @@ const briefRest = (
   // What the latest push recorded to look at before merging, sensitive paths included (ADR 0384).
   const pushed = latestPush(state, batch.id);
   const look = pushed === undefined ? undefined : lookLine(pushed);
+  // What to read first and the effort, from the push's size and the Tasters' findings (ADR 0422).
+  const read =
+    pushed?.size === undefined ? undefined : readFirstLine(pushed.size, findingFiles(onHead));
   const findings = [
     ...dispositionLines(onHead, told),
     ...openLines(steps, told),
@@ -502,6 +517,7 @@ const briefRest = (
       `**Ready to merge.** Every check on ${head} finished and passed, and nothing else is open on it. Foedrum does not merge it: it waits for whoever merges this pull request.`,
     ],
     ...(look === undefined ? [] : [[look]]),
+    ...(read === undefined ? [] : [[read]]),
     ['**What changed since it opened**', ...changedLines(state, batch)],
     [
       `**Evidence on ${head}**`,

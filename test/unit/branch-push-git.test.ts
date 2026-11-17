@@ -908,6 +908,93 @@ describe('openBranchPush: touchedFiles (ADR 0201)', () => {
   });
 });
 
+describe('openBranchPush: changedLines (ADR 0422)', () => {
+  const SINCE = 'a'.repeat(40);
+
+  it('gives every path the diff from the start to the commit names with its added and deleted lines, in the clone', async () => {
+    const { git, calls } = recordingGit(() =>
+      ok('10\t2\tsrc/auth/login.ts\0' + '0\t7\tdocs/a b.md\0' + '-\t-\tlogo.png\0'),
+    );
+    const push = openBranchPush({ git, clone });
+    assert.deepEqual(await push.changedLines(SINCE, TIP), [
+      { path: 'src/auth/login.ts', lines: 12 },
+      { path: 'docs/a b.md', lines: 7 },
+      { path: 'logo.png' },
+    ]);
+    assert.deepEqual(
+      calls.map(({ cwd, args }) => [cwd, ...args]),
+      [
+        [
+          clone,
+          'diff',
+          '--numstat',
+          '-z',
+          '--no-renames',
+          '--no-ext-diff',
+          '--no-relative',
+          '--ignore-submodules=none',
+          '--end-of-options',
+          SINCE,
+          TIP,
+        ],
+      ],
+    );
+  });
+
+  it('keeps a tab in a path, which git writes as it is after -z', async () => {
+    const { git } = recordingGit(() => ok('1\t1\tsrc/a\tb.ts\0'));
+    assert.deepEqual(await openBranchPush({ git, clone }).changedLines(SINCE, TIP), [
+      { path: 'src/a\tb.ts', lines: 2 },
+    ]);
+  });
+
+  it('reads the lines as committed, as touchedFiles does', async () => {
+    const { git, calls } = recordingGit(() => ok(''));
+    await openBranchPush({ git, clone }).changedLines(SINCE, TIP);
+    assert.equal(calls.length, 1);
+    assert.deepEqual(calls[0]?.options?.env, {
+      GIT_NO_REPLACE_OBJECTS: '1',
+      GIT_GRAFT_FILE: devNull,
+      GIT_SHALLOW_FILE: devNull,
+      GIT_NO_LAZY_FETCH: '1',
+    });
+    assert.deepEqual(calls[0]?.options?.config, {
+      'core.attributesFile': devNull,
+      'log.showRoot': 'true',
+      'advice.graftFileDeprecated': 'false',
+      'protocol.allow': 'never',
+      ...IN_CLONE,
+    });
+  });
+
+  it("fails with git's reason when git does", async () => {
+    const broken = recordingGit(() => ({ code: 128, stdout: '', stderr: 'fatal: bad object\n' }));
+    await assert.rejects(openBranchPush({ git: broken.git, clone }).changedLines(SINCE, TIP), {
+      message: 'git diff failed: fatal: bad object',
+    });
+  });
+
+  it('refuses a start or a commit that is no full sha before git runs', async () => {
+    const { git, calls } = recordingGit();
+    await assert.rejects(
+      openBranchPush({ git, clone }).changedLines('main', TIP),
+      /main is no full commit sha/,
+    );
+    await assert.rejects(
+      openBranchPush({ git, clone }).changedLines(SINCE, 'HEAD'),
+      /HEAD is no full commit sha/,
+    );
+    assert.deepEqual(calls, []);
+  });
+
+  it('passes the signal to git', async () => {
+    const { git, calls } = recordingGit(() => ok(''));
+    const { signal } = new AbortController();
+    assert.deepEqual(await openBranchPush({ git, clone }).changedLines(SINCE, TIP, signal), []);
+    assert.equal(calls[0]?.options?.signal, signal);
+  });
+});
+
 describe('openBranchPush: fileAt (ADR 0384)', () => {
   const BLOB = 'e'.repeat(40);
   const entry = (type: string, size: string, path: string) =>
