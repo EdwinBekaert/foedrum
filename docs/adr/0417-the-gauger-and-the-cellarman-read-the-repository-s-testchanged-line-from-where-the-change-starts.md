@@ -14,6 +14,7 @@ The Maltster already reads the Brewery's test line as an input of its own ([ADR 
 - **`{base}` is the base the batch merged last, else its start**, as the check step's ([ADR 0164](0164-a-batch-merges-its-base-before-its-last-check.md), ADR 0242).
   The issue named the batch's start; after a base merge, a line from the start would also test the code the base brought in, which the batch did not change, and would differ from what the check step runs.
 - **Only this platform's line**, where the test-line input names each platform's: the brewer runs the line here, while the Maltster maps the reports of every platform's line.
+  On native Windows that is the line cmd.exe runs for a check step ([ADR 0069](0069-check-steps-run-the-repositorys-commands-in-an-attempt-of-their-own.md)), while the brewer runs it in its own shell tool, so a line in cmd's syntax may fail there; the check step after it stays the gate.
 - The default Gauger (version 16) and Cellarman (version 19) name it `testChanged`, and each says one sentence: when there is a `testChanged` input, run it to check the work; the check step and the pull request's checks run the rest.
 - The checks before a brewer's end ([ADR 0381](0381-a-brewer-that-writes-code-runs-the-quick-checks-before-its-end-and-is-sent-back-once.md)) keep running `test`, as ADR 0242 says.
 
