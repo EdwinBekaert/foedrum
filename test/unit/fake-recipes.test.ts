@@ -63,6 +63,11 @@ describe('fakeRecipe: the round and attempts of each kind of step', () => {
     );
   });
 
+  it("counts an action's failure that is not retryable in its round, as a check would not", () => {
+    const recipe = fakeRecipe({ steps: ['open'], actions: { open: 'openPullRequest' } });
+    assert.equal(recipe.mayRetry(batchWith('open', [read, retryable, retryable]), 'open'), false);
+  });
+
   it('gives a check step 3 attempts that read nothing, whatever maxAttempts says', () => {
     const recipe = fakeRecipe({ steps: ['green'], maxAttempts: 2, checks: ['green'] });
     assert.equal(recipe.mayRetry(batchWith('green', [cancelled, cancelled]), 'green'), true);
