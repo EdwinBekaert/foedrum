@@ -75,10 +75,10 @@ interface BrewerStep {
 }
 
 /** A recipe's text, read and checked as the engine reads a recipe. */
-const recipeOf = (text: string): Recipe => Recipe.parse(parseJsonc(text));
+export const recipeOf = (text: string): Recipe => Recipe.parse(parseJsonc(text));
 
 /** Each brewer step of `recipe`, in order, a parallel group's children included: its own objects. */
-const brewerSteps = (recipe: Recipe): BrewerStep[] => {
+export const brewerSteps = (recipe: Recipe): BrewerStep[] => {
   const steps: BrewerStep[] = [];
   for (const step of recipe.steps) {
     for (const each of 'parallel' in step ? step.parallel : [step]) {
@@ -93,7 +93,7 @@ const brewerSteps = (recipe: Recipe): BrewerStep[] => {
  * no other step of the recipe names, which models.jsonc maps to it alone, since a level is shared
  * Brewery-wide (ADR 0409); undefined when every level is taken.
  */
-const swapLevelOf = (swap: Swap, recipe: Recipe): ModelLevel | undefined => {
+export const swapLevelOf = (swap: Swap, recipe: Recipe): ModelLevel | undefined => {
   const level = ModelLevel.safeParse(swap.model);
   if (level.success) return level.data;
   const named = new Set(
@@ -279,6 +279,8 @@ export interface FlightRun {
   models: Readonly<Record<string, readonly string[]>>;
   /** Why a transcript cannot say its model. */
   unreadable?: string;
+  /** A dry run's, whose scripted brewers taste nothing (ADR 0416). */
+  dryRun?: true;
 }
 
 /** One run of an order: the order's name is its setup. */
@@ -405,7 +407,7 @@ export const runHiddenTests = async (
 /** A run's record from its store's events, before its hidden tests ran. */
 export const flightRecordOf = (
   events: readonly { event: Event }[],
-  { recipe, swap }: FlightSettings,
+  { recipe, swap, dryRun }: FlightSettings,
   asked: ReadonlyMap<string, string>,
   transcriptOf: (sessionId: string, worktree: string) => string | undefined,
 ): Pick<FlightRecord, 'ended' | 'attempts' | 'flight'> => {
@@ -428,6 +430,7 @@ export const flightRecordOf = (
       steps: stepRunsOf(events, transcriptOf),
       models,
       ...(unreadable === undefined ? {} : { unreadable }),
+      ...(dryRun ? { dryRun: true as const } : {}),
     },
   };
 };

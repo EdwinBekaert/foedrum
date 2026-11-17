@@ -17,7 +17,7 @@ describe('ModelsConfig', () => {
 
   it('defaults the claude block to no efforts, and has no per-brewer swap (ADR 0397)', () => {
     assert.deepEqual(ModelsConfig.parse({ claude: { models: { standard: 'sonnet' } } }), {
-      claude: { models: { standard: 'sonnet' }, efforts: {} },
+      claude: { models: { standard: 'sonnet' }, efforts: {}, tasted: [] },
     });
   });
 

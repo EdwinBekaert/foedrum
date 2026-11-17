@@ -1,6 +1,7 @@
 // models.jsonc: what a recipe step's model level and effort run as on each agent
 // (brewers-and-recipes §5, ADR 0397).
 
+import { PathSafeId } from './ids.ts';
 import { z } from './zod.ts';
 
 /** How strong a model a brewer step runs on, which models.jsonc names a model for (ADR 0397). */
@@ -24,6 +25,38 @@ export const ModelId = z
     'Must be a model id or family such as "claude-sonnet-5-5" or "sonnet"',
   );
 
+/** How many orders a Flight passed every run of, out of the orders both Flights measured. */
+const OrderCount = z.number().int().nonnegative();
+
+/** The latest Flight of a brewer, recipe, level and effort, won or lost (ADR 0416). */
+export const TastedEntry = z.strictObject({
+  brewer: PathSafeId,
+  recipe: PathSafeId,
+  level: ModelLevel,
+  effort: Effort,
+  model: ModelId.describe('The exact model id the candidate Flight’s transcripts named'),
+  passed: OrderCount.describe('The orders the candidate passed in every run'),
+  runs: OrderCount.describe('The orders both Flights measured, not the runs brewed'),
+  baseline: z
+    .strictObject({
+      passed: OrderCount.describe('The orders the baseline passed in every run'),
+      runs: OrderCount.describe('The orders both Flights measured, not the runs brewed'),
+      model: ModelId.describe('The exact model id the baseline Flight’s transcripts named'),
+    })
+    .describe('The Flight the candidate was compared with'),
+  tokensPerOrder: z.number().int().nonnegative(),
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Must be a date such as "2026-11-20"'),
+  report: z
+    .url({ protocol: /^https$/ })
+    .optional()
+    .describe('The pull request that holds the Flight report'),
+});
+export type TastedEntry = z.infer<typeof TastedEntry>;
+
+/** The combination a tasted entry is the latest of, which the merge keys entries by. */
+export const tastedKey = ({ brewer, recipe, level, effort }: TastedEntry): string =>
+  `${brewer} in ${recipe} on ${level} at ${effort}`;
+
 /** The `claude` agent's translations: a model per level and a Claude Code effort per effort. */
 const ClaudeBlock = z.strictObject({
   models: z
@@ -34,12 +67,24 @@ const ClaudeBlock = z.strictObject({
     .partialRecord(Effort, ClaudeEffort)
     .default({})
     .describe("The word `claude --effort` gets for each of Foedrum's efforts"),
+  tasted: z
+    .array(TastedEntry)
+    .default([])
+    .superRefine((entries, context) => {
+      const seen = new Set<string>();
+      for (const entry of entries) {
+        const key = tastedKey(entry);
+        if (seen.has(key)) context.addIssue({ code: 'custom', message: `${key} is tasted twice` });
+        seen.add(key);
+      }
+    })
+    .describe('The latest Flight of each brewer, recipe, level and effort (ADR 0416)'),
 });
 
 /** A models.jsonc: Foedrum's own, or a Brewery's that merges over it entry by entry (ADR 0153). */
 export const ModelsConfig = z.strictObject({
   $schema: z.string().optional().describe('The JSON Schema of this file, for editors'),
-  claude: ClaudeBlock.default({ models: {}, efforts: {} }).describe(
+  claude: ClaudeBlock.default({ models: {}, efforts: {}, tasted: [] }).describe(
     "What Foedrum's levels and efforts are for the claude agent (ADR 0397)",
   ),
 });
