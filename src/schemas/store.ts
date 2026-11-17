@@ -179,9 +179,10 @@ export type LookBeforeMerging = z.infer<typeof LookBeforeMerging>;
  * The result the ledger keeps for the push of the openPullRequest action (ADR 0071): the branch,
  * the commit pushed, the revision it was resolved from, and whether the base already holds every
  * commit of it, so nothing was pushed; or what the secret scan found, so nothing was pushed either
- * (ADR 0079): each commit, place and kind, never the text. A push that went keeps the sensitive
- * files its change touches, when there are any (ADR 0201), and what a person should look at before
- * merging, when there is any (ADR 0384). A later round's push that found the
+ * (ADR 0079): each commit, place, line where it has one (ADR 0418), and kind, never the text. A
+ * push that went keeps the sensitive files its change touches, when there are any (ADR 0201), and
+ * what a person should look at before merging, when there is any (ADR 0384). A later round's push
+ * that found the
  * branch at another commit than the round before pushed (`moved`), or gone (`gone`), pushed nothing
  * (ADR 0219).
  */
