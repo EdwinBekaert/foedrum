@@ -48,7 +48,7 @@ describe('lockfileRefreshes', () => {
     assert.deepStrictEqual(
       lockfileRefreshes([
         'a\nb/package.json',
-        'a b/package.json',
+        `a${String.fromCodePoint(0x2028)}b/package.json`,
         'a\u0007b/package.json',
         'web/package.json',
       ]),
@@ -157,7 +157,7 @@ describe('refreshLockfiles', () => {
       'web/package-lock.json': 'v1.1.0\n',
     });
     const root = { folder: '', lockfile: 'package-lock.json', command: NPM_REFRESH };
-    const { exec, runs } = fakeExec({ exitCode: 1, output: 'npm ERR! 404 greet@v1.2.0\n' });
+    const { exec, runs } = fakeExec({ exitCode: 1, output: 'npm ERR! 404 greet@v1.2.0' });
     const refreshed = await refreshLockfiles(tree, [root, web], runOf(exec, true));
     assert.equal(runs.length, 1);
     assert.equal(runs[0]?.options?.cwd, tree);

@@ -11,7 +11,9 @@ import { pathInside } from '../platform/paths.ts';
 import { realPath } from '../platform/real-path.ts';
 import { removeTree } from '../platform/remove.ts';
 import { isCommitSha } from '../schemas/store.ts';
+import { isAttemptBranch } from './attempt-commits-git.ts';
 import {
+  aborts,
   fullSha,
   gitOutput,
   inClone,
@@ -189,9 +191,60 @@ export type BranchCommit = <T>(
 ) => Promise<{ value: T; commit?: string }>;
 
 export const openBranchCommit =
-  (_options: MergeTreeOptions): BranchCommit =>
-  () => {
-    throw new Error('not implemented');
+  ({ git, clone, own }: MergeTreeOptions): BranchCommit =>
+  async <T>(
+    branch: string,
+    message: string,
+    use: (worktree: string) => Promise<{ value: T; files: readonly string[] }>,
+    signal?: AbortSignal,
+  ): Promise<{ value: T; commit?: string }> => {
+    if (!isAttemptBranch(branch)) throw new Error(`${JSON.stringify(branch)} is no attempt branch`);
+    if (own === undefined) {
+      throw new Error(`The scratch tree in ${clone} names no URL to reach the remote by`);
+    }
+    const ref = `refs/heads/${branch}`;
+    const inTheClone = inClone(git);
+    const tip = fullSha(
+      (
+        await gitOutput(
+          inTheClone,
+          clone,
+          ['rev-parse', '--verify', `${ref}^{commit}`],
+          aborts(signal),
+        )
+      ).trim(),
+    );
+    return withOwnGitDir(git, clone, own, signal, (dir) =>
+      checkedOut(
+        { git, clone },
+        dir,
+        tip,
+        async (worktree) => {
+          const { value, files } = await use(worktree);
+          if (files.length === 0) return { value };
+          // The tip's tree with the files as the tree holds them, in an index of the directory's own.
+          const index = { env: { GIT_INDEX_FILE: join(dir.path, 'foedrum.index') } };
+          await dir.run(['read-tree', tip], index);
+          for (const file of files) {
+            const path = join(worktree, ...file.split('/'));
+            const blob = (await dir.run(['hash-object', '-w', '--no-filters', '--', path])).trim();
+            await dir.run(
+              ['update-index', '--add', '--cacheinfo', `100644,${blob},${file}`],
+              index,
+            );
+          }
+          const tree = (await dir.run(['write-tree'], index)).trim();
+          const made = await dir.run(['commit-tree', tree, '-p', tip, '-m', message], {
+            env: FOEDRUM,
+          });
+          const commit = fullSha(made.trim());
+          // Only from the tip the tree was made from: a branch moved meanwhile is no one's to lose.
+          await gitOutput(inTheClone, clone, ['update-ref', ref, commit, tip], aborts(signal));
+          return { value, commit };
+        },
+        signal,
+      ),
+    );
   };
 
 /** A file of a scratch tree rewritten after its checkout: a mutant's (ADR 0313). */

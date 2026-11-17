@@ -960,11 +960,26 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
         );
       }
       const commits = { clone: options.clone(own.repo), branch: attemptBranch(ranIn.madeBy) };
+      // In a batch that waited for a release, the lockfiles its commits leave behind are refreshed
+      // in the setup's sandbox and environment once it succeeds (ADR 0412).
+      const committed =
+        started === undefined || releaseInput(state(), batch) === undefined
+          ? { ...checked, commits }
+          : {
+              ...checked,
+              commits,
+              refresh: {
+                repo: own.repo,
+                deadlineAt: started.deadlineAt,
+                env: checksEnv(options.env, platform),
+                unsandboxed: checksRunUnsandboxed(platform),
+              },
+            };
       // A brewer that writes code runs the repository's quick checks before its end, and is sent
       // back once on a failure (ADR 0381).
       const repoChecks =
         found.brewer.checksBeforeEnd === true ? options.repoChecks?.(own.repo) : undefined;
-      if (repoChecks === undefined || started === undefined) return { ...checked, commits };
+      if (repoChecks === undefined || started === undefined) return committed;
       const redTests =
         options.git === undefined || options.testMapAt === undefined
           ? []
@@ -985,7 +1000,7 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
         env: checksEnv(options.env, platform),
         unsandboxed: checksRunUnsandboxed(platform),
       };
-      return { ...checked, commits, sendBack };
+      return { ...committed, sendBack };
     },
     limits: (ref) => {
       const found = brewerOf(ref);

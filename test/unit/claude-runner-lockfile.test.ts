@@ -142,7 +142,7 @@ const setup = (
               join(execOptions?.cwd ?? '', 'package-lock.json'),
               options.writes ?? 'v1.2.0\n',
             );
-            const output = options.exit === undefined ? '' : 'npm ERR! 404 greet\n';
+            const output = options.exit === undefined ? '' : 'npm ERR! 404 greet';
             const result: ExecResult = {
               exitCode: options.exit ?? 0,
               stdout: '',
@@ -255,7 +255,9 @@ describe('claudeBrewerRunner: the lockfile refresh after a release bump (ADR 041
   });
 
   it('refreshes nothing for a plan without a refresh (regression test)', async () => {
-    const { refreshed, opened, runner } = setup({ plan: (({ refresh: _, ...rest }) => rest)(plan()) });
+    const { refreshed, opened, runner } = setup({
+      plan: (({ refresh: _, ...rest }) => rest)(plan()),
+    });
     const end = await runner.start(attempt).ended;
     assert.equal(end.ending.kind, 'succeeded');
     assert.deepStrictEqual([refreshed, opened], [[], []]);
