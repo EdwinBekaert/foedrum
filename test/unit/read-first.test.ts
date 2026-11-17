@@ -63,7 +63,7 @@ describe('sizeOf: the size the push records (ADR 0422)', () => {
   });
 });
 
-describe('effortOf: the review effort by changed lines (ADR 0422)', () => {
+describe('reviewEffortOf: the review effort by changed lines (ADR 0422)', () => {
   it('is 1 for up to 50 lines', () => {
     assert.equal(reviewEffortOf(0), 1);
     assert.equal(reviewEffortOf(50), 1);
@@ -133,7 +133,7 @@ describe('readFirstLine: the merge brief line (ADR 0422)', () => {
 
   it("counts a finding's file written with a leading ./ or with backslashes as the path git gave", () => {
     assert.equal(
-      readFirstLine(size, ['./src/small.ts', String.raw`src\small.ts`, 'src/b.ts']),
+      readFirstLine(size, ['././src/small.ts', String.raw`src\small.ts`, String.raw`.\src\b.ts`]),
       '**Read first:** src/small.ts, src/b.ts, src/big.ts · effort 3 of 5 (312 changed lines in 7 files).',
     );
   });
