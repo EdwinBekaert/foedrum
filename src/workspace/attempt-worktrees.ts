@@ -5,6 +5,7 @@
 import { join } from 'node:path';
 import { Repo } from '../schemas/events.ts';
 import { PathSafeId } from '../schemas/ids.ts';
+import type { OwnRemote } from './clone-git.ts';
 import {
   type FolderState,
   type Removal,
@@ -41,6 +42,16 @@ export const managedClonePath = (workRoot: string, repo: string): string =>
  */
 export const ownGitDirsRoot = (workRoot: string, repo: string): string =>
   join(workRoot, repoFolder(repo), 'git-dirs');
+
+/**
+ * The repository on GitHub, where its pull request goes: every fetch, push and ls-remote reaches
+ * it by this URL, never through the clone's configuration, with Foedrum's own git directories for
+ * it under `workRoot` (ADR 0090, ADR 0096).
+ */
+export const ownRemote = (workRoot: string, repo: string): OwnRemote => ({
+  url: `https://github.com/${repo}.git`,
+  root: ownGitDirsRoot(workRoot, repo),
+});
 
 /**
  * How old a git directory of Foedrum's own must be before a cleanup removes it: far longer than
