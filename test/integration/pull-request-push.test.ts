@@ -426,7 +426,7 @@ describe('the openPullRequest push with real git', () => {
           git(path, ['commit', '-q', '-m', 'Plan', `--author=${token} <x@y.z>`]);
           git(path, ['config', `${setting}`, `${value}`]);
         });
-        assert.match(stopped(state, requests), /GitHub token in author/);
+        assert.match(stopped(state, requests), /GitHub token of [0-9a-f]{8} in author/);
       });
     }
 
@@ -445,7 +445,7 @@ describe('the openPullRequest push with real git', () => {
       // The mailmap is in force: a log of the clone shows the mapped author.
       const plain = git(user, ['log', '--format=%aN', '-1', `refs/heads/${planBranch}`]);
       assert.equal(plain.trim(), 'Brewer');
-      assert.match(stopped(state, requests), /GitHub token in author/);
+      assert.match(stopped(state, requests), /GitHub token of [0-9a-f]{8} in author/);
     });
 
     it('stops the push of a commit whose encoding header holds a credential', async () => {
@@ -454,7 +454,7 @@ describe('the openPullRequest push with real git', () => {
         git(path, ['add', 'plan.txt']);
         git(path, ['-c', `i18n.commitEncoding=${token}`, 'commit', '-q', '-m', 'Plan']);
       });
-      assert.match(stopped(state, requests), /GitHub token in header encoding/);
+      assert.match(stopped(state, requests), /GitHub token of [0-9a-f]{8} in header encoding/);
     });
 
     // Each one hides the commit that adds the token from a plain `git log --patch` in the clone
@@ -486,7 +486,10 @@ describe('the openPullRequest push with real git', () => {
         // The plant works: a plain log of the clone does not show the token.
         const plain = git(user, ['log', '--patch', `refs/heads/${planBranch}`, '^origin/main']);
         assert.doesNotMatch(plain, /A1b2/);
-        assert.match(stopped(state, requests), /GitHub token in plan\.txt/);
+        assert.match(
+          stopped(state, requests),
+          /GitHub token on line 1 of [0-9a-f]{8} in plan\.txt/,
+        );
       });
     }
 
@@ -505,7 +508,7 @@ describe('the openPullRequest push with real git', () => {
         git(path, ['commit', '-q', '-m', 'Change a, add b']);
         git(path, ['config', 'diff.interHunkContext', '1000']);
       });
-      assert.match(stopped(state, requests), /GitHub token in b\.txt/);
+      assert.match(stopped(state, requests), /GitHub token on line 1 of [0-9a-f]{8} in b\.txt/);
     });
 
     it('names the line real git shows for a finding, past the unchanged part of the file (ADR 0418)', async () => {
@@ -520,7 +523,7 @@ describe('the openPullRequest push with real git', () => {
         git(path, ['add', 'a.txt']);
         git(path, ['commit', '-q', '-m', 'Change a']);
       });
-      assert.match(stopped(state, requests), /GitHub token in a\.txt line 15 of /);
+      assert.match(stopped(state, requests), /GitHub token on line 15 of [0-9a-f]{8} in a\.txt$/);
     });
 
     it('stops the push of a credential that only a merge commit adds', async () => {
@@ -543,7 +546,7 @@ describe('the openPullRequest push with real git', () => {
       assert.equal(git(user, ['rev-list', '--parents', '-1', tip]).trim().split(' ').length, 3);
       assert.match(
         stopped(state, requests),
-        new RegExp(`GitHub token in plan\\.txt line 2 of ${tip.slice(0, 8)}`),
+        new RegExp(`GitHub token on line 2 of ${tip.slice(0, 8)} in plan\\.txt`),
       );
     });
   });

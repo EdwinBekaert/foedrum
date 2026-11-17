@@ -146,9 +146,9 @@ describe('decide: a refused push waits as push_refused (ADR 0418)', () => {
 describe('a refused push, as people see it (ADR 0418)', () => {
   const batch = stuck().batches.get('b1') as Batch;
   const lines = [
-    'AWS access key id in notes/aws.txt line 3 of cccccccc',
-    'GitHub token in message line 1 of dddddddd',
-    'binary file in logo.png of cccccccc',
+    'AWS access key id on line 3 of cccccccc in notes/aws.txt',
+    'GitHub token on line 1 of dddddddd in message',
+    'binary file of cccccccc in logo.png',
     'and 2 more',
   ];
 
@@ -210,6 +210,20 @@ describe('a refused push, as people see it (ADR 0418)', () => {
     } satisfies Extract<StuckReason, { kind: 'push_refused' }>;
     assert.equal(refusedLines(full).at(-1), 'and at least 40 more');
     assert.equal(refusedLines({ ...full, more: 39 }).at(-1), 'and 39 more');
+  });
+
+  it('names the place last, so a path like an assignment key never hides its line (ADR 0088)', () => {
+    const place = 'config/password=';
+    const named = {
+      ...reason,
+      findings: [{ commit: tip, place, line: 3, kind: 'GitHub token' }],
+      more: 0,
+    } satisfies Extract<StuckReason, { kind: 'push_refused' }>;
+    const text = renderStatus({
+      ...batch,
+      lane: { ...(batch.lane as Extract<Batch['lane'], { kind: 'stuck' }>), reason: named },
+    });
+    assert.ok(text.includes(`- GitHub token on line 3 of cccccccc in ${place}\n`), text);
   });
 
   it('carries the label of a batch that waits for an answer', () => {
