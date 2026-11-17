@@ -104,6 +104,8 @@ const stuckFor = (
     case 'routing':
     case 'pull_request_failed':
       return { kind: 'failure' };
+    case 'push_refused':
+      throw new Error('not implemented');
     default: {
       const unhandled: never = reason;
       throw new Error(`Unhandled stuck reason ${JSON.stringify(unhandled)}`);

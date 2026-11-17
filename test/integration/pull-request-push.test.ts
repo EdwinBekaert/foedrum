@@ -391,11 +391,15 @@ describe('the openPullRequest push with real git', () => {
       const lane = state.batches.get('12-1')?.lane;
       assert.equal(lane?.kind, 'stuck');
       const reason = lane?.kind === 'stuck' ? lane.reason : undefined;
-      assert.equal(reason?.kind, 'blocked');
-      assert.equal(reason?.kind === 'blocked' && reason.blockerKind, 'environment');
+      assert.equal(reason?.kind, 'push_refused');
       // Not in any event, so neither on the state branch nor in the status comment.
       assert.doesNotMatch(JSON.stringify(store.eventsAfter(0)), /A1b2/);
-      return reason?.kind === 'blocked' ? reason.summary : '';
+      // Each finding as the refused push's summary names it (ADR 0079, ADR 0418).
+      return reason?.kind === 'push_refused'
+        ? reason.findings
+            .map(({ commit, place, kind }) => `commit ${commit}, ${kind} in ${place}`)
+            .join('; ')
+        : '';
     };
 
     /** Commits the token in plan.txt, then removes it again: the tip's tree holds no secret. */

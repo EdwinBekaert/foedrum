@@ -950,12 +950,31 @@ describe('StuckReason', () => {
       failed: [{ name: 'ci / test', conclusion: 'failure' }],
       more: 0,
     },
+    push_refused: {
+      kind: 'push_refused',
+      stepId: 'open-pull-request',
+      commit: 'c'.repeat(40),
+      findings: [
+        { commit: 'c'.repeat(40), place: 'notes/aws.txt', line: 3, kind: 'AWS access key id' },
+        { commit: 'd'.repeat(40), place: 'logo.png', kind: 'binary file' },
+      ],
+      more: 2,
+    },
   };
   for (const [kind, reason] of Object.entries(reasons)) {
     it(`accepts ${kind}`, () => accepts(StuckReason, reason));
   }
 
   it('rejects an unknown kind', () => rejects(StuckReason, { kind: 'bored', stepId: 'brew' }));
+
+  it('rejects push_refused with no finding, more than 10, or a line that is no line (ADR 0418)', () => {
+    const finding = { commit: 'c'.repeat(40), place: 'a.txt', line: 1, kind: 'GitHub token' };
+    const refused = { kind: 'push_refused', stepId: 'open', commit: 'c'.repeat(40), more: 0 };
+    accepts(StuckReason, { ...refused, findings: Array.from({ length: 10 }, () => finding) });
+    rejects(StuckReason, { ...refused, findings: [] });
+    rejects(StuckReason, { ...refused, findings: Array.from({ length: 11 }, () => finding) });
+    rejects(StuckReason, { ...refused, findings: [{ ...finding, line: 0 }] });
+  });
   it('rejects needs_input without questions', () =>
     rejects(StuckReason, { kind: 'needs_input', stepId: 'brew', questions: [] }));
   it('rejects blocked without a blocker kind', () =>

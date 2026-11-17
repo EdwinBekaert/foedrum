@@ -347,6 +347,8 @@ const stuckText = (
       const answer = (word: string) => code(`foedrum answer ${called} ${word}`);
       return `${code(reason.stepId)}: ${where} changed after its approval: ${changesText(reason, plain)}. Run ${answer('continue')} to brew it as it is now, or ${answer('stop')} to end the batch`;
     }
+    case 'push_refused':
+      throw new Error('not implemented');
     default:
       return reason satisfies never;
   }

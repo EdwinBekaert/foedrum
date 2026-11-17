@@ -879,6 +879,26 @@ describe('pullRequestActions: the secret scan before the push (ADR 0079)', () =>
       kind: 'blocked',
       blockerKind: 'environment',
       summary,
+      refused: { commit: tip, findings: found },
+    });
+  });
+
+  it('ends with the commit the push would have sent and every finding the ledger kept, for the Stuck reason (ADR 0418)', () => {
+    const { actions } = actionsWith();
+    const kept: ScanFinding[] = [
+      { commit: other, place: 'notes/aws.txt', line: 3, kind: 'AWS access key id' },
+      { commit: tip, place: 'logo.png', kind: 'binary file' },
+    ];
+    const state = fold([
+      ordered({ issue: 12 }),
+      ...brewed,
+      ...opening,
+      applied(push, { branch, commit: tip, from, refused: kept }),
+    ]);
+    const ending = actions.ending(state, action);
+    assert.deepEqual(ending.kind === 'blocked' ? ending.refused : undefined, {
+      commit: tip,
+      findings: kept,
     });
   });
 

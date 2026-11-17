@@ -79,6 +79,7 @@ import {
   pullRequestProblem,
   pullRequestRoute,
 } from './pull-request-fix.ts';
+import type { PushRefusal } from './push-refused.ts';
 import { rankRefusal } from './ranks.ts';
 import type { Recipe, Recipes } from './recipes.ts';
 import { checkOf } from './status-comment.ts';
@@ -130,6 +131,8 @@ export type Ending =
       findings?: readonly TastingFinding[];
       /** The usage window claude said ran out, on an end blocked on the environment (ADR 0206). */
       usageLimit?: UsageLimit;
+      /** The push the secret scan refused, on an openPullRequest action's end (ADR 0418). */
+      refused?: PushRefusal;
     };
 
 /** Events the engine records as they happen; they decide nothing about a batch's lane. */
@@ -331,6 +334,8 @@ export function stuckOptions(reason: StuckReason): StuckOption[] {
     // The one question: continue with the issue as it is, or stop (ADR 0368).
     case 'order_changed':
       return ['answer', 'cancel'];
+    case 'push_refused':
+      throw new Error('not implemented');
     default: {
       const unhandled: never = reason;
       throw new Error(`Unhandled stuck reason ${JSON.stringify(unhandled)}`);
