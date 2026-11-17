@@ -40,6 +40,7 @@ const taste = { taste: ['correctness', 'acceptance'] };
 const recipes = fakeRecipes({
   nip: fakeRecipe({
     steps: ['gauge', 'red', 'implement', 'green', 'taste', OPEN],
+    checks: ['red', 'green'],
     groups: taste,
     actions: { [OPEN]: 'openPullRequest' },
     routes: { [OPEN]: { pull_request: 'implement' } },
@@ -48,6 +49,7 @@ const recipes = fakeRecipes({
   // Nip with the Maltster's survey ahead of the Gauger (ADR 0298).
   surveyed: fakeRecipe({
     steps: ['survey', 'survey-check', 'gauge', 'red', 'implement', 'green', 'taste', OPEN],
+    checks: ['survey-check', 'red', 'green'],
     groups: taste,
     actions: { [OPEN]: 'openPullRequest' },
     routes: { 'survey-check': { failed: 'survey' }, [OPEN]: { pull_request: 'implement' } },
@@ -56,6 +58,7 @@ const recipes = fakeRecipes({
   // Nip without a test-first label: no Gauger and no red proof.
   skippy: fakeRecipe({
     steps: ['gauge', 'red', 'implement', 'green', 'taste', OPEN],
+    checks: ['red', 'green'],
     groups: taste,
     actions: { [OPEN]: 'openPullRequest' },
     routes: { [OPEN]: { pull_request: 'implement' } },

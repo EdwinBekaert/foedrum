@@ -32,6 +32,8 @@ export interface FakeRecipe {
   routes?: Readonly<Record<string, Partial<Record<RouteWhy, string>>>>;
   /** The rounds of every route; default no limit. */
   maxRounds?: number;
+  /** The check steps, whose checks the engine runs (ADR 0069); default none. */
+  checks?: readonly string[];
   /** The steps that are actions the engine runs itself, by step id; default none (ADR 0071). */
   actions?: Readonly<Record<string, RecipeAction>>;
   /** How old what each delete action removes is, in milliseconds, by step id (ADR 0383). */

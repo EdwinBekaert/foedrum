@@ -63,6 +63,7 @@ const context: Context = {
   recipes: fakeRecipes({
     pint: fakeRecipe({
       steps: ['plan', 'implement', 'green'],
+      checks: ['green'],
       routes: { green: { failed: 'implement' }, implement: { findings: 'plan' } },
       pullRequests: [pullRequest],
     }),

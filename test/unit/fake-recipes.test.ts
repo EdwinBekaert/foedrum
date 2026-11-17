@@ -6,6 +6,9 @@ import type { StepOutcome } from '../../src/schemas/step-outcome.ts';
 import { fakeRecipe } from '../helpers/fake-recipes.ts';
 
 const retryable: StepOutcome = { kind: 'failed', retryable: true, reason: 'out doc missing' };
+const cancelled: StepOutcome = { kind: 'cancelled' };
+/** A check that read the tree and found it failing. */
+const read: StepOutcome = { kind: 'failed', retryable: false, reason: 'tests fail' };
 
 /** Batch b1 with the attempts of `stepId` that ended in `outcomes`, in order. */
 const batchWith = (stepId: string, outcomes: readonly StepOutcome[]): Batch =>
@@ -45,5 +48,41 @@ describe('fakeRecipe: the round and attempts of each kind of step', () => {
     assert.equal(recipe.mayRetry(batchWith('plan', [retryable]), 'plan'), true);
     assert.equal(recipe.mayRetry(batchWith('plan', [retryable, retryable]), 'plan'), false);
     assert.equal(recipe.roundAttempts(batchWith('plan', [retryable, retryable]), 'plan'), 2);
+  });
+
+  it("gives an action the loaded recipe's 3 attempts per round, whatever maxAttempts says", () => {
+    const recipe = fakeRecipe({
+      steps: ['open'],
+      maxAttempts: 2,
+      actions: { open: 'openPullRequest' },
+    });
+    assert.equal(recipe.mayRetry(batchWith('open', [retryable, retryable]), 'open'), true);
+    assert.equal(
+      recipe.mayRetry(batchWith('open', [retryable, retryable, retryable]), 'open'),
+      false,
+    );
+  });
+
+  it('gives a check step 3 attempts that read nothing, whatever maxAttempts says', () => {
+    const recipe = fakeRecipe({ steps: ['green'], maxAttempts: 2, checks: ['green'] });
+    assert.equal(recipe.mayRetry(batchWith('green', [cancelled, cancelled]), 'green'), true);
+    assert.equal(
+      recipe.mayRetry(batchWith('green', [cancelled, cancelled, cancelled]), 'green'),
+      false,
+    );
+  });
+
+  it('retries a check step cancelled after it read the tree: the reading closed its round', () => {
+    const recipe = fakeRecipe({ steps: ['green'], maxAttempts: 2, checks: ['green'] });
+    const batch = batchWith('green', [read, cancelled]);
+    assert.equal(recipe.mayRetry(batch, 'green'), true);
+  });
+
+  it("counts a check step's round from its latest attempt that read the tree", () => {
+    const recipe = fakeRecipe({ steps: ['green'], checks: ['green'] });
+    assert.equal(
+      recipe.roundAttempts(batchWith('green', [cancelled, read, cancelled]), 'green'),
+      1,
+    );
   });
 });
