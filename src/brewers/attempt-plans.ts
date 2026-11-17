@@ -83,7 +83,6 @@ import {
   scanRetryOf,
   settingsFileOf,
 } from './attempt-plan.ts';
-import type { ConfigDirs } from './attempt-settings.ts';
 import type { ClaudeAttemptPlan, OutDocRead } from './claude-runner.ts';
 import {
   blobTexts,
@@ -118,8 +117,6 @@ export interface AttemptPlansOptions {
   repoTestLine?: (repo: string) => Command | null | undefined;
   /** Whether the isolation level relies on Claude Code's sandbox (ADR 0010). */
   sandbox: boolean;
-  /** Where the driver's environment moves the logins the sandbox hides (ADR 0160). */
-  configDirs?: ConfigDirs;
   /** The clone a repository's attempt worktrees are added to: the user's, or the managed one. */
   clone: (repo: string) => string;
   /**
@@ -909,7 +906,6 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
         models: options.models,
         repoTools: own === undefined ? [] : options.repoTools(own.repo),
         sandbox: options.sandbox,
-        ...(options.configDirs === undefined ? {} : { configDirs: options.configDirs }),
         settingsFile,
         sessionId: session.id,
         ...(resumes === undefined ? {} : { resumes }),

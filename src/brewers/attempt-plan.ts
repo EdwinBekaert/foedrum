@@ -57,7 +57,7 @@ import { type Command, parseRule } from '../schemas/primitives.ts';
 import { RECIPE_CHOICE, recipeChoiceOutDocOf } from '../schemas/recipe-choice.ts';
 import type { KeptFile, MergeResult } from '../schemas/store.ts';
 import { attemptFolder } from '../workspace/attempt-worktrees.ts';
-import { type AttemptPermissions, type ConfigDirs, toolchainOf } from './attempt-settings.ts';
+import { type AttemptPermissions, toolchainOf } from './attempt-settings.ts';
 import type { ClaudeAttemptPlan, OutDocRead } from './claude-runner.ts';
 import {
   assembleBrewerPrompt,
@@ -96,8 +96,6 @@ export interface PlanFacts {
   repoTools: readonly string[];
   /** Whether the isolation level relies on Claude Code's sandbox (ADR 0010). */
   sandbox: boolean;
-  /** Where the driver's environment moves the logins the sandbox hides (ADR 0160). */
-  configDirs?: ConfigDirs;
   settingsFile: string;
   /** The id of the new session, which the driver chose and recorded (ADR 0047, ADR 0116). */
   sessionId: string;
@@ -1557,7 +1555,6 @@ export function attemptPermissions(
   brewer: BrewerFrontmatter,
   repoTools: readonly string[],
   sandbox: boolean,
-  configDirs: ConfigDirs | undefined,
   base: Env,
 ): AttemptPermissions {
   // The brewer's own rules, then what git.commit grants (ADR 0074), then the repository's, once each.
@@ -1566,7 +1563,6 @@ export function attemptPermissions(
     allow,
     deny: brewer.tools.deny,
     sandbox,
-    ...(configDirs === undefined ? {} : { configDirs }),
     // ADR 0162: from the driver's base environment, never the brewer's own `env`.
     toolchain: toolchainOf(base),
   };
@@ -1609,13 +1605,7 @@ function goOnWith(doc: string, why: Resumed): string {
 /** The plan of one attempt; throws when its prompt cannot be assembled. */
 export function planAttempt(facts: PlanFacts): ClaudeAttemptPlan {
   const { brewer, worktree, models, env, sessionId, resumes, outDocFrom } = facts;
-  const granted = attemptPermissions(
-    brewer,
-    facts.repoTools,
-    facts.sandbox,
-    facts.configDirs,
-    env.base,
-  );
+  const granted = attemptPermissions(brewer, facts.repoTools, facts.sandbox, env.base);
   // An interactive session reads its prompt from its file beside the settings, and no other file
   // outside the worktree (ADR 0222).
   const promptFile = facts.interactive && promptFileOf(facts.settingsFile);

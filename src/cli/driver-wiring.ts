@@ -383,7 +383,6 @@ export const wireDriver = async (
       await fetch();
     },
     sandbox: setup.sandbox,
-    ...(setup.configDirs === undefined ? {} : { configDirs: setup.configDirs }),
     workRoot: setup.workRoot,
     env: setup.brewerEnv,
     orderText: githubOrderText(reads, setup.brewery),

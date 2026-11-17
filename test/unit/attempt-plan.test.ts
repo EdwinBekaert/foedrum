@@ -1374,12 +1374,6 @@ describe('planAttempt', () => {
     assert.equal(planAttempt({ ...facts(), resumes: 'retry' }).outDocFrom, undefined);
   });
 
-  // ADR 0160: the settings hide the logins where the driver's environment moved them.
-  it('hands the attempt settings where the environment moves the logins', () => {
-    const configDirs = { XDG_CONFIG_HOME: '/data/config' };
-    assert.deepEqual(planAttempt({ ...facts(), configDirs }).permissions.configDirs, configDirs);
-  });
-
   // ADR 0162: the toolchain folders come from the brewer's base environment, the driver's; a
   // brewer's own `env` cannot set PATH or HOME.
   it("hands the attempt settings the driver's home and PATH", () => {

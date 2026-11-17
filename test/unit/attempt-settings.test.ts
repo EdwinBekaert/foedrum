@@ -5,8 +5,6 @@ import { afterEach, beforeEach, describe, it } from 'node:test';
 import {
   type AttemptPermissions,
   attemptSettings,
-  type ConfigDirs,
-  configDirsOf,
   toolchainOf,
   writeAttemptSettings,
 } from '../../src/brewers/attempt-settings.ts';
@@ -141,54 +139,6 @@ describe('attemptSettings', () => {
     assert.equal(Object.hasOwn(settings.permissions, 'blockReadsOutsideWorkingDirectories'), false);
   });
 
-  // #247: a variable that moves a login moves it out of ADR 0087's `~/` paths, and out of the
-  // block too when it points outside the user roots.
-  const hiddenFiles = (configDirs: ConfigDirs, sandbox = true): string[] =>
-    (
-      attemptSettings({ allow: ['Read'], deny: [], sandbox, configDirs }).sandbox?.credentials
-        .files ?? []
-    ).map(({ path }) => path);
-  const defaultFiles = sandboxCredentials.files.map(({ path }) => path);
-
-  it('hides the gh configuration directory GH_CONFIG_DIR names', () => {
-    assert.deepEqual(hiddenFiles({ GH_CONFIG_DIR: '/srv/gh' }), [...defaultFiles, '/srv/gh']);
-  });
-
-  it("hides gh's directory and git's credential store under XDG_CONFIG_HOME", () => {
-    assert.deepEqual(hiddenFiles({ XDG_CONFIG_HOME: '/data/config' }), [
-      ...defaultFiles,
-      '/data/config/gh',
-      '/data/config/git/credentials',
-    ]);
-  });
-
-  it("hides Claude Code's login under CLAUDE_CONFIG_DIR", () => {
-    assert.deepEqual(hiddenFiles({ CLAUDE_CONFIG_DIR: '/data/claude-work' }), [
-      ...defaultFiles,
-      '/data/claude-work/.credentials.json',
-    ]);
-  });
-
-  it('hides each moved login once, when the variables name the same place', () => {
-    assert.deepEqual(
-      hiddenFiles({ GH_CONFIG_DIR: '/data/config/gh', XDG_CONFIG_HOME: '/data/config' }),
-      [...defaultFiles, '/data/config/gh', '/data/config/git/credentials'],
-    );
-  });
-
-  // A relative value resolves against whichever process reads it, so it names no one place; an
-  // empty one counts as unset, as gh reads it.
-  it('adds nothing for an empty or relative variable', () => {
-    assert.deepEqual(
-      hiddenFiles({ GH_CONFIG_DIR: '', XDG_CONFIG_HOME: 'config', CLAUDE_CONFIG_DIR: './c' }),
-      defaultFiles,
-    );
-  });
-
-  it('writes no credentials without a sandbox, whatever the variables say', () => {
-    assert.deepEqual(hiddenFiles({ GH_CONFIG_DIR: '/srv/gh' }, false), []);
-  });
-
   // #427: the block takes a toolchain under the home from sandboxed commands; `allowRead` from the
   // runner's `--settings` re-opens its folders, never a PATH entry's parent blindly (ADR 0162).
   describe('the toolchain folders it re-opens to sandboxed commands (ADR 0162)', () => {
@@ -284,11 +234,8 @@ describe('attemptSettings', () => {
         `${HOME}/.aws/cli/bin`,
         `${HOME}/.config`,
         `${HOME}/.claude`,
-        `${HOME}/xdg/gh/bin`,
       ];
-      const settings = settingsFor(entries.join(':'), {
-        configDirs: { XDG_CONFIG_HOME: `${HOME}/xdg` },
-      });
+      const settings = settingsFor(entries.join(':'));
       assert.equal(allowReadOf(settings), undefined);
     });
 
@@ -375,14 +322,6 @@ describe('attemptSettings', () => {
         `${HOME}/.nvm/versions/iojs/v1/bin`,
       ];
       assert.deepEqual(reopened(entries.join(':')), entries);
-    });
-
-    // Review of #437: a moved login spelled with a trailing slash is the same folder.
-    it('re-opens no folder inside a moved login spelled with a trailing slash', () => {
-      const settings = settingsFor(`${HOME}/ghc/bin:${HOME}/ghd/bin`, {
-        configDirs: { GH_CONFIG_DIR: `${HOME}/ghc/` },
-      });
-      assert.deepEqual(allowReadOf(settings), [`${HOME}/ghd/bin`]);
     });
 
     // Review of #437: npm reads its global configuration from `<prefix>/etc/npmrc` and its builtin
@@ -1235,31 +1174,6 @@ describe('writeAttemptSettings', () => {
       assert.equal(existsSync(file), false);
     });
   }
-});
-
-describe('configDirsOf', () => {
-  it('keeps only the variables that move a login', () => {
-    assert.deepEqual(
-      configDirsOf({
-        GH_CONFIG_DIR: '/srv/gh',
-        XDG_CONFIG_HOME: '/data/config',
-        CLAUDE_CONFIG_DIR: '/data/claude',
-        HOME: '/home/brewer',
-        GH_TOKEN: 'not-a-token',
-      }),
-      {
-        GH_CONFIG_DIR: '/srv/gh',
-        XDG_CONFIG_HOME: '/data/config',
-        CLAUDE_CONFIG_DIR: '/data/claude',
-      },
-    );
-  });
-
-  it('leaves out the variables that are not set', () => {
-    assert.deepEqual(configDirsOf({ XDG_CONFIG_HOME: '/data/config', GH_CONFIG_DIR: undefined }), {
-      XDG_CONFIG_HOME: '/data/config',
-    });
-  });
 });
 
 describe('toolchainOf', () => {

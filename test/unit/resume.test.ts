@@ -306,14 +306,6 @@ describe('foedrum resume (ADR 0126)', () => {
     assert.doesNotMatch(JSON.stringify(settings[0]?.settings), /npm test/);
   });
 
-  it("writes the settings again with the logins serve's environment moved", async () => {
-    const configDirs = { CLAUDE_CONFIG_DIR: '/data/claude-work' };
-    const moved = { ...setup, configDirs };
-    await resume(undefined, { setup: async () => ({ kind: 'ready', setup: moved }) });
-    const files = settings[0]?.settings.sandbox?.credentials.files.map(({ path }) => path);
-    assert.ok(files?.includes('/data/claude-work/.credentials.json'), JSON.stringify(files));
-  });
-
   // ADR 0162: and re-open the toolchain folders of serve's PATH under its home.
   it("writes the settings again with the toolchain folders of serve's PATH", async () => {
     const base = {
