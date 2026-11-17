@@ -463,21 +463,29 @@ describe('refreshLockfiles: the lockfiles of the projects below a Directory.Pack
   it('restores each project beside a packages.lock.json below it, by name, and lists the lockfiles it changed', async () => {
     const tree = treeWith({
       'src/Directory.Packages.props': '<Project />',
+      // Made before Api, so only the walk's own order puts Api first.
       'src/Web/Web.csproj': '<Project />',
       'src/Web/packages.lock.json': 'v1.1.0\n',
       'src/Api/Api.csproj': '<Project />',
       'src/Api/packages.lock.json': 'v1.1.0\n',
+      'src/Root.csproj': '<Project />',
+      'src/packages.lock.json': 'v1.1.0\n',
       'src/Docs/Docs.csproj': '<Project />',
       'Other/Other.csproj': '<Project />',
       'Other/packages.lock.json': 'v1.1.0\n',
     });
     const { exec, runs } = writing('packages.lock.json');
     const refreshed = await refreshLockfiles(tree, [props], runOf(exec));
-    assert.deepStrictEqual(runs.map(({ command, options }) => [command, options?.cwd]).sort(), [
-      [`${NUGET_REFRESH} "Api.csproj"`, join(tree, 'src', 'Api')],
-      [`${NUGET_REFRESH} "Web.csproj"`, join(tree, 'src', 'Web')],
-    ]);
-    assert.deepStrictEqual([...refreshed.files].sort(), [
+    assert.deepStrictEqual(
+      runs.map(({ command, options }) => [command, options?.cwd]),
+      [
+        [`${NUGET_REFRESH} "Root.csproj"`, join(tree, 'src')],
+        [`${NUGET_REFRESH} "Api.csproj"`, join(tree, 'src', 'Api')],
+        [`${NUGET_REFRESH} "Web.csproj"`, join(tree, 'src', 'Web')],
+      ],
+    );
+    assert.deepStrictEqual(refreshed.files, [
+      'src/packages.lock.json',
       'src/Api/packages.lock.json',
       'src/Web/packages.lock.json',
     ]);
@@ -557,7 +565,7 @@ describe('refreshLockfiles: the lockfiles of the projects below a Directory.Pack
     // The props's folder is a file in this tree, so reading it fails.
     const tree = treeWith({ src: 'not a folder\n' });
     const { exec, runs } = writing('packages.lock.json');
-    await assert.rejects(refreshLockfiles(tree, [props], runOf(exec)));
+    await assert.rejects(refreshLockfiles(tree, [props], runOf(exec)), { code: 'ENOTDIR' });
     assert.deepStrictEqual(runs, []);
   });
 
