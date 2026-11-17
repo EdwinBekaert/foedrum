@@ -25,10 +25,10 @@ Each test runs at the stage where it pays ([ADR 0241](../../adr/0241-each-test-r
 ```mermaid
 flowchart LR
   W["While writing: the files the change reaches"] -->|"git push"| G["The push gate: no tests"]
-  G --> PR["A pull request: every test, 3 systems"]
+  G --> PR["A pull request: unit, property, chaos and integration tests, 3 systems"]
   PR -->|"merge"| M["A push to main"]
-  M -->|"every night"| N["The nightly run: 1,000 seeds"]
   M -->|"tag v*"| R["A release"]
+  S["A schedule, 03:17 UTC"] --> N["The nightly run: 1,000 seeds"]
 ```
 
 - **While writing** (`scripts/check.ts`, `scripts/affected-tests.ts`):

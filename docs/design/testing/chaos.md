@@ -87,11 +87,17 @@ The shrinker's own tests (`test/chaos/shrink.test.ts`) run 3 when `FOEDRUM_RUNS`
 - below a dozen, they find and shrink each planted failure in twelve-move runs, and from a dozen on in forty-move runs;
 - the replay plays the last `runs` of a dozen seeds and seeds 10 to 12 at least (10 to 12 in the check), until every kind of fault showed.
 
-To run one file, at its own count and at the pull request's:
+To run one file, at its own count and at the pull request's, in a POSIX shell (Git Bash on Windows):
 
 ```
 node --test test/chaos/restarts.test.ts
 FOEDRUM_RUNS=200 node --test test/chaos/restarts.test.ts
+```
+
+In PowerShell:
+
+```
+$env:FOEDRUM_RUNS = 200; node --test test/chaos/restarts.test.ts
 ```
 
 Not yet covered: the real runner's processes, a second process of a live driver, and two drivers flushing one state worktree.

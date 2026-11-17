@@ -22,10 +22,11 @@ flowchart LR
 
 Each run starts from a fresh seed.
 A failure is shrunk to fewer moves and simpler attempts and reported with its seed, moves and events.
-Setting the environment variable `FOEDRUM_SEED` to that seed replays it:
+Setting the environment variable `FOEDRUM_SEED` to that seed replays it, in a POSIX shell (Git Bash on Windows) or in PowerShell:
 
 ```
 FOEDRUM_SEED=<seed> node --test test/property/invariant-i2.test.ts
+$env:FOEDRUM_SEED = <seed>; node --test test/property/invariant-i2.test.ts
 ```
 
 `FOEDRUM_RUNS` sets how many seeds each property runs (ADR 0134):
