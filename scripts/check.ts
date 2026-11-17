@@ -139,20 +139,35 @@ const STEP_TIMEOUT_MS = 300_000;
 /**
  * The check's options from its arguments: with --all, every test file with coverage, as CI runs
  * it; with --no-tests, no tests, as the push gate runs it (ADR 0249); with neither, the test
- * files the change reaches, found by `affected` (ADR 0241).
+ * files the change reaches, found by `affected` (ADR 0241), the change since --base when given, a
+ * full commit id, as a check step's testChanged runs it (ADR 0242).
  */
 export const checkMode = (
   argv: string[],
   affected: (base?: string) => Promise<Affected>,
 ): Pick<CheckOptions, 'affected' | 'noTests'> => {
-  const { all, 'no-tests': noTests } = parseArgs({
+  const {
+    all,
+    'no-tests': noTests,
+    base,
+  } = parseArgs({
     args: argv,
     options: {
       all: { type: 'boolean', default: false },
       'no-tests': { type: 'boolean', default: false },
+      base: { type: 'string' },
     },
   }).values;
   if (all && noTests) throw new Error('--all and --no-tests do not go together');
+  if (base !== undefined) {
+    if (all) throw new Error('--base and --all do not go together');
+    if (noTests) throw new Error('--base and --no-tests do not go together');
+    // git would read anything else as a revision or an option.
+    if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(base)) {
+      throw new Error(`--base must be a full commit id, not ${JSON.stringify(base)}`);
+    }
+    return { affected: () => affected(base) };
+  }
   if (noTests) return { noTests: true };
   return all ? {} : { affected };
 };
@@ -233,6 +248,6 @@ if (import.meta.main) {
     signal: stopOnSignals(),
     // Below normal outside CI, so the steps leave the desktop responsive (#140).
     lowerPriority: () => lowerOwnPriority(process.env),
-    ...checkMode(process.argv.slice(2), () => affectedInCheckout(cwd)),
+    ...checkMode(process.argv.slice(2), (base) => affectedInCheckout(cwd, base)),
   });
 }
