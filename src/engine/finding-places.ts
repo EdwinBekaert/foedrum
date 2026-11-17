@@ -63,8 +63,12 @@ export async function placesChecked(
   const cited = (findings ?? []).flatMap(({ file }) =>
     file !== undefined && isPlainPath(file) ? [file] : [],
   );
-  if (findings === undefined || cited.length === 0) return ending;
-  const files = await read(reviewed.clone, reviewed.commit, [...new Set(cited)], signal);
+  if (findings === undefined || findings.every(({ file }) => file === undefined)) return ending;
+  // A finding whose path is no plain path is marked without a read: no tree holds it.
+  const files: FilesRead =
+    cited.length === 0
+      ? { kind: 'read', files: new Map() }
+      : await read(reviewed.clone, reviewed.commit, [...new Set(cited)], signal);
   if (files.kind === 'unread') return ending;
   const marked = findings.map((finding) => checked(finding, files.files));
   if (ending.kind === 'blocked') return { ...ending, findings: marked };
