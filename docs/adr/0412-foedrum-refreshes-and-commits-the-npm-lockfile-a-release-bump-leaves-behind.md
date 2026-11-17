@@ -24,15 +24,15 @@ An install needs the registry and a `tools` rule within the Brewery's `permissio
   So it reads exactly what the attempt committed, and none of the brewer's leftovers or git files.
   The line runs through the setup's process runner: the check sandbox with the network kept (ADR 0158, ADR 0218), in a Job Object on Windows, and unsandboxed on native Windows only, its reading saying so.
   It is killed at 5 minutes, or 10 seconds before the attempt's deadline when that is sooner.
-- **How it is committed.** A lockfile the refresh changed is committed on the attempt's branch in the clone by plumbing.
-  The blob is written into the clone's objects, put on the tip's tree in an index of the git directory's own, and committed by `commit-tree` with the tip as its parent, as Foedrum (the identity the merged tree's commit uses, ADR 0203).
+- **How it is committed.** Only when every refresh passed, each lockfile a refresh changed is committed on the attempt's branch in the clone by plumbing.
+  The blob is written into the clone's objects as a commit of its path stores it, so a checkout's CRLF goes back to the repository's line ends (`hash-object --path`; Git for Windows sets `core.autocrlf`), put on the tip's tree in an index of the git directory's own, and committed by `commit-tree` with the tip as its parent, as Foedrum (the identity the merged tree's commit uses, ADR 0203).
   The branch then moves by `update-ref` only from that tip.
   No hook or configuration of the clone's takes part.
   Nothing resumes in the attempt's worktree after a success: only a retry after a failure resumes, and a route starts fresh (ADR 0117).
-  So the worktree, which now lags behind its branch, is never committed on again.
+  So the worktree, which now lags behind its branch, is never committed on again; an attempt whose refresh did not pass committed nothing, so its retry finds its worktree at its branch.
 - **A refresh that does not pass makes the batch Stuck on its environment.** Its reading goes on `step.finished` with `lockfile`, the file it refreshed.
   The attempt ends `blocked`, `environment`, as a setup that did not pass does (ADR 0140): `the lockfile <path> could not be refreshed: "<command>" failed with exit code <n>`, or was ended, timed out, wrote too much, or could not start.
-  A stop cancels it.
+  A stop cancels it, also while git lists the changed paths or commits.
   When the changed paths cannot be listed, the scratch tree cannot be made, or the runner has no process runner for it, the attempt ends `blocked`, `environment`: `the lockfiles could not be refreshed: <why>`.
 - **Left out.**
   - `npm-shrinkwrap.json`: npm's documentation does not say what `--package-lock-only` does to it.
@@ -44,7 +44,7 @@ An install needs the registry and a `tools` rule within the Brewery's `permissio
 The refresh runs npm on a `package.json` a brewer wrote, as a repository's setup already does before every brewer attempt and check step (ADR 0163).
 It runs in the same sandbox with the same environment, adding `--ignore-scripts`.
 So no row of [docs/trust-boundaries.md](../trust-boundaries.md) gains a risk: the row "A check step running code a brewer wrote" names it beside the setup.
-Its commit goes through the same push and secret scan as the brewer's commits (ADR 0079, ADR 0187).
+Its commit is read by the push's secret scan (ADR 0079), not by the scan of the attempt's commits (ADR 0187), which ran before it.
 No safeguard is added.
 
 ## Consequences
