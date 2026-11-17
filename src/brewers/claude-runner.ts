@@ -5,6 +5,7 @@
 import { lstatSync, readFileSync, realpathSync, unlinkSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 import { passed, settleReadings } from '../checks/gravity.ts';
+import { lockfileRefreshes, refreshLockfiles } from '../checks/lockfile.ts';
 import { readingOn, runLine, runSetup, type SetupRun } from '../checks/setup.ts';
 import { attemptKey } from '../engine/attempt-key.ts';
 import type { Env } from '../engine/brewer-env.ts';
@@ -45,7 +46,9 @@ import {
   type ScanCommits,
   scanAttemptCommits,
 } from '../workspace/attempt-commits-git.ts';
+import type { OwnRemote } from '../workspace/clone-git.ts';
 import { runGit } from '../workspace/git.ts';
+import { type BranchCommit, openBranchCommit } from '../workspace/merge-tree-git.ts';
 import { readPathsAt } from '../workspace/plan-paths-git.ts';
 import { type AttemptSystemPrompt, outDocCopyOf } from './attempt-plan.ts';
 import {
@@ -96,6 +99,13 @@ export interface ClaudeAttemptPlan {
    * its session ended done with commits, and a failure sent back to that session once.
    */
   sendBack?: SendBackPlan;
+  /**
+   * For a brewer that produces commits in a batch that waited for a release: its repository as
+   * Foedrum's own git directories reach it, and the setup's environment and the attempt's
+   * deadline, under which the lockfile beside each manifest its commits changed is refreshed and
+   * committed once it ends succeeded (ADR 0412).
+   */
+  refresh?: { own: OwnRemote; deadlineAt: string; env: Env; unsandboxed: boolean };
   /** The house-yeast rules the plan gave the brewer, which its end records (ADR 0169). */
   houseYeast?: HouseYeastSelection;
   /** The highest comment id per issue the prompt holds, which its end records (ADR 0338). */
@@ -130,6 +140,12 @@ export interface ClaudeRunnerDeps {
    * 0158). A plan with a setup and no runner for it is blocked on its environment.
    */
   setup?: ExecProcess;
+  /**
+   * A scratch tree of an attempt's branch in `clone`, from a git directory of Foedrum's own for the
+   * repository `own` names, whose refreshed lockfiles are committed on that branch (ADR 0412). A
+   * plan with a refresh and none is blocked on its environment.
+   */
+  branchCommit?: (clone: string, own: OwnRemote) => BranchCommit;
   files: {
     writeSettings: (file: string, settings: AttemptSettings) => void;
     /** Writes the attempt's system prompt file (ADR 0183). */
@@ -485,8 +501,12 @@ export function claudeBrewerRunnerWith(deps: ClaudeRunnerDeps): BrewerRunner {
       settingUp = false;
       if (!before.every(passed)) return { ending: settleReadings(before), readings: before };
       if (before.length > 0) claudeFrom = deps.now();
-      const withReadings = (end: AttemptEnd): AttemptEnd =>
-        before.length === 0 ? end : { ...end, readings: before };
+      // The readings of what ran after claude: a lockfile's refresh (ADR 0412).
+      const after: GravityReading[] = [];
+      const withReadings = (end: AttemptEnd): AttemptEnd => {
+        const readings = [...before, ...after];
+        return readings.length === 0 ? end : { ...end, readings };
+      };
       const { session, tools } = plan.call;
       const { cwd, env, prompt } = plan;
       /** One start of claude, read by a reader of its own: the attempt's, or one that resumes it. */
@@ -633,6 +653,72 @@ export function claudeBrewerRunnerWith(deps: ClaudeRunnerDeps): BrewerRunner {
           checking = false;
         }
       };
+      /**
+       * Refreshes the lockfile beside each manifest the attempt's commits changed, in a scratch tree
+       * of its branch, and commits those that changed there, when its plan has a refresh and it
+       * ended succeeded (ADR 0412): the readings, and the ending when one did not pass.
+       */
+      const lockfilesRefreshed = async ({
+        end,
+      }: Awaited<ReturnType<typeof settle>>): Promise<{
+        readings: GravityReading[];
+        ending?: Ending;
+      }> => {
+        const { refresh, commits } = plan;
+        const since = limits.commitsSince;
+        if (refresh === undefined || commits === undefined || since === undefined) {
+          return { readings: [] };
+        }
+        if (end.ending.kind !== 'succeeded') return { readings: [] };
+        const unrefreshed = (why: string): { readings: GravityReading[]; ending: Ending } => ({
+          readings: [],
+          ending: {
+            kind: 'blocked',
+            blockerKind: 'environment',
+            summary: `the lockfiles could not be refreshed: ${why}`,
+          },
+        });
+        checking = true;
+        try {
+          const { clone, branch } = commits;
+          const changed = await deps.changed?.(clone, branch, since, stopping.signal);
+          // A stop kills git: the attempt was stopped, git did not fail.
+          if (stopping.signal.aborted) return { readings: [], ending: cancelled().ending };
+          if (changed?.kind === 'unlisted') return unrefreshed(changed.reason);
+          const refreshes = lockfileRefreshes(changed?.paths ?? []);
+          if (refreshes.length === 0) return { readings: [] };
+          const { branchCommit, setup: exec } = deps;
+          if (branchCommit === undefined || exec === undefined) {
+            return unrefreshed('the brewer runner has no scratch tree or process runner for them');
+          }
+          const lockfiles = refreshes.map(({ lockfile }) => lockfile).join(', ');
+          const message = `Refresh ${lockfiles} after the release bump (ADR 0412)`;
+          const run = { ...refresh, exec, now: deps.now, signal: stopping.signal };
+          let readings: GravityReading[] = [];
+          try {
+            await branchCommit(clone, refresh.own)(
+              branch,
+              message,
+              async (tree) => {
+                const done = await refreshLockfiles(tree, refreshes, run);
+                readings = done.readings;
+                return { value: done, files: done.files };
+              },
+              stopping.signal,
+            );
+          } catch (error) {
+            if (stopping.signal.aborted) return { readings, ending: cancelled().ending };
+            if (readings.some((reading) => !passed(reading))) {
+              return { readings, ending: settleReadings(readings) };
+            }
+            return { ...unrefreshed(messageOf(error)), readings };
+          }
+          const failed = !readings.every(passed);
+          return failed ? { readings, ending: settleReadings(readings) } : { readings };
+        } finally {
+          checking = false;
+        }
+      };
       const first = { facts: stream.facts(), receipt: stream.receipt() };
       let settled = await settle(first.facts, first.receipt, result);
       // A brewer that writes code is sent back once, in its session, when a check fails on what
@@ -659,6 +745,13 @@ export function claudeBrewerRunnerWith(deps: ClaudeRunnerDeps): BrewerRunner {
           settled = stoppedNow();
         }
       }
+      // The lockfiles its commits left behind, refreshed and committed once it succeeded: nothing
+      // resumes in its worktree after a success (ADR 0117, ADR 0412).
+      const refreshed = await lockfilesRefreshed(settled);
+      if (refreshed.ending !== undefined) {
+        settled = { ...settled, end: { ...settled.end, ending: refreshed.ending } };
+      }
+      after.push(...refreshed.readings);
       const { end, facts } = settled;
       // Its retry resumes in a worktree that may have to be recreated without it (ADR 0175).
       const { ending } = end;
@@ -708,5 +801,7 @@ export function claudeBrewerRunner(
     scan: scanAttemptCommits(runGit),
     touches: readPathsAt(runGit),
     changed: changedPaths(runGit),
+    // A lockfile's refresh in a scratch tree of the attempt's branch (ADR 0412).
+    branchCommit: (clone, own) => openBranchCommit({ git: runGit, clone, own }),
   });
 }

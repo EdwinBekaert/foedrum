@@ -23,7 +23,7 @@ import {
   stopOnSignals,
 } from '../platform/processes.ts';
 import { realPath } from '../platform/real-path.ts';
-import { ownGitDirsRoot } from '../workspace/attempt-worktrees.ts';
+import { ownGitDirsRoot, ownRemote } from '../workspace/attempt-worktrees.ts';
 import {
   ensureManagedClone,
   openAttemptWorktrees,
@@ -31,7 +31,6 @@ import {
 } from '../workspace/attempt-worktrees-git.ts';
 import { openWorktreeMerge } from '../workspace/base-merge-git.ts';
 import { openBranchPush } from '../workspace/branch-push-git.ts';
-import type { OwnRemote } from '../workspace/clone-git.ts';
 import type { Git } from '../workspace/git.ts';
 import { openCommitTree, openMergedTree, openMergeTree } from '../workspace/merge-tree-git.ts';
 import type { ServeShell } from './serve.ts';
@@ -81,16 +80,6 @@ export const listenWhileServing = (
     },
   };
 };
-
-/**
- * The repository on GitHub, where its pull request goes: every fetch, push and ls-remote reaches
- * it by this URL, never through the clone's configuration, with Foedrum's own git directories for
- * it under `workRoot` (ADR 0090, ADR 0096).
- */
-export const ownRemote = (workRoot: string, repo: string): OwnRemote => ({
-  url: `https://github.com/${repo}.git`,
-  root: ownGitDirsRoot(workRoot, repo),
-});
 
 export const serveShell = (setup: ServeSetup, options: ServeShellOptions): ServeShell => {
   const { root, git, out, listen, checks, keepAwake: awake, command = 'serve' } = options;
