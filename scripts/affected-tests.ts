@@ -13,6 +13,8 @@ export interface ChangeOptions {
   git: OkGit;
   // A file's text by its absolute path; undefined when it is not there.
   read: (path: string) => Promise<string | undefined>;
+  // The commit the change starts from, in place of the merge base with origin/main (ADR 0242).
+  base?: string;
 }
 
 const paths = (stdout: string): string[] => stdout.split('\0').filter((path) => path !== '');
@@ -97,7 +99,7 @@ const inCheckout = async (cwd: string): Promise<ChangeOptions> => {
 };
 
 /** affectedByChange with the real git and file reads, for the checkout at cwd. */
-export const affectedInCheckout = async (cwd: string): Promise<Affected> =>
+export const affectedInCheckout = async (cwd: string, _base?: string): Promise<Affected> =>
   affectedByChange(await inCheckout(cwd));
 
 // With --real-claude, the tests against the installed claude the change reaches, as CI runs them

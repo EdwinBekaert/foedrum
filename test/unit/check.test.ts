@@ -214,6 +214,35 @@ describe('checkMode', () => {
     assert.deepEqual(checkMode(['--no-tests'], affected), { noTests: true });
   });
 
+  const sha = 'a'.repeat(40);
+
+  it('finds the test files the change since --base reaches (ADR 0242)', async () => {
+    const asked: (string | undefined)[] = [];
+    const mode = checkMode(['--base', sha], async (base) => {
+      asked.push(base);
+      return { kind: 'some', files: [] };
+    });
+    await mode.affected?.();
+    assert.deepEqual(asked, [sha]);
+  });
+
+  it('refuses --base with --all or --no-tests, which find no change (ADR 0242)', () => {
+    assert.throws(() => checkMode(['--all', '--base', sha], affected), /--base and --all/);
+    assert.throws(
+      () => checkMode(['--no-tests', '--base', sha], affected),
+      /--base and --no-tests/,
+    );
+  });
+
+  it('refuses a --base that is not a full commit id (ADR 0242)', () => {
+    for (const base of ['main', 'a'.repeat(39), `${'a'.repeat(40)}x`, `--output=${sha}`]) {
+      assert.throws(
+        () => checkMode([`--base=${base}`], affected),
+        /--base must be a full commit id/,
+      );
+    }
+  });
+
   it('refuses --no-tests with --all', () => {
     assert.throws(() => checkMode(['--all', '--no-tests'], affected), /--all and --no-tests/);
   });

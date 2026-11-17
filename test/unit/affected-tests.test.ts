@@ -82,6 +82,23 @@ describe('affectedByChange', () => {
     assert.equal(affected.kind, 'all');
     assert.match((affected as { why: string }).why, /git diff failed: fatal: bad object/);
   });
+
+  it('reads the change from the base it is given, never the merge base with origin/main (ADR 0242)', async () => {
+    const given = 'e'.repeat(40);
+    const { git, calls } = fakeGit({
+      [MERGE_BASE]: ok(`${base}
+`),
+      [DIFF]: ok(''),
+      [`diff --name-only --no-renames -z ${given}`]: ok(z('src/cli/format.ts')),
+      [UNTRACKED]: ok(''),
+      [TYPESCRIPT]: ok(z(...Object.keys(files))),
+    });
+    assert.deepEqual(await affectedByChange({ cwd, git, read, base: given }), {
+      kind: 'some',
+      files: ['test/unit/status.test.ts'],
+    });
+    assert.equal(calls.includes(MERGE_BASE), false);
+  });
 });
 
 // The tests against the installed claude (ADR 0057) CI runs: the ones the change reaches, or all.

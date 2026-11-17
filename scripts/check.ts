@@ -143,7 +143,7 @@ const STEP_TIMEOUT_MS = 300_000;
  */
 export const checkMode = (
   argv: string[],
-  affected: () => Promise<Affected>,
+  affected: (base?: string) => Promise<Affected>,
 ): Pick<CheckOptions, 'affected' | 'noTests'> => {
   const { all, 'no-tests': noTests } = parseArgs({
     args: argv,

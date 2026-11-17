@@ -77,6 +77,15 @@ describe('affectedInCheckout with real git', () => {
     dir.remove();
   });
 
+  it('reaches the test files of the change since the base it is given (ADR 0242)', async () => {
+    // The commit that changed the format: its own change is left out.
+    const since = git(repo, ['rev-parse', 'HEAD']).trim();
+    assert.deepEqual(await affectedInCheckout(repo, since), {
+      kind: 'some',
+      files: ['test/unit/gone.test.ts', 'test/unit/new.test.ts', 'test/unit/order.test.ts'],
+    });
+  });
+
   it('reaches the test files of every kind of change since the merge base, and no other', async () => {
     assert.deepEqual(await affectedInCheckout(repo), {
       kind: 'some',
