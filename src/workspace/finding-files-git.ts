@@ -3,8 +3,8 @@
 // worktree checked that commit out, so its files are in the clone. Git runs only through the
 // injected `Git`, so unit tests pass a fake one (ADR 0021).
 
+import { isPlainPath } from '../checks/citations.ts';
 import type { FilesRead, ReadFiles } from '../engine/finding-places.ts';
-import { RelativePath } from '../schemas/primitives.ts';
 import { isCommitSha, noCommitSha } from '../schemas/store.ts';
 import { inClone } from './clone-git.ts';
 import { type Git, gitFailure } from './git.ts';
@@ -18,15 +18,15 @@ export const readFilesAt =
   async (clone, commit, paths, signal): Promise<FilesRead> => {
     // A full sha, so that nothing reaches git as an option or a revision expression.
     if (!isCommitSha(commit)) return { kind: 'unread', reason: noCommitSha(commit) };
-    // A path that is no relative path, a glob or a name Windows refuses, is no file of the tree:
-    // it never reaches git, and the others are still read.
-    const relative = paths.filter((path) => RelativePath.safeParse(path).success);
+    // A path the citation check does not read as plain is no file of the tree: it never reaches
+    // git, and the others are still read. A name only Windows refuses is looked up: git holds it.
+    const plain = paths.filter(isPlainPath);
     // No hook or fsmonitor of the clone's runs in the engine's git (ADR 0137).
     const git = inClone(shared);
     const options = signal === undefined ? {} : { signal };
     // The object of each path that is a regular file: `<mode> <type> <object>\t<path>`.
     const objects = new Map<string, string>();
-    for (const run of runsOf(relative)) {
+    for (const run of runsOf(plain)) {
       // The paths as written: no `*`, `?` or `[` read as a pattern.
       const listed = await git(clone, ['ls-tree', '-z', commit, '--', ...run], {
         ...options,
