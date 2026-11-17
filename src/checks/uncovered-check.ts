@@ -15,7 +15,7 @@ import {
 } from '../schemas/events.ts';
 import type { TestMap } from '../schemas/test-map.ts';
 import type { CheckRunnerOptions } from './check-runner.ts';
-import { blocked } from './gravity.ts';
+import { blocked, ranChanged } from './gravity.ts';
 import type { ModuleReports } from './module-reports.ts';
 import { cut, type MappedReport, skipInAddedLines } from './red-proof.ts';
 import { readDiff, readFilesAt } from './step-commits.ts';
@@ -173,7 +173,7 @@ export function createUncoveredCheck(options: UncoveredCheckOptions): UncoveredC
     );
     // A run of testChanged may leave an untouched module's tests unrun, and its report unwritten
     // (ADR 0242).
-    const changedOnly = end.readings?.some((reading) => 'changed' in reading) === true;
+    const changedOnly = ranChanged(end);
     const reportsRead: CoverageReport[] = [];
     for (const { module } of measured ? modules : []) {
       if (module.coverage === 'none') continue;

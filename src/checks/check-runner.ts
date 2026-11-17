@@ -28,6 +28,7 @@ import {
   passed,
   planChecks,
   type RepositoryChecks,
+  ranChanged,
   settleReadings,
 } from './gravity.ts';
 import {
@@ -412,7 +413,7 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
     const kept = stale?.kept ?? options.testMap?.keptIn?.(worktree.repo) ?? 'repo';
     // A repository with no map has none to be stale by a run, and a run of testChanged, which may
     // leave a module's tests unrun, says nothing of the map (ADR 0242).
-    const changed = end.readings?.some((reading) => 'changed' in reading) === true;
+    const changed = ranChanged(end);
     const byRun =
       tip?.kind === 'map' && !changed
         ? (modules: readonly EffectiveModule[]) => named.push(...staleByRun(worktree, modules))
@@ -489,7 +490,7 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
     const find = testMap.reports ?? reportPaths;
     // A run of testChanged may leave a new module's tests unrun: only a full run says it is
     // unreached (ADR 0242, ADR 0280).
-    const changed = end.readings?.some((reading) => 'changed' in reading) === true;
+    const changed = ranChanged(end);
     for (const { module, added } of modules) {
       if (!added || changed) continue;
       const { name, testReport } = module;

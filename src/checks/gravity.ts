@@ -144,6 +144,10 @@ export function withoutSecrets(output: string): string {
   return lines.join('\n');
 }
 
+/** Whether `end`'s test check ran the repository's testChanged, which may leave tests unrun (ADR 0242). */
+export const ranChanged = (end: AttemptEnd): boolean =>
+  end.readings?.some((reading) => 'changed' in reading) === true;
+
 /** What one run of `check` read. */
 export function readingOf(
   check: Extract<PlannedCheck, { kind: 'run' }>,
