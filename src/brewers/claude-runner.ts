@@ -46,6 +46,7 @@ import {
   type ScanCommits,
   scanAttemptCommits,
 } from '../workspace/attempt-commits-git.ts';
+import type { OwnRemote } from '../workspace/clone-git.ts';
 import { runGit } from '../workspace/git.ts';
 import type { BranchCommit } from '../workspace/merge-tree-git.ts';
 import { readPathsAt } from '../workspace/plan-paths-git.ts';
@@ -99,11 +100,12 @@ export interface ClaudeAttemptPlan {
    */
   sendBack?: SendBackPlan;
   /**
-   * For a brewer that produces commits in a batch that waited for a release: its repository, and
-   * the setup's environment and the attempt's deadline, under which the lockfile beside each
-   * manifest its commits changed is refreshed and committed once it ends succeeded (ADR 0412).
+   * For a brewer that produces commits in a batch that waited for a release: its repository as
+   * Foedrum's own git directories reach it, and the setup's environment and the attempt's
+   * deadline, under which the lockfile beside each manifest its commits changed is refreshed and
+   * committed once it ends succeeded (ADR 0412).
    */
-  refresh?: { repo: string; deadlineAt: string; env: Env; unsandboxed: boolean };
+  refresh?: { own: OwnRemote; deadlineAt: string; env: Env; unsandboxed: boolean };
   /** The house-yeast rules the plan gave the brewer, which its end records (ADR 0169). */
   houseYeast?: HouseYeastSelection;
   /** The highest comment id per issue the prompt holds, which its end records (ADR 0338). */
@@ -139,11 +141,11 @@ export interface ClaudeRunnerDeps {
    */
   setup?: ExecProcess;
   /**
-   * A scratch tree of an attempt's branch in `clone`, a repository's, whose refreshed lockfiles are
-   * committed on that branch (ADR 0412). A plan with a refresh and none is blocked on its
-   * environment.
+   * A scratch tree of an attempt's branch in `clone`, from a git directory of Foedrum's own for the
+   * repository `own` names, whose refreshed lockfiles are committed on that branch (ADR 0412). A
+   * plan with a refresh and none is blocked on its environment.
    */
-  branchCommit?: (clone: string, repo: string) => BranchCommit;
+  branchCommit?: (clone: string, own: OwnRemote) => BranchCommit;
   files: {
     writeSettings: (file: string, settings: AttemptSettings) => void;
     /** Writes the attempt's system prompt file (ADR 0183). */
@@ -693,7 +695,7 @@ export function claudeBrewerRunnerWith(deps: ClaudeRunnerDeps): BrewerRunner {
           let readings: GravityReading[] = [];
           try {
             // The message names the files, which only the refresh knows: it is built per file list.
-            const { value } = await branchCommit(clone, refresh.repo)(
+            const { value } = await branchCommit(clone, refresh.own)(
               branch,
               message(refreshes.map(({ lockfile }) => lockfile)),
               async (tree) => {

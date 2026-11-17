@@ -18,6 +18,7 @@ import type { AttemptLimits, AttemptStart } from '../../src/engine/brewer-runner
 import type { ExecOptions, ExecResult, StreamResult } from '../../src/platform/processes.ts';
 import { OutDocFrontmatter } from '../../src/schemas/out-doc.ts';
 import type { PathsChanged } from '../../src/workspace/attempt-commits-git.ts';
+import type { OwnRemote } from '../../src/workspace/clone-git.ts';
 import type { BranchCommit } from '../../src/workspace/merge-tree-git.ts';
 import { suiteFolders } from '../helpers/attempt-worktrees.ts';
 import { outDoc } from '../helpers/fake-brewer-runner.ts';
@@ -44,8 +45,9 @@ const limits: AttemptLimits = {
 };
 const attempt: AttemptStart = { ref: { batchId: '12-1', stepId: 'implement', attempt: 1 }, limits };
 
+const own = { url: 'https://github.com/acme/web.git', root: '/work/acme.web/git-dirs' };
 const refresh = {
-  repo: 'acme/web',
+  own,
   deadlineAt: '2026-11-17T13:00:00.000Z',
   env: { PATH: '/usr/bin', npm_config_ignore_scripts: 'true' },
   unsandboxed: false,
@@ -89,13 +91,13 @@ const setup = (
   const refreshed: { command: string; options: ExecOptions | undefined }[] = [];
   const opened: {
     clone: string;
-    repo: string;
+    own: OwnRemote;
     branch: string;
     message: string;
     files: readonly string[];
   }[] = [];
   const branchCommit =
-    (clone: string, repo: string): BranchCommit =>
+    (clone: string, remote: OwnRemote): BranchCommit =>
     async (branch, message, use) => {
       if (options.branchCommit === 'throws') throw new Error('git worktree add failed: no space');
       const tree = nextFolder();
@@ -106,7 +108,7 @@ const setup = (
         writeFileSync(join(tree, ...file.split('/')), text);
       }
       const { value, files } = await use(tree);
-      opened.push({ clone, repo, branch, message, files });
+      opened.push({ clone, own: remote, branch, message, files });
       return files.length === 0 ? { value } : { value, commit: made };
     };
   const deps: ClaudeRunnerDeps = {
@@ -177,7 +179,7 @@ describe('claudeBrewerRunner: the lockfile refresh after a release bump (ADR 041
     assert.deepStrictEqual(opened, [
       {
         clone: '/work/clone.git',
-        repo: 'acme/web',
+        own,
         branch: 'foedrum/12-1/implement/1',
         message: 'Refresh web/package-lock.json after the release bump (ADR 0412)',
         files: ['web/package-lock.json'],

@@ -17,6 +17,7 @@ import { fold } from '../../src/engine/fold.ts';
 import { loadRecipes } from '../../src/engine/recipe-files.ts';
 import type { Event } from '../../src/schemas/events.ts';
 import { OutDocFrontmatter } from '../../src/schemas/out-doc.ts';
+import { ownGitDirsRoot } from '../../src/workspace/attempt-worktrees.ts';
 import type { Git, GitResult } from '../../src/workspace/git.ts';
 import { claudeModels } from '../helpers/models.ts';
 
@@ -308,7 +309,11 @@ describe('createAttemptPlans: the lockfile refresh after a release bump (ADR 041
   it("the plan of a committing brewer in a batch that waited for a release holds its repository's refresh", async () => {
     const events = [...subOrder('release'), ...started('implement', 'c'.repeat(40))];
     const plan = await plansOf(events).plan(startOf('implement'));
-    assert.equal(plan.refresh?.repo, 'acme/api');
+    // Reached by Foedrum's own git directories of the repository, never the clone's remote.
+    assert.deepEqual(plan.refresh?.own, {
+      url: 'https://github.com/acme/api.git',
+      root: ownGitDirsRoot(join('/root'), 'acme/api'),
+    });
     assert.equal(plan.refresh?.deadlineAt, deadlineAt('implement'));
     assert.equal(plan.refresh?.unsandboxed, false);
     // The setup's environment: claude's login is claude's alone (ADR 0069).
