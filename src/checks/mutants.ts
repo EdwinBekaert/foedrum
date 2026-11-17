@@ -13,7 +13,7 @@ export type Mutant = Pick<MutantEdit, 'file' | 'line' | 'original' | 'replacemen
 export type LineEdit = { ok: true; content: string; line: number } | { ok: false; reason: string };
 
 // A relative path with forward slashes, with no empty, `.` or `..` segment, and no backslash,
-// drive colon, control character or line separator. scripts/citations/core.ts has its own copy:
+// drive colon, control character or line separator. src/checks/citations.ts has its own copy:
 // the review skill may take that file from a pull request and this one from its base.
 export const isPlainPath = (file: string): boolean =>
   file.split('/').every((segment) => segment !== '' && segment !== '.' && segment !== '..') &&

@@ -22,6 +22,7 @@ import {
   settleAttempt,
 } from '../engine/brewer-runner.ts';
 import type { Ending } from '../engine/decide.ts';
+import { placesChecked, type ReadFiles, type ReviewedTree } from '../engine/finding-places.ts';
 import { type PlanRepository, type ReadPaths, touchesChecked } from '../engine/plan-touches.ts';
 import type { AttemptProgress } from '../engine/supervisor.ts';
 import { type BoundedRead, readOutDocFile } from '../platform/bounded-read.ts';
@@ -47,7 +48,8 @@ import {
   scanAttemptCommits,
 } from '../workspace/attempt-commits-git.ts';
 import type { OwnRemote } from '../workspace/clone-git.ts';
-import { runGit } from '../workspace/git.ts';
+import { readFilesAt } from '../workspace/finding-files-git.ts';
+import { type Git, runGit } from '../workspace/git.ts';
 import { type BranchCommit, openBranchCommit } from '../workspace/merge-tree-git.ts';
 import { readPathsAt } from '../workspace/plan-paths-git.ts';
 import { type AttemptSystemPrompt, outDocCopyOf } from './attempt-plan.ts';
@@ -115,6 +117,11 @@ export interface ClaudeAttemptPlan {
    * the plan's paths in it are checked at once it is done (ADR 0233).
    */
   touches?: readonly PlanRepository[];
+  /**
+   * For a Taster of a change: its repository's clone and the commit its worktree started at, the
+   * head it reviewed, where each finding's file and line are checked once it ends (ADR 0421).
+   */
+  reviewed?: ReviewedTree;
   /**
    * For a resumed run after a turn overrun: the copy of the out doc the run before left. The
    * runner keeps the out doc in the worktree, or puts this copy back there (ADR 0175).
@@ -184,6 +191,11 @@ export interface ClaudeRunnerDeps {
   checks?: ExecProcess;
   /** The paths an attempt's commits changed, for the checks before its end (ADR 0381). */
   changed?: ChangedPaths;
+  /**
+   * Reads the files a Taster's findings cite at the head it reviewed (ADR 0421). Without it, no
+   * finding's place is checked.
+   */
+  places?: ReadFiles;
 }
 
 /**
@@ -597,14 +609,20 @@ export function claudeBrewerRunnerWith(deps: ClaudeRunnerDeps): BrewerRunner {
         };
         // Its retry can write another way what the push would refuse (ADR 0187), or a plan with
         // the paths that exist (ADR 0233).
-        const ending = await touchesChecked(
+        const touched = await touchesChecked(
           deps.touches,
           await scannedIfDone(deps.scan, facts, limits, plan, stopping.signal),
           plan.touches,
           stopping.signal,
         );
-        // A stop while scanning or reading the plan's paths kills git: the attempt was stopped,
-        // git did not fail.
+        // A Taster's findings whose place does not exist at the head it reviewed are marked,
+        // never dropped (ADR 0421).
+        const ending =
+          deps.places === undefined
+            ? touched
+            : await placesChecked(deps.places, touched, plan.reviewed, stopping.signal);
+        // A stop while scanning or reading the plan's paths or the findings' files kills git: the
+        // attempt was stopped, git did not fail.
         if (!stopped && stopping.signal.aborted) return { end: { ...cancelled(), ...reported } };
         // The text as read, valid or not, for the state branch (ADR 0103).
         const outDoc = facts.outDoc === undefined ? {} : { outDoc: facts.outDoc };
@@ -780,11 +798,12 @@ export function claudeBrewerRunnerWith(deps: ClaudeRunnerDeps): BrewerRunner {
   };
 }
 
-/** The runner with the real process runner, files and clock. */
-export function claudeBrewerRunner(
+/** The runner's real process runner, files and clock, with git run through `git`. */
+export function realRunnerDeps(
   options: Pick<ClaudeRunnerDeps, 'claude' | 'plan' | 'setup' | 'checks'>,
-): BrewerRunner {
-  return claudeBrewerRunnerWith({
+  git: Git = runGit,
+): ClaudeRunnerDeps {
+  return {
     ...options,
     stream: streamProcess,
     files: {
@@ -797,11 +816,19 @@ export function claudeBrewerRunner(
     },
     now: () => new Date(),
     wait: waitFor,
-    commits: countCommits(runGit),
-    scan: scanAttemptCommits(runGit),
-    touches: readPathsAt(runGit),
-    changed: changedPaths(runGit),
+    commits: countCommits(git),
+    scan: scanAttemptCommits(git),
+    touches: readPathsAt(git),
+    places: readFilesAt(git),
+    changed: changedPaths(git),
     // A lockfile's refresh in a scratch tree of the attempt's branch (ADR 0412).
-    branchCommit: (clone, own) => openBranchCommit({ git: runGit, clone, own }),
-  });
+    branchCommit: (clone, own) => openBranchCommit({ git, clone, own }),
+  };
+}
+
+/** The runner with the real process runner, files and clock. */
+export function claudeBrewerRunner(
+  options: Pick<ClaudeRunnerDeps, 'claude' | 'plan' | 'setup' | 'checks'>,
+): BrewerRunner {
+  return claudeBrewerRunnerWith(realRunnerDeps(options));
 }

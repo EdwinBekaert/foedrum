@@ -14,11 +14,11 @@ export type CitationCheck = { ok: true; citation?: Citation } | { ok: false; rea
 // drive colon, control character or line separator. The same check as in
 // src/checks/mutants.ts, copied on purpose: this file imports nothing, so the review skill can
 // take it from a pull request and the mutant checker from its base without the two matching.
-const isPlainPath = (file: string): boolean =>
+export const isPlainPath = (file: string): boolean =>
   file.split('/').every((segment) => segment !== '' && segment !== '.' && segment !== '..') &&
   !/[\\:\p{Cc}\p{Zl}\p{Zp}]/u.test(file);
 
-const isObject = (value: unknown): value is Record<string, unknown> =>
+export const isObject = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
 
 // The findings (a lens) or proposals (simplify) of a reviewer's answer, or why there are none.

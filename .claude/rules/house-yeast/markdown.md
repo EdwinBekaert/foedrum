@@ -9,6 +9,10 @@ paths:
 
 Rules learned from reviews of Foedrum's own pull requests (ADR 0122), for the files this session reads or changes (ADR 0271). Follow them where your change meets them: /brew-review looks for what they describe.
 
+## a-readme-shell-block-names-its-shell (semantic)
+
+A block of commands a document tells a person to run says which shell it is written for when it uses a glob, a redirect or a `VAR=value cmd` prefix, and gives the PowerShell form beside it, which clears any variable it sets, since `$env:` lasts for the session.
+
 ## heading-and-back-references-follow-the-body (semantic)
 
 When a change alters what a section lists or allows (a count, a budget, the rows of a table), its heading and the lines that introduce or refer back to it say the same thing, so a reader never meets two framings of one section.

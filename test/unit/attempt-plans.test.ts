@@ -2785,6 +2785,48 @@ describe('createAttemptPlans: a Taster that reviews a plan (ADR 0312)', () => {
     assert.doesNotMatch(prompt, /name="change"/);
   });
 
+  it("a plan lens step's Taster gets no tree to check its findings against, since it reviewed no head (ADR 0421): regression test", async () => {
+    const { plans } = setup([...amber, inTree], planDocs, 'Export the batches.', tasting.brewers, {
+      repositories,
+    });
+    const planned = await plans.plan({ ref: taste, limits: plans.limits(taste) });
+    assert.equal(planned.reviewed, undefined);
+  });
+
+  it('a step of plan lenses together gets no tree to check its findings against either (ADR 0421)', async () => {
+    const together = loadRecipes({
+      ...readBreweryFiles(join(FOEDRUM_DEFAULTS, 'no-such-brewery')),
+      recipes: [
+        {
+          path: 'recipes/amber.jsonc',
+          text: recipeText(
+            'amber',
+            [
+              { id: 'plan', brewer: 'brewmaster' },
+              {
+                id: 'taste',
+                brewer: 'taster',
+                lenses: ['plan/naive-reader', 'plan/sizing'],
+                onFindings: { goto: 'plan', maxRounds: 1 },
+              },
+            ],
+            { testFirst: false },
+          ),
+        },
+      ],
+      lenses: [
+        { path: 'lenses/plan/naive-reader.md', text: 'Read each sub-order alone.\n' },
+        { path: 'lenses/plan/sizing.md', text: 'Weigh each sub-order.\n' },
+      ],
+    });
+    assert.ok(together.valid, together.valid ? '' : together.problems.join('\n'));
+    const { plans } = setup([...amber, inTree], planDocs, 'Export the batches.', together.brewers, {
+      repositories,
+    });
+    const planned = await plans.plan({ ref: taste, limits: plans.limits(taste) });
+    assert.equal(planned.reviewed, undefined);
+  });
+
   it("a plan lens step's Taster in a Brewery order gets the repositories", async () => {
     const folder = join('/work', 'brewery-orders', '12-1', 'taste', '1');
     const inFolder: Event = {
@@ -3220,5 +3262,44 @@ describe("the repository's testChanged line for the Gauger and the Cellarman (AD
     const { prompt } = await plans.plan(start);
     assert.match(prompt, /name="order">\nAdd a --json flag\.\n/);
     assert.doesNotMatch(prompt, /testChanged line|--changed/);
+  });
+});
+
+describe("the tree a Taster's findings are checked against (ADR 0421)", () => {
+  const tasting = loadRecipes({
+    ...readBreweryFiles(join(FOEDRUM_DEFAULTS, 'no-such-brewery')),
+    recipes: [
+      {
+        path: 'recipes/pale.jsonc',
+        text: recipeText(
+          'pale',
+          [
+            { id: 'gauge', brewer: 'gauger' },
+            {
+              id: 'brew',
+              brewer: 'taster',
+              lens: 'diff/correctness',
+              onFindings: { goto: 'gauge', maxRounds: 2 },
+            },
+            { action: 'openPullRequest' },
+          ],
+          { testFirst: false },
+        ),
+      },
+    ],
+  });
+  assert.ok(tasting.valid, tasting.valid ? '' : tasting.problems.join('\n'));
+  // The change it reads, empty: no test here reads it.
+  const git: AttemptPlansOptions['git'] = async () => ({ code: 0, stdout: '', stderr: '' });
+
+  it("gives a Taster of the change its repository's clone and the commit its worktree started at", async () => {
+    const { plans } = setup(undefined, {}, undefined, tasting.brewers, { git });
+    assert.deepEqual((await plans.plan(start)).reviewed, {
+      clone: join('/clones', 'acme/api'),
+      commit: 'c'.repeat(40),
+    });
+    // Any other brewer's attempt has none.
+    const other = setup(undefined, {}, undefined, brewedBy('gauger'));
+    assert.equal((await other.plans.plan(start)).reviewed, undefined);
   });
 });

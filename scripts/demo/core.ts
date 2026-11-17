@@ -341,6 +341,7 @@ export const lifeEndOf = (events: readonly { event: Event }[]): LifeEnd | undefi
       case 'usage.window_closed':
       case 'usage.window_opened':
       case 'order.approved':
+      case 'push.allowed':
         break;
       default:
         event satisfies never;

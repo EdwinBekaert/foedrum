@@ -9,7 +9,7 @@ import { baseMergeKey } from '../../src/engine/base-merge.ts';
 import { effectKey } from '../../src/engine/effect-key.ts';
 import { fold, type State } from '../../src/engine/fold.ts';
 import { withoutSecrets } from '../../src/engine/out-doc-text.ts';
-import { knownCommits } from '../../src/engine/pull-request.ts';
+import { allowedPushKey, knownCommits, latestPush } from '../../src/engine/pull-request.ts';
 import {
   type BranchPush,
   type PullRequestHost,
@@ -946,6 +946,94 @@ describe('pullRequestActions: the secret scan before the push (ADR 0079)', () =>
   });
 });
 
+describe('pullRequestActions: the push of a commit a person allowed (ADR 0420)', () => {
+  const found: ScanFinding[] = [{ commit: tip, place: 'notes/aws.txt', kind: 'GitHub token' }];
+  const allowedPush = () => effectKey.encode(allowedPushKey('12-1'));
+  const again = { ...action, attempt: 2 };
+  /** The push of `tip` refused, then allowed for `commit`, and the step's second attempt started. */
+  const allowedFor = (commit: string, ...ledger: Event[]): State =>
+    fold([
+      ordered({ issue: 12 }),
+      ...brewed,
+      ...opening,
+      applied(push, { branch, commit: tip, from, refused: found }),
+      {
+        type: 'step.finished',
+        ...action,
+        outcome: { kind: 'failed', retryable: false, reason: 'the push was refused' },
+      },
+      {
+        type: 'push.allowed',
+        batchId: '12-1',
+        stepId: 'open-pull-request',
+        commit,
+        why: 'a fake token built in a test fixture',
+        by: 'ada',
+        via: 'terminal',
+      },
+      { type: 'step.scheduled', ...again, deadlineAt: '2026-10-15T15:00:00.000Z' },
+      { type: 'step.started', ...again },
+      ...ledger,
+    ]);
+
+  it('keys the push after an allowance apart from the push of each round', () => {
+    assert.deepEqual(allowedPushKey('12-1'), { batchId: '12-1', effect: 'push.allowed' });
+    assert.deepEqual(allowedPushKey('12-1', 2), { batchId: '12-1', effect: 'push.2.allowed' });
+  });
+
+  it('pushes the allowed commit under its own key, without scanning it', async () => {
+    const { actions, pushes, scans } = actionsWith({ found });
+    const state = allowedFor(tip);
+    assert.deepEqual(
+      actions.due(state, again).map((key) => effectKey.encode(key)),
+      [allowedPush(), open],
+    );
+    assert.deepEqual(await actions.target.apply(allowedPush()), { branch, commit: tip, from });
+    assert.deepEqual(scans, []);
+    assert.deepEqual(pushes, [`${tip} ${branch}`]);
+  });
+
+  it('scans a commit that is not the allowed one, and refuses what it finds', async () => {
+    // The task tree now resolves to `other`, which nobody allowed.
+    const { actions, pushes, scans } = actionsWith({ found, commits: { [from]: other } });
+    actions.due(allowedFor(tip), again);
+    assert.deepEqual(await actions.target.apply(allowedPush()), {
+      branch,
+      commit: other,
+      from,
+      refused: found,
+    });
+    assert.deepEqual(scans, [`${base}..${other}`]);
+    assert.deepEqual(pushes, []);
+  });
+
+  it('calls for no push when the allowance names another commit than the refused one', () => {
+    const { actions } = actionsWith({ found });
+    const ending = actions.ending(allowedFor(other), again);
+    assert.deepEqual(actions.due(allowedFor(other), again), []);
+    assert.equal(ending.kind, 'blocked');
+  });
+
+  it("reads the allowed key's push before the refused one: the push went", () => {
+    const state = allowedFor(tip, applied(allowedPush(), { branch, commit: tip, from }));
+    assert.deepEqual(latestPush(state, '12-1'), { branch, commit: tip, from });
+  });
+
+  it('blocks again with what the allowed key refused', () => {
+    const { actions } = actionsWith();
+    const refusedAgain = [{ commit: other, place: 'a.txt', kind: 'GitHub token' }];
+    const state = allowedFor(
+      tip,
+      applied(allowedPush(), { branch, commit: other, from, refused: refusedAgain }),
+    );
+    const ending = actions.ending(state, again);
+    assert.deepEqual(ending.kind === 'blocked' ? ending.refused : undefined, {
+      commit: other,
+      findings: refusedAgain,
+    });
+  });
+});
+
 describe('pullRequestActions: what to look at before merging (ADR 0384)', () => {
   const at = (commit: string, files: Record<string, string>) =>
     Object.fromEntries(Object.entries(files).map(([path, text]) => [`${commit}:${path}`, text]));
@@ -1563,6 +1651,122 @@ describe('pullRequestActions: a later round pushes to the same pull request (ADR
   const second = fold([...onTap, ...round]);
   const withRemote = (remote: Record<string, string>) =>
     actionsWith({ remote, commits: { [from2]: fixed } });
+
+  it("pushes round 2's allowed commit under push.2.allowed without a scan, which its readers take (ADR 0420)", async () => {
+    const { actions, pushes, scans } = actionsWith({
+      remote: { [branch]: tip },
+      commits: { [from2]: fixed },
+      found: [{ commit: fixed, place: 'a.txt', kind: 'GitHub token' }],
+    });
+    const action3 = { ...action, attempt: 3 };
+    const allowedAgain: Event[] = [
+      ...onTap,
+      ...round,
+      applied(push2, {
+        branch,
+        commit: fixed,
+        from: from2,
+        refused: [{ commit: fixed, place: 'a.txt', kind: 'GitHub token' }],
+      }),
+      {
+        type: 'push.allowed',
+        batchId: '12-1',
+        stepId: 'open-pull-request',
+        commit: fixed,
+        why: 'a fake token built in a test fixture',
+        by: 'ada',
+        via: 'terminal',
+      },
+      { type: 'step.scheduled', ...action3, deadlineAt: '2026-10-15T17:00:00.000Z' },
+      { type: 'step.started', ...action3 },
+    ];
+    const allowed2 = effectKey.encode({ batchId: '12-1', effect: 'push.2.allowed' });
+    const state = fold(allowedAgain);
+    assert.deepEqual(actions.due(state, action3).map(effectKey.encode), [allowed2, open]);
+    const went = await actions.target.apply(allowed2);
+    assert.deepEqual(went, { branch, commit: fixed, from: from2 });
+    assert.deepEqual(scans, []);
+    assert.deepEqual(pushes, [`${fixed} ${branch}`]);
+    assert.deepEqual(latestPush(fold([...allowedAgain, applied(allowed2, went)]), '12-1'), went);
+  });
+
+  it("scans round 2's new commit under push.2 after round 1's allowance (ADR 0420)", async () => {
+    const found = [{ commit: fixed, place: 'a.txt', kind: 'GitHub token' }];
+    const { actions, pushes, scans } = actionsWith({
+      remote: { [branch]: tip },
+      commits: { [from2]: fixed },
+      found,
+    });
+    const [order, ...rest] = onTap;
+    const went = rest.findIndex((event) => event.type === 'effect.applied' && event.key === push);
+    const allowedFirst: Event[] = [
+      order as Event,
+      ...rest.slice(0, went),
+      applied(push, {
+        branch,
+        commit: tip,
+        from,
+        refused: [{ commit: tip, place: 'b.txt', kind: 'GitHub token' }],
+      }),
+      {
+        type: 'push.allowed',
+        batchId: '12-1',
+        stepId: 'open-pull-request',
+        commit: tip,
+        why: 'a fake token built in a test fixture',
+        by: 'ada',
+        via: 'terminal',
+      },
+      applied(effectKey.encode(allowedPushKey('12-1')), { branch, commit: tip, from }),
+      ...rest.slice(went + 1),
+      ...round,
+    ];
+    const state = fold(allowedFirst);
+    assert.deepEqual(keysOf(state, actions), [push2, open]);
+    assert.deepEqual(await actions.target.apply(push2), {
+      branch,
+      commit: fixed,
+      from: from2,
+      refused: found,
+    });
+    assert.deepEqual(scans, [`${base}..${fixed}`]);
+    assert.deepEqual(pushes, []);
+  });
+
+  it("expects round 2's branch where the push after round 1's allowance left it, not at the refused commit (ADR 0420)", async () => {
+    // The push after the allowance resolved `other`, which the scan passed, and pushed it.
+    const { actions, pushes } = actionsWith({
+      remote: { [branch]: other },
+      commits: { [from2]: fixed },
+    });
+    const [order, ...rest] = onTap;
+    const went = rest.findIndex((event) => event.type === 'effect.applied' && event.key === push);
+    const state = fold([
+      order as Event,
+      ...rest.slice(0, went),
+      applied(push, {
+        branch,
+        commit: tip,
+        from,
+        refused: [{ commit: tip, place: 'b.txt', kind: 'GitHub token' }],
+      }),
+      {
+        type: 'push.allowed',
+        batchId: '12-1',
+        stepId: 'open-pull-request',
+        commit: tip,
+        why: 'a fake token built in a test fixture',
+        by: 'ada',
+        via: 'terminal',
+      },
+      applied(effectKey.encode(allowedPushKey('12-1')), { branch, commit: other, from }),
+      ...rest.slice(went + 1),
+      ...round,
+    ]);
+    assert.deepEqual(keysOf(state, actions), [push2, open]);
+    assert.deepEqual(await actions.target.apply(push2), { branch, commit: fixed, from: from2 });
+    assert.deepEqual(pushes, [`${fixed} ${branch}`]);
+  });
 
   it("pushes the round's task tree under the round's key, and opens nothing again", async () => {
     const { actions, pushes, requests } = withRemote({ [branch]: tip });

@@ -1431,6 +1431,41 @@ describe('renderStatus', () => {
     );
   });
 
+  it("says beside a Taster's finding that its line does not exist in the reviewed code (ADR 0421)", () => {
+    const tasted: Attempt = {
+      phase: 'finished',
+      attempt: 1,
+      deadlineAt: at,
+      outcome: {
+        kind: 'succeeded',
+        output: {
+          status: 'done',
+          summary: 'Tasted',
+          assumptions: [],
+          verdict: 'approve',
+          findings: [
+            {
+              file: 'src/login.ts',
+              line: 34,
+              severity: 'minor',
+              why: 'The retry has no limit',
+              introduced: true,
+              missing: 'line',
+            },
+          ],
+        },
+      },
+    };
+    const lines = renderStatus(batch({ steps: new Map([step('taste', tasted)]) }), ['taste']).split(
+      '\n',
+    );
+    const at_ = lines.indexOf('**Findings**');
+    assert.equal(
+      lines[at_ + 1],
+      '- `taste`: minor in src/login.ts:34 (that line does not exist in the reviewed code): The retry has no limit',
+    );
+  });
+
   it("lists a Finer's changes under Simplifications, ten per step, or why it changed nothing (ADR 0166)", () => {
     const fined = (fields: Record<string, unknown>): Attempt => ({
       phase: 'finished',

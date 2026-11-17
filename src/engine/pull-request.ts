@@ -17,12 +17,13 @@ import {
   gaugeOf,
   lensFirst,
   MutantsOutDoc,
+  missingNote,
   OutDocFrontmatter,
   PullRequestOutDoc,
   type PullRequestSections,
   placeOf,
+  StoredTastingOutDoc,
   type TastingFinding,
-  TastingOutDoc,
   type TastingReport,
   tastingOf,
 } from '../schemas/out-doc.ts';
@@ -68,12 +69,25 @@ export const pullRequestRound = (batch: Batch): number => {
 };
 
 /**
+ * The effect that pushes the batch's task tree in `round` after a person allowed its refused push:
+ * `push.allowed`, then `push.<n>.allowed` (ADR 0420).
+ */
+export const allowedPushKey = (batchId: string, round = 1): BatchEffectKey => ({
+  batchId,
+  effect: `${pushKey(batchId, round).effect}.allowed`,
+});
+
+/**
  * What the ledger recorded for each push of `batchId`, round by round from the first, as far as
- * they go: a round pushes only after the one before (ADR 0219). Unread here: each reader passes
- * over a result that is no push.
+ * they go: a round pushes only after the one before (ADR 0219), and a round's push after an
+ * allowance stands for its refused one (ADR 0420). Unread here: each reader passes over a result
+ * that is no push.
  */
 export const recordedPushes = (state: State, batchId: string): unknown[] =>
-  numberedEffects(state, (round) => pushKey(batchId, round), z.unknown(), 'a push');
+  numberedEffects(state, (round) => pushKey(batchId, round), z.unknown(), 'a push').map(
+    (refusedOrNot, at) =>
+      state.effects.get(effectKey.encode(allowedPushKey(batchId, at + 1))) ?? refusedOrNot,
+  );
 
 /** The latest push the ledger recorded for `batchId` (ADR 0219), when it is one the engine records. */
 export const latestPush = (state: State, batchId: string): PushResult | undefined => {
@@ -435,7 +449,7 @@ export const stepReports = (batch: Batch): StepReport[] => {
     // (ADR 0166), a Gauger's its tests (ADR 0170), and Brett's its mutants (ADR 0319).
     const { output } = latest.outcome;
     const { mutants = [] } = latest;
-    const doc = OutDocFrontmatter.or(TastingOutDoc)
+    const doc = OutDocFrontmatter.or(StoredTastingOutDoc)
       .or(PullRequestOutDoc)
       .or(FiningOutDoc)
       .or(GaugeOutDoc)
@@ -510,8 +524,8 @@ const preExistingOf = (step: Step): PreExisting[] => {
  * lens when it names one.
  */
 export const findingText = (finding: TastingFinding): string => {
-  const { file, line, severity, introduced } = finding;
-  const where = file === undefined ? '' : ` in ${file}${line === undefined ? '' : `:${line}`}`;
+  const { file, severity, introduced } = finding;
+  const where = file === undefined ? '' : ` in ${placeOf(finding)}${missingNote(finding)}`;
   // The lens it was found through, on a step of several lenses together (ADR 0220).
   return `${lensFirst(finding)}${severity}${where}${introduced ? '' : ', there before the change'}`;
 };

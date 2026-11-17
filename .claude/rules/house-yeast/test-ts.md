@@ -24,3 +24,7 @@ A fake that answers with a value the code under test also holds (the commit it w
 ## near-miss-for-every-rule-of-a-text-form (semantic)
 
 When code recognises a documented text form, every constraint of that form (one line, what may follow a separator, which names are allowed) has a near-miss test that reaches each branch of the matcher the constraint applies to, so dropping a flag or a character class from the pattern fails a test.
+
+## refusal-test-checks-reason-and-path (semantic)
+
+A test that a schema refuses a value checks the path of the issue it expects, and shows the same input without that value accepted, never only that the parse failed.

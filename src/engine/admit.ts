@@ -200,6 +200,9 @@ function rule(state: State, event: Event): string | undefined {
     // A continue answers the question of a batch whose issue changed (ADR 0368).
     case 'order.approved':
       return lanes(state, event, ['stuck']);
+    // An allow answers the question of a batch whose push was refused (ADR 0420).
+    case 'push.allowed':
+      return lanes(state, event, ['stuck']);
     case 'pull_request.reviews_read':
       return checkable(state, event) ?? unreviewed(state, event);
     default: {
