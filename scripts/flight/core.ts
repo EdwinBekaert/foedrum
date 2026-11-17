@@ -463,22 +463,31 @@ export const nextFlightRun = (
 ): { setup: string; run: number; retry: boolean } | undefined =>
   nextRunOf(orders, records, runs, flightFailure);
 
-/** The tokens of one usage: the four kinds summed. */
-export const tokensOf = (usage: Usage | undefined): number =>
+const tokensOf = (usage: Usage | undefined): number =>
   usage === undefined
     ? 0
     : usage.inputTokens + usage.outputTokens + usage.cacheReadTokens + usage.cacheWriteTokens;
+
+/**
+ * The figures of an order's measured runs: its hidden tests passed, its runs with changes outside
+ * its paths, and its tokens and brewers' milliseconds summed.
+ */
+export const scoredFigures = (scored: readonly FlightRecord[]) => {
+  const steps = scored.flatMap(({ flight }) => flight.steps);
+  return {
+    passed: scored.filter(({ flight }) => flight.hidden === 'passed').length,
+    outside: scored.filter(({ flight }) => flight.outside.length > 0).length,
+    tokens: steps.reduce((sum, { usage }) => sum + tokensOf(usage), 0),
+    ms: steps.reduce((sum, { durationMs }) => sum + durationMs, 0),
+  };
+};
 
 /** One row per order: its runs, hidden tests passed, runs with outside changes, tokens and time. */
 export const flightTable = (records: readonly FlightRecord[]): string => {
   const orders = [...new Set(records.map(({ setup }) => setup))];
   const rows = orders.map((order) => {
     const { scored, failed } = runsOfSetup(records, order, flightFailure);
-    const passed = scored.filter(({ flight }) => flight.hidden === 'passed').length;
-    const outside = scored.filter(({ flight }) => flight.outside.length > 0).length;
-    const steps = scored.flatMap(({ flight }) => flight.steps);
-    const tokens = steps.reduce((sum, { usage }) => sum + tokensOf(usage), 0);
-    const ms = steps.reduce((sum, { durationMs }) => sum + durationMs, 0);
+    const { passed, outside, tokens, ms } = scoredFigures(scored);
     const row = `| ${order} | ${scored.length} | ${passed} of ${scored.length} | ${outside} | ${tokens} | ${Math.round(ms / 1000)} s |`;
     return [
       row,

@@ -5,7 +5,7 @@
 import { join } from 'node:path';
 import type { parseArgs } from 'node:util';
 import { escapeCell, runsOfSetup } from '../tasting-compare/core.ts';
-import { type FlightRecord, flightFailure, tokensOf } from './core.ts';
+import { type FlightRecord, flightFailure, scoredFigures } from './core.ts';
 
 /** The options flight-report.ts reads, as `parseArgs` takes them. */
 export const FLIGHT_REPORT_OPTIONS = {
@@ -72,14 +72,14 @@ const measuredOf = (
 ): Measured | undefined => {
   const { scored } = runsOfSetup(records, order, flightFailure);
   if (scored.length === 0) return undefined;
-  const steps = scored.flatMap(({ flight }) => flight.steps);
+  const { passed, outside, tokens, ms } = scoredFigures(scored);
   return {
-    passed: scored.filter(({ flight }) => flight.hidden === 'passed').length,
+    passed,
     runs,
     scored: scored.length,
-    outside: scored.filter(({ flight }) => flight.outside.length > 0).length,
-    tokens: steps.reduce((sum, { usage }) => sum + tokensOf(usage), 0) / scored.length,
-    ms: steps.reduce((sum, { durationMs }) => sum + durationMs, 0) / scored.length,
+    outside,
+    tokens: tokens / scored.length,
+    ms: ms / scored.length,
   };
 };
 
@@ -108,15 +108,15 @@ export const flightReport = (
   const inCandidate = new Set(ordersOf(candidate));
   const inBaseline = new Set(ordersOf(baseline));
   const notes: string[] = [];
-  const onlyIn = (side: 'baseline' | 'candidate', orders: string[]) => {
-    if (orders.length > 0) notes.push(`Only in the ${side}: ${orders.map(escapeCell).join(', ')}`);
+  const note = (heading: string, orders: readonly string[]) => {
+    if (orders.length > 0) notes.push(`${heading}: ${orders.map(escapeCell).join(', ')}`);
   };
-  onlyIn(
-    'baseline',
+  note(
+    'Only in the baseline',
     ordersOf(baseline).filter((order) => !inCandidate.has(order)),
   );
-  onlyIn(
-    'candidate',
+  note(
+    'Only in the candidate',
     ordersOf(candidate).filter((order) => !inBaseline.has(order)),
   );
   const unmeasured = { baseline: [] as string[], candidate: [] as string[] };
@@ -142,9 +142,7 @@ export const flightReport = (
     );
   }
   for (const side of ['baseline', 'candidate'] as const) {
-    if (unmeasured[side].length > 0) {
-      notes.push(`No run measured in the ${side}: ${unmeasured[side].map(escapeCell).join(', ')}`);
-    }
+    note(`No run measured in the ${side}`, unmeasured[side]);
   }
   const compared = rows.length;
   const tokens =
@@ -182,13 +180,11 @@ export const flightReportRun = (
     return refused('--candidate names the Flight folder compared with the baseline');
   }
   const read = { baseline: recordsIn(baseline), candidate: recordsIn(candidate) };
-  for (const [side, folder] of [
-    ['baseline', baseline],
-    ['candidate', candidate],
-  ] as const) {
+  const folders = { baseline, candidate };
+  for (const side of ['baseline', 'candidate'] as const) {
     if (read[side].length === 0) {
       return refused(
-        `--${side} ${folder} holds no results.jsonl records: name a Flight folder under .foedrum/tmp/flight`,
+        `--${side} ${folders[side]} holds no results.jsonl records: name a Flight folder under .foedrum/tmp/flight`,
       );
     }
   }
