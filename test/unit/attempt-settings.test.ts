@@ -8,7 +8,7 @@ import {
   toolchainOf,
   writeAttemptSettings,
 } from '../../src/brewers/attempt-settings.ts';
-import { type AttemptSettings, sandboxCredentials } from '../../src/schemas/attempt-settings.ts';
+import { AttemptSettings } from '../../src/schemas/attempt-settings.ts';
 import { withinCeiling } from '../../src/schemas/primitives.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 
@@ -96,32 +96,12 @@ describe('attemptSettings', () => {
     assert.equal(settings.sandbox?.autoAllowBashIfSandboxed, false);
   });
 
-  // A sandboxed command reads most of the machine and inherits Claude Code's environment, and
-  // Claude Code has no credential deny list of its own (ADR 0087).
-  it('hides the credential files and variables from sandboxed commands', () => {
+  // ADR 0414: a list of places that may hold a login has no end; the agent's sandbox keeps the
+  // person's logins from a brewer's commands, and the settings name none.
+  it('writes a sandbox block that names no login place', () => {
     const settings = attemptSettings({ allow: ['Read'], deny: [], sandbox: true });
-    assert.deepEqual(settings.sandbox?.credentials, {
-      files: [
-        '~/.config/gh',
-        '~/.git-credentials',
-        '~/.config/git/credentials',
-        '~/.ssh',
-        '~/.aws',
-        '~/.npmrc',
-        '~/.claude/.credentials.json',
-        '~/.config/anthropic',
-      ].map((path) => ({ path, mode: 'deny' })),
-      envVars: [
-        'GH_TOKEN',
-        'GITHUB_TOKEN',
-        'GH_ENTERPRISE_TOKEN',
-        'GITHUB_ENTERPRISE_TOKEN',
-        'NPM_TOKEN',
-        'ANTHROPIC_API_KEY',
-        'ANTHROPIC_AUTH_TOKEN',
-        'CLAUDE_CODE_OAUTH_TOKEN',
-      ].map((name) => ({ name, mode: 'deny' })),
-    });
+    assert.equal(settings.sandbox?.enabled, true);
+    assert.equal(Object.hasOwn(settings.sandbox ?? {}, 'credentials'), false);
   });
 
   // #247: a sandboxed command reads most of the machine, and a list of credential paths can't be
@@ -224,29 +204,16 @@ describe('attemptSettings', () => {
       assert.equal(allowReadOf(settingsFor(entries.join(':'))), undefined);
     });
 
-    // The docs: "When read rules overlap, the rule with the narrower path applies", so an
-    // `allowRead` inside a hidden login would re-open it, and one around it would re-open what
-    // else lies there.
-    it('re-opens no folder at, inside or around a login the sandbox hides', () => {
+    // ADR 0414: the person's PATH is their own; a folder on it under the home is re-opened as it
+    // is, whatever it holds, and only the home itself never is.
+    it('re-opens a PATH folder under the home as it is, whatever login it may hold', () => {
       const entries = [
         `${HOME}/.config/gh/bin`,
         `${HOME}/.ssh`,
-        `${HOME}/.aws/cli/bin`,
         `${HOME}/.config`,
         `${HOME}/.claude`,
       ];
-      const settings = settingsFor(entries.join(':'));
-      assert.equal(allowReadOf(settings), undefined);
-    });
-
-    // The overlap table: "The deny holds inside a wider allow, so a broad allow can't silently
-    // re-expose a secret"; `credentials.files` is the same restriction as `denyRead`.
-    it('keeps every hidden login next to the folders it re-opens', () => {
-      const settings = settingsFor(`${HOME}/.nvm/versions/node/v24.15.0/bin`);
-      assert.deepEqual(
-        settings.sandbox?.credentials.files.map(({ path }) => path),
-        sandboxCredentials.files.map(({ path }) => path),
-      );
+      assert.deepEqual(reopened(entries.join(':')), entries);
     });
 
     // `~/` in a sandbox path would expand to the HOME of the process that reads it.
@@ -284,24 +251,12 @@ describe('attemptSettings', () => {
       assert.equal(allowReadOf(settings), undefined);
     });
 
-    // Review of #437: a folder whose name starts with a login's is not at, inside or around it.
-    it("re-opens a folder beside a hidden login whose name starts with the login's", () => {
-      const entries = [`${HOME}/.sshtools/bin`, `${HOME}/.aws-vault/bin`, `${HOME}/.conf/bin`];
-      assert.deepEqual(reopened(entries.join(':')), entries);
-    });
-
     // Review of #437: only a layout's own bin goes up to its prefix.
     it("re-opens a folder deeper than a layout's bin as it is", () => {
       assert.deepEqual(reopened(`${HOME}/.volta/bin/sub:${HOME}/.asdf/shims/x`), [
         `${HOME}/.volta/bin/sub`,
         `${HOME}/.asdf/shims/x`,
       ]);
-    });
-
-    // Review of #437: macOS's default file system ignores case, so `~/.SSH` is `~/.ssh` there.
-    it('re-opens no folder at, inside or around a hidden login in any case', () => {
-      const entries = [`${HOME}/.SSH`, `${HOME}/.Config/gh/bin`, `${HOME}/.CONFIG`];
-      assert.equal(allowReadOf(settingsFor(entries.join(':'))), undefined);
     });
 
     // Review of #437: the home goes through the same normalisation as the PATH folders.
@@ -969,7 +924,6 @@ const sandboxBlock = {
   failIfUnavailable: true,
   allowUnsandboxedCommands: false,
   autoAllowBashIfSandboxed: false,
-  credentials: sandboxCredentials,
 };
 const sandboxed = (
   sandbox: object,
@@ -1068,28 +1022,6 @@ describe('writeAttemptSettings', () => {
       /autoAllowBashIfSandboxed/,
     ],
     [
-      'a sandbox that leaves a credential variable set',
-      sandboxed({
-        ...sandboxBlock,
-        credentials: {
-          ...sandboxCredentials,
-          envVars: sandboxCredentials.envVars.filter(({ name }) => name !== 'GH_TOKEN'),
-        },
-      }),
-      /Must hide every credential/,
-    ],
-    [
-      'a sandbox that leaves a credential file readable',
-      sandboxed({
-        ...sandboxBlock,
-        credentials: {
-          ...sandboxCredentials,
-          files: sandboxCredentials.files.filter(({ path }) => path !== '~/.config/gh'),
-        },
-      }),
-      /Must hide every credential/,
-    ],
-    [
       'a sandbox without the read block',
       sandboxed(sandboxBlock, {}),
       /blockReadsOutsideWorkingDirectories/,
@@ -1100,36 +1032,9 @@ describe('writeAttemptSettings', () => {
       /blockReadsOutsideWorkingDirectories/,
     ],
     [
-      'a sandbox that hides no credentials',
-      sandboxed(withoutKey(sandboxBlock, 'credentials')),
-      /credentials/,
-    ],
-    [
       'a sandbox that auto-allows sandboxed commands',
       sandboxed({ ...sandboxBlock, autoAllowBashIfSandboxed: true }),
       /autoAllowBashIfSandboxed/,
-    ],
-    [
-      'a credential file masked instead of denied',
-      sandboxed({
-        ...sandboxBlock,
-        credentials: {
-          ...sandboxCredentials,
-          files: sandboxCredentials.files.map((entry) => ({ ...entry, mode: 'mask' })),
-        },
-      }),
-      /files/,
-    ],
-    [
-      'a credential variable masked instead of denied',
-      sandboxed({
-        ...sandboxBlock,
-        credentials: {
-          ...sandboxCredentials,
-          envVars: sandboxCredentials.envVars.map((entry) => ({ ...entry, mode: 'mask' })),
-        },
-      }),
-      /envVars/,
     ],
     // Review of #437: what toolchainReads writes, an absolute folder each, at least one.
     [
@@ -1174,6 +1079,26 @@ describe('writeAttemptSettings', () => {
       assert.equal(existsSync(file), false);
     });
   }
+});
+
+// ADR 0414: the schema takes a sandbox block that names no login place, and refuses one that does.
+describe('AttemptSettings: no login places', () => {
+  it('accepts a sandbox block that names no login place', () => {
+    assert.equal(AttemptSettings.safeParse(sandboxed(sandboxBlock)).success, true);
+  });
+
+  it('refuses a sandbox block that names login places, and writes nothing', () => {
+    const dir = makeTempDir('attempt-settings');
+    const file = join(dir.path, 'settings.json');
+    try {
+      const credentials = { files: [{ path: '~/.ssh', mode: 'deny' }], envVars: [] };
+      const settings = sandboxed({ ...sandboxBlock, credentials }) as AttemptSettings;
+      assert.throws(() => writeAttemptSettings(file, settings), /Unrecognized key.*credentials/);
+      assert.equal(existsSync(file), false);
+    } finally {
+      dir.remove();
+    }
+  });
 });
 
 describe('toolchainOf', () => {
