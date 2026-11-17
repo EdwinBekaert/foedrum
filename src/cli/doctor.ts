@@ -15,6 +15,7 @@ import {
   replacedDefaults,
 } from '../engine/recipe-files.ts';
 import { mapLines } from '../engine/system-map.ts';
+import type { ModelUsed } from '../engine/tasting-suggestions.ts';
 import { pastaResolverGap, setupStack } from '../platform/check-sandbox.ts';
 import type { AwakeMechanism } from '../platform/keep-awake.ts';
 import { BreweryConfig } from '../schemas/brewery-config.ts';
@@ -81,6 +82,18 @@ export interface DoctorFacts {
    * ADR 0087); absent when it is not set. Never printed as it is: it may hold a key.
    */
   modelBaseUrl?: string | undefined;
+  /** The text of the Brewery's models.jsonc, for its tasted list (ADR 0419); absent when there is none. */
+  models?: string | undefined;
+  /** Why models.jsonc could not be read, when it is there and could not be. */
+  modelsUnreadable?: string | undefined;
+  /** The brewer attempts of the event log that reported a model, and when doctor read them (ADR 0419). */
+  tasting?: TastingFact | undefined;
+}
+
+/** The models brewer attempts reported, as the event log holds them, read `at` (ADR 0419). */
+export interface TastingFact {
+  used: readonly ModelUsed[];
+  at: Date;
 }
 
 /** The denylist's state as doctor reports it: its path, never its words or their count. */

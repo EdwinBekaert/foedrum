@@ -16,6 +16,7 @@ import {
   type DenylistFact,
   type DoctorFacts,
   githubHostOfConfig,
+  type TastingFact,
   type ToolName,
   type ToolRun,
 } from './doctor.ts';
@@ -62,6 +63,8 @@ export interface DoctorShell {
   restrictsUserns?: () => boolean | undefined;
   /** Each repository of the Brewery read at its base for the system map (`readDoctorMap`, ADR 0317). */
   systemMap?: () => Promise<DoctorMapRepository[]>;
+  /** The models the Brewery's brewer attempts reported, from its event log (ADR 0419). */
+  tasting?: () => TastingFact;
 }
 
 // The list's state without its text: doctor never prints a word of it (ADR 0114).
