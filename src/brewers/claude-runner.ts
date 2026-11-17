@@ -49,7 +49,7 @@ import {
 } from '../workspace/attempt-commits-git.ts';
 import type { OwnRemote } from '../workspace/clone-git.ts';
 import { readFilesAt } from '../workspace/finding-files-git.ts';
-import { runGit } from '../workspace/git.ts';
+import { type Git, runGit } from '../workspace/git.ts';
 import { type BranchCommit, openBranchCommit } from '../workspace/merge-tree-git.ts';
 import { readPathsAt } from '../workspace/plan-paths-git.ts';
 import { type AttemptSystemPrompt, outDocCopyOf } from './attempt-plan.ts';
@@ -798,11 +798,12 @@ export function claudeBrewerRunnerWith(deps: ClaudeRunnerDeps): BrewerRunner {
   };
 }
 
-/** The runner with the real process runner, files and clock. */
-export function claudeBrewerRunner(
+/** The runner's real process runner, files and clock, with git run through `git`. */
+export function realRunnerDeps(
   options: Pick<ClaudeRunnerDeps, 'claude' | 'plan' | 'setup' | 'checks'>,
-): BrewerRunner {
-  return claudeBrewerRunnerWith({
+  git: Git = runGit,
+): ClaudeRunnerDeps {
+  return {
     ...options,
     stream: streamProcess,
     files: {
@@ -815,12 +816,19 @@ export function claudeBrewerRunner(
     },
     now: () => new Date(),
     wait: waitFor,
-    commits: countCommits(runGit),
-    scan: scanAttemptCommits(runGit),
-    touches: readPathsAt(runGit),
-    places: readFilesAt(runGit),
-    changed: changedPaths(runGit),
+    commits: countCommits(git),
+    scan: scanAttemptCommits(git),
+    touches: readPathsAt(git),
+    places: readFilesAt(git),
+    changed: changedPaths(git),
     // A lockfile's refresh in a scratch tree of the attempt's branch (ADR 0412).
-    branchCommit: (clone, own) => openBranchCommit({ git: runGit, clone, own }),
-  });
+    branchCommit: (clone, own) => openBranchCommit({ git, clone, own }),
+  };
+}
+
+/** The runner with the real process runner, files and clock. */
+export function claudeBrewerRunner(
+  options: Pick<ClaudeRunnerDeps, 'claude' | 'plan' | 'setup' | 'checks'>,
+): BrewerRunner {
+  return claudeBrewerRunnerWith(realRunnerDeps(options));
 }
