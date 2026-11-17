@@ -1733,6 +1733,41 @@ describe('pullRequestActions: a later round pushes to the same pull request (ADR
     assert.deepEqual(pushes, []);
   });
 
+  it("expects round 2's branch where the push after round 1's allowance left it, not at the refused commit (ADR 0419)", async () => {
+    // The push after the allowance resolved `other`, which the scan passed, and pushed it.
+    const { actions, pushes } = actionsWith({
+      remote: { [branch]: other },
+      commits: { [from2]: fixed },
+    });
+    const [order, ...rest] = onTap;
+    const went = rest.findIndex((event) => event.type === 'effect.applied' && event.key === push);
+    const state = fold([
+      order as Event,
+      ...rest.slice(0, went),
+      applied(push, {
+        branch,
+        commit: tip,
+        from,
+        refused: [{ commit: tip, place: 'b.txt', kind: 'GitHub token' }],
+      }),
+      {
+        type: 'push.allowed',
+        batchId: '12-1',
+        stepId: 'open-pull-request',
+        commit: tip,
+        why: 'a fake token built in a test fixture',
+        by: 'ada',
+        via: 'terminal',
+      },
+      applied(effectKey.encode(allowedPushKey('12-1')), { branch, commit: other, from }),
+      ...rest.slice(went + 1),
+      ...round,
+    ]);
+    assert.deepEqual(keysOf(state, actions), [push2, open]);
+    assert.deepEqual(await actions.target.apply(push2), { branch, commit: fixed, from: from2 });
+    assert.deepEqual(pushes, [`${fixed} ${branch}`]);
+  });
+
   it("pushes the round's task tree under the round's key, and opens nothing again", async () => {
     const { actions, pushes, requests } = withRemote({ [branch]: tip });
     assert.deepEqual(keysOf(second, actions), [push2, open]);
