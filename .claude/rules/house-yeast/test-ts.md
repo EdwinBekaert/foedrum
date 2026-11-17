@@ -13,6 +13,10 @@ Rules learned from reviews of Foedrum's own pull requests (ADR 0122), for the fi
 
 A test that shows a text reached a prompt, a body or an output matches text only the behaviour under test writes there, never text the fixture's own input (the order, a file it read) also holds, and asserts the same pattern is absent where the behaviour did not run.
 
+## expected-output-never-from-the-code-under-test (semantic)
+
+A test builds its expected output from its fixtures and the files it reads, never by calling the function under test or reading the output back, so a wrong value cannot appear on both sides of the comparison.
+
 ## fakes-answer-with-distinct-values (semantic)
 
 A fake that answers with a value the code under test also holds (the commit it was given, the same folder it made before) gets a distinct one in the test, so the test can tell which value the code passed on.
