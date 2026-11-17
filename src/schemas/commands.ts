@@ -142,7 +142,7 @@ export type CancelCommand = z.infer<typeof CancelCommand>;
 
 /**
  * One answer per question the batch asked, in the order it asked them; or `allow` and the words of
- * its reason, which the answer to a refused push checks itself (ADR 0419).
+ * its reason, which the answer to a refused push checks itself (ADR 0420).
  */
 export const AnswerCommand = z.strictObject({
   command: z.literal('answer'),

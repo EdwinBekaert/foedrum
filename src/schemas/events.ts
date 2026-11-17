@@ -1028,7 +1028,7 @@ export const Event = z.discriminatedUnion('type', [
     via: Surface,
   }),
   // A person let the refused push of `commit` at the openPullRequest step `stepId` go, for that
-  // exact commit and all its findings, with why (ADR 0419). An older Foedrum cannot read this event.
+  // exact commit and all its findings, with why (ADR 0420). An older Foedrum cannot read this event.
   z.strictObject({
     type: z.literal('push.allowed'),
     batchId: BatchId,

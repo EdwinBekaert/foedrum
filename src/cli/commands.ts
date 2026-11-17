@@ -904,7 +904,7 @@ export const commands: readonly RegisteredCommand[] = [
     handler: async ({ issue, answers }, context) =>
       changeBatch('answer', issue, context, (batch, issued, state) => {
         const asked = questionsOf(state(), batch);
-        // The words after allow are its reason, which the engine checks (ADR 0419).
+        // The words after allow are its reason, which the engine checks (ADR 0420).
         const [first, ...reason] = answers;
         if (asked[0] === PUSH_REFUSED_QUESTION && first === 'allow') {
           return {

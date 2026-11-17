@@ -339,7 +339,7 @@ export interface Batch {
   orderedBy?: string;
   /** Up to when a person's "continue" approved its claimed issue (ADR 0368); absent before one. */
   approvedUpTo?: string;
-  /** The latest refused push a person let go, for its exact commit (ADR 0419); absent before one. */
+  /** The latest refused push a person let go, for its exact commit (ADR 0420); absent before one. */
   pushAllowed?: { stepId: string; commit: string; why: string; by: string; via: Surface };
   /** What chose the recipe; a human's choice also records who issued it and from where. */
   recipe?: { name: string; reason: string; type?: RecipeType } & (

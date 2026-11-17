@@ -1,7 +1,7 @@
 // A push the secret scan refused (ADR 0079) waits as a Stuck reason of its own, `push_refused`:
 // what was found, by kind, place and line, never the text, and the one question a person answers
 // with `foedrum answer <issue> stop` (ADR 0418) or `foedrum answer <issue> allow "<why>"`, which
-// lets the push of that exact commit go (ADR 0419).
+// lets the push of that exact commit go (ADR 0420).
 
 import { MOST_REFUSED_SHOWN, type StuckReason } from '../schemas/events.ts';
 import type { ScanFinding } from '../schemas/store.ts';

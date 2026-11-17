@@ -166,7 +166,7 @@ type ActionEffect =
       };
       /** A later round's: the commit the round before pushed, where it expects the branch (ADR 0219). */
       previous?: string;
-      /** The commit a person allowed (ADR 0419): pushed without a scan, and only that commit. */
+      /** The commit a person allowed (ADR 0420): pushed without a scan, and only that commit. */
       allowed?: string;
     }
   | {
@@ -186,9 +186,9 @@ type Plan =
       revision: string;
       /** The round of the pull request this push is (ADR 0219). */
       round: number;
-      /** The push's key: the round's, or its push after an allowance (ADR 0419). */
+      /** The push's key: the round's, or its push after an allowance (ADR 0420). */
       key: BatchEffectKey;
-      /** The commit a person allowed, which this push sends without a scan (ADR 0419). */
+      /** The commit a person allowed, which this push sends without a scan (ADR 0420). */
       allowed?: string;
       /** A later round's: the commit the round before pushed, where it expects the branch. */
       previous?: string;
@@ -227,7 +227,7 @@ const pullRequestUrl = (url: string): string => {
 
 /**
  * The key of the push of `round`: the push after an allowance once the round's push of the commit a
- * person allowed was refused, with that commit; the round's own otherwise (ADR 0419).
+ * person allowed was refused, with that commit; the round's own otherwise (ADR 0420).
  */
 const pushOfRound = (
   state: State,
@@ -412,7 +412,7 @@ export const pullRequestActions = (options: PullRequestActionsOptions): DriverAc
               if (tip === undefined) return { ...result, gone: true };
               if (tip !== previous) return { ...result, moved: tip };
             }
-            // Any other commit than the one a person allowed is scanned (ADR 0419).
+            // Any other commit than the one a person allowed is scanned (ADR 0420).
             if (result.commit !== allowed) {
               const found = await push.secretScan(start, result.commit, signal);
               if (found.length > 0) return { ...result, refused: found.slice(0, MAX_REFUSED) };

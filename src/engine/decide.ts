@@ -97,7 +97,7 @@ interface Issuer {
 export type HumanCommand =
   | ({ kind: 'retry' } & Issuer)
   | ({ kind: 'skip' } & Issuer)
-  /** `why`: the reason given with `allow` to a refused push (ADR 0419). */
+  /** `why`: the reason given with `allow` to a refused push (ADR 0420). */
   | ({ kind: 'answer'; answers: readonly Answer[]; why?: string } & Issuer)
   | ({ kind: 'recipe'; recipe: string; reason: string } & Issuer)
   /** `shas`: the commit of each repository at `toStepId`, by `owner/name`. */
@@ -1164,7 +1164,7 @@ function orderChanged(draft: Draft, command: Extract<Command, { kind: 'order_cha
 /**
  * Resumes the batch and schedules the attempt of `stepId` as it was scheduled, never as an answer a
  * brewer reads, with the group's other children abandoned with it (ADR 0168): what a continue
- * (ADR 0368) and an allow (ADR 0419) do after their own event.
+ * (ADR 0368) and an allow (ADR 0420) do after their own event.
  */
 function resumeAsScheduled(
   draft: Draft,
@@ -1213,7 +1213,7 @@ function continueOrStop(
 /**
  * The answer to a batch whose push was refused: `stop` ends it as a cancel does (ADR 0418); `allow`,
  * with a reason, lets the push of the refused commit go and schedules the step again as it was
- * scheduled, as an issue's continue does (ADR 0419).
+ * scheduled, as an issue's continue does (ADR 0420).
  */
 function allowOrStop(
   draft: Draft,

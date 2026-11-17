@@ -752,7 +752,7 @@ const nextLines = (
           `Next: answer the questions above with ${code(`foedrum answer ${called} ${answers}`)}${or}.`,
         ];
       }
-      // A refused push takes allow, for its commit, or stop (ADR 0418, ADR 0419).
+      // A refused push takes allow, for its commit, or stop (ADR 0418, ADR 0420).
       case 'push_refused':
         return [
           `Next: look at each finding above, then let the push of this commit go with ${code(`foedrum answer ${called} allow "<why>"`)}, or end the batch with ${code(`foedrum answer ${called} stop`)}.`,
@@ -965,7 +965,7 @@ const stepLine = (batch: Batch, stepId: string, told: Told, stateBranchUrl?: str
   }
 };
 
-/** Who let the refused push of the step go, of which commit, and why, under its line (ADR 0419). */
+/** Who let the refused push of the step go, of which commit, and why, under its line (ADR 0420). */
 const allowedLines = (batch: Batch, stepId: string, told: Told): string[] => {
   const allowed = batch.pushAllowed;
   if (allowed?.stepId !== stepId) return [];

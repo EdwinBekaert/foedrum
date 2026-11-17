@@ -130,7 +130,7 @@ export const formatReplay = (
     ),
   );
   if (mutants.length > 0) lines.push('  mutants', ...mutants);
-  // The refused push a person let go, for its commit (ADR 0419).
+  // The refused push a person let go, for its commit (ADR 0420).
   if (batch.pushAllowed !== undefined) {
     const { commit, stepId, by, via, why } = batch.pushAllowed;
     lines.push(`  allowed push ${commit.slice(0, 8)} at ${stepId} by ${by} via ${via}: ${why}`);
