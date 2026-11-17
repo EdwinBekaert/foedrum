@@ -279,6 +279,8 @@ export interface FlightRun {
   models: Readonly<Record<string, readonly string[]>>;
   /** Why a transcript cannot say its model. */
   unreadable?: string;
+  /** A dry run's, whose scripted brewers taste nothing (ADR 0416). */
+  dryRun?: true;
 }
 
 /** One run of an order: the order's name is its setup. */
