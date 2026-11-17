@@ -149,17 +149,17 @@ const doctorWithStubs = async (
   };
 };
 
-// What each level keeps from gh's login (ADR 0082, #229): the sandbox docs settle the user
-// folders, the hosts file and the token variables, not the OS keyring (ADR 0087, ADR 0160).
-const sandboxHides =
-  "hides your home folder and the other user folders from a brewer's shell commands, apart from the worktree, git's global configuration, parts of ~/.claude and the toolchain folders of serve's PATH (ADR 0162), hides gh's hosts file where an absolute GH_CONFIG_DIR or XDG_CONFIG_HOME puts it, and the token variables, and keeps them from reaching GitHub; Claude Code's docs don't say whether the sandbox stops a read from the OS keyring.";
+// What each level keeps from gh's login (ADR 0082): what the sandbox hides is its docs' to say
+// (ADR 0414).
+const sandboxDocs =
+  "Claude Code's sandbox limits what a brewer's commands read: see its sandboxing docs, https://code.claude.com/docs/en/sandboxing.";
 const writtenDown =
   'A login a brewer did read is stopped at the push (ADR 0079) and left out of the pull request and the status comment (ADR 0088) when it looks like one.';
 // Where check steps run (ADR 0076): outside any sandbox only on native Windows.
 const onWindows = process.platform === 'win32';
 const keyring = (sandboxedLevel: string) =>
-  `  ${onWindows ? 'A brewer or a check step runs' : 'A brewer runs'} as you here, so it can still read gh's login from the OS keyring or its hosts file. ${sandboxedLevel} ${sandboxHides}${sandboxedLevel.startsWith('In WSL2') ? " Under WSL, the user folders include the Windows user's logins under /mnt (ADR 0160)." : ''} ${writtenDown} ${onWindows ? "On native Windows, check steps run outside any sandbox, so they can still read gh's login (ADR 0076)." : "Check steps run only in bubblewrap's sandbox, with no network and the home folder hidden; where it cannot start, they do not run (ADR 0076)."}`;
-const checkStepKeyring = `  The sandbox ${sandboxHides} ${writtenDown} Check steps run in an OS sandbox of their own, with no network and the home folder hidden, so they can't read gh's login (ADR 0076).`;
+  `  ${onWindows ? 'A brewer or a check step runs' : 'A brewer runs'} as you here, so it can still read gh's login from the OS keyring or its hosts file. ${sandboxedLevel}, ${sandboxDocs} ${writtenDown} ${onWindows ? "On native Windows, check steps run outside any sandbox, so they can still read gh's login (ADR 0076)." : "Check steps run only in bubblewrap's sandbox, with no network and the home folder hidden; where it cannot start, they do not run (ADR 0076)."}`;
+const checkStepKeyring = `  ${sandboxDocs} ${writtenDown} Check steps run in an OS sandbox of their own, with no network and the home folder hidden, so they can't read gh's login (ADR 0076).`;
 
 // The lines that differ by platform: the sandbox's tools, the isolation level, its advice and its
 // problems. The stubs have no user-mode network stack, which a Linux setup needs (ADR 0218).
@@ -183,7 +183,7 @@ const sandbox = (at: (name: string) => string, bwrap: boolean) => {
           ? ['Isolation: sandboxed (bubblewrap and socat)', checkStepKeyring]
           : [
               'Isolation: permissions only (the sandbox needs bubblewrap and socat)',
-              keyring('The sandboxed level (bubblewrap and socat)'),
+              keyring('On the sandboxed level (bubblewrap and socat)'),
             ],
         problems: [
           ...(bwrap
@@ -198,7 +198,7 @@ const sandbox = (at: (name: string) => string, bwrap: boolean) => {
         isolation: [
           'Isolation: permissions only (native Windows has no sandbox for shell commands)',
           '  For untrusted repositories, run Foedrum inside WSL2, where shell commands are sandboxed.',
-          keyring('In WSL2, the sandboxed level'),
+          keyring('In WSL2, on the sandboxed level'),
         ],
         problems: [],
       };

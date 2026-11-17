@@ -10,7 +10,7 @@ One function works it out from the batch's lane, `batchState` in `src/engine/bat
 | **Queued** | ordered and not routed yet, or conditioning on a merge, a release or another batch | what it waits for |
 | **Done** | its pull requests all ended, every sub-order of its order merged, it was cancelled, or it ended on tap with no pull request, no approved plan and no sub-orders (a human gate's go approves no plan) | how: `merged`, `closed without merging`, `every sub-order merged`, `cancelled by <who>`, `no pull request` |
 
-A Stuck batch waits for you: a plan's review for its approval, a human gate for your go (`foedrum approve` or `foedrum cancel`), a question or a changed order for an answer, an interactive step for its session, a stop for a retry or a cancel, and every other reason for a look at the failure, whose reason follows.
+A Stuck batch waits for you: a plan's review for its approval, a human gate for your go (`foedrum approve` or `foedrum cancel`), a question, a changed order or a refused push for an answer ([ADR 0418](../../adr/0418-a-refused-push-waits-as-push-refused-with-each-finding-s-line-and-takes-stop.md)), an interactive step for its session, a stop for a retry or a cancel, and every other reason for a look at the failure, whose reason follows.
 An on-tap batch with pull requests of its own waits for you while any of them has no recorded end, and is done once all have one.
 A pause changes no state: the surface shows the state underneath and who paused it ([pause](pause.md)).
 

@@ -547,34 +547,20 @@ describe('diagnose: isolation (ADR 0010)', () => {
 
 // #204: a brewer or a check step runs as the maintainer's OS user, so on the permissions-only level
 // it can still read gh's login; the line says what each other level keeps from it (ADR 0082).
-// #229: Claude Code's sandbox docs settle the hosts file and the token variables (ADR 0087), not
-// the OS keyring, so the sandboxed level never "closes" it; #209 and #235 catch a login read anyway.
+// ADR 0414: what Claude Code's sandbox hides is its docs' to say, so the line points to them and
+// names no place; #209 and #235 catch a login read anyway.
 describe("diagnose: what each isolation level keeps from gh's login (ADR 0082, #229)", () => {
+  // The level's line: every level names the push scan (ADR 0079) there.
   const keyring = (facts: DoctorFacts) =>
-    diagnose(facts).advice.filter((line) => /keyring/.test(line));
+    diagnose(facts).advice.filter((line) => /ADR 0079/.test(line));
   const wsl1 = { ...linux(), kernelRelease: '4.4.0-19041-Microsoft' };
   const wsl2 = { ...linux(), kernelRelease: '5.15.153.1-microsoft-standard-WSL2' };
   const freebsd = { ...macos, platform: 'freebsd' as const };
   const sandboxed = [macos, linux(), wsl2];
   const permissionsOnly = [windows, wsl1, linux({ bwrap: undefined }), freebsd];
 
-  // What ADR 0087 and ADR 0160 hide from a sandboxed command, from the docs.
-  const hidesFileAndVariables = (line: string) => {
-    assert.match(line, /hides your home folder and the other user folders/);
-    assert.match(
-      line,
-      /hides gh's hosts file where an absolute GH_CONFIG_DIR or XDG_CONFIG_HOME puts it, and the token variables/,
-    );
-    assert.match(line, /keeps them from reaching GitHub/);
-  };
-  // The docs say nothing about the Keychain or the Secret Service, so neither does the line.
-  const leavesKeyringOpen = (line: string) => {
-    assert.match(
-      line,
-      /Claude Code's docs don't say whether the sandbox stops a read from the OS keyring/,
-    );
-    assert.doesNotMatch(line, /sandbox(?:ed level)?[^;.]* closes/);
-  };
+  const SANDBOX_DOCS =
+    "Claude Code's sandbox limits what a brewer's commands read: see its sandboxing docs, https://code.claude.com/docs/en/sandboxing.";
 
   it('says on every permissions-only level that a brewer, and on native Windows a check step, can read the keyring or the hosts file', () => {
     for (const facts of permissionsOnly) {
@@ -593,18 +579,17 @@ describe("diagnose: what each isolation level keeps from gh's login (ADR 0082, #
   it('says on native Windows and WSL 1 what WSL2 hides, and names no container level', () => {
     for (const facts of [windows, wsl1]) {
       const [line = ''] = keyring(facts);
-      assert.match(line, /In WSL2, the sandboxed level hides/);
-      hidesFileAndVariables(line);
-      leavesKeyringOpen(line);
+      assert.ok(line.includes(`In WSL2, on the sandboxed level, ${SANDBOX_DOCS}`), line);
       assert.doesNotMatch(line, /container/i);
     }
   });
 
   it('names bubblewrap and socat for the sandboxed level on Linux without them', () => {
     const [line = ''] = keyring(linux({ bwrap: undefined }));
-    assert.match(line, /The sandboxed level \(bubblewrap and socat\) hides/);
-    hidesFileAndVariables(line);
-    leavesKeyringOpen(line);
+    assert.ok(
+      line.includes(`On the sandboxed level (bubblewrap and socat), ${SANDBOX_DOCS}`),
+      line,
+    );
     assert.doesNotMatch(line, /container/i);
     assert.doesNotMatch(line, /WSL2/);
   });
@@ -629,41 +614,31 @@ describe("diagnose: what each isolation level keeps from gh's login (ADR 0082, #
     }
   });
 
-  it('says on the sandboxed level what the sandbox hides from a brewer and what it leaves open', () => {
+  it("says on the sandboxed level that Claude Code's sandbox limits what a brewer's commands read", () => {
     for (const facts of sandboxed) {
       const [line = '', ...more] = keyring(facts);
       assert.deepEqual(more, []);
       assert.deepEqual(diagnose(facts).advice, [line], 'no other advice on the sandboxed level');
-      assert.match(line, /^The sandbox hides your home folder/);
-      hidesFileAndVariables(line);
-      leavesKeyringOpen(line);
+      assert.ok(line.startsWith(`${SANDBOX_DOCS} A login a brewer did read`), line);
     }
   });
 
-  // ADR 0162: the attempt settings re-open the toolchain folders of serve's PATH (review of #437).
-  it('says on the sandboxed level that the toolchain folders of the PATH stay readable', () => {
-    for (const facts of sandboxed) {
-      assert.match(
-        keyring(facts)[0] ?? '',
-        /apart from the worktree, git's global configuration, parts of ~\/\.claude and the toolchain folders of serve's PATH \(ADR 0162\),/,
-      );
+  it("points to Claude Code's sandboxing docs on every level that runs or advises its sandbox", () => {
+    for (const facts of [...sandboxed, windows, wsl1, linux({ bwrap: undefined })]) {
+      assert.ok((keyring(facts)[0] ?? '').includes(SANDBOX_DOCS), facts.platform);
     }
+    assert.ok(!(keyring(freebsd)[0] ?? '').includes(SANDBOX_DOCS));
   });
 
-  // The read block denies sandboxed commands /mnt, where WSL2 mounts the Windows user's home
-  // (ADR 0160; ADR 0087 and the review of #250 had left it readable).
-  it("says wherever it advises or runs WSL2 that the sandbox hides the Windows user's logins too", () => {
+  it('names no place the sandbox hides on any level', () => {
     const wsl2WithoutBwrap = { ...linux({ bwrap: undefined }), kernelRelease: wsl2.kernelRelease };
-    for (const facts of [windows, wsl1, wsl2, wsl2WithoutBwrap]) {
-      const [line = ''] = keyring(facts);
-      assert.match(
-        line,
-        /Under WSL, the user folders include the Windows user's logins under \/mnt \(ADR 0160\)\./,
-      );
-      assert.doesNotMatch(line, /doesn't hide the Windows user's logins/);
-    }
-    for (const facts of [macos, linux(), linux({ bwrap: undefined }), freebsd]) {
-      assert.doesNotMatch(keyring(facts)[0] ?? '', /\/mnt/);
+    for (const facts of [...sandboxed, ...permissionsOnly, wsl2WithoutBwrap]) {
+      for (const line of diagnose(facts).advice) {
+        assert.doesNotMatch(
+          line,
+          /hides your home folder|GH_CONFIG_DIR|XDG_CONFIG_HOME|token variables|\/mnt|toolchain folders|docs don't say/,
+        );
+      }
     }
   });
 
@@ -1483,6 +1458,37 @@ describe("diagnose: whether a test-first recipe's test line saves a report (ADR 
       about(diagnose(facts(test))).notices.join(),
       /\(make test\): Foedrum does not know/,
     );
+  });
+});
+
+describe('diagnose: which test the check step runs and what the full gate is (ADR 0242)', () => {
+  const checks = (test: string, more: Record<string, unknown> = {}) =>
+    JSON.stringify({ build: null, typecheck: null, lint: null, format: null, test, ...more });
+  const config = `{ "repositories": { "acme/web": { "checks": ${checks('npm test', { testChanged: 'vitest run --changed {base}' })} }, "acme/api": { "checks": ${checks('dotnet test')} } } }`;
+
+  it('foedrum doctor lists, per repository, the test the check step runs and the full gate', () => {
+    const diagnosis = diagnose({ ...linux(), config });
+    assert.match(
+      formatDiagnosis(diagnosis),
+      new RegExp(
+        [
+          'Tests \\(the check step and the full gate, ADR 0242\\):',
+          "- acme/web: the check step runs only testChanged \\(vitest run --changed \\{base\\}\\); your pull request's CI must run the full test \\(npm test\\)",
+          '- acme/api: the check step runs the full test \\(dotnet test\\)',
+        ].join('\n'),
+      ),
+    );
+  });
+
+  it('foedrum doctor lists no tests of a foedrum.jsonc that does not pass its schema: regression test (ADR 0242)', () => {
+    const broken = config.replace('{base}', '');
+    const report = formatDiagnosis(diagnose({ ...linux(), config: broken }));
+    assert.match(report, /foedrum\.jsonc is not valid \(required\)/);
+    assert.doesNotMatch(report, /^Tests /m);
+  });
+
+  it('foedrum doctor lists no tests without a foedrum.jsonc: regression test (ADR 0242)', () => {
+    assert.doesNotMatch(formatDiagnosis(diagnose(linux())), /^Tests /m);
   });
 });
 

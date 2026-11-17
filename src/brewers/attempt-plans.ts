@@ -5,7 +5,7 @@
 
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
-import type { RepositoryChecks } from '../checks/gravity.ts';
+import { type RepositoryChecks, testChangedLine } from '../checks/gravity.ts';
 import { redTestFiles } from '../checks/red-tests.ts';
 import { checksEnv, setupRunOf } from '../checks/setup.ts';
 import { stepTests } from '../checks/step-commits.ts';
@@ -51,7 +51,7 @@ import {
 } from '../schemas/out-doc.ts';
 import { PLAN } from '../schemas/plan.ts';
 import { type Command, parseRule } from '../schemas/primitives.ts';
-import { attemptBranch } from '../workspace/attempt-worktrees.ts';
+import { attemptBranch, ownRemote } from '../workspace/attempt-worktrees.ts';
 import { inClone } from '../workspace/clone-git.ts';
 import type { Git, GitOptions } from '../workspace/git.ts';
 import {
@@ -83,7 +83,6 @@ import {
   scanRetryOf,
   settingsFileOf,
 } from './attempt-plan.ts';
-import type { ConfigDirs } from './attempt-settings.ts';
 import type { ClaudeAttemptPlan, OutDocRead } from './claude-runner.ts';
 import {
   blobTexts,
@@ -118,8 +117,6 @@ export interface AttemptPlansOptions {
   repoTestLine?: (repo: string) => Command | null | undefined;
   /** Whether the isolation level relies on Claude Code's sandbox (ADR 0010). */
   sandbox: boolean;
-  /** Where the driver's environment moves the logins the sandbox hides (ADR 0160). */
-  configDirs?: ConfigDirs;
   /** The clone a repository's attempt worktrees are added to: the user's, or the managed one. */
   clone: (repo: string) => string;
   /**
@@ -715,6 +712,20 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
       own === undefined || command === undefined || command === null
         ? undefined
         : { repo: own.repo, command };
+    // After a merge of the base, the batch's own change starts at the base it merged (ADR 0164).
+    const merged = mergedBase(state(), batch.id);
+    const start = own === undefined ? undefined : (merged ?? changeStart(batch, own.repo));
+    // The testChanged line from where the change starts, as a check step runs it (ADR 0417).
+    const asksChanged = found.brewer.inputs.some(({ from }) => from === 'test-changed');
+    const changed = asksChanged && own !== undefined ? options.repoChecks?.(own.repo) : undefined;
+    const testChanged =
+      own === undefined || start === undefined || changed?.testChanged === undefined
+        ? undefined
+        : {
+            repo: own.repo,
+            base: start,
+            line: testChangedLine(changed.testChanged, platform, start),
+          };
     // A step a findings route sent back corrects the plan they name, as a chosen step does (ADR 0318),
     // and a fresh retry of it too (ADR 0325).
     const routedStep = batch.steps.get(ref.stepId);
@@ -735,6 +746,7 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
       claimOrderOf(state(), batch.id).issue,
       earlierSections,
       testLine,
+      testChanged,
     );
     // A step's lenses together share one folder (ADR 0143, ADR 0220).
     const diffLens = stepLenses[0]?.startsWith('diff/') === true;
@@ -749,11 +761,8 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
         inputs.push(...(await orderCommentsFor(input.name, batch, { body: text })));
       }
     }
-    // After a merge of the base, the batch's own change starts at the base it merged (ADR 0164).
     // A Finer simplifies the change, and Brett mutates it, so each reads it as a Taster of a diff
     // does (ADR 0166, ADR 0311).
-    const merged = mergedBase(state(), batch.id);
-    const start = own === undefined ? undefined : (merged ?? changeStart(batch, own.repo));
     const since =
       diffLens || found.brewer.output.schema === FINING || found.brewer.output.schema === MUTANTS
         ? start
@@ -909,7 +918,6 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
         models: options.models,
         repoTools: own === undefined ? [] : options.repoTools(own.repo),
         sandbox: options.sandbox,
-        ...(options.configDirs === undefined ? {} : { configDirs: options.configDirs }),
         settingsFile,
         sessionId: session.id,
         ...(resumes === undefined ? {} : { resumes }),
@@ -960,11 +968,26 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
         );
       }
       const commits = { clone: options.clone(own.repo), branch: attemptBranch(ranIn.madeBy) };
+      // In a batch that waited for a release, the lockfiles its commits leave behind are refreshed
+      // in the setup's sandbox and environment once it succeeds (ADR 0412).
+      const committed =
+        started === undefined || releaseInput(state(), batch) === undefined
+          ? { ...checked, commits }
+          : {
+              ...checked,
+              commits,
+              refresh: {
+                own: ownRemote(workRoot, own.repo),
+                deadlineAt: started.deadlineAt,
+                env: checksEnv(options.env, platform),
+                unsandboxed: checksRunUnsandboxed(platform),
+              },
+            };
       // A brewer that writes code runs the repository's quick checks before its end, and is sent
       // back once on a failure (ADR 0381).
       const repoChecks =
         found.brewer.checksBeforeEnd === true ? options.repoChecks?.(own.repo) : undefined;
-      if (repoChecks === undefined || started === undefined) return { ...checked, commits };
+      if (repoChecks === undefined || started === undefined) return committed;
       const redTests =
         options.git === undefined || options.testMapAt === undefined
           ? []
@@ -985,7 +1008,7 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
         env: checksEnv(options.env, platform),
         unsandboxed: checksRunUnsandboxed(platform),
       };
-      return { ...checked, commits, sendBack };
+      return { ...committed, sendBack };
     },
     limits: (ref) => {
       const found = brewerOf(ref);

@@ -6,6 +6,7 @@
 
 import { randomBytes } from 'node:crypto';
 import { commandLine, type RepositoryChecks } from '../checks/gravity.ts';
+import { SAFE_PATH } from '../checks/setup.ts';
 import type { Env } from '../engine/brewer-env.ts';
 import { type GravityReading, MOST_REFUSED, type Receipt, type Usage } from '../schemas/events.ts';
 import { CheckName } from '../schemas/primitives.ts';
@@ -52,13 +53,6 @@ export function sendBackChecks(
     return [{ check, command: commandLine(command, platform), files }];
   });
 }
-
-/**
- * A path a shell line names in double quotes alike in `/bin/sh` and cmd.exe: no character either
- * expands or ends the quote on (`$`, a backquote, `"`, `%`, `!`, `^`, `\`), and a first one no tool
- * reads as an option or a response file (`-`, `@`, `+`). A brewer names the files (ADR 0381).
- */
-const SAFE_PATH = /^[A-Za-z0-9_.][A-Za-z0-9_.@+ /-]*$/;
 
 /**
  * The longest line with paths. On Windows a line runs in a Job Object through a PowerShell helper,

@@ -483,6 +483,79 @@
                     "type": "null"
                   }
                 ]
+              },
+              "testChanged": {
+                "description": "The test of the changed code a check step runs in place of test, from {base}; setting it says the pull request's checks run the full test (ADR 0242)",
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "allOf": [
+                      {
+                        "pattern": "\\S"
+                      },
+                      {
+                        "pattern": "^[^\\r\\n]*$"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "run": {
+                        "type": "string",
+                        "allOf": [
+                          {
+                            "pattern": "\\S"
+                          },
+                          {
+                            "pattern": "^[^\\r\\n]*$"
+                          }
+                        ]
+                      },
+                      "windows": {
+                        "type": "string",
+                        "allOf": [
+                          {
+                            "pattern": "\\S"
+                          },
+                          {
+                            "pattern": "^[^\\r\\n]*$"
+                          }
+                        ]
+                      },
+                      "macos": {
+                        "type": "string",
+                        "allOf": [
+                          {
+                            "pattern": "\\S"
+                          },
+                          {
+                            "pattern": "^[^\\r\\n]*$"
+                          }
+                        ]
+                      },
+                      "linux": {
+                        "type": "string",
+                        "allOf": [
+                          {
+                            "pattern": "\\S"
+                          },
+                          {
+                            "pattern": "^[^\\r\\n]*$"
+                          }
+                        ]
+                      },
+                      "files": {
+                        "type": "boolean",
+                        "const": true
+                      }
+                    },
+                    "required": [
+                      "run"
+                    ],
+                    "additionalProperties": false
+                  }
+                ]
               }
             },
             "required": [

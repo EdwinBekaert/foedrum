@@ -166,17 +166,31 @@ A dry run keeps its records in a `dry-run/` folder of their own, inside the fold
   node scripts/flight-report.ts --baseline .foedrum/tmp/flight/nip --candidate .foedrum/tmp/flight/nip-cellarman-claude-opus-5-5-larger
   ```
 
-  It reads both folders' `results.jsonl`, prints the report and writes it as `report.md` in the candidate's folder ([ADR 0411](../adr/0411-a-flight-report-calls-equal-passes-the-same-and-counts-a-run-that-measured-nothing-as-not-passed.md)).
+  It reads both folders' `results.jsonl`, writes the report as `report.md` in the candidate's folder, and prints it, unless it writes a tasted entry (below) ([ADR 0411](../adr/0411-a-flight-report-calls-equal-passes-the-same-and-counts-a-run-that-measured-nothing-as-not-passed.md)).
   Each order both Flights measured gets a row: the hidden tests passed in each ("3 of 3 against 1 of 3"), and, over the runs that measured something, those with changes outside its paths and the tokens and the brewers' time per run, and a verdict.
   A difference is called only when one Flight passes every run and the other at most one ([ADR 0404](../adr/0404-the-flight-s-tasting-room-is-a-folder-of-orders-each-proved-by-its-hidden-tests.md)); equal counts of equal runs are the same, two Flights that both passed every run are never a difference, and anything else is too close to call (ADR 0411).
   A run that measured nothing counts as one that did not pass, and an order only one Flight has, or that one measured no run of, is listed under the table and left out of the counts.
   One summary line gives each Flight's orders passed on every run, the orders too close to call and the candidate's tokens per order against the baseline's, never a cost in money.
+  For a real Flight whose candidate swapped a brewer, the report keeps the latest result in a `tasted` list (#1141, [ADR 0416](../adr/0416-models-jsonc-keeps-a-tasted-list-the-latest-flight-of-each-brewer-recipe-level-and-effort.md)):
+  - it adds that brewer's entry to `defaults/models.jsonc`'s `tasted` list, or replaces the one of its brewer, recipe, level and effort;
+  - it writes `pull-request.md` beside `report.md`, and prints the pull request's title and description;
+  - a person or a session opens the pull request and adds its link to the entry.
+
+  Moving a level's model in `claude.models` is the person's choice, made by hand in that pull request.
+  A dry run of either Flight writes no entry and ends with exit 0.
+  None is written either, and the report ends with exit 1, for:
+  - a candidate as it ships;
+  - two Flights of different recipes;
+  - a recipe that is no default recipe;
+  - no order measured by both Flights;
+  - a brewer whose steps named two model ids or none in either Flight.
+
+  Each time the report says why in one line.
 
 ## Not built yet
 
-- **`foedrum taste`** (#1143): a command that is to list the tasting suggestions and run a picked one, ending in a pull request.
+- **`foedrum taste`** (#1143): a command that is to list the tasting suggestions and run a picked one: swap one brewer's model, run the Flight several times, compare with the baseline, record the entry into the Brewery's own `models.jsonc` and open the pull request itself, in place of the model watcher (#1085, [ADR 0416](../adr/0416-models-jsonc-keeps-a-tasted-list-the-latest-flight-of-each-brewer-recipe-level-and-effort.md)).
   Until it comes, the comparisons above are its pieces.
-- **A `tasted` list in `models.jsonc`** (#1141): the latest result per brewer, recipe, level and effort, to be written by the pull request a Flight report opens.
 - **Tasting suggestions** (#1142): untasted models in use, cheaper levels or efforts that might hold, and stale results.
 - **Real batches as samples:** a batch that went Stuck or needed a person's fixes is to be exported into the tasting room as an order.
 - **Metrics per recipe, brewer and model:** hidden-test pass rate, first-attempt gravity pass rate, retries, Stuck rate, tokens, duration, diff size and planted-defect recall; today each comparison prints its own table.

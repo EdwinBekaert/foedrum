@@ -7,10 +7,12 @@ import { issueUrl, ORDER_CHANGED_QUESTION } from '../engine/order-changes.ts';
 import { withoutSecrets } from '../engine/out-doc-text.ts';
 import { atGate } from '../engine/plan-applied.ts';
 import { findingText, knownCommits } from '../engine/pull-request.ts';
+import { PUSH_REFUSED_QUESTION } from '../engine/push-refused.ts';
 import {
   gateNextStep,
   longest,
   planNextStep,
+  refusedLines,
   roundsText,
   STEP_BACK,
 } from '../engine/status-comment.ts';
@@ -104,6 +106,13 @@ export const formatStuck = (state: State): string => {
       ? [
           `  issue: ${issueUrl(batch.repo, batch.issue)}`,
           `  1. ${ORDER_CHANGED_QUESTION} (continue, stop)`,
+        ]
+      : []),
+    // What the scan found, and the one question (ADR 0418).
+    ...(lane.reason.kind === 'push_refused'
+      ? [
+          ...refusedLines(lane.reason).map((line) => `    ${line}`),
+          `  1. ${PUSH_REFUSED_QUESTION} (stop)`,
         ]
       : []),
     ...read(

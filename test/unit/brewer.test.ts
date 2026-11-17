@@ -104,6 +104,11 @@ describe('BrewerFrontmatter', () => {
     assert.equal(accepted({ ...taster, inputs }), true);
   });
 
+  it("accepts an input from the repository's testChanged line (ADR 0417)", () => {
+    const inputs = [{ name: 'testChanged', from: 'test-changed' }];
+    assert.equal(accepted({ ...taster, inputs }), true);
+  });
+
   it('names the plan entry and the release among the sources when it refuses an unknown one (ADR 0290, ADR 0291)', () => {
     const read = BrewerFrontmatter.safeParse({
       ...taster,
@@ -112,7 +117,7 @@ describe('BrewerFrontmatter', () => {
     assert.equal(read.success, false);
     assert.match(
       read.error?.issues[0]?.message ?? '',
-      /"plan", "plan-entry", "release", "checks", "test-line", "step:<step id>"/,
+      /"plan", "plan-entry", "release", "checks", "test-line", "test-changed", "step:<step id>"/,
     );
   });
 

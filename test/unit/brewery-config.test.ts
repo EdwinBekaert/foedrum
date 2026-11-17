@@ -87,6 +87,46 @@ describe('BreweryConfig', () => {
     assert.equal(accepted(config({ alias: 'a'.repeat(20) })), true);
   });
 
+  it('accepts a testChanged command with {base} beside test (ADR 0242)', () => {
+    const line = { ...checks, testChanged: 'npx vitest run --changed {base}' };
+    assert.equal(accepted(config({ checks: line })), true);
+    const lines = {
+      ...checks,
+      testChanged: { run: 'vitest --changed {base}', windows: 'vitest.cmd --changed {base}' },
+    };
+    assert.equal(accepted(config({ checks: lines })), true);
+  });
+
+  /** The path and message of each issue `checks` gets. */
+  const issuesOf = (value: Record<string, unknown>) =>
+    BreweryConfig.safeParse(config({ checks: value })).error?.issues.map(({ path, message }) => ({
+      path,
+      message,
+    }));
+  const noBase = 'Must hold {base}, where a check step puts the commit the change starts from';
+
+  it('refuses a testChanged line without {base}, pointing at it (ADR 0242)', () => {
+    assert.deepEqual(issuesOf({ ...checks, testChanged: 'npx vitest run --changed' }), [
+      { path: ['repositories', 'acme/web', 'checks', 'testChanged'], message: noBase },
+    ]);
+  });
+
+  it('refuses a testChanged whose platform line lacks {base}, though its run holds it (ADR 0242)', () => {
+    const testChanged = { run: 'vitest --changed {base}', macos: 'vitest --changed' };
+    assert.deepEqual(issuesOf({ ...checks, testChanged }), [
+      { path: ['repositories', 'acme/web', 'checks', 'testChanged'], message: noBase },
+    ]);
+  });
+
+  it('refuses a testChanged beside a test of null (ADR 0242)', () => {
+    assert.deepEqual(issuesOf({ ...checks, test: null, testChanged: 'vitest --changed {base}' }), [
+      {
+        path: ['repositories', 'acme/web', 'checks', 'testChanged'],
+        message: 'A testChanged needs a test check, which the pull request runs in full',
+      },
+    ]);
+  });
+
   it('refuses an alias two repositories share, pointing at the second', () => {
     const result = BreweryConfig.safeParse({
       repositories: {

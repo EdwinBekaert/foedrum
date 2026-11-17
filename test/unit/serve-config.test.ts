@@ -69,6 +69,7 @@ describe('serveSetup', () => {
     assert.deepStrictEqual(setup.models.claude, {
       models: { light: 'claude-haiku-5-5' },
       efforts: { small: 'low' },
+      tasted: [],
     });
     assert.notEqual(setup.recipes.find('stout'), undefined);
     assert.equal(setup.brewers.find('stout', 'brew')?.brewer.name, 'cellarman');
@@ -358,19 +359,6 @@ describe('serveSetup', () => {
       inputs({ env: { PATH: '/usr/bin', GH_TOKEN: 'ghp_x', GITHUB_TOKEN: 'ghp_y' } }),
     );
     assert.deepStrictEqual(setup.brewerEnv.base, { PATH: '/usr/bin' });
-  });
-
-  // ADR 0160: a variable that moves a login moves it out of the paths the sandbox hides.
-  it('keeps where the environment moves the logins the sandbox hides', () => {
-    const setup = ready(
-      inputs({
-        env: { PATH: '/usr/bin', GH_CONFIG_DIR: '/srv/gh', XDG_CONFIG_HOME: '/data/config' },
-      }),
-    );
-    assert.deepStrictEqual(setup.configDirs, {
-      GH_CONFIG_DIR: '/srv/gh',
-      XDG_CONFIG_HOME: '/data/config',
-    });
   });
 
   it('runs the intake for the allow-listed users, one batch at a time, polling every minute (ADR 0068)', () => {

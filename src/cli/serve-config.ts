@@ -3,7 +3,6 @@
 // line per problem. serve.ts runs it; main.ts reads the files.
 
 import { join } from 'node:path';
-import { type ConfigDirs, configDirsOf } from '../brewers/attempt-settings.ts';
 import type { RepositorySetup } from '../checks/check-runner.ts';
 import type { RepositoryChecks } from '../checks/gravity.ts';
 import { breweryMapPath } from '../checks/test-map.ts';
@@ -30,7 +29,7 @@ import {
   type TestReportConfig,
 } from '../schemas/brewery-config.ts';
 import { LocalConfig } from '../schemas/local-config.ts';
-import { ModelsConfig } from '../schemas/models.ts';
+import { ModelsConfig, tastedKey } from '../schemas/models.ts';
 import { durationMs } from '../schemas/primitives.ts';
 import { readJsonc } from '../schemas/read.ts';
 import type { z } from '../schemas/zod.ts';
@@ -156,8 +155,6 @@ export interface ServeSetup {
   claude: string;
   /** Whether the isolation level relies on Claude Code's sandbox (ADR 0010). */
   sandbox: boolean;
-  /** Where the driver's environment moves the logins the sandbox hides (ADR 0160). */
-  configDirs?: ConfigDirs;
   /** Whether check steps run without an OS sandbox: on native Windows only (ADR 0076). */
   unsandboxedChecks: boolean;
   /** The brewers' base environment and the runner's forced variables (ADR 0028). */
@@ -207,8 +204,8 @@ const read = <T>(
 };
 
 /**
- * The models and efforts a step can resolve (ADR 0153, ADR 0397): Foedrum's default `claude` models
- * and efforts with the Brewery's over them, entry by entry. Undefined, with the problems added,
+ * The models, efforts and tasted list a step can resolve (ADR 0153, ADR 0397, ADR 0416): Foedrum's
+ * default `claude` block with the Brewery's over it, entry by entry. Undefined, with the problems added,
  * when a file does not pass.
  */
 const mergedModels = (
@@ -216,7 +213,7 @@ const mergedModels = (
   defaults: BreweryFile | undefined,
   problems: string[],
 ): ModelsConfig | undefined => {
-  const none: ModelsConfig = { claude: { models: {}, efforts: {} } };
+  const none: ModelsConfig = { claude: { models: {}, efforts: {}, tasted: [] } };
   // A default that does not load is Foedrum's defect, named by its defaults/ path (ADR 0098).
   const readDefaults = (): ModelsConfig | undefined => {
     if (defaults === undefined) return none;
@@ -234,6 +231,15 @@ const mergedModels = (
     claude: {
       models: { ...fromDefaults.claude.models, ...fromBrewery.claude.models },
       efforts: { ...fromDefaults.claude.efforts, ...fromBrewery.claude.efforts },
+      // A Brewery's entry takes the place of the default of its combination (ADR 0416).
+      tasted: [
+        ...new Map(
+          [...fromDefaults.claude.tasted, ...fromBrewery.claude.tasted].map((entry) => [
+            tastedKey(entry),
+            entry,
+          ]),
+        ).values(),
+      ],
     },
   };
 };
@@ -450,7 +456,6 @@ export const serveSetup = (inputs: ServeInputs): ServeSetupResult => {
       github: { hostname: githubHostname(config) },
       claude,
       sandbox: diagnosis.isolation.level === 'sandboxed',
-      configDirs: configDirsOf(env),
       unsandboxedChecks,
       brewerEnv: {
         base: brewerBaseEnv(env, platform),

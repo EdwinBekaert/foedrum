@@ -16,8 +16,13 @@ import {
 import type { CheckName, Command } from '../schemas/primitives.ts';
 import type { CheckRef } from '../schemas/recipe.ts';
 
-/** The command behind each check of a repository, or null where it has none (ADR 0023). */
-export type RepositoryChecks = Readonly<Record<CheckName, Command | null>>;
+/**
+ * The command behind each check of a repository, or null where it has none (ADR 0023), and the test
+ * of the changed code a check step runs in place of `test` (ADR 0242).
+ */
+export type RepositoryChecks = Readonly<Record<CheckName, Command | null>> & {
+  readonly testChanged?: Command | undefined;
+};
 
 // None of a repository's checks: what a step of literal commands plans against.
 export const NO_CHECKS: RepositoryChecks = {
@@ -36,11 +41,15 @@ export const blocked = (
   ending: { kind: 'blocked', blockerKind, summary },
 });
 
+/** What `testChanged` holds for the commit a batch's change starts from (ADR 0242). */
+const BASE = '{base}';
+
 /** A check ready to run: its command line on this platform, or a skip. */
 export type PlannedCheck =
   | { kind: 'skip'; check: CheckName }
   /** `check` is absent for a Brewery's literal command and a repository's setup (ADR 0140). */
-  | { kind: 'run'; check?: CheckName; setup?: true; command: string };
+  /** `changed`: the repository's testChanged in place of its test (ADR 0242). */
+  | { kind: 'run'; check?: CheckName; setup?: true; changed?: true; command: string };
 
 /** What the process runner answered for one command. */
 export interface CheckRun {
@@ -66,19 +75,48 @@ export function commandLine(command: Command, platform: NodeJS.Platform): string
   }
 }
 
-/** The checks of a step, in order, as `repository` maps the named ones. */
+/** The line `testChanged` runs on `platform` from the commit `base`, `{base}` replaced (ADR 0242). */
+export const testChangedLine = (
+  testChanged: Command,
+  platform: NodeJS.Platform,
+  base: string,
+): string => commandLine(testChanged, platform).replaceAll(BASE, base);
+
+/**
+ * The checks of a step, in order, as `repository` maps the named ones: with the change's `base`,
+ * its `testChanged` in place of `test`, `{base}` replaced (ADR 0242).
+ */
 export function planChecks(
   checks: readonly CheckRef[],
   repository: RepositoryChecks,
   platform: NodeJS.Platform,
+  base?: string,
 ): PlannedCheck[] {
   return checks.map((check): PlannedCheck => {
     if (typeof check !== 'string') return { kind: 'run', command: commandLine(check, platform) };
     const command = repository[check];
-    return command === null
-      ? { kind: 'skip', check }
-      : { kind: 'run', check, command: commandLine(command, platform) };
+    if (command === null) return { kind: 'skip', check };
+    const { testChanged } = repository;
+    if (check === 'test' && testChanged !== undefined && base !== undefined) {
+      const line = testChangedLine(testChanged, platform, base);
+      return { kind: 'run', check, changed: true, command: line };
+    }
+    return { kind: 'run', check, command: commandLine(command, platform) };
   });
+}
+
+/** Which test a check step in `repo` runs and what the full gate is, for doctor (ADR 0242). */
+export function testGateOf(
+  repo: string,
+  repository: RepositoryChecks,
+  platform: NodeJS.Platform,
+): string {
+  const { test, testChanged } = repository;
+  if (test === null) return `${repo}: no test check`;
+  const full = commandLine(test, platform);
+  return testChanged === undefined
+    ? `${repo}: the check step runs the full test (${full})`
+    : `${repo}: the check step runs only testChanged (${commandLine(testChanged, platform)}); your pull request's CI must run the full test (${full})`;
 }
 
 /** The end of `output` that a reading keeps (`MAX_TAIL_LENGTH`), never half a character. */
@@ -113,6 +151,10 @@ export function withoutSecrets(output: string): string {
   return lines.join('\n');
 }
 
+/** Whether `end`'s test check ran the repository's testChanged, which may leave tests unrun (ADR 0242). */
+export const ranChanged = (end: AttemptEnd): boolean =>
+  end.readings?.some((reading) => 'changed' in reading) === true;
+
 /** What one run of `check` read. */
 export function readingOf(
   check: Extract<PlannedCheck, { kind: 'run' }>,
@@ -121,6 +163,7 @@ export function readingOf(
   const ran = {
     ...(check.check === undefined ? {} : { check: check.check }),
     ...(check.setup === undefined ? {} : { setup: check.setup }),
+    ...(check.changed === undefined ? {} : { changed: check.changed }),
     command: check.command,
   };
   // Secrets out first, so the bound never keeps half of one.
@@ -234,11 +277,14 @@ const environment = (summary: string): Ending => ({
 });
 
 /**
- * A setup that did not pass: no fact about the tree under check, so never a failure along
- * `onFail`, but the attempt's environment, or a cancel at the engine's stop (ADR 0140).
+ * A setup, or a lockfile's refresh, that did not pass, named `setup`: no fact about the tree under
+ * check, so never a failure along `onFail`, but the attempt's environment, or a cancel at the
+ * engine's stop (ADR 0140, ADR 0412).
  */
-function settleSetup(reading: Exclude<GravityReading, { result: 'skipped' }>): Ending {
-  const setup = `the setup "${reading.command}"`;
+function settleSetup(
+  reading: Exclude<GravityReading, { result: 'skipped' }>,
+  setup: string,
+): Ending {
   switch (reading.result) {
     case 'exited':
       return environment(`${setup} failed with exit code ${reading.exitCode}`);
@@ -272,7 +318,14 @@ function settleSetup(reading: Exclude<GravityReading, { result: 'skipped' }>): E
 export function settleReadings(readings: readonly GravityReading[]): Ending {
   const decisive = readings.find((reading) => !passed(reading));
   if (decisive === undefined) return { kind: 'succeeded', output: null };
-  if (decisive.result !== 'skipped' && decisive.setup === true) return settleSetup(decisive);
+  if (decisive.result !== 'skipped' && decisive.setup === true) {
+    return settleSetup(decisive, `the setup "${decisive.command}"`);
+  }
+  // A lockfile a release bump left behind, which Foedrum could not refresh (ADR 0412).
+  if (decisive.result !== 'skipped' && decisive.lockfile !== undefined) {
+    const refresh = `the lockfile ${decisive.lockfile} could not be refreshed: "${decisive.command}"`;
+    return settleSetup(decisive, refresh);
+  }
   switch (decisive.result) {
     case 'skipped':
       throw new Error('A skipped check passes');

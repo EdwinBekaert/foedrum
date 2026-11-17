@@ -29,6 +29,10 @@ A guard made of several conditions (a phase check, an outcome check, a walk back
 
 A test of a sort or of state kept per key feeds its input out of order and interleaved across keys, so dropping the sort, a tiebreak or the key fails it.
 
+## only-enoent-is-missing (semantic)
+
+A read that falls back to empty when a file or folder is missing does so only for ENOENT; any other error is reported, so an unreadable file is never taken for an absent one.
+
 ## path-inside-test-has-sibling-near-miss (semantic)
 
 Code that decides whether a path lies inside a folder has a test with a sibling whose name starts with that folder's name (/home/adam beside /home/ada), and one with the root as the folder.

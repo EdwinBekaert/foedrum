@@ -12,5 +12,5 @@ export const CLAUDE_EFFORTS: ModelsConfig['claude']['efforts'] = {
 
 /** Models whose `claude` block maps `models` and Foedrum's default efforts. */
 export const claudeModels = (models: Partial<Record<ModelLevel, string>>): ModelsConfig => ({
-  claude: { models, efforts: CLAUDE_EFFORTS },
+  claude: { models, efforts: CLAUDE_EFFORTS, tasted: [] },
 });

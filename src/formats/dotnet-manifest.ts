@@ -11,7 +11,8 @@ import {
 } from './manifest-reader.ts';
 import { type Element, elements, NotXml, readXml, textOf } from './xml.ts';
 
-const PROJECT = /\.(?:cs|fs|vb)proj$/i;
+/** A .NET project file: C#, F# or Visual Basic. */
+export const PROJECT = /\.(?:cs|fs|vb)proj$/i;
 const SOLUTION = /\.sln$/i;
 // `Project("{type}") = "Name", "path\to\Name.csproj", "{id}"`
 const SOLUTION_PROJECT = /^Project\("[^"]*"\)\s*=\s*"[^"]*",\s*"([^"]*)"/;

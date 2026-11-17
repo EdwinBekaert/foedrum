@@ -1,6 +1,6 @@
 # The Job Object helper (#92, ADR 0039). job-object.ts starts it with Windows PowerShell by its
-# full path as an encoded command, with $file, $line and $cwd put in at the inputs line below, and
-# the program's environment block in its own environment (FOEDRUM_JOB_ENVIRONMENT).
+# full path as an encoded command, with $file, $line, $cwd and $flags put in at the inputs line
+# below, and the program's environment block in its own environment (FOEDRUM_JOB_ENVIRONMENT).
 #
 # It creates a Job Object that kills every process in it when its last handle closes, and allows
 # no process to break away. It starts the program suspended, assigns it to the job and only then
@@ -100,8 +100,9 @@ try {
   $started = [byte[]]::new(24)
   # The caller's environment block, never the helper's, which Windows PowerShell has changed.
   $block = [Text.Encoding]::Unicode.GetBytes($environment)
-  # CREATE_SUSPENDED (0x4) | CREATE_UNICODE_ENVIRONMENT (0x400); handles inherited.
-  $ok = $k::CreateProcessW($file, [Text.StringBuilder]::new($line), [IntPtr]::Zero, [IntPtr]::Zero, $true, 0x404, $block, $cwd, $startup, $started); $e = $marshal::GetLastWin32Error()
+  # $flags: CREATE_SUSPENDED (0x4) | CREATE_UNICODE_ENVIRONMENT (0x400), and
+  # BELOW_NORMAL_PRIORITY_CLASS (0x4000) when asked; handles inherited.
+  $ok = $k::CreateProcessW($file, [Text.StringBuilder]::new($line), [IntPtr]::Zero, [IntPtr]::Zero, $true, [int]$flags, $block, $cwd, $startup, $started); $e = $marshal::GetLastWin32Error()
   if (-not $ok) { Fail (Why 'CreateProcess' $e) }
   $process = & $read $started 0
   $thread = & $read $started $size

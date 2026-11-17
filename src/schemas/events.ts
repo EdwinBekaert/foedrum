@@ -12,7 +12,7 @@ import {
 import { CheckName, RelativePath } from './primitives.ts';
 import { RecipeType } from './recipe.ts';
 import { NonEmpty, Question, StepOutcome } from './step-outcome.ts';
-import { CommitSha, EffectKeyText, MAX_CONFLICTS } from './store.ts';
+import { CommitSha, EffectKeyText, MAX_CONFLICTS, ScanFinding } from './store.ts';
 import { SystemMapEntry } from './system-map.ts';
 import { z } from './zod.ts';
 
@@ -380,11 +380,15 @@ export type Receipt = z.infer<typeof Receipt>;
 
 const Tail = z.string().max(MAX_TAIL_LENGTH);
 // A named check, or none for a Brewery's literal command or the repository's setup, which says so
-// (ADR 0140); the command line as it ran; and where no sandbox held it, that it ran unsandboxed:
-// a check or a setup on native Windows (ADR 0076, ADR 0158).
+// (ADR 0140); whether the test check ran the repository's testChanged (ADR 0242); the command line
+// as it ran; and where no sandbox held it, that it ran unsandboxed: a check or a setup on native
+// Windows (ADR 0076, ADR 0158). A refresh of a lockfile after a release bump names the file
+// (ADR 0412).
 const ran = {
   check: CheckName.optional(),
   setup: z.literal(true).optional(),
+  changed: z.literal(true).optional(),
+  lockfile: NonEmpty.optional(),
   command: NonEmpty,
   unsandboxed: z.literal(true).optional(),
 };
@@ -555,6 +559,9 @@ const FailingSummary = NonEmpty.max(120);
 /** The most changes of an order a Stuck reason lists; the rest it counts (ADR 0368). */
 export const MOST_ORDER_CHANGES = 5;
 
+/** The most findings of a refused push its Stuck reason keeps; it counts the rest (ADR 0418). */
+export const MOST_REFUSED_SHOWN = 10;
+
 /** A change of a claimed order's issue after its approval (ADR 0368); `by` absent for a deleted account. */
 export const OrderChange = z.discriminatedUnion('what', [
   z.strictObject({ what: z.enum(['title', 'body']), by: NonEmpty.optional(), at: Timestamp }),
@@ -658,6 +665,16 @@ export const StuckReason = z.discriminatedUnion('kind', [
     changes: z.array(OrderChange).min(1).max(MOST_ORDER_CHANGES),
     more: Count,
     upTo: Timestamp,
+  }),
+  // The secret scan refused the push of `commit` at the openPullRequest step `stepId`: the first
+  // findings, each with its line where it has one, and how many more the ledger keeps (ADR 0418).
+  // An older Foedrum cannot read it.
+  z.strictObject({
+    kind: z.literal('push_refused'),
+    stepId: StepId,
+    commit: CommitSha,
+    findings: z.array(ScanFinding).min(1).max(MOST_REFUSED_SHOWN),
+    more: Count,
   }),
   // A person stopped the batch's order (ADR 0205): `stepId` is the step a retry schedules again.
   z.strictObject({

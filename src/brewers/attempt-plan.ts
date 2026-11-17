@@ -5,7 +5,7 @@
 import { basename, dirname, join } from 'node:path';
 import { checkName, failingText, passed } from '../checks/gravity.ts';
 import type { AttemptRef } from '../engine/attempt-key.ts';
-import { buildBrewerEnv, type Env } from '../engine/brewer-env.ts';
+import { buildBrewerEnv, type Env, isAgentVariable } from '../engine/brewer-env.ts';
 import type { AttemptLimits } from '../engine/brewer-runner.ts';
 import type { ChecksInput } from '../engine/check-readings.ts';
 import type { EarlierSectionsInput } from '../engine/earlier-sections.ts';
@@ -57,7 +57,7 @@ import { type Command, parseRule } from '../schemas/primitives.ts';
 import { RECIPE_CHOICE, recipeChoiceOutDocOf } from '../schemas/recipe-choice.ts';
 import type { KeptFile, MergeResult } from '../schemas/store.ts';
 import { attemptFolder } from '../workspace/attempt-worktrees.ts';
-import { type AttemptPermissions, type ConfigDirs, toolchainOf } from './attempt-settings.ts';
+import { type AttemptPermissions, toolchainOf } from './attempt-settings.ts';
 import type { ClaudeAttemptPlan, OutDocRead } from './claude-runner.ts';
 import {
   assembleBrewerPrompt,
@@ -96,8 +96,6 @@ export interface PlanFacts {
   repoTools: readonly string[];
   /** Whether the isolation level relies on Claude Code's sandbox (ADR 0010). */
   sandbox: boolean;
-  /** Where the driver's environment moves the logins the sandbox hides (ADR 0160). */
-  configDirs?: ConfigDirs;
   settingsFile: string;
   /** The id of the new session, which the driver chose and recorded (ADR 0047, ADR 0116). */
   sessionId: string;
@@ -357,6 +355,13 @@ export interface TestLineInput {
   command: Command;
 }
 
+/** A repository's testChanged line on this platform from `base`, `{base}` replaced (ADR 0417). */
+export interface TestChangedInput {
+  repo: string;
+  base: string;
+  line: string;
+}
+
 /** The test-line input's text: the line as written, or each platform's line of it, named. */
 const testLineText = (command: Command): string =>
   typeof command === 'string'
@@ -417,7 +422,8 @@ export const planLensInputs = (
  * Brewery issue that is a claimed batch's order, which its order input's source names (ADR 0334).
  * The earlier-sections input's text is in `earlierSections`, left out when no earlier attempt of
  * the step wrote any (ADR 0353), and the test-line input's in `testLine`, left out when the
- * attempt's repository has none (ADR 0376).
+ * attempt's repository has none (ADR 0376), and the test-changed input's in `testChanged`, left
+ * out when the repository sets no testChanged (ADR 0417).
  */
 export function inputsOf(
   inputs: BrewerFrontmatter['inputs'],
@@ -435,6 +441,7 @@ export function inputsOf(
   breweryIssue?: number,
   earlierSections?: EarlierSectionsInput,
   testLine?: TestLineInput,
+  testChanged?: TestChangedInput,
 ): PlannedInput[] {
   // A step the batch skipped, or one its recipe does not have (#774), gives the input nothing.
   const stepLeftOut = (step: string): boolean =>
@@ -449,6 +456,7 @@ export function inputsOf(
     (from === 'checks' && checks === undefined) ||
     (from === 'earlier-sections' && earlierSections === undefined) ||
     (from === 'test-line' && testLine === undefined) ||
+    (from === 'test-changed' && testChanged === undefined) ||
     (from.startsWith('step:') && stepLeftOut(from.slice('step:'.length)));
   return inputs
     .filter(({ from }) => !skipped(from))
@@ -492,6 +500,14 @@ export function inputsOf(
       if (from === 'test-line' && testLine !== undefined) {
         const source = { kind: 'test-line', repo: testLine.repo } as const;
         return { name, source, read: { kind: 'text', text: testLineText(testLine.command) } };
+      }
+      if (from === 'test-changed' && testChanged !== undefined) {
+        const { repo, base, line } = testChanged;
+        return {
+          name,
+          source: { kind: 'test-changed', repo, base },
+          read: { kind: 'text', text: line },
+        };
       }
       if (from === 'plan') return planInput(name, batch, stepBrewer);
       if (from.startsWith('step:')) {
@@ -1557,7 +1573,6 @@ export function attemptPermissions(
   brewer: BrewerFrontmatter,
   repoTools: readonly string[],
   sandbox: boolean,
-  configDirs: ConfigDirs | undefined,
   base: Env,
 ): AttemptPermissions {
   // The brewer's own rules, then what git.commit grants (ADR 0074), then the repository's, once each.
@@ -1566,9 +1581,10 @@ export function attemptPermissions(
     allow,
     deny: brewer.tools.deny,
     sandbox,
-    ...(configDirs === undefined ? {} : { configDirs }),
     // ADR 0162: from the driver's base environment, never the brewer's own `env`.
     toolchain: toolchainOf(base),
+    // ADR 0414: the agent keys the base passes to claude, which sandboxed commands lose.
+    agentKeys: Object.keys(base).filter(isAgentVariable),
   };
 }
 
@@ -1609,13 +1625,7 @@ function goOnWith(doc: string, why: Resumed): string {
 /** The plan of one attempt; throws when its prompt cannot be assembled. */
 export function planAttempt(facts: PlanFacts): ClaudeAttemptPlan {
   const { brewer, worktree, models, env, sessionId, resumes, outDocFrom } = facts;
-  const granted = attemptPermissions(
-    brewer,
-    facts.repoTools,
-    facts.sandbox,
-    facts.configDirs,
-    env.base,
-  );
+  const granted = attemptPermissions(brewer, facts.repoTools, facts.sandbox, env.base);
   // An interactive session reads its prompt from its file beside the settings, and no other file
   // outside the worktree (ADR 0222).
   const promptFile = facts.interactive && promptFileOf(facts.settingsFile);

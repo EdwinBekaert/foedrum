@@ -25,10 +25,13 @@ export type CountCommits = (
 // an option or a revision expression.
 const ATTEMPT_BRANCH = /^foedrum\/[A-Za-z0-9][A-Za-z0-9._-]*\/[A-Za-z0-9][A-Za-z0-9._-]*\/\d+$/;
 
+/** Whether `branch` is an attempt's branch (`attemptBranch`). */
+export const isAttemptBranch = (branch: string): boolean => ATTEMPT_BRANCH.test(branch);
+
 /** Why `since` or `branch` must not reach git, or nothing when both may. */
 const unsafe = (since: string, branch: string): string | undefined => {
   if (!isCommitSha(since)) return noCommitSha(since);
-  if (!ATTEMPT_BRANCH.test(branch)) return `${JSON.stringify(branch)} is no attempt branch`;
+  if (!isAttemptBranch(branch)) return `${JSON.stringify(branch)} is no attempt branch`;
   return undefined;
 };
 

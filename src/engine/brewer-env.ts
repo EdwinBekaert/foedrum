@@ -42,6 +42,9 @@ const BASE_NAMES = [
   'CLAUDE_CODE_GIT_BASH_PATH',
 ];
 
+/** Whether `name` is one of the agent's own variables, which the base passes on to claude. */
+export const isAgentVariable = (name: string): boolean => /^ANTHROPIC_[A-Z0-9_]+$/.test(name);
+
 /**
  * The minimal base of `serve`'s brewers, from its own environment: what a process needs to start
  * and what claude needs to find its login, never a GitHub token (ADR 0063).
@@ -53,7 +56,7 @@ export function brewerBaseEnv(
   // By key, as buildBrewerEnv merges: on Windows `Path` is `PATH`.
   const key = envNameKey(platform);
   const kept = (name: string): boolean =>
-    BASE_NAMES.includes(key(name)) || /^ANTHROPIC_[A-Z0-9_]+$/.test(key(name));
+    BASE_NAMES.includes(key(name)) || isAgentVariable(key(name));
   return Object.fromEntries(
     Object.entries(env).flatMap(([name, value]) =>
       value === undefined || !kept(name) ? [] : [[name, value]],

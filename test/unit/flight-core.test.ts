@@ -719,6 +719,18 @@ describe('the Flight (ADR 0409)', () => {
       assert.equal(read.flight.unreadable, undefined);
     });
 
+    it("marks a dry run's record as one, and a real Flight's not at all (ADR 0416)", () => {
+      const read = (dryRun: boolean) =>
+        flightRecordOf(
+          events,
+          { ...SHIPPED, dryRun },
+          asked(),
+          transcripts({ impl: 'claude-sonnet-5-5', taste: 'claude-sonnet-5-6' }),
+        ).flight;
+      assert.equal(read(true).dryRun, true);
+      assert.equal('dryRun' in read(false), false);
+    });
+
     it('says which transcript could not be found', () => {
       const read = flightRecordOf(
         events,

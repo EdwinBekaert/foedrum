@@ -107,6 +107,7 @@ describe('readBreweryFiles', () => {
     assert.deepEqual(read.value.claude, {
       models: { light: 'haiku', standard: 'sonnet', strong: 'opus', extreme: 'fable' },
       efforts: { small: 'low', moderate: 'medium', larger: 'high', full: 'xhigh' },
+      tasted: [],
     });
   });
 

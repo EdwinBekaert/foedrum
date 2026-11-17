@@ -170,6 +170,42 @@ describe('createCheckRunner', () => {
     });
   });
 
+  it("runs testChanged from the batch's start in place of test, and its reading says so (ADR 0242)", async () => {
+    const start = 'a'.repeat(40);
+    // The batch started at another commit than the check step's worktree, with its gauge step.
+    const gauge = { batchId: '12-1', stepId: 'gauge', attempt: 1 };
+    const events: Event[] = [
+      ...ordered.slice(0, 2),
+      { type: 'step.scheduled', ...gauge, deadlineAt },
+      {
+        type: 'step.started',
+        ...gauge,
+        worktree: { repo: 'acme/api', path: 'g', branch: 'foedrum/12-1/gauge/1', commit: start },
+      },
+      ...ordered.slice(2),
+      started,
+    ];
+    const changed = `vitest run --changed ${start}`;
+    const { calls, runner } = setup({
+      checks: ['lint', 'test'],
+      events,
+      repo: { ...repository, testChanged: 'vitest run --changed {base}' },
+    });
+    const end = await runner.start({ ref, limits }).ended;
+    assert.deepEqual(
+      calls.map(({ file }) => file),
+      ['npm run lint', changed],
+    );
+    assert.deepEqual(end.readings?.at(-1), {
+      result: 'exited',
+      check: 'test',
+      changed: true,
+      command: changed,
+      exitCode: 0,
+      tail: '',
+    });
+  });
+
   it('skips a check the repository has none of, and runs nothing for it', async () => {
     const { calls, runner } = setup({ checks: ['build', 'format'] });
     const end = await runner.start({ ref, limits }).ended;

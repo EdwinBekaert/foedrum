@@ -15,9 +15,38 @@ import { z } from './zod.ts';
 // null: the repository has no such check; a gravity reading skips it and records the skip.
 const check = Command.nullable();
 
-/** Every check is required, so a missing one is always an explicit null (ADR 0023). */
+/** Whether every line of `command` holds `{base}` (ADR 0242). */
+const holdsBase = (command: Command): boolean =>
+  typeof command === 'string'
+    ? command.includes('{base}')
+    : [command.run, command.windows, command.macos, command.linux].every(
+        (line) => line === undefined || line.includes('{base}'),
+      );
+
+/**
+ * Every check is required, so a missing one is always an explicit null (ADR 0023); `testChanged`,
+ * the test of the changed code a check step runs in place of `test`, is not (ADR 0242).
+ */
 const Checks = z
-  .strictObject({ build: check, typecheck: check, lint: check, format: check, test: check })
+  .strictObject({
+    build: check,
+    typecheck: check,
+    lint: check,
+    format: check,
+    test: check,
+    testChanged: Command.refine(
+      holdsBase,
+      'Must hold {base}, where a check step puts the commit the change starts from',
+    )
+      .optional()
+      .describe(
+        "The test of the changed code a check step runs in place of test, from {base}; setting it says the pull request's checks run the full test (ADR 0242)",
+      ),
+  })
+  .refine((checks) => checks.testChanged === undefined || checks.test !== null, {
+    message: 'A testChanged needs a test check, which the pull request runs in full',
+    path: ['testChanged'],
+  })
   .describe('The command behind each check recipes name, or null when the repository has none');
 
 /** Where the structured report of the test check is, for a test map's freshness (ADR 0282). */

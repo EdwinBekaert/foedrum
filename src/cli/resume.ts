@@ -44,14 +44,7 @@ import { type ServeRepository, type ServeSetup, storePath } from './serve-config
 /** What resume needs of serve's setup: where the attempts ran and how their brewers are set up. */
 export type ResumeSetup = Pick<
   ServeSetup,
-  | 'workRoot'
-  | 'repositories'
-  | 'models'
-  | 'brewers'
-  | 'claude'
-  | 'sandbox'
-  | 'configDirs'
-  | 'brewerEnv'
+  'workRoot' | 'repositories' | 'models' | 'brewers' | 'claude' | 'sandbox' | 'brewerEnv'
 >;
 
 /** What resume needs from the machine. */
@@ -477,7 +470,6 @@ export const runResume = async (input: ResumeInput, shell: ResumeShell): Promise
         found.brewer,
         'worktree' in target && own !== undefined ? own.repository.tools : [],
         setup.sandbox,
-        setup.configDirs,
         setup.brewerEnv.base,
       );
       const settingsFile = settingsFileOf(setup.workRoot, ref);

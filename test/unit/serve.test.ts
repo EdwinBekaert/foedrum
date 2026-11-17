@@ -1311,12 +1311,9 @@ Plan the order in {order}.
     assert.equal(f.plans[0]?.setup?.run.timeoutMs, 600_000);
   });
 
-  // ADR 0160: the sandbox hides the logins where serve's environment moved them.
-  it('gives each brewer the sandbox and where the environment moves the logins', async () => {
-    const configDirs = { GH_CONFIG_DIR: '/srv/gh' };
-    assert.equal(await runServe({ ...f.setup, sandbox: true, configDirs }, shell()), 0);
+  it('gives each brewer the sandbox', async () => {
+    assert.equal(await runServe({ ...f.setup, sandbox: true }, shell()), 0);
     assert.equal(f.plans[0]?.permissions.sandbox, true);
-    assert.deepStrictEqual(f.plans[0]?.permissions.configDirs, configDirs);
   });
 
   it('keeps ticking after a tick failed for another reason than the state branch', async () => {

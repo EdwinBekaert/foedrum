@@ -19,6 +19,14 @@ import { commandLine, type PlannedCheck, readingOf } from './gravity.ts';
 const KILL_MARGIN_MS = 10_000;
 
 /**
+ * A path a shell line names in double quotes alike in `/bin/sh` and cmd.exe: no character either
+ * expands or ends the quote on (`$`, a backquote, `"`, `%`, `!`, `^`, `\`), and a first one no tool
+ * reads as an option or a response file (`-`, `@`, `+`). A brewer names the files the checks before its
+ * end name (ADR 0381), and the project the lockfile refresh restores (ADR 0415).
+ */
+export const SAFE_PATH = /^[A-Za-z0-9_.][A-Za-z0-9_.@+ /-]*$/;
+
+/**
  * claude's login and settings, which the brewers' base keeps for claude: a check, which has the
  * network on native Windows (ADR 0076), gets none of them (ADR 0069).
  */
@@ -50,6 +58,8 @@ export interface LineRun {
   /** Its own limit, when that is sooner than the deadline's. */
   timeoutMs?: number;
   maxOutputBytes?: number | undefined;
+  /** Below normal priority: a Brett step's scratch-tree runs (ADR 0413). */
+  belowNormal?: boolean;
 }
 
 /**
@@ -69,6 +79,7 @@ export function runLine(through: ExecProcess, command: string, run: LineRun): Pr
     signal,
     shell: true,
     jobObject: true,
+    ...(run.belowNormal ? { belowNormal: true } : {}),
     ...(maxOutputBytes === undefined ? {} : { maxOutputBytes }),
   });
 }

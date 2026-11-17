@@ -40,7 +40,17 @@ export const TEST_COMMAND = [
 // Every test file; node --test expands the glob itself.
 export const TEST_GLOB = 'test/{unit,property,chaos}/**/*.test.ts';
 
-const testStep = (npmCli: string, tests: TestRun): CheckStep[] => {
+// node's coverage of the files run, as LCOV in lcov.info and without npm test's thresholds, which
+// a part of the suite cannot meet: what a check step's uncovered-line check reads (ADR 0242).
+const LCOV = [
+  '--experimental-test-coverage',
+  '--test-reporter=lcov',
+  '--test-reporter-destination=lcov.info',
+];
+
+const testStep = (npmCli: string, tests: TestRun, lcov: boolean): CheckStep[] => {
+  const command = lcov ? [...TEST_COMMAND, ...LCOV] : TEST_COMMAND;
+  const coverage = lcov ? 'with its coverage in lcov.info' : 'without coverage';
   switch (tests.kind) {
     case 'coverage':
       return [{ label: 'npm test', args: [npmCli, 'test'] }];
@@ -49,17 +59,16 @@ const testStep = (npmCli: string, tests: TestRun): CheckStep[] => {
     case 'all':
       return [
         {
-          label: 'node --test (every test file, without coverage)',
-          args: [...TEST_COMMAND, TEST_GLOB],
+          label: `node --test (every test file, ${coverage})`,
+          args: [...command, TEST_GLOB],
         },
       ];
     case 'some': {
       const { files } = tests;
       if (files.length === 0) return [];
       const count = files.length === 1 ? '1 test file' : `${files.length} test files`;
-      return [
-        { label: `node --test (${count} the change reaches)`, args: [...TEST_COMMAND, ...files] },
-      ];
+      const label = `node --test (${count} the change reaches${lcov ? `, ${coverage}` : ''})`;
+      return [{ label, args: [...command, ...files] }];
     }
     default: {
       const never: never = tests;
@@ -68,10 +77,14 @@ const testStep = (npmCli: string, tests: TestRun): CheckStep[] => {
   }
 };
 
-export const checkSteps = (npmCli: string, tests: TestRun = { kind: 'coverage' }): CheckStep[] => [
+export const checkSteps = (
+  npmCli: string,
+  tests: TestRun = { kind: 'coverage' },
+  lcov = false,
+): CheckStep[] => [
   { label: 'npm run typecheck', args: [npmCli, 'run', 'typecheck'] },
   { label: 'npm run lint', args: [npmCli, 'run', 'lint'] },
-  ...testStep(npmCli, tests),
+  ...testStep(npmCli, tests, lcov),
   { label: 'node scripts/check-test-layers.ts', args: ['scripts/check-test-layers.ts'] },
   { label: 'node scripts/check-deps.ts --offline', args: ['scripts/check-deps.ts', '--offline'] },
 ];
@@ -128,6 +141,8 @@ export interface CheckOptions {
   affected?: () => Promise<Affected>;
   /** Runs no tests, finding no change: the push gate's check (`npm run check -- --no-tests`, ADR 0249). */
   noTests?: boolean;
+  /** Writes the coverage of the test files run to lcov.info, without thresholds (ADR 0242). */
+  lcov?: boolean;
   /** Lowers this process's priority before the steps start, which inherit it (#140). */
   lowerPriority?: () => void;
 }
@@ -139,20 +154,35 @@ const STEP_TIMEOUT_MS = 300_000;
 /**
  * The check's options from its arguments: with --all, every test file with coverage, as CI runs
  * it; with --no-tests, no tests, as the push gate runs it (ADR 0249); with neither, the test
- * files the change reaches, found by `affected` (ADR 0241).
+ * files the change reaches, found by `affected` (ADR 0241), the change since --base when given, a
+ * full commit id, as a check step's testChanged runs it (ADR 0242).
  */
 export const checkMode = (
   argv: string[],
-  affected: () => Promise<Affected>,
-): Pick<CheckOptions, 'affected' | 'noTests'> => {
-  const { all, 'no-tests': noTests } = parseArgs({
+  affected: (base?: string) => Promise<Affected>,
+): Pick<CheckOptions, 'affected' | 'noTests' | 'lcov'> => {
+  const {
+    all,
+    'no-tests': noTests,
+    base,
+  } = parseArgs({
     args: argv,
     options: {
       all: { type: 'boolean', default: false },
       'no-tests': { type: 'boolean', default: false },
+      base: { type: 'string' },
     },
   }).values;
   if (all && noTests) throw new Error('--all and --no-tests do not go together');
+  if (base !== undefined) {
+    if (all) throw new Error('--base and --all do not go together');
+    if (noTests) throw new Error('--base and --no-tests do not go together');
+    // git would read anything else as a revision or an option.
+    if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(base)) {
+      throw new Error(`--base must be a full commit id, not ${JSON.stringify(base)}`);
+    }
+    return { affected: () => affected(base), lcov: true };
+  }
   if (noTests) return { noTests: true };
   return all ? {} : { affected };
 };
@@ -173,6 +203,7 @@ export const runCheck = async ({
   lowerPriority,
   affected,
   noTests = false,
+  lcov = false,
 }: CheckOptions): Promise<number> => {
   lowerPriority?.();
   // A worktree without node_modules of its own would run every step against the packages of the
@@ -191,7 +222,7 @@ export const runCheck = async ({
   write(testsLine(tests));
   // The runner kills a step's whole tree at the deadline or when the check is stopped. A runner
   // that rejects counts as a failed step, so the other steps are still waited for.
-  const running = checkSteps(npmCli, tests).map(({ label, args }) => ({
+  const running = checkSteps(npmCli, tests, lcov).map(({ label, args }) => ({
     label,
     outcome: runProcess(execPath, args, cwd, { timeoutMs: stepTimeoutMs, signal }).catch(
       (error: unknown): ProcessOutcome => ({
@@ -233,6 +264,6 @@ if (import.meta.main) {
     signal: stopOnSignals(),
     // Below normal outside CI, so the steps leave the desktop responsive (#140).
     lowerPriority: () => lowerOwnPriority(process.env),
-    ...checkMode(process.argv.slice(2), () => affectedInCheckout(cwd)),
+    ...checkMode(process.argv.slice(2), (base) => affectedInCheckout(cwd, base)),
   });
 }

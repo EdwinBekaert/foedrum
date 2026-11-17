@@ -32,6 +32,8 @@ Both are JSONC with a `$schema` reference for editor autocompletion; unknown fie
 ```
 
 - `checks` requires all five keys, so a missing check is always an explicit `null`.
+  It may add a sixth, `testChanged`, a command written the same way whose every line holds `{base}`, such as `"testChanged": "npx vitest run --changed {base}"`: a check step runs it in place of `test` from the commit the batch's change starts from, and setting it says that the pull request's checks run the full `test`, the full gate ([check steps](../checks/check-steps.md), [ADR 0242](../../adr/0242-a-repository-can-name-a-fast-local-test-and-its-pull-request-checks-are-the-full-gate.md)).
+  It needs a `test` check, and `foedrum doctor` lists, per repository, which test the check step runs and what the full gate is.
   A command is one line, or `{ "run", "windows", "macos", "linux" }` with per-OS overrides.
   `"files": true`, which any command object takes and only a `lint`, `format` or `test` command's is read, says its line takes paths: the checks before a brewer's end then add the changed files to lint and format, and the red step's test files to test, which otherwise does not run there; a check step runs the line as written ([ADR 0381](../../adr/0381-a-brewer-that-writes-code-runs-the-quick-checks-before-its-end-and-is-sent-back-once.md)).
 - `testReport` is `{ "format": "tap" }` (the test command writes TAP to standard output), `{ "format": "tap", "path": … }` or `{ "format": "junit", "path": … }`; the path is relative to the worktree, never leaves it, and uses only file names Windows can create (no device names such as `con`, no trailing dot or space, none of `<>:"|?*` or control characters).
@@ -49,12 +51,17 @@ Both are JSONC with a `$schema` reference for editor autocompletion; unknown fie
   So is a `tools` rule that is a `Write`, `MultiEdit`, `NotebookEdit` or `Glob` path rule ([ADR 0093](../../adr/0093-brewers-file-tool-rules-are-read-and-edit-rules-scoped-to-the-worktree.md)).
 - `setup` runs in the worktree of every attempt of a brewer with a shell (a `Bash` or `PowerShell` rule, its own or from `tools`), before the brewer, and of every check step, before its checks, in the check sandbox with the network kept ([ADR 0158](../../adr/0158-a-repository-s-setup-runs-in-the-check-sandbox-with-the-network-kept.md), [ADR 0163](../../adr/0163-a-repository-s-setup-runs-before-a-brewer-attempt.md)).
   So a brewer can run the repository's format, lint, typecheck and tests itself, which the default Gauger and Cellarman do when `tools` allows the commands; the check step after them stays the gate.
-  Foedrum's own repository allows them within a ceiling that names them and nothing broader:
+  Foedrum's own repository allows them within a ceiling that names them and nothing broader, and its check steps run only the test files the change reaches, since its CI runs every test:
 
   ```jsonc
   "permissionCeiling": ["Bash(npm run *)", "Bash(node --test *)"],
   "repositories": {
     "edwinbekaert/foedrum": {
+      "checks": {
+        "build": null, "typecheck": "npm run typecheck", "lint": "npm run lint", "format": null,
+        "test": "npm test",                                      // every test file with coverage, as its CI runs them
+        "testChanged": "npm run check -- --base {base}"          // the test files the change reaches, their coverage in lcov.info (ADR 0241, ADR 0242)
+      },
       "setup": { "command": "npm ci", "timeout": "10m" },
       "tools": [
         "Bash(npm run lint)",
@@ -100,6 +107,8 @@ A Brewery that wants the same effort everywhere writes ([ADR 0397](../../adr/039
 
 The file is optional: Foedrum's own `defaults/models.jsonc` maps `standard` to `sonnet`, `strong`, the Brewmaster's and that of the coverage and security plan lens steps, to `opus`, `light`, the Maltster's map's, to `haiku`, and `extreme`, which no default step names, to `fable`, and the efforts `small`, `moderate`, `larger` and `full` to `low`, `medium`, `high` and `xhigh` ([ADR 0395](../../adr/0395-the-maltster-maps-the-code-an-order-touches-before-the-gauger-on-the-explorer-alias.md), [ADR 0234](../../adr/0234-the-brewmaster-writes-a-plan-on-the-planner-alias-and-mash-runs-it.md), [ADR 0321](../../adr/0321-mash-and-decoction-review-a-plan-through-the-plan-lenses-apart.md), [ADR 0397](../../adr/0397-recipe-steps-name-a-model-level-and-an-effort-of-foedrum-s-own-which-models-jsonc-translates-for-the-agent.md)), and the Brewery's `claude.models` and `claude.efforts` replace its entries one by one, so a Brewery writes only what it changes ([ADR 0153](../../adr/0153-foedrum-s-defaults-map-their-own-model-aliases.md), [ADR 0397](../../adr/0397-recipe-steps-name-a-model-level-and-an-effort-of-foedrum-s-own-which-models-jsonc-translates-for-the-agent.md)).
 A level or an effort that a step in use names, and the merged file does not translate, refuses the start with a line naming the step and its brewer. A brewer is moved to another model by its recipe steps, not by `models.jsonc`, which has no per-brewer swap ([ADR 0397](../../adr/0397-recipe-steps-name-a-model-level-and-an-effort-of-foedrum-s-own-which-models-jsonc-translates-for-the-agent.md)).
+The `claude` block's `tasted` list keeps the latest Flight of each brewer, recipe, level and effort: the exact model id the candidate ran on, the orders it passed in every run out of the orders both Flights measured, the baseline's two and model id, the tokens per order, the date and, optionally, the link to the pull request that holds the report; one entry per combination, and the Brewery's entry takes the place of Foedrum's of the same combination ([ADR 0416](../../adr/0416-models-jsonc-keeps-a-tasted-list-the-latest-flight-of-each-brewer-recipe-level-and-effort.md)).
+The Flight report writes Foedrum's entries ([evaluation](../evaluation.md)); nothing reads the list yet.
 
 Model ids reach the `claude` command line, so they are limited to lower-case letters, digits, `.`, `_`, `:` and `-` (plus a `[1m]` suffix), and never start with `-`.
 

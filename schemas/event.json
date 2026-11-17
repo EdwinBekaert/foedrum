@@ -678,6 +678,14 @@
                     "type": "boolean",
                     "const": true
                   },
+                  "changed": {
+                    "type": "boolean",
+                    "const": true
+                  },
+                  "lockfile": {
+                    "type": "string",
+                    "pattern": "\\S"
+                  },
                   "command": {
                     "type": "string",
                     "pattern": "\\S"
@@ -750,6 +758,14 @@
                     "type": "boolean",
                     "const": true
                   },
+                  "changed": {
+                    "type": "boolean",
+                    "const": true
+                  },
+                  "lockfile": {
+                    "type": "string",
+                    "pattern": "\\S"
+                  },
                   "command": {
                     "type": "string",
                     "pattern": "\\S"
@@ -800,6 +816,14 @@
                     "type": "boolean",
                     "const": true
                   },
+                  "changed": {
+                    "type": "boolean",
+                    "const": true
+                  },
+                  "lockfile": {
+                    "type": "string",
+                    "pattern": "\\S"
+                  },
                   "command": {
                     "type": "string",
                     "pattern": "\\S"
@@ -845,6 +869,14 @@
                   "setup": {
                     "type": "boolean",
                     "const": true
+                  },
+                  "changed": {
+                    "type": "boolean",
+                    "const": true
+                  },
+                  "lockfile": {
+                    "type": "string",
+                    "pattern": "\\S"
                   },
                   "command": {
                     "type": "string",
@@ -2160,6 +2192,69 @@
               "properties": {
                 "kind": {
                   "type": "string",
+                  "const": "push_refused"
+                },
+                "stepId": {
+                  "type": "string",
+                  "pattern": "^(?!(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\\.|$))[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$"
+                },
+                "commit": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{40}$"
+                },
+                "findings": {
+                  "minItems": 1,
+                  "maxItems": 10,
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "commit": {
+                        "type": "string",
+                        "pattern": "^[0-9a-f]{40}$"
+                      },
+                      "place": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "line": {
+                        "type": "integer",
+                        "exclusiveMinimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      "kind": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    },
+                    "required": [
+                      "commit",
+                      "place",
+                      "kind"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "more": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": [
+                "kind",
+                "stepId",
+                "commit",
+                "findings",
+                "more"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
                   "const": "stopped"
                 },
                 "stepId": {
@@ -3306,6 +3401,14 @@
                   "type": "boolean",
                   "const": true
                 },
+                "changed": {
+                  "type": "boolean",
+                  "const": true
+                },
+                "lockfile": {
+                  "type": "string",
+                  "pattern": "\\S"
+                },
                 "command": {
                   "type": "string",
                   "pattern": "\\S"
@@ -3378,6 +3481,14 @@
                   "type": "boolean",
                   "const": true
                 },
+                "changed": {
+                  "type": "boolean",
+                  "const": true
+                },
+                "lockfile": {
+                  "type": "string",
+                  "pattern": "\\S"
+                },
                 "command": {
                   "type": "string",
                   "pattern": "\\S"
@@ -3428,6 +3539,14 @@
                   "type": "boolean",
                   "const": true
                 },
+                "changed": {
+                  "type": "boolean",
+                  "const": true
+                },
+                "lockfile": {
+                  "type": "string",
+                  "pattern": "\\S"
+                },
                 "command": {
                   "type": "string",
                   "pattern": "\\S"
@@ -3473,6 +3592,14 @@
                 "setup": {
                   "type": "boolean",
                   "const": true
+                },
+                "changed": {
+                  "type": "boolean",
+                  "const": true
+                },
+                "lockfile": {
+                  "type": "string",
+                  "pattern": "\\S"
                 },
                 "command": {
                   "type": "string",
