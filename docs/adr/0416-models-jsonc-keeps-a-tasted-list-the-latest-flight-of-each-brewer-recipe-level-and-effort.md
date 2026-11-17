@@ -10,8 +10,8 @@ Nothing kept which model, at which level and effort, was tasted for which brewer
 Decided with the maintainer on 2026-11-17 (#1141), in place of a model watcher (#1085).
 
 ## Decision
-- **The `claude` block of `models.jsonc` holds a `tasted` list beside `models` and `efforts`**: one entry per brewer, recipe, level and effort, the latest tasting of that combination, won or lost.
-  A newer tasting of the same combination replaces its entry; the history stays in git and in the pull request that added each entry, so there is no archive.
+- **The `claude` block of `models.jsonc` holds a `tasted` list beside `models` and `efforts`**: one entry per brewer, recipe, level and effort, the latest Flight of that combination, won or lost.
+  A newer Flight of the same combination replaces its entry; the history stays in git and in the pull request that added each entry, so there is no archive.
   The list is in the `claude` block because its model ids are claude's, as ADR 0397 keeps one block per agent.
 - **An entry's fields** (decided with the maintainer on 2026-11-17):
 
@@ -59,5 +59,5 @@ None until the first publish: a Brewery's own `models.jsonc` without a `tasted` 
 - **Claude Code's effort words in the entry:** the combination would change with the agent while the step's own words do not.
 - **A required `--pull-request <url>` option for the link:** the report runs before the pull request exists, and the maintainer settled on no option.
 - **The report opens the pull request:** a development script would branch and push on its own; #1143 brings that through the engine.
-- **An archive of every tasting:** git and the pull requests keep the history already.
+- **An archive of every Flight:** git and the pull requests keep the history already.
 - **Editing the file in place, keeping every comment:** a JSONC writer of Foedrum's own for one file whose only comment is its header.
