@@ -17,6 +17,12 @@ import { readingOn, runLine } from './setup.ts';
 /** The command that refreshes an npm lockfile from its manifest, running no package's scripts. */
 export const NPM_REFRESH = 'npm install --package-lock-only --ignore-scripts';
 
+/** The command that refreshes a Cargo workspace's lockfile after its manifests' versions changed. */
+export const CARGO_REFRESH = 'cargo update --workspace';
+
+/** The command that restores a .NET project, which refreshes its lockfile when its packages changed. */
+export const NUGET_REFRESH = 'dotnet restore';
+
 /** How long one refresh may run, unless the attempt's deadline comes sooner. */
 export const REFRESH_TIMEOUT_MS = 300_000;
 
@@ -25,6 +31,11 @@ export interface LockfileRefresh {
   folder: string;
   lockfile: string;
   command: string;
+  /**
+   * Where else the lockfile is: the nearest of its name from the folder up (`above`), or beside
+   * each project in the folders below, the command naming that project (`below`).
+   */
+  find?: 'above' | 'below';
 }
 
 /** The lockfiles to refresh for the `changed` paths of an attempt's commits. */

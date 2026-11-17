@@ -13,7 +13,7 @@ import {
   claudeBrewerRunnerWith,
 } from '../../src/brewers/claude-runner.ts';
 import { assembleBrewerPrompt } from '../../src/brewers/prompt.ts';
-import { NPM_REFRESH } from '../../src/checks/lockfile.ts';
+import { CARGO_REFRESH, NPM_REFRESH } from '../../src/checks/lockfile.ts';
 import type { AttemptLimits, AttemptStart } from '../../src/engine/brewer-runner.ts';
 import type { ExecOptions, ExecResult, StreamResult } from '../../src/platform/processes.ts';
 import { OutDocFrontmatter } from '../../src/schemas/out-doc.ts';
@@ -81,6 +81,8 @@ const setup = (
     tree?: Record<string, string>;
     /** What the refresh writes over the lockfile in its folder; default a new version. */
     writes?: string;
+    /** The lockfile's name the refresh writes; default package-lock.json. */
+    lockfileName?: string;
     exit?: number;
     changed?: PathsChanged;
     /** Stops the attempt while git lists the changed paths. */
@@ -157,7 +159,7 @@ const setup = (
           setup: async (command: string, _args: readonly string[], execOptions?: ExecOptions) => {
             refreshed.push({ command, options: execOptions });
             writeFileSync(
-              join(execOptions?.cwd ?? '', 'package-lock.json'),
+              join(execOptions?.cwd ?? '', options.lockfileName ?? 'package-lock.json'),
               options.writes ?? 'v1.2.0\n',
             );
             const output = options.exit === undefined ? '' : 'npm ERR! 404 greet';
@@ -210,11 +212,39 @@ describe('claudeBrewerRunner: the lockfile refresh after a release bump (ADR 041
         clone: '/work/clone.git',
         own,
         branch: 'foedrum/12-1/implement/1',
-        message: 'Refresh web/package-lock.json after the release bump (ADR 0412)',
+        message: 'Refresh the lockfiles after the release bump (ADR 0412)',
         files: ['web/package-lock.json'],
       },
     ]);
     assert.deepStrictEqual(end.readings, [reading]);
+  });
+
+  it("commits a workspace's Cargo.lock found above the member its commits changed (ADR 0415)", async () => {
+    const { refreshed, opened, runner } = setup({
+      tree: {
+        'Cargo.toml': '[workspace]\n',
+        'Cargo.lock': 'v1.1.0\n',
+        'crates/a/Cargo.toml': '[package]\n',
+      },
+      changed: { kind: 'listed', paths: ['crates/a/Cargo.toml'] },
+      lockfileName: 'Cargo.lock',
+    });
+    const end = await runner.start(attempt).ended;
+    assert.equal(end.ending.kind, 'succeeded');
+    assert.deepStrictEqual(
+      refreshed.map(({ command }) => command),
+      [CARGO_REFRESH],
+    );
+    assert.doesNotMatch(refreshed[0]?.options?.cwd ?? '', /[\\/]a$/);
+    assert.deepStrictEqual(
+      opened.map(({ message, files }) => ({ message, files })),
+      [
+        {
+          message: 'Refresh the lockfiles after the release bump (ADR 0412)',
+          files: ['Cargo.lock'],
+        },
+      ],
+    );
   });
 
   it('commits nothing when the refresh leaves the lockfile as it was', async () => {

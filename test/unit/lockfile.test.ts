@@ -8,8 +8,10 @@ import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import { settleReadings } from '../../src/checks/gravity.ts';
 import {
+  CARGO_REFRESH,
   lockfileRefreshes,
   NPM_REFRESH,
+  NUGET_REFRESH,
   type RefreshRun,
   refreshLockfiles,
 } from '../../src/checks/lockfile.ts';
@@ -292,6 +294,242 @@ describe('settleReadings: a lockfile refresh (ADR 0412)', () => {
         },
       ]),
       { kind: 'cancelled' },
+    );
+  });
+});
+
+describe('lockfileRefreshes: Cargo and NuGet (ADR 0415)', () => {
+  it("looks for a changed Cargo.toml's Cargo.lock from its folder up, with cargo update --workspace", () => {
+    assert.deepStrictEqual(lockfileRefreshes(['Cargo.toml', 'crates/a/Cargo.toml', 'src/a.rs']), [
+      { folder: '', lockfile: 'Cargo.lock', command: CARGO_REFRESH, find: 'above' },
+      {
+        folder: 'crates/a',
+        lockfile: 'crates/a/Cargo.lock',
+        command: CARGO_REFRESH,
+        find: 'above',
+      },
+    ]);
+  });
+
+  it('names nothing for a Cargo.toml in a vendor or a target folder', () => {
+    assert.deepStrictEqual(
+      lockfileRefreshes(['vendor/x/Cargo.toml', 'target/x/Cargo.toml', 'b/Cargo.toml']),
+      [{ folder: 'b', lockfile: 'b/Cargo.lock', command: CARGO_REFRESH, find: 'above' }],
+    );
+  });
+
+  it('names the packages.lock.json beside each changed .NET project, restoring that project by name', () => {
+    assert.deepStrictEqual(
+      lockfileRefreshes(['src/Web/Web.csproj', 'Lib.fsproj', 'tools/Old.vbproj', 'App.sln']),
+      [
+        {
+          folder: 'src/Web',
+          lockfile: 'src/Web/packages.lock.json',
+          command: `${NUGET_REFRESH} "Web.csproj"`,
+        },
+        { folder: '', lockfile: 'packages.lock.json', command: `${NUGET_REFRESH} "Lib.fsproj"` },
+        {
+          folder: 'tools',
+          lockfile: 'tools/packages.lock.json',
+          command: `${NUGET_REFRESH} "Old.vbproj"`,
+        },
+      ],
+    );
+  });
+
+  it('names nothing for a .NET project in a bin or an obj folder', () => {
+    assert.deepStrictEqual(
+      lockfileRefreshes(['bin/Web.csproj', 'Web/obj/Web.csproj', 'Api/Api.csproj']),
+      [
+        {
+          folder: 'Api',
+          lockfile: 'Api/packages.lock.json',
+          command: `${NUGET_REFRESH} "Api.csproj"`,
+        },
+      ],
+    );
+  });
+
+  it('names nothing for a .NET project whose name a shell line cannot quote', () => {
+    assert.deepStrictEqual(
+      lockfileRefreshes(['web/$(x).csproj', 'web/-Web.csproj', 'api/Api.csproj']),
+      [
+        {
+          folder: 'api',
+          lockfile: 'api/packages.lock.json',
+          command: `${NUGET_REFRESH} "Api.csproj"`,
+        },
+      ],
+    );
+  });
+
+  it('looks for the packages.lock.json of each project below a changed Directory.Packages.props', () => {
+    assert.deepStrictEqual(
+      lockfileRefreshes(['Directory.Packages.props', 'src/Directory.Packages.props']),
+      [
+        { folder: '', lockfile: 'packages.lock.json', command: NUGET_REFRESH, find: 'below' },
+        {
+          folder: 'src',
+          lockfile: 'src/packages.lock.json',
+          command: NUGET_REFRESH,
+          find: 'below',
+        },
+      ],
+    );
+  });
+});
+
+const member = {
+  folder: 'crates/a',
+  lockfile: 'crates/a/Cargo.lock',
+  command: CARGO_REFRESH,
+  find: 'above' as const,
+};
+
+/** A process runner that writes `text` over `file` in its folder, and records each run. */
+const writing = (file: string, text = 'v1.2.0\n') =>
+  fakeExec({}, (cwd) => {
+    writeFileSync(join(cwd, file), text);
+  });
+
+describe('refreshLockfiles: a lockfile found above its manifest (ADR 0415)', () => {
+  it("refreshes the workspace's Cargo.lock above a member, in the lockfile's folder", async () => {
+    const tree = treeWith({
+      'Cargo.toml': '[workspace]\n',
+      'Cargo.lock': 'v1.1.0\n',
+      'crates/a/Cargo.toml': '[package]\n',
+    });
+    const { exec, runs } = writing('Cargo.lock');
+    const refreshed = await refreshLockfiles(tree, [member], runOf(exec));
+    assert.deepStrictEqual(
+      runs.map(({ command, options }) => [command, options?.cwd]),
+      [[CARGO_REFRESH, tree]],
+    );
+    assert.deepStrictEqual(refreshed.files, ['Cargo.lock']);
+    assert.deepStrictEqual(
+      refreshed.readings.map((reading) => ('lockfile' in reading ? reading.lockfile : undefined)),
+      ['Cargo.lock'],
+    );
+  });
+
+  it('refreshes the nearest Cargo.lock above, not one further up', async () => {
+    const tree = treeWith({
+      'Cargo.lock': 'root\n',
+      'crates/Cargo.lock': 'v1.1.0\n',
+      'crates/a/Cargo.toml': '[package]\n',
+    });
+    const { exec, runs } = writing('Cargo.lock');
+    const refreshed = await refreshLockfiles(tree, [member], runOf(exec));
+    assert.deepStrictEqual(
+      runs.map(({ options }) => options?.cwd),
+      [join(tree, 'crates')],
+    );
+    assert.deepStrictEqual(refreshed.files, ['crates/Cargo.lock']);
+    assert.equal(readFileSync(join(tree, 'Cargo.lock'), 'utf8'), 'root\n');
+  });
+
+  it('refreshes a Cargo.lock two changed members share once', async () => {
+    const tree = treeWith({
+      'Cargo.lock': 'v1.1.0\n',
+      'crates/a/Cargo.toml': '[package]\n',
+      'crates/b/Cargo.toml': '[package]\n',
+    });
+    const other = { ...member, folder: 'crates/b', lockfile: 'crates/b/Cargo.lock' };
+    const { exec, runs } = writing('Cargo.lock');
+    const refreshed = await refreshLockfiles(tree, [member, other], runOf(exec));
+    assert.equal(runs.length, 1);
+    assert.deepStrictEqual(refreshed.files, ['Cargo.lock']);
+  });
+});
+
+const props = {
+  folder: 'src',
+  lockfile: 'src/packages.lock.json',
+  command: NUGET_REFRESH,
+  find: 'below' as const,
+};
+
+describe('refreshLockfiles: the lockfiles of the projects below a Directory.Packages.props (ADR 0415)', () => {
+  it('restores each project beside a packages.lock.json below it, by name, and lists the lockfiles it changed', async () => {
+    const tree = treeWith({
+      'src/Directory.Packages.props': '<Project />',
+      'src/Web/Web.csproj': '<Project />',
+      'src/Web/packages.lock.json': 'v1.1.0\n',
+      'src/Api/Api.csproj': '<Project />',
+      'src/Api/packages.lock.json': 'v1.1.0\n',
+      'src/Docs/Docs.csproj': '<Project />',
+      'Other/Other.csproj': '<Project />',
+      'Other/packages.lock.json': 'v1.1.0\n',
+    });
+    const { exec, runs } = writing('packages.lock.json');
+    const refreshed = await refreshLockfiles(tree, [props], runOf(exec));
+    assert.deepStrictEqual(runs.map(({ command, options }) => [command, options?.cwd]).sort(), [
+      [`${NUGET_REFRESH} "Api.csproj"`, join(tree, 'src', 'Api')],
+      [`${NUGET_REFRESH} "Web.csproj"`, join(tree, 'src', 'Web')],
+    ]);
+    assert.deepStrictEqual([...refreshed.files].sort(), [
+      'src/Api/packages.lock.json',
+      'src/Web/packages.lock.json',
+    ]);
+  });
+
+  it('passes over the bin, obj, node_modules and .git folders below it', async () => {
+    const tree = treeWith({
+      'src/bin/A/A.csproj': '<Project />',
+      'src/bin/A/packages.lock.json': 'v1.1.0\n',
+      'src/obj/B/B.csproj': '<Project />',
+      'src/obj/B/packages.lock.json': 'v1.1.0\n',
+      'src/node_modules/C/C.csproj': '<Project />',
+      'src/node_modules/C/packages.lock.json': 'v1.1.0\n',
+      'src/.git/D/D.csproj': '<Project />',
+      'src/.git/D/packages.lock.json': 'v1.1.0\n',
+      'src/E/E.csproj': '<Project />',
+      'src/E/packages.lock.json': 'v1.1.0\n',
+    });
+    const { exec, runs } = writing('packages.lock.json');
+    await refreshLockfiles(tree, [props], runOf(exec));
+    assert.deepStrictEqual(
+      runs.map(({ command }) => command),
+      [`${NUGET_REFRESH} "E.csproj"`],
+    );
+  });
+
+  it('restores no folder with two projects or none beside its packages.lock.json, nor a project it cannot quote', async () => {
+    const tree = treeWith({
+      'src/Two/A.csproj': '<Project />',
+      'src/Two/B.fsproj': '<Project />',
+      'src/Two/packages.lock.json': 'v1.1.0\n',
+      'src/None/packages.lock.json': 'v1.1.0\n',
+      'src/Odd/-Odd.csproj': '<Project />',
+      'src/Odd/packages.lock.json': 'v1.1.0\n',
+      'src/One/One.vbproj': '<Project />',
+      'src/One/packages.lock.json': 'v1.1.0\n',
+    });
+    const { exec, runs } = writing('packages.lock.json');
+    await refreshLockfiles(tree, [props], runOf(exec));
+    assert.deepStrictEqual(
+      runs.map(({ command }) => command),
+      [`${NUGET_REFRESH} "One.vbproj"`],
+    );
+  });
+
+  it('runs nothing below a folder that links out of the tree', async () => {
+    const outside = treeWith({
+      'Web/Web.csproj': '<Project />',
+      'Web/packages.lock.json': 'v1.1.0\n',
+    });
+    const tree = treeWith({ 'Api/Api.csproj': '<Project />', 'Api/packages.lock.json': 'v\n' });
+    // A junction from inside the tree to a folder outside it.
+    symlinkSync(join(outside, 'Web'), join(tree, 'Web'), 'junction');
+    const { exec, runs } = writing('packages.lock.json');
+    await refreshLockfiles(
+      tree,
+      [{ ...props, folder: '', lockfile: 'packages.lock.json' }],
+      runOf(exec),
+    );
+    assert.deepStrictEqual(
+      runs.map(({ command }) => command),
+      [`${NUGET_REFRESH} "Api.csproj"`],
     );
   });
 });
