@@ -89,7 +89,7 @@ export async function refreshLockfiles(
     // A repository that keeps no lockfile there has none to refresh.
     const before = await regularFile(worktree, file);
     if (before === undefined) continue;
-    const cwd = join(worktree, ...folder.split('/').filter((part) => part !== ''));
+    const cwd = join(worktree, ...folder.split('/'));
     const timeoutMs = REFRESH_TIMEOUT_MS;
     const result = await runLine(exec, command, { cwd, env, deadlineAt, now, signal, timeoutMs });
     const reading = { ...readingOn({ kind: 'run', command }, result, unsandboxed), lockfile };

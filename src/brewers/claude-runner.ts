@@ -689,15 +689,14 @@ export function claudeBrewerRunnerWith(deps: ClaudeRunnerDeps): BrewerRunner {
           if (branchCommit === undefined || exec === undefined) {
             return unrefreshed('the brewer runner has no scratch tree or process runner for them');
           }
-          const message = (files: readonly string[]) =>
-            `Refresh ${files.join(', ')} after the release bump (ADR 0412)`;
+          const lockfiles = refreshes.map(({ lockfile }) => lockfile).join(', ');
+          const message = `Refresh ${lockfiles} after the release bump (ADR 0412)`;
           const run = { ...refresh, exec, now: deps.now, signal: stopping.signal };
           let readings: GravityReading[] = [];
           try {
-            // The message names the files, which only the refresh knows: it is built per file list.
-            const { value } = await branchCommit(clone, refresh.own)(
+            await branchCommit(clone, refresh.own)(
               branch,
-              message(refreshes.map(({ lockfile }) => lockfile)),
+              message,
               async (tree) => {
                 const done = await refreshLockfiles(tree, refreshes, run);
                 readings = done.readings;
@@ -705,7 +704,6 @@ export function claudeBrewerRunnerWith(deps: ClaudeRunnerDeps): BrewerRunner {
               },
               stopping.signal,
             );
-            readings = value.readings;
           } catch (error) {
             if (readings.some((reading) => !passed(reading))) {
               return { readings, ending: settleReadings(readings) };
