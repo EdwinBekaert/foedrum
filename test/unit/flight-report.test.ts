@@ -192,6 +192,26 @@ describe('the Flight report (ADR 0411)', () => {
     );
   });
 
+  it('lists an order the candidate measured no run of below the table, out of its rows', () => {
+    const report = flightReport(
+      [record('shelf-tags', 1), record('quiz-rank', 1)],
+      [noHead('shelf-tags', 1), record('quiz-rank', 1)],
+    );
+    assert.equal(rowOf(report, 'shelf-tags'), undefined);
+    assert.match(report, /^No run measured in the candidate: shelf-tags$/m);
+  });
+
+  it('counts the orders each Flight passed every run of on its own side of the summary', () => {
+    const report = flightReport(
+      [...runsOf('quiz-rank', 3), ...runsOf('post-slugs', 3)],
+      [...runsOf('post-slugs', 2, { swap: SWAP }), ...runsOf('quiz-rank', 3, { swap: SWAP })],
+    );
+    assert.match(
+      report,
+      /^nip as it ships: 2 of 2 orders, nip with cellarman on claude-opus-5-5 at larger: 1 of 2 orders, 1 too close to call, /m,
+    );
+  });
+
   it('gives fewer tokens per order with a minus sign', () => {
     const report = flightReport(
       [record('quiz-rank', 1, { steps: [step(200, 20)] })],
