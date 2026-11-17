@@ -93,8 +93,15 @@ const DECODE =
 const input = (name: string, value: string): string =>
   `$${name} = Read-Input '${Buffer.from(value, 'utf8').toString('base64')}'`;
 
-/** Starts the command through the helper, which runs it in `cwd` inside a kill-on-close job. */
-export const jobObjectCommand = (command: SpawnCommand, cwd: string): JobObjectSpawn => {
+/**
+ * Starts the command through the helper, which runs it in `cwd` inside a kill-on-close job; below
+ * normal priority when `belowNormal` is set (ADR 0413).
+ */
+export const jobObjectCommand = (
+  command: SpawnCommand,
+  cwd: string,
+  _options: { belowNormal?: boolean } = {},
+): JobObjectSpawn => {
   const { application, line } = jobObjectLine(command);
   // Absolute, as node's spawn would resolve them: PowerShell runs in System32, which must never
   // decide where the program runs or which file it is.

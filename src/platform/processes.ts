@@ -94,6 +94,14 @@ export const shellCommand = (
     : { file: line, args: [], shell: '/bin/sh', env };
 };
 
+/**
+ * How to start a command below normal priority outside Windows (ADR 0413): through `nice -n 10`
+ * at the path `nice`, so the program, and a shell's line, start niced, with no moment at normal.
+ */
+export const belowNormalCommand = (_command: SpawnCommand, _nice: string): SpawnCommand => {
+  throw new Error('not implemented');
+};
+
 // Between SIGTERM and SIGKILL: long enough for a script such as npm run check to kill its own
 // children's groups on SIGTERM, short enough that a stop still feels immediate.
 const GRACE_MS = 2500;
@@ -179,6 +187,12 @@ export interface ExecOptions {
    */
   jobObject?: boolean | undefined;
   /**
+   * Starts the process below normal priority, which every process it starts inherits (ADR 0413):
+   * through `nice -n 10` outside Windows; on Windows only inside a Job Object (`jobObject`), whose
+   * helper creates the program below normal, and without one it does nothing.
+   */
+  belowNormal?: boolean | undefined;
+  /**
    * Runs `file` as a command line through the platform shell (`shellCommand`), without looking it
    * up; `args` must be empty.
    */
@@ -254,6 +268,8 @@ export interface Spawner {
       cwd: string;
       env: NodeJS.ProcessEnv;
       jobObject?: boolean;
+      /** Below normal priority (ExecOptions.belowNormal). */
+      belowNormal?: boolean;
       stdin?: boolean;
       /** How many extra pipes the program gets, as file descriptors 3 and up (ADR 0218). */
       pipes?: number;

@@ -164,6 +164,21 @@ describe('jobObjectCommand', () => {
     );
   });
 
+  // BELOW_NORMAL_PRIORITY_CLASS (0x4000) at creation, beside CREATE_SUSPENDED and
+  // CREATE_UNICODE_ENVIRONMENT (0x404): the program never runs at normal, and every process it
+  // starts inherits the class (ADR 0413).
+  it('has the helper create the program below normal priority only when asked (ADR 0413)', () => {
+    const flags = (options?: { belowNormal?: boolean }): string => {
+      const text = script(jobObjectCommand(git, 'D:\\work\\tree', options).args);
+      const [, base64 = ''] = /^\$flags = .*'(.+)'.*$/m.exec(text) ?? [];
+      return decoded(base64);
+    };
+    assert.deepEqual(
+      [flags({ belowNormal: true }), flags(), flags({ belowNormal: false })],
+      [String(0x4404), String(0x404), String(0x404)],
+    );
+  });
+
   // Windows limits a command line to 32,767 characters; the helper must leave most of it to the
   // program's own arguments.
   it('leaves most of the command line to the program', () => {
