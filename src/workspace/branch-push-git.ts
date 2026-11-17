@@ -162,6 +162,32 @@ const foedrumBranch = (branch: string): string => {
   return branch;
 };
 
+/**
+ * The arguments of the diff of a change from `since` to `commit` (both full shas) in `format`,
+ * refused before git runs when either is no full sha.
+ */
+const changeDiff = (
+  format: '--name-only' | '--numstat',
+  since: string,
+  commit: string,
+): string[] => {
+  for (const sha of [since, commit]) {
+    fullSha(sha);
+  }
+  return [
+    'diff',
+    format,
+    '-z',
+    '--no-renames',
+    '--no-ext-diff',
+    '--no-relative',
+    '--ignore-submodules=none',
+    '--end-of-options',
+    since,
+    commit,
+  ];
+};
+
 export const openBranchPush = (options: BranchPushOptions): BranchPush => {
   const { git, clone, remote = 'origin' } = options;
   const local = inClone(git);
@@ -291,43 +317,15 @@ export const openBranchPush = (options: BranchPushOptions): BranchPush => {
       ];
     },
     touchedFiles: async (since, commit, signal) => {
-      for (const sha of [since, commit]) {
-        fullSha(sha);
-      }
       // Each path once, a rename's two as a deletion and an addition, never quoted after -z.
-      const args = [
-        'diff',
-        '--name-only',
-        '-z',
-        '--no-renames',
-        '--no-ext-diff',
-        '--no-relative',
-        '--ignore-submodules=none',
-        '--end-of-options',
-        since,
-        commit,
-      ];
+      const args = changeDiff('--name-only', since, commit);
       // As committed, as the scan reads them: no replace ref or graft of a brewer's names the files.
       const listed = await gitOutput(local, clone, args, { ...aborts(signal), ...AS_COMMITTED });
       return listed.split('\0').filter((path) => path !== '');
     },
     changedLines: async (since, commit, signal) => {
-      for (const sha of [since, commit]) {
-        fullSha(sha);
-      }
       // As touchedFiles names them, each with its added and deleted lines, `-` for a binary file.
-      const args = [
-        'diff',
-        '--numstat',
-        '-z',
-        '--no-renames',
-        '--no-ext-diff',
-        '--no-relative',
-        '--ignore-submodules=none',
-        '--end-of-options',
-        since,
-        commit,
-      ];
+      const args = changeDiff('--numstat', since, commit);
       const listed = await gitOutput(local, clone, args, { ...aborts(signal), ...AS_COMMITTED });
       return listed
         .split('\0')
