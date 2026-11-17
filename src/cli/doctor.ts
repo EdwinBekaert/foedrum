@@ -182,18 +182,13 @@ const SANDBOX_TOOLS = 'bubblewrap and socat';
 const WSL2_ADVICE =
   'For untrusted repositories, run Foedrum inside WSL2, where shell commands are sandboxed.';
 /**
- * What each level keeps from gh's login (ADR 0082, #229). Claude Code's sandbox docs settle the
- * user folders (ADR 0160), the hosts file and the token variables (ADR 0087), not the OS keyring,
- * so the sandbox never "closes" it; on WSL2 the user folders include /mnt, with the Windows user's
- * home. No container level is built (ADR 0406). Check steps run in an OS sandbox of
- * Foedrum's own with no network, outside one only on native Windows (ADR 0076).
+ * What each level keeps from gh's login (ADR 0082, #229). What Claude Code's sandbox hides is its
+ * docs' to say, so the advice points to them and names no place (ADR 0414). No container level is
+ * built (ADR 0406). Check steps run in an OS sandbox of Foedrum's own with no network, outside one
+ * only on native Windows (ADR 0076).
  */
-const SANDBOX_HIDES =
-  "hides your home folder and the other user folders from a brewer's shell commands, apart from the worktree, git's global configuration, parts of ~/.claude and the toolchain folders of serve's PATH (ADR 0162), hides gh's hosts file where an absolute GH_CONFIG_DIR or XDG_CONFIG_HOME puts it, and the token variables, and keeps them from reaching GitHub; Claude Code's docs don't say whether the sandbox stops a read from the OS keyring.";
-const WSL2_WINDOWS_HOME =
-  "Under WSL, the user folders include the Windows user's logins under /mnt (ADR 0160).";
-const sandboxHides = (wsl: boolean) =>
-  wsl ? `${SANDBOX_HIDES} ${WSL2_WINDOWS_HOME}` : SANDBOX_HIDES;
+const SANDBOX_DOCS =
+  "Claude Code's sandbox limits what a brewer's commands read: see its sandboxing docs, https://code.claude.com/docs/en/sandboxing.";
 const WRITTEN_DOWN =
   'A login a brewer did read is stopped at the push (ADR 0079) and left out of the pull request and the status comment (ADR 0088) when it looks like one.';
 /** Where check steps run (ADR 0076): bwrap or sandbox-exec, and outside one on native Windows. */
@@ -205,18 +200,17 @@ const CHECKS_ON_WINDOWS =
   "On native Windows, check steps run outside any sandbox, so they can still read gh's login (ADR 0076).";
 const permissionsOnlyAdvice = (
   sandbox: string | undefined,
-  { wsl = false, windows = false }: { wsl?: boolean; windows?: boolean } = {},
+  { windows = false }: { windows?: boolean } = {},
 ) =>
   [
     `${windows ? 'A brewer or a check step runs' : 'A brewer runs'} as you here, so it can still read gh's login from the OS keyring or its hosts file.`,
-    ...(sandbox === undefined ? [] : [`${sandbox} ${sandboxHides(wsl)}`]),
+    ...(sandbox === undefined ? [] : [`${sandbox}, ${SANDBOX_DOCS}`]),
     WRITTEN_DOWN,
     windows ? CHECKS_ON_WINDOWS : CHECKS_IN_BUBBLEWRAP,
   ].join(' ');
-const sandboxedAdvice = (wsl: boolean) =>
-  `The sandbox ${sandboxHides(wsl)} ${WRITTEN_DOWN} ${CHECKS_SANDBOXED}`;
+const SANDBOXED_ADVICE = `${SANDBOX_DOCS} ${WRITTEN_DOWN} ${CHECKS_SANDBOXED}`;
 const wsl2Sandbox = (windows: boolean) =>
-  permissionsOnlyAdvice('In WSL2, the sandboxed level', { wsl: true, windows });
+  permissionsOnlyAdvice('In WSL2, on the sandboxed level', { windows });
 
 /**
  * Ubuntu 24.04 and later keep bwrap from making the user namespaces its sandbox needs, unless an
@@ -716,7 +710,7 @@ const isolationOf = ({ platform, kernelRelease, tools }: DoctorFacts) => {
   });
   switch (platform) {
     case 'darwin':
-      return level({ level: 'sandboxed', why: 'macOS Seatbelt' }, [sandboxedAdvice(false)]);
+      return level({ level: 'sandboxed', why: 'macOS Seatbelt' }, [SANDBOXED_ADVICE]);
     case 'win32':
       return level(
         { level: 'permissions only', why: 'native Windows has no sandbox for shell commands' },
@@ -751,12 +745,12 @@ const isolationOf = ({ platform, kernelRelease, tools }: DoctorFacts) => {
       if (missing.length > 0) {
         return level(
           { level: 'permissions only', why: `the sandbox needs ${SANDBOX_TOOLS}` },
-          [permissionsOnlyAdvice(`The sandboxed level (${SANDBOX_TOOLS})`, { wsl })],
+          [permissionsOnlyAdvice(`On the sandboxed level (${SANDBOX_TOOLS})`)],
           missing,
         );
       }
       return level({ level: 'sandboxed', why: wsl ? `WSL2, ${SANDBOX_TOOLS}` : SANDBOX_TOOLS }, [
-        sandboxedAdvice(wsl),
+        SANDBOXED_ADVICE,
       ]);
     }
     default:

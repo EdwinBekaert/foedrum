@@ -17,34 +17,6 @@ export const alwaysDenied = (allow: readonly string[]): string[] => {
   ];
 };
 
-/**
- * What every sandboxed command is kept from (ADR 0087): the logins of gh, git's credential store,
- * ssh, AWS, npm and Claude Code itself, as files and as variables. The sandbox lets a command read
- * most of the machine and inherit Claude Code's environment, and has no deny list of its own.
- */
-export const sandboxCredentials = {
-  files: [
-    '~/.config/gh',
-    '~/.git-credentials',
-    '~/.config/git/credentials',
-    '~/.ssh',
-    '~/.aws',
-    '~/.npmrc',
-    '~/.claude/.credentials.json',
-    '~/.config/anthropic',
-  ].map((path) => ({ path, mode: 'deny' as const })),
-  envVars: [
-    'GH_TOKEN',
-    'GITHUB_TOKEN',
-    'GH_ENTERPRISE_TOKEN',
-    'GITHUB_ENTERPRISE_TOKEN',
-    'NPM_TOKEN',
-    'ANTHROPIC_API_KEY',
-    'ANTHROPIC_AUTH_TOKEN',
-    'CLAUDE_CODE_OAUTH_TOKEN',
-  ].map((name) => ({ name, mode: 'deny' as const })),
-};
-
 /** A brewer's worktree, claude's working directory, as a path rule's pattern. */
 const WORKTREE = './**';
 
@@ -65,18 +37,6 @@ const ScopedAllowedTool = BrewerAllowedTool.superRefine((rule, ctx) => {
   });
 });
 
-const Credentials = z
-  .strictObject({
-    files: z.array(z.strictObject({ path: z.string(), mode: z.literal('deny') })),
-    envVars: z.array(z.strictObject({ name: z.string(), mode: z.literal('deny') })),
-  })
-  .refine(
-    ({ files, envVars }) =>
-      sandboxCredentials.files.every(({ path }) => files.some((file) => file.path === path)) &&
-      sandboxCredentials.envVars.every(({ name }) => envVars.some((env) => env.name === name)),
-    'Must hide every credential the attempt settings name from sandboxed commands',
-  );
-
 export const AttemptSettings = z
   .strictObject({
     permissions: z.strictObject({
@@ -87,16 +47,16 @@ export const AttemptSettings = z
       blockReadsOutsideWorkingDirectories: z.literal(true).optional(),
     }),
     // Only where the isolation level relies on Claude Code's sandbox: it must run, or nothing does,
-    // and the allow rules decide for sandboxed commands too (ADR 0087).
+    // and the allow rules decide for sandboxed commands too (ADR 0087). It names no login place: the
+    // sandbox keeps the person's logins from a brewer's commands (ADR 0414).
     sandbox: z
       .strictObject({
         enabled: z.literal(true),
         failIfUnavailable: z.literal(true),
         allowUnsandboxedCommands: z.literal(false),
         autoAllowBashIfSandboxed: z.literal(false),
-        credentials: Credentials,
         // ADR 0162: the toolchain's folders under the home, re-opened to reads under the block,
-        // with the npm configuration files inside them still denied.
+        // with the npm configuration files inside them denied.
         filesystem: z
           .strictObject({
             allowRead: z.array(z.string().startsWith('/')).min(1),

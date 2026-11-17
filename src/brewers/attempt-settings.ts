@@ -3,12 +3,7 @@
 
 import { writeFileSync } from 'node:fs';
 import { posix } from 'node:path';
-import {
-  AttemptSettings,
-  alwaysDenied,
-  sandboxCredentials,
-  scopedRule,
-} from '../schemas/attempt-settings.ts';
+import { AttemptSettings, alwaysDenied, scopedRule } from '../schemas/attempt-settings.ts';
 import { z } from '../schemas/zod.ts';
 
 export interface AttemptPermissions {
@@ -71,28 +66,15 @@ const keptOf = (names: readonly string[]): number => {
 const folderOf = (path: string): string =>
   posix.isAbsolute(path) ? posix.normalize(path).replace(/\/+$/, '') : '';
 
-/** Whether `path` is `dir` or lies inside it, in any case: macOS's default file system ignores it. */
-const within = (path: string, dir: string): boolean => {
-  const [inner, outer] = [path.toLowerCase(), dir.toLowerCase()];
-  return inner === outer || inner.startsWith(`${outer}/`);
-};
-
 /**
  * The folders of the driver's toolchain that sandboxed commands may read under the block (ADR 0162):
  * Homebrew's prefix on Linux, and each PATH folder under the home, as a layout's prefix or as it is,
- * never its parent. Not a folder with a glob character, which a sandbox path reads as a wildcard,
- * nor one at, inside or around a hidden login, since the narrower read rule wins.
+ * never its parent nor the home itself. Not a folder with a glob character, which a sandbox path
+ * reads as a wildcard. The PATH is the person's own: a folder on it is re-opened whatever it holds
+ * (ADR 0414).
  */
-const toolchainReads = (
-  { HOME = '', PATH = '' }: Toolchain,
-  logins: readonly string[],
-): string[] => {
+const toolchainReads = ({ HOME = '', PATH = '' }: Toolchain): string[] => {
   const home = folderOf(HOME);
-  // In the PATH folders' form.
-  const hidden = logins.flatMap((path) => {
-    if (!path.startsWith('~/')) return [folderOf(path)];
-    return home === '' ? [] : [folderOf(posix.join(home, path.slice(2)))];
-  });
   const reads = PATH.split(':').flatMap((entry) => {
     const folder = folderOf(entry);
     if (folder === `${LINUXBREW}/bin` || folder === `${LINUXBREW}/sbin`) return [LINUXBREW];
@@ -100,16 +82,13 @@ const toolchainReads = (
     const names = folder.slice(home.length + 1).split('/');
     return [posix.join(home, ...names.slice(0, keptOf(names)))];
   });
-  return [...new Set(reads)].filter(
-    (folder) =>
-      !/[*?[]/.test(folder) &&
-      !hidden.some((login) => within(folder, login) || within(login, folder)),
-  );
+  return [...new Set(reads)].filter((folder) => !/[*?[]/.test(folder));
 };
 
 /**
  * npm's configuration files anywhere in a re-opened folder: a prefix's global `etc/npmrc` and the
- * npm package's builtin `npmrc` can hold the login ADR 0087 hides as `~/.npmrc` (review of #437).
+ * npm package's builtin `npmrc` can hold an npm login, which the read block hides as `~/.npmrc`
+ * (ADR 0162).
  * A deny holds inside a wider allow, a wildcard one too.
  */
 const npmConfigsIn = (folder: string): string[] => [`${folder}/**/npmrc`, `${folder}/**/.npmrc`];
@@ -131,10 +110,7 @@ export function attemptSettings({
   sandbox,
   toolchain = {},
 }: AttemptPermissions): AttemptSettings {
-  const allowRead = toolchainReads(
-    toolchain,
-    sandboxCredentials.files.map(({ path }) => path),
-  );
+  const allowRead = toolchainReads(toolchain);
   return valid({
     permissions: {
       allow: [...new Set(allow.map(scopedRule))],
@@ -145,9 +121,9 @@ export function attemptSettings({
     // ADR 0151: no Co-Authored-By trailer, pull request footer or session URL from the tool.
     attribution: { commit: '', pr: '', sessionUrl: false },
     // ADR 0042: by default a sandbox that cannot start lets commands run unsandboxed. ADR 0087: by
-    // default it runs every sandboxed command whatever the allow rules say, and lets it read the
-    // machine's credentials. ADR 0162: the block's
-    // command part takes a toolchain under the home, whose folders `allowRead` re-opens.
+    // default it runs every sandboxed command whatever the allow rules say. ADR 0414: it names no
+    // login place; the sandbox keeps the person's logins from a brewer's commands. ADR 0162: the
+    // block's command part takes a toolchain under the home, whose folders `allowRead` re-opens.
     ...(sandbox
       ? {
           sandbox: {
@@ -155,7 +131,6 @@ export function attemptSettings({
             failIfUnavailable: true,
             allowUnsandboxedCommands: false,
             autoAllowBashIfSandboxed: false,
-            credentials: sandboxCredentials,
             ...(allowRead.length > 0
               ? { filesystem: { allowRead, denyRead: allowRead.flatMap(npmConfigsIn) } }
               : {}),
