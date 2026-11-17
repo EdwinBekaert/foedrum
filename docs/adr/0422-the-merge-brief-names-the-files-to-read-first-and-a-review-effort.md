@@ -1,6 +1,6 @@
 # 0422. The merge brief names the files to read first and a review effort
 
-Date: 2026-11-17 · Status: Accepted · Amends [0225](0225-a-ready-pull-request-gets-a-merge-brief.md) (a line under the verdict) and [0384](0384-the-merge-brief-names-by-fixed-checks-what-to-look-at-before-merging.md) (the push also records how large its change is)
+Date: 2026-11-17 · Status: Accepted · Amends [0071](0071-the-openpullrequest-action-two-effects-of-the-batch.md) (the push's ledger result keeps how large its change is), [0225](0225-a-ready-pull-request-gets-a-merge-brief.md) (a line under the verdict) and [0384](0384-the-merge-brief-names-by-fixed-checks-what-to-look-at-before-merging.md) (the push also records how large its change is)
 
 ## Context
 The merge brief tells the person who merges that a pull request is ready, why, and what to look at before merging ([ADR 0225](0225-a-ready-pull-request-gets-a-merge-brief.md), [ADR 0384](0384-the-merge-brief-names-by-fixed-checks-what-to-look-at-before-merging.md)).
@@ -10,14 +10,15 @@ The maintainer settled the scope on #820 (2026-11-17): Foedrum computes the line
 
 ## Decision
 - **Recorded once, at the push**, as ADR 0384 records what to look at (`PushResult.size`, `src/schemas/store.ts`): the push effect reads the change's lines from where it starts to the commit pushed (`BranchPush.changedLines`, `git diff --numstat -z --no-renames`, read as committed as `touchedFiles` is) and records them with `sizeOf` (`src/engine/read-first.ts`).
-  - The lines of a file are the lines it adds and deletes; a binary file has none.
+  - The lines of a file are the lines it adds and deletes; a binary file has none, though a push whose commits add one is refused by the secret scan today ([ADR 0079](0079-the-push-scans-the-batch-s-commits-for-secrets.md)), so no size of it is recorded.
   - Lock files (ADR 0384's list) are left out: their churn is not review work, and the look line already names them.
   - The record keeps the changed lines, the changed files, a binary one too, and the 100 largest files with their lines, the most lines first, then by path; a binary file is never among them.
   - A change of lock files only records no size.
 - **Read first**: at most three of the files the push recorded among the largest, those the Tasters' findings point at most first, then the most changed lines, then the path in code-unit order (`readFirstLine`).
-  - A finding counts once for each round that recorded it: each finished attempt of each Taster's step on the head, the findings of its out doc when it succeeded and its recorded findings when it was blocked by them, as a later round's input reads them.
+  - A finding counts once for each round that recorded it: each finished attempt of each Taster's step on the head, an earlier recipe's too, since its commits are on this head as its rounds' dispositions are, the findings of its out doc when it succeeded and its recorded findings when it was blocked by them, as a later round's input reads them.
   - A finding's file is a model's words, which ADR 0225 shows only under the Findings heading, so a finding counts only for a file the push recorded; the line names only paths git gave.
-- **The effort**, by the change's lines: 1 up to 50, 2 up to 200, 3 up to 400, 4 up to 1000, 5 past that.
+  - A finding's file is read in the form git writes a path, `\` as `/` and without a leading `./`, so `./src/a.ts` counts for `src/a.ts`.
+- **The review effort** (`reviewEffortOf`, a name apart from a step's effort, [ADR 0397](0397-recipe-steps-name-a-model-level-and-an-effort-of-foedrum-s-own-which-models-jsonc-translates-for-the-agent.md)), by the change's lines: 1 up to 50, 2 up to 200, 3 up to 400, 4 up to 1000, 5 past that.
   The cuts are the maintainer's to tune.
   About 50 lines is a small fix read in one short sitting; about 200 is what a reader takes in without notes; about 400 is about an hour's careful reading; past about 1000 the read takes several sittings.
 - **The line**, its own paragraph after the look-before-merging line, or right under the verdict when there is none: `**Read first:** a.ts, b.ts · effort 3 of 5 (312 changed lines in 7 files).`
