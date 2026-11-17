@@ -226,6 +226,14 @@ describe('the Flight report (ADR 0411)', () => {
     );
   });
 
+  it('compares the tokens per measured run of each order, not its total', () => {
+    const report = flightReport(
+      [record('quiz-rank', 3), noHead('quiz-rank', 2), record('quiz-rank', 1)],
+      [1, 2, 3].map((run) => record('quiz-rank', run, { steps: [step(150, 20)] })),
+    );
+    assert.match(report, /, tokens per order \+50%$/m);
+  });
+
   it('gives fewer tokens per order with a minus sign', () => {
     const report = flightReport(
       [record('quiz-rank', 1, { steps: [step(200, 20)] })],
