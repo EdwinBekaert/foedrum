@@ -5,7 +5,7 @@
 import { basename, dirname, join } from 'node:path';
 import { checkName, failingText, passed } from '../checks/gravity.ts';
 import type { AttemptRef } from '../engine/attempt-key.ts';
-import { buildBrewerEnv, type Env } from '../engine/brewer-env.ts';
+import { buildBrewerEnv, type Env, isAgentVariable } from '../engine/brewer-env.ts';
 import type { AttemptLimits } from '../engine/brewer-runner.ts';
 import type { ChecksInput } from '../engine/check-readings.ts';
 import type { EarlierSectionsInput } from '../engine/earlier-sections.ts';
@@ -1565,6 +1565,8 @@ export function attemptPermissions(
     sandbox,
     // ADR 0162: from the driver's base environment, never the brewer's own `env`.
     toolchain: toolchainOf(base),
+    // ADR 0414: the agent keys the base passes to claude, which sandboxed commands lose.
+    agentKeys: Object.keys(base).filter(isAgentVariable),
   };
 }
 

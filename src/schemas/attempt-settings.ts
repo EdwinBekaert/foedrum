@@ -48,13 +48,20 @@ export const AttemptSettings = z
     }),
     // Only where the isolation level relies on Claude Code's sandbox: it must run, or nothing does,
     // and the allow rules decide for sandboxed commands too (ADR 0087). It names no login place: the
-    // sandbox keeps the person's logins from a brewer's commands (ADR 0414).
+    // sandbox keeps the person's logins from a brewer's commands; it hides only the agent keys the
+    // driver passes to claude, which a sandboxed command would inherit, by name (ADR 0414).
     sandbox: z
       .strictObject({
         enabled: z.literal(true),
         failIfUnavailable: z.literal(true),
         allowUnsandboxedCommands: z.literal(false),
         autoAllowBashIfSandboxed: z.literal(false),
+        credentials: z
+          .strictObject({
+            files: z.tuple([]),
+            envVars: z.array(z.strictObject({ name: z.string(), mode: z.literal('deny') })).min(1),
+          })
+          .optional(),
         // ADR 0162: the toolchain's folders under the home, re-opened to reads under the block,
         // with the npm configuration files inside them denied.
         filesystem: z

@@ -110,6 +110,7 @@ export function attemptSettings({
   deny,
   sandbox,
   toolchain = {},
+  agentKeys = [],
 }: AttemptPermissions): AttemptSettings {
   const allowRead = toolchainReads(toolchain);
   return valid({
@@ -123,8 +124,9 @@ export function attemptSettings({
     attribution: { commit: '', pr: '', sessionUrl: false },
     // ADR 0042: by default a sandbox that cannot start lets commands run unsandboxed. ADR 0087: by
     // default it runs every sandboxed command whatever the allow rules say. ADR 0414: it names no
-    // login place; the sandbox keeps the person's logins from a brewer's commands. ADR 0162: the
-    // block's command part takes a toolchain under the home, whose folders `allowRead` re-opens.
+    // login place, and hides by name the agent keys claude's environment holds, which a sandboxed
+    // command inherits. ADR 0162: the block's command part takes a toolchain under the home, whose
+    // folders `allowRead` re-opens.
     ...(sandbox
       ? {
           sandbox: {
@@ -132,6 +134,14 @@ export function attemptSettings({
             failIfUnavailable: true,
             allowUnsandboxedCommands: false,
             autoAllowBashIfSandboxed: false,
+            ...(agentKeys.length > 0
+              ? {
+                  credentials: {
+                    files: [],
+                    envVars: agentKeys.map((name) => ({ name, mode: 'deny' as const })),
+                  },
+                }
+              : {}),
             ...(allowRead.length > 0
               ? { filesystem: { allowRead, denyRead: allowRead.flatMap(npmConfigsIn) } }
               : {}),
