@@ -70,6 +70,11 @@ describe('the Flight report (ADR 0411)', () => {
     assert.equal(verdictOf({ passed: 1, runs: 3 }, { passed: 1, runs: 3 }), 'the same');
   });
 
+  it('calls equal pass counts the same only when both Flights ran as many runs', () => {
+    assert.equal(verdictOf({ passed: 1, runs: 3 }, { passed: 1, runs: 1 }), 'candidate better');
+    assert.equal(verdictOf({ passed: 3, runs: 3 }, { passed: 3, runs: 5 }), 'too close to call');
+  });
+
   it('calls anything else too close to call', () => {
     assert.equal(verdictOf({ passed: 3, runs: 3 }, { passed: 2, runs: 3 }), 'too close to call');
     assert.equal(verdictOf({ passed: 2, runs: 3 }, { passed: 0, runs: 3 }), 'too close to call');
