@@ -463,11 +463,23 @@ describe("the engine's mark of a finding's missing place (ADR 0421)", () => {
       findings: [{ ...finding, missing: 'line' }],
     });
     assert.equal(read.success, false);
+    assert.deepEqual(
+      read.error?.issues.map(({ path }) => path),
+      [['findings', 0, 'missing']],
+    );
+    assert.equal(TastingOutDoc.safeParse({ ...changes, findings: [finding] }).success, true);
   });
 
   it("refuses the mark in the out doc of a step's lenses together too", () => {
     const schema = tastingOutDocOf(['diff/correctness', 'diff/security']);
     const marked = { ...finding, lens: 'diff/security', missing: 'file' };
-    assert.equal(schema.safeParse({ ...changes, findings: [marked] }).success, false);
+    const read = schema.safeParse({ ...changes, findings: [marked] });
+    assert.equal(read.success, false);
+    assert.deepEqual(
+      read.error?.issues.map(({ path }) => path),
+      [['findings', 0, 'missing']],
+    );
+    const { missing: _, ...unmarked } = marked;
+    assert.equal(schema.safeParse({ ...changes, findings: [unmarked] }).success, true);
   });
 });
