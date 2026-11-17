@@ -227,7 +227,11 @@ export const openBranchCommit =
           await dir.run(['read-tree', tip], index);
           for (const file of files) {
             const path = join(worktree, ...file.split('/'));
-            const blob = (await dir.run(['hash-object', '-w', '--no-filters', '--', path])).trim();
+            // As a commit of that path stores it: a checkout's CRLF goes back to the repository's
+            // line ends (core.autocrlf, which Git for Windows sets).
+            const blob = (
+              await dir.run(['hash-object', '-w', `--path=${file}`, '--', path])
+            ).trim();
             await dir.run(
               ['update-index', '--add', '--cacheinfo', `100644,${blob},${file}`],
               index,

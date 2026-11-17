@@ -682,6 +682,8 @@ export function claudeBrewerRunnerWith(deps: ClaudeRunnerDeps): BrewerRunner {
         try {
           const { clone, branch } = commits;
           const changed = await deps.changed?.(clone, branch, since, stopping.signal);
+          // A stop kills git: the attempt was stopped, git did not fail.
+          if (stopping.signal.aborted) return { readings: [], ending: cancelled().ending };
           if (changed?.kind === 'unlisted') return unrefreshed(changed.reason);
           const refreshes = lockfileRefreshes(changed?.paths ?? []);
           if (refreshes.length === 0) return { readings: [] };
@@ -705,6 +707,7 @@ export function claudeBrewerRunnerWith(deps: ClaudeRunnerDeps): BrewerRunner {
               stopping.signal,
             );
           } catch (error) {
+            if (stopping.signal.aborted) return { readings, ending: cancelled().ending };
             if (readings.some((reading) => !passed(reading))) {
               return { readings, ending: settleReadings(readings) };
             }

@@ -74,7 +74,7 @@ export interface LockfilesRefreshed {
 
 /**
  * Runs each refresh whose lockfile the tree `worktree` holds as a regular file, in its folder,
- * until one does not pass.
+ * until one does not pass; the lockfiles they changed, none when one did not pass.
  */
 export async function refreshLockfiles(
   worktree: string,
@@ -94,7 +94,9 @@ export async function refreshLockfiles(
     const result = await runLine(exec, command, { cwd, env, deadlineAt, now, signal, timeoutMs });
     const reading = { ...readingOn({ kind: 'run', command }, result, unsandboxed), lockfile };
     readings.push(reading);
-    if (!passed(reading)) break;
+    // Nothing is committed unless every refresh passed: the attempt then ends blocked, and a
+    // retry resumes in its worktree, which must not lag behind its branch (ADR 0117, ADR 0412).
+    if (!passed(reading)) return { readings, files: [] };
     const after = await regularFile(worktree, file);
     if (after !== undefined && !after.equals(before)) files.push(lockfile);
   }
