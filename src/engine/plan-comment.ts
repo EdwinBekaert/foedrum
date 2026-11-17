@@ -255,20 +255,20 @@ export interface PlanCommentParts {
   /** Whether a text that looks like a secret is a commit of the batch's, kept as it is. */
   isCommit?: IsCommit;
   /** The out doc of the plan on the state branch, linked at the top (ADR 0266, ADR 0275). */
-  fullPlan?: FullPlan;
+  fullPlan?: FullPlan | undefined;
   /**
    * Set while the batch waits Stuck for a review of this plan, which the last line says what to
    * do with: the options of its lane, of which that line names those besides the plan's own (#855).
    */
-  waitsForReview?: { options: readonly string[] };
+  waitsForReview?: { options: readonly string[] } | undefined;
   /** The sign-off of this plan, which the Gate section shows (ADR 0281). */
-  approval?: Approval;
+  approval?: Approval | undefined;
   /** The session a person's lauter opened, which wrote this plan (ADR 0286). */
-  changed?: ChangedInSession;
+  changed?: ChangedInSession | undefined;
   /** The sub-issues the approved plan opened so far, which the Gate section names (ADR 0285). */
   opened?: readonly OpenedSubIssue[];
   /** The notes its plan lenses left (ADR 0318); undefined while no plan lens reviewed it. */
-  review?: readonly ReviewNote[];
+  review?: readonly ReviewNote[] | undefined;
   /** How its commands name its work (`calledAs`, ADR 0329); its batch id when left out. */
   called?: string;
 }
@@ -485,15 +485,14 @@ const planDue = (
       ? undefined
       : { by: chosen.by, via: chosen.via, ...(at === undefined ? {} : { at }) };
   const opened = openedSubIssues(state, batchId);
-  const notes = reviewNotes(batch, stepId, attempt);
   const text = renderPlan(batchId, stepId, plan, {
     isCommit: commits,
-    ...(fullPlan === undefined ? {} : { fullPlan }),
-    ...(review ? { waitsForReview: { options: lane.options } } : {}),
-    ...(approval === undefined ? {} : { approval }),
-    ...(changed === undefined ? {} : { changed }),
+    fullPlan,
+    waitsForReview: review ? { options: lane.options } : undefined,
+    approval,
+    changed,
     opened,
-    ...(notes === undefined ? {} : { review: notes }),
+    review: reviewNotes(batch, stepId, attempt),
     called: calledAs(state, batch),
   });
   const digest = digestOf(text);

@@ -211,7 +211,7 @@ describe('renderPlan (ADR 0233)', () => {
     renderPlan('7-1', 'plan', three, {
       fullPlan,
       waitsForReview: { options: [] },
-      ...(review === undefined ? {} : { review }),
+      review,
     });
   /** The Review section of a plan comment. */
   const reviewOf = (text: string) =>
