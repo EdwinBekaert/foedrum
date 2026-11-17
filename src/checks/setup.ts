@@ -21,7 +21,8 @@ const KILL_MARGIN_MS = 10_000;
 /**
  * A path a shell line names in double quotes alike in `/bin/sh` and cmd.exe: no character either
  * expands or ends the quote on (`$`, a backquote, `"`, `%`, `!`, `^`, `\`), and a first one no tool
- * reads as an option or a response file (`-`, `@`, `+`). A brewer names the files (ADR 0381).
+ * reads as an option or a response file (`-`, `@`, `+`). A brewer names the files the checks before its
+ * end name (ADR 0381), and the project the lockfile refresh restores (ADR 0415).
  */
 export const SAFE_PATH = /^[A-Za-z0-9_.][A-Za-z0-9_.@+ /-]*$/;
 
