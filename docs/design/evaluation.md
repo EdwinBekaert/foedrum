@@ -39,7 +39,7 @@ Each brews with `foedrum brew`'s own run in a scratch Brewery on the fake code h
 
   It reads both folders' `results.jsonl`, prints the report and writes it as `report.md` in the candidate's folder ([ADR 0411](../adr/0411-a-flight-report-calls-equal-passes-the-same-and-counts-a-run-that-measured-nothing-as-not-passed.md)).
   Each order both Flights measured gets a row: the hidden tests passed in each ("3 of 3 against 1 of 3"), and, over the runs that measured something, those with changes outside its paths and the tokens and the brewers' time per run, and a verdict.
-  A difference is called only when one Flight passes every run and the other at most one ([ADR 0404](../adr/0404-the-flight-s-tasting-room-is-a-folder-of-orders-each-proved-by-its-hidden-tests.md)); equal counts of equal runs are the same, and anything else is too close to call (ADR 0411).
+  A difference is called only when one Flight passes every run and the other at most one ([ADR 0404](../adr/0404-the-flight-s-tasting-room-is-a-folder-of-orders-each-proved-by-its-hidden-tests.md)); equal counts of equal runs are the same, two Flights that both passed every run are never a difference, and anything else is too close to call (ADR 0411).
   A run that measured nothing counts as one that did not pass, and an order only one Flight has, or that one measured no run of, is listed under the table and left out of the counts.
   One summary line gives each Flight's orders passed on every run, the orders too close to call and the candidate's tokens per order against the baseline's, never a cost in money.
 

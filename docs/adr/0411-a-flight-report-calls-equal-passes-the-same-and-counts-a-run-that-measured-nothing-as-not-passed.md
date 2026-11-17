@@ -14,6 +14,8 @@ Nothing compared two Flights, and three cases the rule does not name decide what
 - **Decided in #1084's plan on 2026-11-17: equal pass counts of an equal number of runs are "the same", a verdict of their own**, apart from "too close to call".
   3 of 3 against 3 of 3 is no near miss, and the summary's "too close to call" count is to hold only the orders that differ without meeting the rule, as #1084's example line reads.
   With unequal runs, equal counts are not the same: 1 of 3 against 1 of 1 is ADR 0404's difference, and 3 of 3 against 3 of 5 is too close to call.
+- **Decided in #1084's review on 2026-11-17: a difference needs the other Flight not to have passed every run.**
+  Two Flights of unequal runs that both passed every run of an order, such as 1 of 1 against 3 of 3, are too close to call: the side with at most one pass did not fail, so a shorter Flight never makes a difference easier to call.
 - **Decided in #1084's plan on 2026-11-17: a run that measured nothing counts as a run that did not pass.**
   An order's passes are out of its Flight's runs, the highest run number the Flight recorded, so a Flight that stopped short of an order's last runs did not pass them either.
   A setup "passes every run" only when it passed as many runs as its Flight has: a difference is never called from fewer runs than were asked for.
