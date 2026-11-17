@@ -163,6 +163,15 @@ describe('the Flight report (ADR 0411)', () => {
     assert.match(report, /^Only in the candidate: post-slugs$/m);
   });
 
+  it('lists an order only one Flight has as only in it, never as not measured in the other', () => {
+    const report = flightReport(
+      [record('shelf-tags', 1), record('quiz-rank', 1)],
+      [record('quiz-rank', 1)],
+    );
+    assert.match(report, /^Only in the baseline: shelf-tags$/m);
+    assert.doesNotMatch(report, /^No run measured/m);
+  });
+
   it('lists an order with no run measured in a Flight below the table, out of its rows', () => {
     const report = flightReport(
       [record('quiz-rank', 1), noHead('shelf-tags', 1)],
