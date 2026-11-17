@@ -312,6 +312,20 @@ describe('a refused push a person allowed, as people see it (ADR 0419)', () => {
     );
   });
 
+  it('leaves a reason that looks like a secret out of the status comment (ADR 0088)', () => {
+    // Built at run time, so no scanner takes this file for one that holds a token.
+    const token = ['ghp', 'A1b2'.repeat(9)].join('_');
+    const secret = fold([
+      ...pushing,
+      refusedPush,
+      { ...(allowed[0] as Event & { type: 'push.allowed' }), why: `it is ${token}` },
+      ...allowed.slice(1),
+    ]).batches.get('b1') as Batch;
+    const text = renderStatus(secret);
+    assert.doesNotMatch(text, /A1b2/);
+    assert.match(text, /its push of `cccccccc` was allowed by ada \(terminal\): /);
+  });
+
   it('foedrum replay shows the allowance in the state', () => {
     const text = formatReplay(allowedBatch(), [{ id: 6, event: allowed[0] as Event }]);
     assert.ok(text.includes(' push.allowed '), text);
