@@ -177,6 +177,36 @@ describe('refreshLockfiles', () => {
   });
 });
 
+describe('refreshLockfiles: a refresh that does not pass after one that did', () => {
+  it('lists no lockfile to commit, not even the one an earlier refresh changed', async () => {
+    const tree = treeWith({
+      'package.json': '{}',
+      'package-lock.json': 'v1.1.0\n',
+      'web/package.json': '{}',
+      'web/package-lock.json': 'v1.1.0\n',
+    });
+    const root = { folder: '', lockfile: 'package-lock.json', command: NPM_REFRESH };
+    // The root's refresh changes its lockfile; web's fails.
+    const exec = async (_command: string, _args: readonly string[], options?: ExecOptions) => {
+      const failing = options?.cwd === join(tree, 'web');
+      if (!failing) writeFileSync(join(options?.cwd ?? '', 'package-lock.json'), 'v1.2.0\n');
+      const result: ExecResult = {
+        exitCode: failing ? 1 : 0,
+        stdout: '',
+        stderr: '',
+        output: failing ? 'npm ERR! 404' : '',
+      };
+      return result;
+    };
+    const refreshed = await refreshLockfiles(tree, [root, web], runOf(exec));
+    assert.deepStrictEqual(
+      refreshed.readings.map(({ result }) => result),
+      ['exited', 'exited'],
+    );
+    assert.deepStrictEqual(refreshed.files, []);
+  });
+});
+
 describe('settleReadings: a lockfile refresh (ADR 0412)', () => {
   it('a refresh that fails blocks the attempt on its environment, naming the lockfile', () => {
     assert.deepStrictEqual(

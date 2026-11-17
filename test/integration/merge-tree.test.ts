@@ -253,4 +253,28 @@ describe('openMergedTree, with real git (ADR 0203)', () => {
     assert.equal(git(clone, ['show', `${branch}:other.txt`]), 'one');
     assert.equal(existsSync(root) ? readdirSync(root).length : 0, 0);
   });
+
+  it('commits a refreshed file with the line ends the repository keeps, where the checkout wrote CRLF (ADR 0412)', async () => {
+    const branch = 'foedrum/12-1/implement/2';
+    git(clone, ['branch', branch, head]);
+    const config = process.env.GIT_CONFIG_GLOBAL ?? '';
+    const kept = readFileSync(config, 'utf8');
+    // As Git for Windows' installer sets it: the checkout writes CRLF.
+    writeFileSync(config, `${kept}[core]\n\tautocrlf = true\n`);
+    try {
+      const commit = openBranchCommit({
+        git: runGit,
+        clone,
+        own: { url: join(dir.path, 'nowhere.git'), root },
+      });
+      await commit(branch, 'Refresh app.txt', async (worktree) => {
+        // npm keeps the line ends of the lockfile it read.
+        writeFileSync(join(worktree, 'app.txt'), 'one\r\ntwo\r\n');
+        return { value: 'ran', files: ['app.txt'] };
+      });
+    } finally {
+      writeFileSync(config, kept);
+    }
+    assert.equal(git(clone, ['cat-file', '-p', `${branch}:app.txt`]), 'one\ntwo');
+  });
 });

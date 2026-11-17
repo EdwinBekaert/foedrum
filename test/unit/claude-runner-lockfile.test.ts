@@ -84,7 +84,7 @@ const setup = (
     exit?: number;
     changed?: PathsChanged;
     outDoc?: string;
-    branchCommit?: false | 'throws';
+    branchCommit?: false | 'throws' | 'stops';
     setupRunner?: false;
   } = {},
 ) => {
@@ -100,6 +100,11 @@ const setup = (
     (clone: string, remote: OwnRemote): BranchCommit =>
     async (branch, message, use) => {
       if (options.branchCommit === 'throws') throw new Error('git worktree add failed: no space');
+      // A stop while git commits: the runner kills git, which fails.
+      if (options.branchCommit === 'stops') {
+        stop();
+        throw new Error('git commit-tree failed: killed');
+      }
       const tree = nextFolder();
       for (const [file, text] of Object.entries(
         options.tree ?? { 'web/package.json': '{}', 'web/package-lock.json': 'v1.1.0\n' },
@@ -156,7 +161,20 @@ const setup = (
         }),
     ...(options.branchCommit === false ? {} : { branchCommit }),
   };
-  return { refreshed, opened, runner: claudeBrewerRunnerWith(deps) };
+  const runner = claudeBrewerRunnerWith(deps);
+  let stop = () => {};
+  return {
+    refreshed,
+    opened,
+    runner: {
+      ...runner,
+      start: (at: AttemptStart) => {
+        const started = runner.start(at);
+        stop = started.stop;
+        return started;
+      },
+    },
+  };
 };
 
 const reading = {
@@ -218,6 +236,12 @@ describe('claudeBrewerRunner: the lockfile refresh after a release bump (ADR 041
       blockerKind: 'environment',
       summary: 'the lockfiles could not be refreshed: git worktree add failed: no space',
     });
+  });
+
+  it("a stop while the refresh's commit runs cancels the attempt", async () => {
+    const { runner } = setup({ branchCommit: 'stops' });
+    const end = await runner.start(attempt).ended;
+    assert.deepStrictEqual(end.ending, { kind: 'cancelled' });
   });
 
   it('changed files that cannot be listed end the attempt blocked on its environment', async () => {
