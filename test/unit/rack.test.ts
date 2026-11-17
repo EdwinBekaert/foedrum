@@ -231,6 +231,14 @@ describe('rack (ADR 0383)', () => {
     assert.ok(!ran.reads.includes(`${brewery}#8`), 'a batch that brews needs no read');
   });
 
+  it('keeps a finished group whose newest attempt’s deadline is younger than 30 days (ADR 0419)', async () => {
+    // 6-1's attempt is 40 days old, but 6-2's, of the same issue, only 29.
+    const events = [...ranOnTap('6-1', 6, 40 * day), ...ranOnTap('6-2', 6, 29 * day)];
+    const ran = await run('archive', events, [6]);
+    assert.deepStrictEqual(ran.batches, ['6-1', '6-2', '20-1']);
+    assert.deepStrictEqual(ran.reads, []);
+  });
+
   it('archives a finished group once its newest attempt’s deadline is 30 days old (ADR 0419): regression test', async () => {
     const events = [...ranOnTap('6-1', 6, 31 * day), ...ranOnTap('7-1', 7, 30 * day)];
     const ran = await run('archive', events, [6, 7]);
