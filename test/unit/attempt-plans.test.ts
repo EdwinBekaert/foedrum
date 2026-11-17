@@ -2793,6 +2793,40 @@ describe('createAttemptPlans: a Taster that reviews a plan (ADR 0312)', () => {
     assert.equal(planned.reviewed, undefined);
   });
 
+  it('a step of plan lenses together gets no tree to check its findings against either (ADR 0421)', async () => {
+    const together = loadRecipes({
+      ...readBreweryFiles(join(FOEDRUM_DEFAULTS, 'no-such-brewery')),
+      recipes: [
+        {
+          path: 'recipes/amber.jsonc',
+          text: recipeText(
+            'amber',
+            [
+              { id: 'plan', brewer: 'brewmaster' },
+              {
+                id: 'taste',
+                brewer: 'taster',
+                lenses: ['plan/naive-reader', 'plan/sizing'],
+                onFindings: { goto: 'plan', maxRounds: 1 },
+              },
+            ],
+            { testFirst: false },
+          ),
+        },
+      ],
+      lenses: [
+        { path: 'lenses/plan/naive-reader.md', text: 'Read each sub-order alone.\n' },
+        { path: 'lenses/plan/sizing.md', text: 'Weigh each sub-order.\n' },
+      ],
+    });
+    assert.ok(together.valid, together.valid ? '' : together.problems.join('\n'));
+    const { plans } = setup([...amber, inTree], planDocs, 'Export the batches.', together.brewers, {
+      repositories,
+    });
+    const planned = await plans.plan({ ref: taste, limits: plans.limits(taste) });
+    assert.equal(planned.reviewed, undefined);
+  });
+
   it("a plan lens step's Taster in a Brewery order gets the repositories", async () => {
     const folder = join('/work', 'brewery-orders', '12-1', 'taste', '1');
     const inFolder: Event = {

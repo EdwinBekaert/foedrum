@@ -13,6 +13,7 @@ import {
   type ClaudeRunnerDeps,
   claudeBrewerRunnerWith,
   clearOutDocFile,
+  realRunnerDeps,
   restoreOutDocFile,
   waitFor,
   writeSystemPromptFile,
@@ -30,6 +31,7 @@ import type { StreamOptions, StreamResult } from '../../src/platform/processes.t
 import type { AttemptSettings } from '../../src/schemas/attempt-settings.ts';
 import { FiningOutDoc, OutDocFrontmatter, TastingOutDoc } from '../../src/schemas/out-doc.ts';
 import { PlanOutDoc } from '../../src/schemas/plan.ts';
+import type { Git } from '../../src/workspace/git.ts';
 import {
   documentedUsageLimits,
   limitResults,
@@ -1333,6 +1335,30 @@ describe("claudeBrewerRunner: a Taster's findings at the head it reviewed (ADR 0
     stop = run.stop;
     assert.deepEqual((await run.ended).ending, { kind: 'cancelled' });
     assert.equal(fileReads[0]?.signal?.aborted, true);
+  });
+});
+
+describe("realRunnerDeps: the real runner's dependencies (ADR 0421)", () => {
+  it("reads a Taster's cited files with git, in the clone at the commit it reviewed", async () => {
+    const commit = 'e'.repeat(40);
+    const object = 'f'.repeat(40);
+    const calls: { cwd: string; args: readonly string[] }[] = [];
+    const git: Git = async (cwd, args) => {
+      calls.push({ cwd, args });
+      const stdout = args[0] === 'ls-tree' ? `100644 blob ${object}\tsrc/a.ts\0` : 'one\n';
+      return { code: 0, stdout, stderr: '' };
+    };
+    const { places } = realRunnerDeps({ claude: 'claude', plan: async () => plan() }, git);
+    assert.ok(places !== undefined, 'the real runner reads no cited file');
+    const read = await places('/work/api.git', commit, ['src/a.ts']);
+    assert.deepEqual(read, { kind: 'read', files: new Map([['src/a.ts', 'one\n']]) });
+    assert.deepEqual(
+      calls.map(({ cwd, args }) => [cwd, args[0]]),
+      [
+        ['/work/api.git', 'ls-tree'],
+        ['/work/api.git', 'cat-file'],
+      ],
+    );
   });
 });
 
