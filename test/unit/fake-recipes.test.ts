@@ -78,6 +78,11 @@ describe('fakeRecipe: the round and attempts of each kind of step', () => {
     assert.equal(recipe.mayRetry(batch, 'green'), true);
   });
 
+  it("retries a check step after readings that would use up an action's round", () => {
+    const recipe = fakeRecipe({ steps: ['green'], checks: ['green'] });
+    assert.equal(recipe.mayRetry(batchWith('green', [read, read, cancelled]), 'green'), true);
+  });
+
   it("counts a check step's round from its latest attempt that read the tree", () => {
     const recipe = fakeRecipe({ steps: ['green'], checks: ['green'] });
     assert.equal(
