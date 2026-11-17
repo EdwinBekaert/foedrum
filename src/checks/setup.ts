@@ -60,7 +60,6 @@ export interface LineRun {
  */
 export function runLine(through: ExecProcess, command: string, run: LineRun): Promise<ExecResult> {
   const { cwd, env, deadlineAt, now, signal, timeoutMs = Infinity, maxOutputBytes } = run;
-  const { belowNormal = false } = run;
   // The process runner kills the tree before the step's deadline, also when no tick comes:
   // early enough that the kill's grace ends and the reading is recorded before a tick expires
   // the attempt and loses it.
@@ -72,7 +71,7 @@ export function runLine(through: ExecProcess, command: string, run: LineRun): Pr
     signal,
     shell: true,
     jobObject: true,
-    ...(belowNormal ? { belowNormal } : {}),
+    ...(run.belowNormal ? { belowNormal: true } : {}),
     ...(maxOutputBytes === undefined ? {} : { maxOutputBytes }),
   });
 }
