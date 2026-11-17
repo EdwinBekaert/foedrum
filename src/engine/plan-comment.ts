@@ -250,6 +250,29 @@ export interface FullPlan {
   url: string;
 }
 
+/** What a plan comment shows besides the plan itself, each part left out when it has none. */
+export interface PlanCommentParts {
+  /** Whether a text that looks like a secret is a commit of the batch's, kept as it is. */
+  isCommit?: IsCommit;
+  /** The out doc of the plan on the state branch, linked at the top (ADR 0266, ADR 0275). */
+  fullPlan?: FullPlan;
+  /**
+   * Set while the batch waits Stuck for a review of this plan, which the last line says what to
+   * do with: the options of its lane, of which that line names those besides the plan's own (#855).
+   */
+  waitsForReview?: { options: readonly string[] };
+  /** The sign-off of this plan, which the Gate section shows (ADR 0281). */
+  approval?: Approval;
+  /** The session a person's lauter opened, which wrote this plan (ADR 0286). */
+  changed?: ChangedInSession;
+  /** The sub-issues the approved plan opened so far, which the Gate section names (ADR 0285). */
+  opened?: readonly OpenedSubIssue[];
+  /** The notes its plan lenses left (ADR 0318); undefined while no plan lens reviewed it. */
+  review?: readonly ReviewNote[];
+  /** How its commands name its work (`calledAs`, ADR 0329); its batch id when left out. */
+  called?: string;
+}
+
 /**
  * The plan comment's text for the plan `stepId` of `batchId` wrote, without its marker: every text
  * the brewer wrote one escaped line, left out when it looks like a secret.
@@ -258,23 +281,16 @@ export const renderPlan = (
   batchId: string,
   stepId: string,
   plan: PlanReport,
-  isCommit: IsCommit = () => false,
-  /** The out doc of the plan on the state branch, linked at the top (ADR 0266, ADR 0275). */
-  fullPlan?: FullPlan,
-  /** Whether the batch waits Stuck for a review of this plan, which the last line says what to do with. */
-  waitsForReview = false,
-  /** The sign-off of this plan, which the Gate section shows (ADR 0281). */
-  approval?: Approval,
-  /** The session a person's lauter opened, which wrote this plan (ADR 0286). */
-  changed?: ChangedInSession,
-  /** The sub-issues the approved plan opened so far, which the Gate section names (ADR 0285). */
-  opened: readonly OpenedSubIssue[] = [],
-  /** The notes its plan lenses left (ADR 0318); undefined while no plan lens reviewed it. */
-  review?: readonly ReviewNote[],
-  /** The options of the lane that waits for the review, of which the last line names those besides the plan's own (#855). */
-  options: readonly string[] = [],
-  /** How its commands name its work (`calledAs`, ADR 0329). */
-  called: string = batchId,
+  {
+    isCommit = () => false,
+    fullPlan,
+    waitsForReview,
+    approval,
+    changed,
+    opened = [],
+    review,
+    called = batchId,
+  }: PlanCommentParts = {},
 ): string => {
   const told: Told = (text) => withoutSecrets(text, stepId, isCommit);
   const { subOrders, alternatives } = plan;
@@ -317,7 +333,7 @@ export const renderPlan = (
         ]
       : [
           // The state its status comment shows too (ADR 0385).
-          waitsForReview
+          waitsForReview !== undefined
             ? `Waiting for you: ${waitingWords({ kind: 'approve' }, plain)} with ${code(`foedrum approve ${called}`)}.`
             : 'None yet.',
         ];
@@ -336,7 +352,10 @@ export const renderPlan = (
   const joined = (parts: string[][]): string => parts.map((lines) => lines.join('\n')).join('\n\n');
   const head = `${top.join('\n')}\n\n`;
   // Last, and kept by a cut: what to do next, while the plan waits for its review.
-  const next = waitsForReview ? `\n\n${planNextLine(called, options, batchId)}` : '';
+  const next =
+    waitsForReview === undefined
+      ? ''
+      : `\n\n${planNextLine(called, waitsForReview.options, batchId)}`;
   const text = joined([table, ...order, ...sections, ...others, ...after]);
   if (head.length + text.length + next.length <= longestComment) return `${head}${text}${next}`;
   // The graph goes first, so a cut never leaves its block open.
@@ -466,20 +485,17 @@ const planDue = (
       ? undefined
       : { by: chosen.by, via: chosen.via, ...(at === undefined ? {} : { at }) };
   const opened = openedSubIssues(state, batchId);
-  const text = renderPlan(
-    batchId,
-    stepId,
-    plan,
-    commits,
-    fullPlan,
-    review,
-    approval,
-    changed,
+  const notes = reviewNotes(batch, stepId, attempt);
+  const text = renderPlan(batchId, stepId, plan, {
+    isCommit: commits,
+    ...(fullPlan === undefined ? {} : { fullPlan }),
+    ...(review ? { waitsForReview: { options: lane.options } } : {}),
+    ...(approval === undefined ? {} : { approval }),
+    ...(changed === undefined ? {} : { changed }),
     opened,
-    reviewNotes(batch, stepId, attempt),
-    review ? lane.options : [],
-    calledAs(state, batch),
-  );
+    ...(notes === undefined ? {} : { review: notes }),
+    called: calledAs(state, batch),
+  });
   const digest = digestOf(text);
   if (own?.digest === digest) return undefined;
   const due = { key: revisions.keyOf(batchId, next), issue, text, digest };
