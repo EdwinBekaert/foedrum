@@ -58,6 +58,8 @@ export interface LineRun {
   /** Its own limit, when that is sooner than the deadline's. */
   timeoutMs?: number;
   maxOutputBytes?: number | undefined;
+  /** Below normal priority: a Brett step's scratch-tree runs (ADR 0413). */
+  belowNormal?: boolean;
 }
 
 /**
@@ -77,6 +79,7 @@ export function runLine(through: ExecProcess, command: string, run: LineRun): Pr
     signal,
     shell: true,
     jobObject: true,
+    ...(run.belowNormal ? { belowNormal: true } : {}),
     ...(maxOutputBytes === undefined ? {} : { maxOutputBytes }),
   });
 }

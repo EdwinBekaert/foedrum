@@ -71,6 +71,12 @@ export interface JobObjectSpawn extends SpawnCommand {
   cwd: string;
 }
 
+// CreateProcessW's flags: CREATE_SUSPENDED (0x4) and CREATE_UNICODE_ENVIRONMENT (0x400), and
+// BELOW_NORMAL_PRIORITY_CLASS for a program that starts below normal, whose children inherit it
+// (ADR 0413).
+const CREATION_FLAGS = 0x404;
+const BELOW_NORMAL_PRIORITY_CLASS = 0x4000;
+
 let helper: string | undefined;
 
 // The helper's script without its comments and indentation, which only lengthen the command line.
@@ -93,8 +99,15 @@ const DECODE =
 const input = (name: string, value: string): string =>
   `$${name} = Read-Input '${Buffer.from(value, 'utf8').toString('base64')}'`;
 
-/** Starts the command through the helper, which runs it in `cwd` inside a kill-on-close job. */
-export const jobObjectCommand = (command: SpawnCommand, cwd: string): JobObjectSpawn => {
+/**
+ * Starts the command through the helper, which runs it in `cwd` inside a kill-on-close job; below
+ * normal priority when `belowNormal` is set (ADR 0413).
+ */
+export const jobObjectCommand = (
+  command: SpawnCommand,
+  cwd: string,
+  { belowNormal = false }: { belowNormal?: boolean } = {},
+): JobObjectSpawn => {
   const { application, line } = jobObjectLine(command);
   // Absolute, as node's spawn would resolve them: PowerShell runs in System32, which must never
   // decide where the program runs or which file it is.
@@ -104,6 +117,7 @@ export const jobObjectCommand = (command: SpawnCommand, cwd: string): JobObjectS
     input('file', win32.resolve(directory, application)),
     input('line', line),
     input('cwd', directory),
+    input('flags', String(CREATION_FLAGS | (belowNormal ? BELOW_NORMAL_PRIORITY_CLASS : 0))),
     // The program's environment block, from the helper's own environment (see below).
     `$environment = Read-Input $env:${JOB_ENVIRONMENT}`,
   ];
