@@ -1,6 +1,6 @@
 // The lockfile a release bump leaves behind (ADR 0412): after a brewer's attempt in a batch that
-// waited for a release ends with commits, Foedrum refreshes the lockfile beside each manifest those
-// commits changed, with the package manager in the setup's sandbox, and commits it on the attempt's
+// waited for a release ends with commits, Foedrum refreshes the lockfiles those commits left behind,
+// with the package manager in the setup's sandbox, and commits it on the attempt's
 // branch: npm's `package-lock.json` beside a changed `package.json`, Cargo's nearest `Cargo.lock`
 // from a changed `Cargo.toml` up, and NuGet's `packages.lock.json` beside a changed .NET project or
 // beside each project below a changed `Directory.Packages.props` (ADR 0415).
