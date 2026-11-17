@@ -709,11 +709,6 @@ export type EarlierRound = { step: string; dispositions: readonly Disposition[] 
   | { unread: string }
 );
 
-/** An earlier round as `earlierRoundsOf` finds it: its findings, or where to read them. */
-export type PlannedRound =
-  | EarlierRound
-  | { step: string; dispositions: readonly Disposition[]; outDoc: { path: string; root: string } };
-
 /**
  * The earlier rounds of the lens step of attempt `ref` (ADR 0191), in the order they started: each
  * attempt of it that reviewed (`reviewed`), with the findings of a success from its event, and of
@@ -721,11 +716,7 @@ export type PlannedRound =
  * did not keep (ADR 0423). Each gets the dispositions of the attempt its findings route brought back, or of a
  * retry or an answered attempt that continued that one; a route of another step is never its own.
  */
-export function earlierRoundsOf(
-  batch: Batch,
-  ref: AttemptRef,
-  _outDoc: string | undefined,
-): EarlierRound[] {
+export function earlierRoundsOf(batch: Batch, ref: AttemptRef): EarlierRound[] {
   return lensRounds(batch, ref.stepId, ref.attempt).map(({ attempt, ran, dispositions }) => {
     const step = `${ref.stepId}#${attempt}`;
     if (ran.outcome.kind === 'succeeded') {

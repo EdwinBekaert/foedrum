@@ -8,7 +8,6 @@ import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import {
   attemptLimits,
-  type EarlierRound,
   earlierFindingsInput,
   earlierRoundsOf,
   groupOfStep,
@@ -1730,9 +1729,7 @@ describe("the default Nip's round back to the Cellarman carries every Taster's f
               : routeInput(route, { kind: 'text', text: correctnessDoc });
         }
         if (ref.attempt === 2 && (ref.stepId === 'correctness' || ref.stepId === 'acceptance')) {
-          const rounds = earlierRoundsOf(batch, ref, 'taste.md').filter(
-            (round): round is EarlierRound => !('outDoc' in round),
-          );
+          const rounds = earlierRoundsOf(batch, ref);
           earlier.set(ref.stepId, earlierFindingsInput(ref.stepId, rounds).text);
           disposed.set(ref.stepId, lensRounds(batch, ref.stepId)[0]?.dispositions ?? []);
         }

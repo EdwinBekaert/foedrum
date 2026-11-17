@@ -540,8 +540,8 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
    * For a later round of a lens step (ADR 0191): the earlier rounds' findings with their
    * dispositions, a blocked round's as its event records them (ADR 0423); none for a first round.
    */
-  const earlierFindingsFor = (batch: Batch, ref: AttemptRef, found: StepBrewer, of: Reviewed) => {
-    const rounds = earlierRoundsOf(batch, ref, found.brewer.output.doc);
+  const earlierFindingsFor = (batch: Batch, ref: AttemptRef, of: Reviewed) => {
+    const rounds = earlierRoundsOf(batch, ref);
     return rounds.length === 0 ? undefined : earlierFindingsInput(ref.stepId, rounds, of);
   };
 
@@ -753,9 +753,7 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
     // A later round of a Taster's step gets what the earlier rounds found (ADR 0191).
     const reviews: Reviewed = planLens ? 'plan' : 'change';
     const earlier =
-      found.brewer.output.schema === TASTING
-        ? earlierFindingsFor(batch, ref, found, reviews)
-        : undefined;
+      found.brewer.output.schema === TASTING ? earlierFindingsFor(batch, ref, reviews) : undefined;
     if (earlier !== undefined) inputs.push(earlier);
     // Only where the driver gives the Brewery's rules: serve always does (ADR 0169).
     const { houseYeast } = options;
