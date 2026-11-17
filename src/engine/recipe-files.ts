@@ -407,6 +407,10 @@ const delivered = (outcome: StepOutcome): boolean =>
 export const deliveryRound = (attempts: readonly Attempt[]): readonly Attempt[] =>
   roundOf(attempts, delivered);
 
+/** Whether an action gets another attempt after `attempts` (ADR 0219, ADR 0325). */
+export const actionMayRetry = (attempts: readonly Attempt[]): boolean =>
+  deliveryRound(attempts).length < ACTION_ATTEMPTS;
+
 /** The deadline of a check step without one of its own (ADR 0069). */
 const CHECK_DEADLINE = '30m';
 
@@ -422,12 +426,16 @@ const noReading = (outcome: StepOutcome): boolean =>
   outcome.kind === 'cancelled' || (outcome.kind === 'failed' && outcome.retryable);
 
 /** The round of a check step: its attempts since its latest that read the tree (ADR 0325). */
-const readingRound = (attempts: readonly Attempt[]): readonly Attempt[] =>
+export const readingRound = (attempts: readonly Attempt[]): readonly Attempt[] =>
   roundOf(attempts, (outcome) => !noReading(outcome));
 
 /** Whether an attempt ended without a reading of its own. */
 const readNothing = (attempt: Attempt): boolean =>
   attempt.phase === 'finished' && noReading(attempt.outcome);
+
+/** Whether a check step gets another attempt after `attempts`: those of its round that read nothing. */
+export const checkMayRetry = (attempts: readonly Attempt[]): boolean =>
+  readingRound(attempts).filter(readNothing).length < CHECK_RETRIES;
 
 /** The recipe's settings after routing, which a `when` may read (ADR 0064). */
 interface Settings {
@@ -834,7 +842,7 @@ function rackLine(step: ActionStep): StepLoad {
     deadline: ACTION_DEADLINE,
     stall: undefined,
     round: deliveryRound,
-    mayRetry: (attempts) => deliveryRound(attempts).length < ACTION_ATTEMPTS,
+    mayRetry: actionMayRetry,
     route: undefined,
     action: step.action as RecipeAction,
     ...(step.olderThan === undefined ? {} : { olderThan: durationMs(step.olderThan) }),
@@ -855,7 +863,7 @@ function gateLine(step: GateStep): StepLoad {
     deadline: step.deadline,
     stall: undefined,
     round: deliveryRound,
-    mayRetry: (attempts) => deliveryRound(attempts).length < ACTION_ATTEMPTS,
+    mayRetry: actionMayRetry,
     route: undefined,
     action: 'gate',
   };
@@ -880,7 +888,7 @@ function actionLine(step: ActionStep, last: boolean): StepLoad {
     stall: undefined,
     round: deliveryRound,
     // The attempts of this round (ADR 0219, ADR 0325): an action never blocks by findings.
-    mayRetry: (attempts) => deliveryRound(attempts).length < ACTION_ATTEMPTS,
+    mayRetry: actionMayRetry,
     route:
       step.onPullRequestFail === undefined
         ? undefined
@@ -903,7 +911,7 @@ function checkLine(step: CheckStep): StepLoad {
     deadline,
     stall: undefined,
     round: readingRound,
-    mayRetry: (attempts) => readingRound(attempts).filter(readNothing).length < CHECK_RETRIES,
+    mayRetry: checkMayRetry,
     route: onFail === undefined ? undefined : { why: 'failed', ...onFail },
     ...(step.expect === 'fail' ? { proves: step.of } : { passes: true as const }),
   };

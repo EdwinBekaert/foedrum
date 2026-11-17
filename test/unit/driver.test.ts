@@ -75,6 +75,7 @@ const recipes = fakeRecipes({
   // Test-first: a Cellarman that finds an older test wrong goes back to the Gauger (ADR 0358).
   brut: fakeRecipe({
     steps: ['gauge', 'red', 'implement', 'green'],
+    checks: ['red', 'green'],
     proven: 'gauge',
     routes: {
       red: { failed: 'gauge' },
@@ -2426,6 +2427,7 @@ describe('openDriver', () => {
       const routing = fakeRecipes({
         pint: fakeRecipe({
           steps: ['plan', 'implement'],
+          checks: ['implement'],
           routes: { implement: { failed: 'plan' } },
         }),
       });
