@@ -30,7 +30,7 @@ This record is the second half of #249, issue #1149.
 ## Consequences
 - A batch stopped by a fake token, a binary file or a submodule bump can go on after a person looked at its findings, and the log says who let it go and why.
 - What the person allowed is one commit: the pushed tip, with every commit from the base to it, as the refusal listed them.
-- If the push after an allowance resolves another commit than the allowed one and the scan refuses it, that refusal is kept under the allowed key, and only `stop` (or a cancel) moves the batch.
+- If the push after an allowance resolves another commit than the allowed one and the scan refuses it, that refusal is kept under the allowed key, and only `stop` (or a cancel) moves the batch on: `allow` is still offered and accepted, but an allowance of the second commit brings back the first refusal, and one of the first the second, and nothing is pushed. No guard stops that answer, since nothing reachable today moves the task tree between a refusal and the push after its allowance.
 - `push.allowed` is a new event (`schemas/event.json`); an older Foedrum cannot read an event log that holds it.
 
 ### Migration
