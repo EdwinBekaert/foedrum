@@ -4,7 +4,6 @@
 // is refused before its first step (ADR 0297). No model.
 
 import type { AttemptRef } from '../engine/attempt-key.ts';
-import { mergedBase } from '../engine/base-merge.ts';
 import type { AttemptEnd } from '../engine/brewer-runner.ts';
 import type { Batch } from '../engine/fold.ts';
 import { MAX_REPORT_BYTES } from '../formats/test-report.ts';
@@ -59,10 +58,12 @@ export interface MappedProof {
 
 /** What a red proof uses of the check runner: its options and how it runs a check and the setup. */
 export interface MappedProofOptions
-  extends Pick<CheckRunnerOptions, 'state' | 'repositoryChecks' | 'git' | 'clone' | 'testMap'> {
+  extends Pick<CheckRunnerOptions, 'repositoryChecks' | 'git' | 'clone' | 'testMap'> {
   platform: NodeJS.Platform;
   reports: ReportFiles;
   testReportsOf: ModuleReports;
+  /** Where the batch's change in `repo` starts: the base it merged, else its start (ADR 0164). */
+  baseOf: (batch: Batch, repo: string) => string | undefined;
   /** What one run of `check` read on this platform (ADR 0076). */
   readingIn: (check: Extract<PlannedCheck, { kind: 'run' }>, result: ExecResult) => GravityReading;
   /** Runs one check in the worktree through the checks' process runner, its sandbox (ADR 0076). */
@@ -81,7 +82,7 @@ export interface MappedProofOptions
 }
 
 export function createMappedProof(options: MappedProofOptions): MappedProof {
-  const { state, git, clone, platform, reports, testReportsOf, readingIn, runCheck, prepare } =
+  const { git, clone, platform, reports, testReportsOf, readingIn, runCheck, prepare, baseOf } =
     options;
 
   /**
@@ -97,8 +98,7 @@ export function createMappedProof(options: MappedProofOptions): MappedProof {
     const { testMap } = options;
     if (testMap === undefined) return { kind: 'none' };
     const { repo } = worktree;
-    // Where the batch's change starts: the base it merged, else its start (ADR 0164).
-    const base = mergedBase(state(), batch.id) ?? batch.starts?.[repo.toLowerCase()]?.commit;
+    const base = baseOf(batch, repo);
     const before: MapRead =
       base === undefined ? { kind: 'none' } : await testMap.at(repo, base, signal);
     if (before.kind === 'unreadable') {

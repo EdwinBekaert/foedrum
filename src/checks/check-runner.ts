@@ -211,6 +211,10 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
     return runSetup(options.setup.exec, setupRunOf(found, platform), run).then((read) => [read]);
   };
 
+  /** Where the batch's change in `repo` starts: the base it merged, else its start (ADR 0164). */
+  const baseOf = (batch: Batch, repo: string): string | undefined =>
+    mergedBase(state(), batch.id) ?? batch.starts?.[repo.toLowerCase()]?.commit;
+
   const { proveRed } = createMappedProof({
     ...options,
     platform,
@@ -219,6 +223,7 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
     readingIn,
     runCheck,
     prepare,
+    baseOf,
   });
 
   /**
@@ -370,10 +375,6 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
     if (survey !== undefined) return agreed(batch, ref, worktree, survey, judged);
     return maps === undefined ? judged : namedTestsRead(batch, judged, worktree, maps);
   };
-
-  /** Where the batch's change in `repo` starts: the base it merged, else its start (ADR 0164). */
-  const baseOf = (batch: Batch, repo: string): string | undefined =>
-    mergedBase(state(), batch.id) ?? batch.starts?.[repo.toLowerCase()]?.commit;
 
   const { manifests, staleByRun } = createStaleMap({
     ...options,

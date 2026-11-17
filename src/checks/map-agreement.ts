@@ -14,7 +14,7 @@ import { MOST_STALE_PATHS, type StaleMap, type WorktreeRef } from '../schemas/ev
 import { surveyOf } from '../schemas/out-doc.ts';
 import type { CheckRunnerOptions } from './check-runner.ts';
 import { blocked } from './gravity.ts';
-import type { ModuleReports } from './module-reports.ts';
+import { coveragePath, type ModuleReports } from './module-reports.ts';
 import { cut, testFileOf } from './red-proof.ts';
 import {
   areaOf,
@@ -200,9 +200,9 @@ export function createStaleMap(options: StaleMapOptions): StaleMapReads {
     named.push(...testsOutside(worktree, modules));
     const written = options.testReport(worktree.repo)?.path;
     if (written === undefined) return named;
-    const patterns = modules.flatMap(({ module: { testReport, coverage } }) => [
-      testReport.path,
-      ...(coverage === 'none' ? [] : [coverage.path]),
+    const patterns = modules.flatMap(({ module }) => [
+      module.testReport.path,
+      ...coveragePath(module),
     ]);
     if (patterns.some((pattern) => reportUnder(written, pattern))) return named;
     const found = find(written, worktree.path);
