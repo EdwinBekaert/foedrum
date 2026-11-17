@@ -487,8 +487,11 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
     if (after.kind === 'none') return end;
     const modules = stepModules(before, after.map);
     const find = testMap.reports ?? reportPaths;
+    // A run of testChanged may leave a new module's tests unrun: only a full run says it is
+    // unreached (ADR 0242, ADR 0280).
+    const changed = end.readings?.some((reading) => 'changed' in reading) === true;
     for (const { module, added } of modules) {
-      if (!added) continue;
+      if (!added || changed) continue;
       const { name, testReport } = module;
       const found = find(testReport.path, worktree.path);
       if ('refused' in found) {
