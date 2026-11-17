@@ -1239,6 +1239,19 @@ describe('foedrum: commands that change state', () => {
       assert.equal(lastId(), before);
     });
 
+    it('takes allow as a plain answer from a batch that asks other questions (ADR 0419)', async () => {
+      assert.deepStrictEqual(
+        await run(['answer', '21-1', 'allow', 'no']),
+        ok('#21 brewing: plan #2 scheduled\n'),
+      );
+      assert.deepStrictEqual(
+        (appended(3)[0] as Extract<Event, { type: 'input.received' }>).answers.map(
+          ({ answer }) => answer,
+        ),
+        ['allow', 'no'],
+      );
+    });
+
     it('refuses too few or too many answers, appending nothing', async () => {
       const before = lastId();
       const reason = '#21 asked 2 questions; give one answer to each, in order';
