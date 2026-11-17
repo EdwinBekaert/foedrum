@@ -1,6 +1,6 @@
 # 0242. A repository can name a fast local test, and its pull request checks are the full gate
 
-Date: 2026-11-17 · Status: Accepted · Amends [0023](0023-language-independent-recipes.md) (a repository's `checks` may name a sixth command, `testChanged`) and [0282](0282-a-stale-test-map-sends-back-the-change-that-made-it-and-the-maltster-surveys-a-new-one.md) (a run of `testChanged` judges no freshness)
+Date: 2026-11-17 · Status: Accepted · Amends [0023](0023-language-independent-recipes.md) (a repository's `checks` may name a sixth command, `testChanged`) [0241](0241-each-test-runs-at-the-stage-where-it-pays-the-check-runs-the-test-files-a-change-reaches.md) (`npm run check -- --base` reads the change from a given commit), [0274](0274-the-red-proof-reads-line-coverage-of-the-change-and-a-test-map-not-test-names.md) (after a run of `testChanged` the uncovered-line check reads only the coverage of the modules the change touches) and [0282](0282-a-stale-test-map-sends-back-the-change-that-made-it-and-the-maltster-surveys-a-new-one.md) (a run of `testChanged` judges no freshness)
 
 ## Context
 `foedrum.jsonc` maps a repository's five checks to commands ([ADR 0023](0023-language-independent-recipes.md)).
@@ -30,7 +30,8 @@ Test runners already offer that reading for a change (`vitest run --changed <ref
 
 ### Its reading says so
 - The reading of a `testChanged` run is the test check's, `check: "test"`, with the line that ran, `{base}` replaced, as its `command`, and `changed: true`.
-- Its coverage still judges the changed lines ([ADR 0274](0274-the-red-proof-reads-line-coverage-of-the-change-and-a-test-map-not-test-names.md)): the tests that cover them are the ones it runs.
+- Its coverage still judges the changed lines ([ADR 0274](0274-the-red-proof-reads-line-coverage-of-the-change-and-a-test-map-not-test-names.md)): the tests that cover them are the ones it runs, so a `testChanged` line writes the coverage reports of the modules it runs, as `test` does.
+  The uncovered-line check reads only the coverage of the modules whose code the change touches: an untouched module's tests may not have run, so its missing report says nothing of the environment.
 - It judges no freshness of the test map ([ADR 0282](0282-a-stale-test-map-sends-back-the-change-that-made-it-and-the-maltster-surveys-a-new-one.md)): a module whose tests it did not run wrote no report, which says nothing of the map. Freshness by manifests before the run stays.
 
 ### Foedrum's own repository uses it

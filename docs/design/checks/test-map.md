@@ -49,7 +49,7 @@ A git read that fails blocks the step on its environment.
 It is stale too when a module's JUnit or TAP report places a test in a file outside every module's code and test areas, named once per file by its first test, `test <name> at <file> outside the map`: an absolute location read under the worktree or its real path, a relative one from the root where that file is, else from a folder its own module's globs start with (where pytest writes from its rootdir), and a test with no location, or one whose file is in none of these, says nothing.
 A map stale by a run never fails a step, since a run can disagree for reasons the brewer does not control; it is recorded and named.
 A failing run is not read, as for the unreached rule.
-Neither is a run of `testChanged`, which may leave a module's tests unrun ([ADR 0242](../../adr/0242-a-repository-can-name-a-fast-local-test-and-its-pull-request-checks-are-the-full-gate.md)).
+Neither is a run of `testChanged`, which may leave a module's tests unrun, and after one the uncovered-line check reads only the coverage of the modules the change touches ([ADR 0242](../../adr/0242-a-repository-can-name-a-fast-local-test-and-its-pull-request-checks-are-the-full-gate.md)).
 
 **Named in the status comment.** `step.finished` keeps a `staleMap`: its repository, where the map is kept, its first 10 stale paths with why, and how many more.
 The status comment names each repository's latest one on a line of its own after the sensitive-path lines, `The test map of <repository> is stale: …`, until a later run of the tests in that repository finds its map fresh.
