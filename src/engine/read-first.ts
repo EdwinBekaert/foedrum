@@ -53,7 +53,10 @@ export const readFirstLine = (
 ): string => {
   const found = new Map<string, number>();
   for (const file of findings) {
-    if (file !== undefined) found.set(file, (found.get(file) ?? 0) + 1);
+    if (file === undefined) continue;
+    // In the form git writes a path: `/` between its parts and no leading `./`.
+    const path = file.replaceAll('\\', '/').replace(/^(?:\.\/)+/, '');
+    found.set(path, (found.get(path) ?? 0) + 1);
   }
   const named = size.largest
     .map(({ path, lines }) => ({ path, lines, findings: found.get(path) ?? 0 }))
