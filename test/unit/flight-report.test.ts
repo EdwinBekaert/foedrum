@@ -425,20 +425,41 @@ describe("the Flight report's tasted entry (ADR 0416)", () => {
 
   it('keeps the header comment and the other fields, and writes the rest as Biome formats it', () => {
     const { models } = written();
+    // The text `biome format --stdin-file-path=defaults/models.jsonc` leaves as it is.
     assert.equal(
       models,
-      `${HEADER}${JSON.stringify(
-        {
-          $schema: '../schemas/models.json',
-          claude: {
-            models: { light: 'haiku', strong: 'opus' },
-            efforts: { small: 'low', larger: 'high' },
-            tasted: [ENTRY],
-          },
+      `${HEADER}{
+  "$schema": "../schemas/models.json",
+  "claude": {
+    "models": {
+      "light": "haiku",
+      "strong": "opus"
+    },
+    "efforts": {
+      "small": "low",
+      "larger": "high"
+    },
+    "tasted": [
+      {
+        "brewer": "cellarman",
+        "recipe": "nip",
+        "level": "strong",
+        "effort": "larger",
+        "model": "claude-opus-5-5",
+        "passed": 2,
+        "runs": 2,
+        "baseline": {
+          "passed": 1,
+          "runs": 2,
+          "model": "claude-sonnet-5-5"
         },
-        null,
-        2,
-      )}\n`,
+        "tokensPerOrder": 351,
+        "date": "2026-11-20"
+      }
+    ]
+  }
+}
+`,
     );
   });
 
