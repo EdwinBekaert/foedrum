@@ -1,4 +1,4 @@
-# 0419. foedrum answer allow lets a refused push of one exact commit go, with who and why
+# 0420. foedrum answer allow lets a refused push of one exact commit go, with who and why
 
 Date: 2026-11-17 · Status: Accepted · Amends [0079](0079-the-push-scans-the-batch-s-commits-for-secrets.md) (a refused push no longer stays refused for the batch's life: a person can let its commit go), [0418](0418-a-refused-push-waits-as-push-refused-with-each-finding-s-line-and-takes-stop.md) (a refused push takes a second answer, `allow`) and [0030](0030-only-commands-that-change-state-are-recorded.md) (the allowance is recorded with who and from where, as every command that changes state)
 
