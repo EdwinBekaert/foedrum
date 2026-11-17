@@ -270,11 +270,14 @@ const environment = (summary: string): Ending => ({
 });
 
 /**
- * A setup that did not pass: no fact about the tree under check, so never a failure along
- * `onFail`, but the attempt's environment, or a cancel at the engine's stop (ADR 0140).
+ * A setup, or a lockfile's refresh, that did not pass, named `setup`: no fact about the tree under
+ * check, so never a failure along `onFail`, but the attempt's environment, or a cancel at the
+ * engine's stop (ADR 0140, ADR 0412).
  */
-function settleSetup(reading: Exclude<GravityReading, { result: 'skipped' }>): Ending {
-  const setup = `the setup "${reading.command}"`;
+function settleSetup(
+  reading: Exclude<GravityReading, { result: 'skipped' }>,
+  setup: string,
+): Ending {
   switch (reading.result) {
     case 'exited':
       return environment(`${setup} failed with exit code ${reading.exitCode}`);
@@ -308,7 +311,14 @@ function settleSetup(reading: Exclude<GravityReading, { result: 'skipped' }>): E
 export function settleReadings(readings: readonly GravityReading[]): Ending {
   const decisive = readings.find((reading) => !passed(reading));
   if (decisive === undefined) return { kind: 'succeeded', output: null };
-  if (decisive.result !== 'skipped' && decisive.setup === true) return settleSetup(decisive);
+  if (decisive.result !== 'skipped' && decisive.setup === true) {
+    return settleSetup(decisive, `the setup "${decisive.command}"`);
+  }
+  // A lockfile a release bump left behind, which Foedrum could not refresh (ADR 0412).
+  if (decisive.result !== 'skipped' && decisive.lockfile !== undefined) {
+    const refresh = `the lockfile ${decisive.lockfile} could not be refreshed: "${decisive.command}"`;
+    return settleSetup(decisive, refresh);
+  }
   switch (decisive.result) {
     case 'skipped':
       throw new Error('A skipped check passes');

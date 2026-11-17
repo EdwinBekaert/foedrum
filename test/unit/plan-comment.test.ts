@@ -68,7 +68,7 @@ const three: PlanReport = {
 describe('renderPlan (ADR 0233)', () => {
   it('says who changed the plan in a session without a time when it has none: regression test (#589)', () => {
     const changed = { by: 'ann', via: 'terminal' } as const;
-    const text = renderPlan('7-1', 'lauter', three, undefined, undefined, true, undefined, changed);
+    const text = renderPlan('7-1', 'lauter', three, { waitsForReview: { options: [] }, changed });
     assert.match(text, /\nChanged in a session by ann \(terminal\)\.\n/);
   });
 
@@ -79,7 +79,7 @@ describe('renderPlan (ADR 0233)', () => {
 
   it('shows a table of the sub-orders, a graph of their order and a section of each', () => {
     assert.equal(
-      renderPlan('7-1', 'plan', three, undefined, undefined, true),
+      renderPlan('7-1', 'plan', three, { waitsForReview: { options: [] } }),
       [
         '### Foedrum · plan of batch `7-1`',
         '',
@@ -154,7 +154,7 @@ describe('renderPlan (ADR 0233)', () => {
   });
 
   it("opens with the link to the plan's out doc (#658)", () => {
-    const text = renderPlan('7-1', 'plan', three, undefined, fullPlan);
+    const text = renderPlan('7-1', 'plan', three, { fullPlan });
     assert.ok(
       text.startsWith(
         `### Foedrum · plan of batch \`7-1\`\n\nFull plan: [7-1/plan-2.md](<${outDoc}>)\n\n**Sub-orders**\n`,
@@ -201,14 +201,18 @@ describe('renderPlan (ADR 0233)', () => {
   });
 
   it('ends with no next step when the plan does not wait for its review (#658)', () => {
-    const text = renderPlan('7-1', 'plan', three, undefined, fullPlan);
+    const text = renderPlan('7-1', 'plan', three, { fullPlan });
     assert.doesNotMatch(text, /Next:|foedrum retry/);
     assert.ok(text.endsWith('**Gate**\n\nNone yet.'), text.slice(-80));
   });
 
   /** `renderPlan` of `three`, waiting for its review, with the notes `review` its lenses left. */
   const reviewed = (review?: readonly ReviewNote[]) =>
-    renderPlan('7-1', 'plan', three, undefined, fullPlan, true, undefined, undefined, [], review);
+    renderPlan('7-1', 'plan', three, {
+      fullPlan,
+      waitsForReview: { options: [] },
+      review,
+    });
   /** The Review section of a plan comment. */
   const reviewOf = (text: string) =>
     text.slice(text.indexOf('**Review**'), text.indexOf('**Gate**')).trim();
@@ -288,7 +292,7 @@ describe('renderPlan (ADR 0233)', () => {
   });
 
   it('says the gate waits for foedrum approve while the plan waits for its review (#588)', () => {
-    const text = renderPlan('7-1', 'plan', three, undefined, fullPlan, true);
+    const text = renderPlan('7-1', 'plan', three, { fullPlan, waitsForReview: { options: [] } });
     assert.ok(
       text.includes(
         '\n\n**Gate**\n\nWaiting for you: approve the plan with `foedrum approve 7-1`.\n\n',
@@ -306,7 +310,7 @@ describe('renderPlan (ADR 0233)', () => {
       via: 'plugin',
       at: '2026-10-28T10:30:00.000Z',
     } as const;
-    const text = renderPlan('7-1', 'plan', three, undefined, fullPlan, false, approval);
+    const text = renderPlan('7-1', 'plan', three, { fullPlan, approval });
     assert.ok(
       text.endsWith(
         '**Gate**\n\nApproved by grace (plugin) at 2026-10-28T10:30:00.000Z.\n\nNot ready: `cli`.',
@@ -326,7 +330,7 @@ describe('renderPlan (ADR 0233)', () => {
       at: '2026-10-28T10:30:00.000Z',
     } as const;
     const four = { subOrders: [...three.subOrders, subOrder('docs', { ready: false })] };
-    const text = renderPlan('7-1', 'plan', four, undefined, fullPlan, false, approval);
+    const text = renderPlan('7-1', 'plan', four, { fullPlan, approval });
     assert.ok(
       text.endsWith(
         '**Gate**\n\nApproved by grace (plugin) at 2026-10-28T10:30:00.000Z.\n\nNot ready: `cli`, `docs`.',
@@ -348,17 +352,7 @@ describe('renderPlan (ADR 0233)', () => {
       { id: 'api', number: 8 },
       { id: 'ui', number: 9 },
     ];
-    const text = renderPlan(
-      '7-1',
-      'plan',
-      three,
-      undefined,
-      fullPlan,
-      false,
-      approval,
-      undefined,
-      opened,
-    );
+    const text = renderPlan('7-1', 'plan', three, { fullPlan, approval, opened });
     assert.ok(
       text.endsWith(
         '**Gate**\n\nApproved by grace (plugin) at 2026-10-28T10:30:00.000Z.\n\nSub-issues: `api` #8, `ui` #9.\n\nNot ready: `cli`.',
@@ -368,7 +362,11 @@ describe('renderPlan (ADR 0233)', () => {
   });
 
   it('ends with the next step (#658)', () => {
-    assert.ok(renderPlan('7-1', 'plan', three, undefined, fullPlan, true).endsWith(`\n\n${next}`));
+    assert.ok(
+      renderPlan('7-1', 'plan', three, { fullPlan, waitsForReview: { options: [] } }).endsWith(
+        `\n\n${next}`,
+      ),
+    );
   });
 
   it('shows a text with a quote, a hash, a line break, a mention and a backtick as itself, in the table and the graph', () => {
@@ -427,7 +425,12 @@ describe('renderPlan (ADR 0233)', () => {
     const many = Array.from({ length: 100 }, (_, i) =>
       subOrder(`s${i}`, { title: 'y'.repeat(120), doneWhen: 'x'.repeat(50), why: 'x'.repeat(50) }),
     );
-    const text = renderPlan('7-1', 'plan', { subOrders: many }, undefined, undefined, true);
+    const text = renderPlan(
+      '7-1',
+      'plan',
+      { subOrders: many },
+      { waitsForReview: { options: [] } },
+    );
     assert.ok(text.length <= 60_000, `${text.length}`);
     assert.doesNotMatch(text, /```mermaid|rest is cut/);
     assert.match(text, /\*\*Order\*\*\n\nThe graph is left out: GitHub keeps comments shorter\.\n/);
@@ -453,7 +456,7 @@ describe('renderPlan (ADR 0233)', () => {
   };
 
   it("keeps the whole text within GitHub's length, cut after a whole sub-order", () => {
-    const text = renderPlan('7-1', 'plan', longest(), undefined, undefined, true);
+    const text = renderPlan('7-1', 'plan', longest(), { waitsForReview: { options: [] } });
     assert.ok(text.length <= 60_000, `${text.length}`);
     assert.doesNotMatch(text, /```mermaid/);
     assert.match(
@@ -463,9 +466,11 @@ describe('renderPlan (ADR 0233)', () => {
   });
 
   it('the plan comment links the full plan by its place', () => {
-    const text = renderPlan('7-1', 'plan', three, undefined, {
-      place: '7-1/plan-2.md',
-      url: 'https://github.com/alice/brewery/blob/foedrum/state/batches/7-1/plan 2.md',
+    const text = renderPlan('7-1', 'plan', three, {
+      fullPlan: {
+        place: '7-1/plan-2.md',
+        url: 'https://github.com/alice/brewery/blob/foedrum/state/batches/7-1/plan 2.md',
+      },
     });
     assert.ok(
       text.startsWith(
@@ -482,7 +487,10 @@ describe('renderPlan (ADR 0233)', () => {
   });
 
   it('keeps the link and the next step when the text is cut to length (#658)', () => {
-    const text = renderPlan('7-1', 'plan', longest(), undefined, fullPlan, true);
+    const text = renderPlan('7-1', 'plan', longest(), {
+      fullPlan,
+      waitsForReview: { options: [] },
+    });
     assert.ok(text.length <= 60_000, `${text.length}`);
     assert.ok(
       text.startsWith(
@@ -520,7 +528,7 @@ describe('renderPlan (ADR 0233)', () => {
     // Within the link's length of the limit: whole without it, too long with it.
     assert.ok(whole(plan));
     assert.ok(length(plan) + link.length > 60_000, `${length(plan)}`);
-    const text = renderPlan('7-1', 'plan', plan, undefined, fullPlan);
+    const text = renderPlan('7-1', 'plan', plan, { fullPlan });
     assert.ok(text.length <= 60_000, `${text.length}`);
     assert.ok(text.includes(link), text.slice(0, 200));
   });
@@ -537,7 +545,12 @@ describe('renderPlan (ADR 0233)', () => {
         })),
       }),
     );
-    const text = renderPlan('7-1', 'plan', { subOrders: many }, undefined, fullPlan, true);
+    const text = renderPlan(
+      '7-1',
+      'plan',
+      { subOrders: many },
+      { fullPlan, waitsForReview: { options: [] } },
+    );
     assert.ok(text.length <= 60_000, `${text.length}`);
     assert.doesNotMatch(text, /\n#### /);
     assert.ok(
@@ -553,6 +566,113 @@ describe('renderPlan (ADR 0233)', () => {
 
   it('reads as before without a link: regression test (#659)', () => {
     assert.doesNotMatch(renderPlan('7-1', 'plan', three), /Full plan/);
+  });
+
+  // Each digest was read on main before #862 changed how renderPlan takes its parts, so no plan
+  // comment becomes due again (ADR 0361).
+  describe("its text's digest, as before (#862)", () => {
+    const approval = {
+      stepId: 'plan',
+      attempt: 2,
+      plan: '0123456789abcdef',
+      by: 'grace',
+      via: 'plugin',
+      at: '2026-10-28T10:30:00.000Z',
+    } as const;
+    const note: ReviewNote = {
+      stepId: 'naive',
+      attempt: 1,
+      finding: { severity: 'major', why: 'api: the endpoint is there', introduced: true },
+      left: 'dismissed',
+      why: 'it is not',
+    };
+    const hex = 'a1b2c3d4e5f60718293a4b5c6d7e8f90';
+
+    it('of a plan with nothing more: regression test (#862)', () => {
+      assert.equal(digest(renderPlan('7-1', 'plan', three)), 'c36085c3e91c7435');
+    });
+
+    it('of a plan with its link: regression test (#862)', () => {
+      assert.equal(digest(renderPlan('7-1', 'plan', three, { fullPlan })), '661beece86848f74');
+    });
+
+    it('of a plan waiting for its review: regression test (#862)', () => {
+      assert.equal(
+        digest(renderPlan('7-1', 'plan', three, { waitsForReview: { options: [] } })),
+        'b881244498a9e7cf',
+      );
+    });
+
+    it('of a plan waiting for its review with its link: regression test (#862)', () => {
+      assert.equal(
+        digest(renderPlan('7-1', 'plan', three, { fullPlan, waitsForReview: { options: [] } })),
+        'fec4d68b3c229d97',
+      );
+    });
+
+    it('of a plan waiting for its review with another option, named as its order: regression test (#862)', () => {
+      const text = renderPlan('7-1', 'plan', three, {
+        waitsForReview: { options: ['recipe'] },
+        called: '7',
+      });
+      assert.equal(digest(text), '2dd8ef8175f6d995');
+    });
+
+    it('of an approved plan: regression test (#862)', () => {
+      const text = renderPlan('7-1', 'plan', three, { fullPlan, approval });
+      assert.equal(digest(text), '6da1bbfa98c39653');
+    });
+
+    it('of an approved plan with its sub-issues opened: regression test (#862)', () => {
+      const opened = [
+        { id: 'api', number: 8 },
+        { id: 'ui', number: 9 },
+      ];
+      const text = renderPlan('7-1', 'plan', three, { fullPlan, approval, opened });
+      assert.equal(digest(text), '2128e51539eba324');
+    });
+
+    it('of a plan changed in a session: regression test (#862)', () => {
+      const changed = { by: 'ann', via: 'terminal', at: '2026-10-28T09:00:00.000Z' } as const;
+      const text = renderPlan('7-1', 'lauter', three, { waitsForReview: { options: [] }, changed });
+      assert.equal(digest(text), '802f683f464f97fb');
+    });
+
+    it('of a plan whose lenses left no note: regression test (#862)', () => {
+      const text = renderPlan('7-1', 'plan', three, {
+        fullPlan,
+        waitsForReview: { options: [] },
+        review: [],
+      });
+      assert.equal(digest(text), '944ce3b533012d49');
+    });
+
+    it('of a plan whose lenses left a note: regression test (#862)', () => {
+      const text = renderPlan('7-1', 'plan', three, {
+        fullPlan,
+        waitsForReview: { options: [] },
+        review: [note],
+      });
+      assert.equal(digest(text), 'ec754f921495d073');
+    });
+
+    it('of a plan with a text that looks like a secret: regression test (#862)', () => {
+      const leaky = { subOrders: [subOrder(hex), subOrder('ui', { title: `use ${token}` })] };
+      assert.equal(digest(renderPlan('7-1', 'plan', leaky)), '801886ae5a1bf9ef');
+    });
+
+    it('of a plan with a commit the batch knows: regression test (#862)', () => {
+      const known = { subOrders: [subOrder(hex), subOrder('ui')] };
+      const text = renderPlan('7-1', 'plan', known, { isCommit: (text) => text === hex });
+      assert.equal(digest(text), 'd891e50d40fd3e64');
+    });
+
+    it('of a plan cut to length while it waits for its review: regression test (#862)', () => {
+      assert.equal(
+        digest(renderPlan('7-1', 'plan', longest(), { fullPlan, waitsForReview: { options: [] } })),
+        '8b344a43adf4bd09',
+      );
+    });
   });
 });
 
@@ -786,7 +906,7 @@ describe('planEffects (ADR 0233)', () => {
     await driver.applyEffects();
     assert.equal(
       only().body,
-      `${renderPlan('7-1', 'plan', three, undefined, undefined, true, undefined, undefined, [], undefined, ['recipe'], '7')}\n\n${marker(1)}`,
+      `${renderPlan('7-1', 'plan', three, { waitsForReview: { options: ['recipe'] }, called: '7' })}\n\n${marker(1)}`,
     );
     assert.match(only().body, /\n\nNext: read the plan/);
   });
@@ -807,8 +927,17 @@ describe('planEffects (ADR 0233)', () => {
     );
   });
 
+  it('records the digest it read before #862 for a plan waiting Stuck for its review: regression test (#862)', async () => {
+    const driver = await open();
+    issue({ kind: 'order', batchId: '7-1', order: { issue: 7 } });
+    issue({ kind: 'route', batchId: '7-1', recipe: 'pale', reason: 'label', source: 'label' });
+    step('plan', planned(three));
+    await driver.applyEffects();
+    assert.deepEqual(revision(1), { result: { comment: 1, digest: '2dd8ef8175f6d995' } });
+  });
+
   it('a plan rendered with no other option ends with the plan’s own Next line, as before: regression test (#855)', () => {
-    const text = renderPlan('7-1', 'plan', three, undefined, undefined, true);
+    const text = renderPlan('7-1', 'plan', three, { waitsForReview: { options: [] } });
     assert.ok(text.endsWith(`\n\nNext: ${planNextStep('7-1', code)}`), text.slice(-400));
   });
 
