@@ -88,6 +88,8 @@ const KEEP_AWAKE_LINE =
   process.platform === 'win32'
     ? `Keep awake: SetThreadExecutionState through ${win32.join(environmentVariable(process.env, 'SYSTEMROOT', 'win32') ?? 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe')} while an attempt runs (keepAwake: false turns it off, ADR 0195)`
     : `Keep awake: none (no ${process.platform === 'darwin' ? 'caffeinate' : 'systemd-inhibit'} on PATH); the machine may sleep while an attempt runs (ADR 0195)`;
+// The stubs' Brewery has no event log yet (ADR 0419).
+const TASTING_LINE = 'Tasting: no brewer attempt in the last 30 days to read.';
 // What each tool prints for its version, in its own format, with the versions of the captures in
 // test/unit (doctor.test.ts, doctor-facts.test.ts and cli.test.ts's report); gh's come from
 // test/helpers/canned-gh.ts. The real tools' output is no longer read here (ADR 0075).
@@ -243,6 +245,7 @@ describe('foedrum doctor with stub tools', () => {
         DEFAULTS_LINE,
         DENYLIST_LINE,
         KEEP_AWAKE_LINE,
+        TASTING_LINE,
         '',
         ...PROMPT_LINES,
         ...optional(platform.problems),
@@ -282,6 +285,7 @@ describe('foedrum doctor with stub tools', () => {
         DEFAULTS_LINE,
         DENYLIST_LINE,
         KEEP_AWAKE_LINE,
+        TASTING_LINE,
         '',
         ...PROMPT_LINES,
         'Problems:',
