@@ -245,7 +245,6 @@ describe('foedrum resume (ADR 0126)', () => {
   const nothingOpened = () =>
     assert.deepEqual([calls, started, settings, store.currentLeases(now)], [[], [], [], []]);
 
-  // ADR 0160: the settings written again hide the logins where serve's environment moved them.
   it("opens a Brewery order's attempt in its folder, with each checkout made again at its commit (ADR 0301)", async () => {
     const log = createCommandLog({ store, recipes });
     const folder = join(workRoot, 'brewery-orders', '30-1', 'plan', '1');
