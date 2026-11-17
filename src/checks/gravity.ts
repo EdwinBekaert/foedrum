@@ -2,6 +2,7 @@
 // runs on this platform, what one run read, and the step's outcome from its readings. Pure;
 // check-runner.ts runs the commands.
 
+import type { AttemptEnd } from '../engine/brewer-runner.ts';
 import type { Ending } from '../engine/decide.ts';
 import { findSecrets } from '../formats/secrets.ts';
 import type { TestReport } from '../formats/test-report.ts';
@@ -17,6 +18,23 @@ import type { CheckRef } from '../schemas/recipe.ts';
 
 /** The command behind each check of a repository, or null where it has none (ADR 0023). */
 export type RepositoryChecks = Readonly<Record<CheckName, Command | null>>;
+
+// None of a repository's checks: what a step of literal commands plans against.
+export const NO_CHECKS: RepositoryChecks = {
+  build: null,
+  typecheck: null,
+  lint: null,
+  format: null,
+  test: null,
+};
+
+/** A check step's attempt ended Stuck, on its environment or on a divergence, saying why. */
+export const blocked = (
+  blockerKind: 'environment' | 'divergence',
+  summary: string,
+): AttemptEnd => ({
+  ending: { kind: 'blocked', blockerKind, summary },
+});
 
 /** A check ready to run: its command line on this platform, or a skip. */
 export type PlannedCheck =
