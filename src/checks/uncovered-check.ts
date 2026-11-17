@@ -171,9 +171,13 @@ export function createUncoveredCheck(options: UncoveredCheckOptions): UncoveredC
         return area?.area === 'code' ? [area.module] : [];
       }),
     );
+    // A run of testChanged may leave an untouched module's tests unrun, and its report unwritten
+    // (ADR 0242).
+    const changedOnly = end.readings?.some((reading) => 'changed' in reading) === true;
     const reportsRead: CoverageReport[] = [];
     for (const { module } of measured ? modules : []) {
       if (module.coverage === 'none') continue;
+      if (changedOnly && !touched.has(module.name)) continue;
       const { format, path } = module.coverage;
       const cannot = `the coverage report of module "${module.name}" cannot`;
       // Refused out of the worktree, or past the paths a pattern may match (ADR 0274).
