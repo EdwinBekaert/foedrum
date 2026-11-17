@@ -1,6 +1,6 @@
 # 0242. A repository can name a fast local test, and its pull request checks are the full gate
 
-Date: 2026-11-17 · Status: Accepted · Amends [0023](0023-language-independent-recipes.md) (a repository's `checks` may name a sixth command, `testChanged`), [0241](0241-each-test-runs-at-the-stage-where-it-pays-the-check-runs-the-test-files-a-change-reaches.md) (`npm run check -- --base` reads the change from a given commit), [0274](0274-the-red-proof-reads-line-coverage-of-the-change-and-a-test-map-not-test-names.md) (after a run of `testChanged` the uncovered-line check reads only the coverage of the modules the change touches) and [0282](0282-a-stale-test-map-sends-back-the-change-that-made-it-and-the-maltster-surveys-a-new-one.md) (a run of `testChanged` judges no freshness)
+Date: 2026-11-17 · Status: Accepted · Amends [0023](0023-language-independent-recipes.md) (a repository's `checks` may name a sixth command, `testChanged`), [0241](0241-each-test-runs-at-the-stage-where-it-pays-the-check-runs-the-test-files-a-change-reaches.md) (`npm run check -- --base` reads the change from a given commit), [0274](0274-the-red-proof-reads-line-coverage-of-the-change-and-a-test-map-not-test-names.md) (after a run of `testChanged` the uncovered-line check reads only the coverage of the modules the change touches), [0280](0280-a-new-module-is-judged-unreached-only-on-a-passing-test-run.md) (a run of `testChanged` judges no module unreached) and [0282](0282-a-stale-test-map-sends-back-the-change-that-made-it-and-the-maltster-surveys-a-new-one.md) (a run of `testChanged` judges no freshness)
 
 ## Context
 `foedrum.jsonc` maps a repository's five checks to commands ([ADR 0023](0023-language-independent-recipes.md)).
@@ -32,10 +32,12 @@ Test runners already offer that reading for a change (`vitest run --changed <ref
 - The reading of a `testChanged` run is the test check's, `check: "test"`, with the line that ran, `{base}` replaced, as its `command`, and `changed: true`.
 - Its coverage still judges the changed lines ([ADR 0274](0274-the-red-proof-reads-line-coverage-of-the-change-and-a-test-map-not-test-names.md)): the tests that cover them are the ones it runs, so a `testChanged` line writes the coverage reports of the modules it runs, as `test` does.
   The uncovered-line check reads only the coverage of the modules whose code the change touches: an untouched module's tests may not have run, so its missing report says nothing of the environment.
+- It judges no module unreached ([ADR 0280](0280-a-new-module-is-judged-unreached-only-on-a-passing-test-run.md)): a module new in the batch whose tests it did not run wrote no report either, so the next full run, the red proof's or the survey's, judges it.
 - It judges no freshness of the test map ([ADR 0282](0282-a-stale-test-map-sends-back-the-change-that-made-it-and-the-maltster-surveys-a-new-one.md)): a module whose tests it did not run wrote no report, which says nothing of the map. Freshness by manifests before the run stays.
 
 ### Foedrum's own repository uses it
 - `npm run check -- --base <commit>` reads the change from that commit, a full commit id, instead of the merge base with `origin/main` (`checkMode` in `scripts/check.ts`, `affectedByChange` in `scripts/affected-tests.ts`), and is refused with `--all` or `--no-tests`, which read no change.
+- It also writes node's coverage of the test files it runs to `lcov.info` at the checkout's root, without `npm test`'s thresholds, which a part of the suite cannot meet ([ADR 0241](0241-each-test-runs-at-the-stage-where-it-pays-the-check-runs-the-test-files-a-change-reaches.md)), so a test map whose module names that report has its changed lines judged.
 - Foedrum's own `testChanged` is `npm run check -- --base {base}`: the test files the change reaches ([ADR 0241](0241-each-test-runs-at-the-stage-where-it-pays-the-check-runs-the-test-files-a-change-reaches.md)), one command on every system, while its CI runs every test file on every leg.
 
 ## Consequences

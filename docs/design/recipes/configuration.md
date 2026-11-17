@@ -60,7 +60,7 @@ Both are JSONC with a `$schema` reference for editor autocompletion; unknown fie
       "checks": {
         "build": null, "typecheck": "npm run typecheck", "lint": "npm run lint", "format": null,
         "test": "npm test",                                      // every test file with coverage, as its CI runs them
-        "testChanged": "npm run check -- --base {base}"          // the test files the change reaches (ADR 0241, ADR 0242)
+        "testChanged": "npm run check -- --base {base}"          // the test files the change reaches, their coverage in lcov.info (ADR 0241, ADR 0242)
       },
       "setup": { "command": "npm ci", "timeout": "10m" },
       "tools": [
