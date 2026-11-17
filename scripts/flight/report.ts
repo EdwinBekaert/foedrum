@@ -1,11 +1,22 @@
 // The decisions of node scripts/flight-report.ts (#1084, ADR 0411): its options and their refusals,
-// each order's verdict between two Flights by ADR 0404's rule, and the report with its summary line.
-// Nothing here reads a file; scripts/flight-report.ts reads the two Flights' records and writes it.
+// each order's verdict between two Flights by ADR 0404's rule, the report with its summary line, and
+// the tasted entry with the pull request description (ADR 0416). Nothing here reads a file;
+// scripts/flight-report.ts reads the two Flights' records, a recipe and defaults/models.jsonc, and
+// writes what this decides.
 
 import { join } from 'node:path';
 import type { parseArgs } from 'node:util';
+import { parseJsonc } from '../../src/formats/jsonc.ts';
+import { ModelsConfig, type TastedEntry, tastedKey } from '../../src/schemas/models.ts';
 import { escapeCell, runsOfSetup } from '../tasting-compare/core.ts';
-import { type FlightRecord, flightFailure, scoredFigures } from './core.ts';
+import {
+  brewerSteps,
+  type FlightRecord,
+  flightFailure,
+  recipeOf,
+  scoredFigures,
+  swapLevelOf,
+} from './core.ts';
 
 /** The options flight-report.ts reads, as `parseArgs` takes them. */
 export const FLIGHT_REPORT_OPTIONS = {
@@ -185,14 +196,138 @@ export type Tasted =
   | { kind: 'written'; models: string; title: string; description: string }
   | { kind: 'not written'; why: string; exitCode: 0 | 1 };
 
-/** The tasted entry two Flights' records give, and the files that hold it (ADR 0416). */
+/**
+ * The one model id the transcripts of `steps` in `records` named, or why there is not one: an entry
+ * names the exact id the Flight ran on (ADR 0416).
+ */
+const oneModelOf = (
+  records: readonly FlightRecord[],
+  steps: ReadonlySet<string>,
+  whose: string,
+): { model: string } | { why: string } => {
+  const named = new Set(
+    records.flatMap(({ flight }) =>
+      Object.entries(flight.models).flatMap(([stepId, models]) =>
+        steps.has(stepId) ? models : [],
+      ),
+    ),
+  );
+  const [model, ...others] = named;
+  if (model !== undefined && others.length === 0) return { model };
+  return {
+    why:
+      model === undefined
+        ? `no transcript of ${whose} steps named a model`
+        : `${whose} steps ran on ${[...named].join(' and ')}`,
+  };
+};
+
+/**
+ * `modelsText`, a models.jsonc, with `entry` in place of the tasted entry of its combination, or
+ * added last, and the entry it replaced: its leading comment lines as they are, the rest written
+ * whole as Biome formats JSON, so a comment past them is dropped (ADR 0416).
+ */
+const withTasted = (
+  modelsText: string,
+  entry: TastedEntry,
+): { text: string; replaced?: TastedEntry } => {
+  const config = ModelsConfig.parse(parseJsonc(modelsText));
+  const key = tastedKey(entry);
+  const replaced = config.claude.tasted.find((each) => tastedKey(each) === key);
+  const tasted =
+    replaced === undefined
+      ? [...config.claude.tasted, entry]
+      : config.claude.tasted.map((each) => (each === replaced ? entry : each));
+  const header = [];
+  for (const line of modelsText.replace(/^﻿/, '').split(/\r?\n/)) {
+    if (!line.trimStart().startsWith('//')) break;
+    header.push(`${line}\n`);
+  }
+  const written = ModelsConfig.parse({ ...config, claude: { ...config.claude, tasted } });
+  return {
+    text: `${header.join('')}${JSON.stringify(written, null, 2)}\n`,
+    ...(replaced === undefined ? {} : { replaced }),
+  };
+};
+
+/**
+ * The tasted entry two Flights' records give, with defaults/models.jsonc holding it and the pull
+ * request that adds it, or why none is written: a dry run tastes nothing, and an entry is of one
+ * swapped brewer, on one recipe, on one model id in each Flight (ADR 0416).
+ */
 export const tastedOf = (
-  _baseline: readonly FlightRecord[],
-  _candidate: readonly FlightRecord[],
-  _report: string,
-  _inputs: TastedInputs,
+  baseline: readonly FlightRecord[],
+  candidate: readonly FlightRecord[],
+  report: string,
+  { recipeText, modelsText, today }: TastedInputs,
 ): Tasted => {
-  throw new Error('not implemented');
+  const notWritten = (why: string, exitCode: 0 | 1 = 1): Tasted => ({
+    kind: 'not written',
+    why: `${why}, so defaults/models.jsonc is unchanged`,
+    exitCode,
+  });
+  if ([...baseline, ...candidate].some(({ flight }) => flight.dryRun === true)) {
+    return notWritten('a dry run tastes nothing', 0);
+  }
+  const recipe = candidate[0]?.flight.recipe;
+  const swap = candidate[0]?.flight.swap;
+  if (recipe === undefined || swap === undefined) {
+    return notWritten(
+      `the candidate brews ${recipe} as it ships, and a tasted entry is of a swapped brewer`,
+    );
+  }
+  const baselineRecipe = baseline[0]?.flight.recipe;
+  if (baselineRecipe !== recipe) {
+    return notWritten(`the baseline brews ${baselineRecipe} and the candidate ${recipe}`);
+  }
+  const text = recipeText(recipe);
+  if (text === undefined) return notWritten(`${recipe} is no default recipe`);
+  const { every, totals, compared } = comparisonOf(baseline, candidate);
+  if (compared === 0) return notWritten('no order was measured by both Flights');
+  const read = recipeOf(text);
+  const steps = new Set(
+    brewerSteps(read)
+      .filter(({ brewer }) => brewer === swap.brewer)
+      .map(({ id }) => id),
+  );
+  const ran = oneModelOf(candidate, steps, `the candidate's ${swap.brewer}`);
+  if ('why' in ran) return notWritten(ran.why);
+  const ranBefore = oneModelOf(baseline, steps, `the baseline's ${swap.brewer}`);
+  if ('why' in ranBefore) return notWritten(ranBefore.why);
+  const level = swapLevelOf(swap, read);
+  // flight.ts refuses a swap with no level free (ADR 0409), so its records never hold one.
+  if (level === undefined) throw new Error(`no level of ${recipe} is free for ${swap.model}`);
+  const entry: TastedEntry = {
+    brewer: swap.brewer,
+    recipe,
+    level,
+    effort: swap.effort,
+    model: ran.model,
+    passed: every.candidate,
+    runs: compared,
+    baseline: { passed: every.baseline, runs: compared, model: ranBefore.model },
+    tokensPerOrder: Math.round(totals.candidate / compared),
+    date: today.toISOString().slice(0, 10),
+  };
+  const { text: models, replaced } = withTasted(modelsText, entry);
+  const key = tastedKey(entry);
+  const what = replaced === undefined ? 'adds the entry' : `replaces the entry of ${replaced.date}`;
+  return {
+    kind: 'written',
+    models,
+    title: `Taste ${key}: ${entry.model}`,
+    description: [
+      '## How it works',
+      `\`defaults/models.jsonc\`'s \`tasted\` list keeps the latest Flight of each brewer, recipe, level and effort (ADR 0416). This pull request ${what} for ${key}: on ${entry.model} it passed every run of ${entry.passed} of ${compared} orders, against ${entry.baseline.passed} of ${compared} for ${flightLabelOf(baseline)} on ${entry.baseline.model}, at ${entry.tokensPerOrder} tokens per order.`,
+      '',
+      '## The Flight report',
+      '',
+      report.trimEnd(),
+      '',
+      "Add this pull request's link to the entry as its `report` in a second commit (ADR 0416).",
+      '',
+    ].join('\n'),
+  };
 };
 
 /**
