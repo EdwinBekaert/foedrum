@@ -16,6 +16,7 @@ import {
 } from '../engine/recipe-files.ts';
 import { mapLines } from '../engine/system-map.ts';
 import {
+  isRecent,
   type ModelUsed,
   type StepInUse,
   TASTING_DAYS,
@@ -917,9 +918,6 @@ const tastingLine = (
     untasted.length + cheaper.length === 1 ? 'it' : 'them'
   }.`;
 };
-
-const isRecent = (deadlineAt: Date, at: Date): boolean =>
-  deadlineAt.getTime() >= at.getTime() - TASTING_DAYS * 86_400_000;
 
 // "a", "a and b", "a, b and c".
 const andList = (words: readonly string[]): string =>

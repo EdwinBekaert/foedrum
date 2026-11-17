@@ -96,6 +96,10 @@ type Attempted = { batchId: string; stepId: string; attempt: number };
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+/** Whether a deadline falls in the last `TASTING_DAYS` days before `now`. */
+export const isRecent = (deadlineAt: Date, now: Date): boolean =>
+  deadlineAt.getTime() >= now.getTime() - TASTING_DAYS * DAY_MS;
+
 /** The level one below `level`, or undefined below the lightest. */
 const below = (level: ModelLevel): ModelLevel | undefined => {
   const at = ModelLevel.options.indexOf(level);
@@ -112,11 +116,10 @@ const noWorse = ({ passed, runs, baseline }: TastedEntry): boolean =>
 /** The suggestions the attempts of the last `TASTING_DAYS` days give against the tasted list. */
 export const tastingSuggestions = (inputs: TastingInputs): TastingSuggestions => {
   const { attempts, stepOf, tasted, now } = inputs;
-  const since = now.getTime() - TASTING_DAYS * DAY_MS;
   const untasted = new Map<string, Set<string>>();
   const cheaper = new Map<string, CheaperLevel>();
   for (const { recipe, stepId, model, deadlineAt } of attempts) {
-    if (deadlineAt.getTime() < since) continue;
+    if (!isRecent(deadlineAt, now)) continue;
     const step = stepOf(recipe, stepId);
     if (step === undefined) continue;
     const { brewer, level, effort } = step;
