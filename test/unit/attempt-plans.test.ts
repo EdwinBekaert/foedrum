@@ -3069,24 +3069,25 @@ describe('createAttemptPlans: a recorded test name (ADR 0342)', () => {
   });
 });
 
+/** The default brewers, with the recipe pale's step brew brewed by `brewer`. */
+const brewedBy = (brewer: string) => {
+  const loaded = loadRecipes({
+    ...readBreweryFiles(join(FOEDRUM_DEFAULTS, 'no-such-brewery')),
+    recipes: [
+      {
+        path: 'recipes/pale.jsonc',
+        // One brewer step: no red proof to name, and a pull request for its commits.
+        text: recipeText('pale', [{ id: 'brew', brewer }, { action: 'openPullRequest' }], {
+          testFirst: false,
+        }),
+      },
+    ],
+  });
+  assert.ok(loaded.valid, loaded.valid ? '' : loaded.problems.join('\n'));
+  return loaded.brewers;
+};
+
 describe("the Brewery's test line for the Maltster (ADR 0376)", () => {
-  /** The default brewers, with the recipe pale's step brew brewed by `brewer`. */
-  const brewedBy = (brewer: string) => {
-    const loaded = loadRecipes({
-      ...readBreweryFiles(join(FOEDRUM_DEFAULTS, 'no-such-brewery')),
-      recipes: [
-        {
-          path: 'recipes/pale.jsonc',
-          // One brewer step: no red proof to name, and a pull request for its commits.
-          text: recipeText('pale', [{ id: 'brew', brewer }, { action: 'openPullRequest' }], {
-            testFirst: false,
-          }),
-        },
-      ],
-    });
-    assert.ok(loaded.valid, loaded.valid ? '' : loaded.problems.join('\n'));
-    return loaded.brewers;
-  };
   const line = 'node --test --test-reporter=tap test/';
   const repoTestLine = (repo: string) => (repo === 'acme/api' ? line : 'make test');
 
