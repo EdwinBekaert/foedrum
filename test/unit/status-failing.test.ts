@@ -228,6 +228,20 @@ describe('the status comment', () => {
     );
   });
 
+  it("names the step of a step's text it leaves out", () => {
+    const summary = `ghp_${'a'.repeat(36)}`;
+    const reason = { kind: 'failing', stepId: 'plan', ...failing, summary } as const;
+    const lane = { ...stuckFailing('1-1', 1).lane, reason } as Batch['lane'];
+    const text = renderStatus(batch('1-1', 1, { lane }));
+    assert.ok(
+      text
+        .split('\n')
+        .some((line) =>
+          line.endsWith(': \\[left out: a text of step plan that looks like a secret\\]'),
+        ),
+    );
+  });
+
   it('shows why a batch is Stuck on failing, with no second line for its mark', () => {
     const text = renderStatus(stuckFailing('1-1', 1));
     assert.match(
