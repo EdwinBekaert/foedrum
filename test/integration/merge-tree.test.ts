@@ -277,4 +277,32 @@ describe('openMergedTree, with real git (ADR 0203)', () => {
     }
     assert.equal(git(clone, ['cat-file', '-p', `${branch}:app.txt`]), 'one\ntwo');
   });
+
+  it("commits a refreshed file with the line ends the repository's .gitattributes keeps, with core.autocrlf off (ADR 0412)", async () => {
+    const branch = 'foedrum/12-1/implement/3';
+    // The repository normalises text through its own attributes; the machine sets nothing.
+    git(clone, ['switch', '--quiet', '-c', 'attributed', head]);
+    writeFileSync(join(clone, '.gitattributes'), '* text=auto\n');
+    git(clone, ['add', '.gitattributes']);
+    git(clone, ['commit', '--quiet', '-m', 'Normalise line ends']);
+    git(clone, ['switch', '--quiet', 'main']);
+    git(clone, ['branch', branch, 'attributed']);
+    const config = process.env.GIT_CONFIG_GLOBAL ?? '';
+    const kept = readFileSync(config, 'utf8');
+    writeFileSync(config, `${kept}[core]\n\tautocrlf = false\n`);
+    try {
+      const commit = openBranchCommit({
+        git: runGit,
+        clone,
+        own: { url: join(dir.path, 'nowhere.git'), root },
+      });
+      await commit(branch, 'Refresh app.txt', async (worktree) => {
+        writeFileSync(join(worktree, 'app.txt'), 'one\r\ntwo\r\n');
+        return { value: 'ran', files: ['app.txt'] };
+      });
+    } finally {
+      writeFileSync(config, kept);
+    }
+    assert.equal(git(clone, ['cat-file', '-p', `${branch}:app.txt`]), 'one\ntwo');
+  });
 });

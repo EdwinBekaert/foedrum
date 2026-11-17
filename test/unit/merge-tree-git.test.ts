@@ -387,12 +387,16 @@ describe('openBranchCommit (ADR 0412)', () => {
   const NEW_COMMIT = '3'.repeat(40);
 
   /** A git that names TIP as the branch's tip and answers the plumbing with distinct shas. */
-  const branchGit = () => {
+  /** The mode the tip's tree gives the lockfile, as `ls-files -s` names it. */
+  const branchGit = (mode = '100644') => {
     const recorded = recordingGit(ok());
     const git: Git = async (cwd, args, options) => {
       const result = await recorded.git(cwd, args, options);
       if (args.includes('rev-parse') && args.includes(`refs/heads/${BRANCH}^{commit}`)) {
         return ok(`${TIP}\n`);
+      }
+      if (args.includes('ls-files')) {
+        return ok(`${mode} ${'4'.repeat(40)} 0\tweb/package-lock.json\n`);
       }
       if (args.includes('hash-object')) return ok(`${BLOB}\n`);
       if (args.includes('write-tree')) return ok(`${NEW_TREE}\n`);
@@ -445,6 +449,44 @@ describe('openBranchCommit (ADR 0412)', () => {
     assert.equal(moved?.cwd, clone);
     assert.equal(moved?.options?.config?.['core.hooksPath'], devNull);
     assert.deepStrictEqual(moved?.args.slice(-3), [`refs/heads/${BRANCH}`, NEW_COMMIT, TIP]);
+  });
+
+  it('keeps the mode the tip gives the file, such as an executable lockfile', async () => {
+    const { git, call } = branchGit('100755');
+    const commit = openBranchCommit({
+      git,
+      clone,
+      own: { url, root: nextFolder(), id: () => 'one' },
+    });
+    const done = await commit(BRANCH, 'Refresh', async () => ({
+      value: 1,
+      files: ['web/package-lock.json'],
+    }));
+    assert.deepStrictEqual(done, { value: 1, commit: NEW_COMMIT });
+    assert.equal(call('update-index')?.args.at(-1), `100755,${BLOB},web/package-lock.json`);
+  });
+
+  it('commits no file the tip holds as a link, which a checkout without symlinks wrote as a file', async () => {
+    const { git, calls } = branchGit('120000');
+    const commit = openBranchCommit({
+      git,
+      clone,
+      own: { url, root: nextFolder(), id: () => 'one' },
+    });
+    const done = await commit(BRANCH, 'Refresh', async () => ({
+      value: 1,
+      files: ['web/package-lock.json'],
+    }));
+    assert.deepStrictEqual(done, { value: 1 });
+    // It read the tip's tree, and wrote nothing from it.
+    assert.ok(calls.some(({ args }) => args.includes('ls-files')));
+    for (const command of ['hash-object', 'commit-tree', 'update-ref']) {
+      assert.equal(
+        calls.some(({ args }) => args.includes(command)),
+        false,
+        command,
+      );
+    }
   });
 
   it('commits nothing and leaves the branch where it is when it names no file', async () => {
