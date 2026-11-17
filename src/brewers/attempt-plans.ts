@@ -41,14 +41,7 @@ import type { RepositorySetup } from '../schemas/brewery-config.ts';
 import type { Event, HeardComments, WorktreeRef } from '../schemas/events.ts';
 import type { HouseYeastSelection } from '../schemas/house-yeast.ts';
 import type { ModelsConfig } from '../schemas/models.ts';
-import {
-  FINING,
-  MUTANTS,
-  OutDocFrontmatter,
-  readOutDoc,
-  TASTING,
-  TastingOutDoc,
-} from '../schemas/out-doc.ts';
+import { FINING, MUTANTS, OutDocFrontmatter, TASTING } from '../schemas/out-doc.ts';
 import { PLAN } from '../schemas/plan.ts';
 import { type Command, parseRule } from '../schemas/primitives.ts';
 import { attemptBranch, ownRemote } from '../workspace/attempt-worktrees.ts';
@@ -60,7 +53,6 @@ import {
   baseBranchOf,
   changeInput,
   changeStart,
-  type EarlierRound,
   earlierFindingsInput,
   earlierRoundsOf,
   groupOfStep,
@@ -546,35 +538,11 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
 
   /**
    * For a later round of a lens step (ADR 0191): the earlier rounds' findings with their
-   * dispositions, a blocked round's read from the out doc in its worktree as the route input reads
-   * it (ADR 0128); none for a first round. An out doc that cannot be read is not an error: its round
-   * says so.
+   * dispositions, a blocked round's as its event records them (ADR 0423); none for a first round.
    */
-  const earlierFindingsFor = (batch: Batch, ref: AttemptRef, found: StepBrewer, of: Reviewed) => {
-    const planned = earlierRoundsOf(batch, ref, found.brewer.output.doc);
-    if (planned.length === 0) return undefined;
-    const rounds = planned.map((round): EarlierRound => {
-      if (!('outDoc' in round)) return round;
-      const { step, dispositions, outDoc } = round;
-      const read = files.read(outDoc.path, MAX_INPUT_BYTES, outDoc.root);
-      switch (read.kind) {
-        case 'text': {
-          const doc = readOutDoc(read.text, TastingOutDoc);
-          return doc.valid
-            ? { step, dispositions, findings: doc.frontmatter.findings }
-            : { step, dispositions, unread: `its out doc is invalid: ${doc.reason}` };
-        }
-        case 'missing':
-          return { step, dispositions, unread: 'it is missing' };
-        case 'unread':
-          return { step, dispositions, unread: read.reason };
-        default: {
-          const unhandled: never = read;
-          throw new Error(`Unhandled read ${JSON.stringify(unhandled)}`);
-        }
-      }
-    });
-    return earlierFindingsInput(ref.stepId, rounds, of);
+  const earlierFindingsFor = (batch: Batch, ref: AttemptRef, of: Reviewed) => {
+    const rounds = earlierRoundsOf(batch, ref);
+    return rounds.length === 0 ? undefined : earlierFindingsInput(ref.stepId, rounds, of);
   };
 
   /**
@@ -785,9 +753,7 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
     // A later round of a Taster's step gets what the earlier rounds found (ADR 0191).
     const reviews: Reviewed = planLens ? 'plan' : 'change';
     const earlier =
-      found.brewer.output.schema === TASTING
-        ? earlierFindingsFor(batch, ref, found, reviews)
-        : undefined;
+      found.brewer.output.schema === TASTING ? earlierFindingsFor(batch, ref, reviews) : undefined;
     if (earlier !== undefined) inputs.push(earlier);
     // Only where the driver gives the Brewery's rules: serve always does (ADR 0169).
     const { houseYeast } = options;

@@ -151,6 +151,28 @@ describe('earlierFindingsInput (#501, ADR 0191)', () => {
     );
   });
 
+  it('says how many more findings of a round were not recorded (ADR 0423)', () => {
+    const { text } = earlierFindingsInput('tasting', [
+      { step: 'tasting#1', findings: [deadline], more: 3, dispositions: [] },
+    ]);
+    assert.equal(
+      text,
+      [
+        'Round tasting#1:',
+        '- major in src/wait.ts:12: The poll has no deadline',
+        '  open',
+        '3 more findings were not recorded.',
+      ].join('\n'),
+    );
+  });
+
+  it('says one more finding of a round was not recorded (ADR 0423)', () => {
+    const { text } = earlierFindingsInput('tasting', [
+      { step: 'tasting#1', findings: [deadline], more: 1, dispositions: [] },
+    ]);
+    assert.ok(text.endsWith('  open\n1 more finding was not recorded.'), text);
+  });
+
   it('holds the input to its limit', () => {
     const long = { ...deadline, why: 'x'.repeat(100_000) };
     const { text } = earlierFindingsInput('tasting', [
@@ -222,7 +244,8 @@ const succeeded = (stepId: string, attempt: number, more: object = {}): Event =>
   },
 });
 
-const blockedByFindings = (attempt: number): Event => ({
+/** The end of a round blocked by findings, with the findings its event records, when it does. */
+const blockedByFindings = (attempt: number, kept?: readonly TastingFinding[], more = 0): Event => ({
   type: 'step.finished',
   ...at('tasting', attempt),
   outcome: {
@@ -230,6 +253,7 @@ const blockedByFindings = (attempt: number): Event => ({
     retryable: false,
     reason: 'blocked (findings): the Taster asks for changes: The poll has no deadline',
   },
+  ...(kept === undefined ? {} : { findings: { kept: [...kept], more } }),
 });
 
 const routed = { route: { from: 'tasting', why: 'findings' } };
@@ -260,13 +284,13 @@ const ROUND_ONE: Event[] = [
 
 const ROUND_THREE: Event[] = [
   ...ROUND_ONE,
-  blockedByFindings(1),
+  blockedByFindings(1, [deadline, cap]),
   scheduled('implement', 2, routed),
   started('implement', 2),
   succeeded('implement', 2, { dispositions: [fixed, dismissed] }),
   scheduled('tasting', 2),
   started('tasting', 2),
-  blockedByFindings(2),
+  blockedByFindings(2, [log]),
   scheduled('implement', 3, routed),
   started('implement', 3),
   succeeded('implement', 3),
@@ -338,10 +362,10 @@ const EVIDENCE_CHECK =
   /check the evidence a dismissed or pre-existing finding's why names: a file and line, a test, or a sentence of the order or of a decision record\. Treat a dismissed or pre-existing finding whose why names no evidence, or whose evidence does not show what it claims, as held wrong, and raise it once the same way\./i;
 
 describe('a later tasting round gets the earlier findings with their dispositions (#501, ADR 0191)', () => {
-  it('gives round 3 both earlier rounds, read from their worktrees, in order, with the dispositions implement wrote', async () => {
+  it('gives round 3 both earlier rounds, read from their events, in order, with the dispositions implement wrote', async () => {
     const { prompt, reads } = await planRound(ROUND_THREE, 3);
-    assert.ok(reads.includes(join('/work', 'tasting-1', 'taste.md')));
-    assert.ok(reads.includes(join('/work', 'tasting-2', 'taste.md')));
+    // Each blocked round's findings come from its event, not its worktree (ADR 0423).
+    assert.deepEqual(reads, []);
     assert.ok(
       prompt.includes(
         `source="the earlier rounds' findings of step tasting, with what was done with them" name="earlierFindings">`,
@@ -368,17 +392,6 @@ describe('a later tasting round gets the earlier findings with their disposition
     assert.ok(prompt.search(NEVER_AGAIN) < prompt.indexOf('When you finish, write taste.md'));
   });
 
-  it('gives a later round the findings of an out doc that holds a handover, and not the handover (ADR 0340): regression test', async () => {
-    const lesson = 'Only a handover says this';
-    const doc = `---\n${JSON.stringify({ status: 'done', summary: 'Changes', verdict: 'changes', findings: [deadline, cap], handover: [lesson] })}\n---\n`;
-    const { prompt } = await planRound(ROUND_THREE, 3, {
-      ...OUT_DOCS,
-      [join('/work', 'tasting-1', 'taste.md')]: doc,
-    });
-    assert.match(inputText(prompt, 'earlierFindings'), /The poll has no deadline/);
-    assert.ok(!prompt.includes(lesson));
-  });
-
   it('gives the first round neither the input nor the text', async () => {
     const { prompt } = await planRound(ROUND_ONE, 1);
     assert.doesNotMatch(prompt, /name="earlierFindings"/);
@@ -389,7 +402,7 @@ describe('a later tasting round gets the earlier findings with their disposition
   it("takes an approving round's findings from its event, and the dispositions of a retry of the routed attempt", async () => {
     const events: Event[] = [
       ...ROUND_ONE,
-      blockedByFindings(1),
+      blockedByFindings(1, [deadline, cap]),
       scheduled('implement', 2, routed),
       started('implement', 2),
       {
@@ -409,7 +422,7 @@ describe('a later tasting round gets the earlier findings with their disposition
       started('tasting', 3),
     ];
     const { prompt, reads } = await planRound(events, 3);
-    assert.deepEqual(reads, [join('/work', 'tasting-1', 'taste.md')]);
+    assert.deepEqual(reads, []);
     assert.equal(
       inputText(prompt, 'earlierFindings'),
       [
@@ -429,7 +442,7 @@ describe('a later tasting round gets the earlier findings with their disposition
   it("leaves a round open when the routed attempt that answered it wrote no dispositions, and never takes another step's route", async () => {
     const events: Event[] = [
       ...ROUND_ONE,
-      blockedByFindings(1),
+      blockedByFindings(1, [deadline, cap]),
       // A check's onFail route back to implement after round 1: not this step's findings.
       scheduled('implement', 2, { route: { from: 'green', why: 'failed' } }),
       started('implement', 2),
@@ -441,24 +454,85 @@ describe('a later tasting round gets the earlier findings with their disposition
     assert.ok(text.includes('The poll has no deadline\n  open'), text);
     assert.doesNotMatch(text, /fixed/);
   });
+});
 
-  it("says so when an earlier round's out doc cannot be read, and still gives the rest", async () => {
-    const { prompt } = await planRound(ROUND_THREE, 3, {
-      [join('/work', 'tasting-2', 'taste.md')]: changes([log]),
-    });
-    const text = inputText(prompt, 'earlierFindings');
-    assert.ok(
-      text.startsWith('Round tasting#1:\nIts findings could not be read: it is missing.'),
-      text,
+describe("a blocked round's findings come from its event, with the engine's marks (#1158, ADR 0423)", () => {
+  /** Round 1 blocked by `kept` and `more`, implement#2 routed back with no dispositions, round 2. */
+  const blockedOnce = (kept?: readonly TastingFinding[], more = 0): Event[] => [
+    ...ROUND_ONE,
+    blockedByFindings(1, kept, more),
+    scheduled('implement', 2, routed),
+    started('implement', 2),
+    succeeded('implement', 2),
+    scheduled('tasting', 2),
+    started('tasting', 2),
+  ];
+
+  it("says beside a blocked round's finding that its line, or its file, does not exist in the reviewed code", async () => {
+    // The out doc in the worktree holds the findings as the Taster wrote them, unmarked.
+    const { prompt } = await planRound(
+      blockedOnce([
+        { ...deadline, line: 40, missing: 'line' },
+        { ...cap, file: 'src/gone.ts', missing: 'file' },
+      ]),
+      2,
     );
-    assert.ok(text.includes('Round tasting#2:\n- blocker in the change as a whole'), text);
+    assert.equal(
+      inputText(prompt, 'earlierFindings'),
+      [
+        'Round tasting#1:',
+        '- major in src/wait.ts:40 (that line does not exist in the reviewed code): The poll has no deadline',
+        '  open',
+        '- minor in src/gone.ts (that file does not exist in the reviewed code): Five tries is too few',
+        '  open',
+      ].join('\n'),
+    );
+  });
+
+  it('says so when the event of a blocked round records no findings, and still gives the rest', async () => {
+    const events: Event[] = [
+      ...ROUND_ONE,
+      blockedByFindings(1),
+      scheduled('implement', 2, routed),
+      started('implement', 2),
+      succeeded('implement', 2),
+      scheduled('tasting', 2),
+      started('tasting', 2),
+      blockedByFindings(2, [log]),
+      scheduled('implement', 3, routed),
+      started('implement', 3),
+      succeeded('implement', 3),
+      scheduled('tasting', 3),
+      started('tasting', 3),
+    ];
+    const { prompt } = await planRound(events, 3);
+    assert.equal(
+      inputText(prompt, 'earlierFindings'),
+      [
+        'Round tasting#1:',
+        'Its findings could not be read: no findings of it are recorded.',
+        '',
+        'Round tasting#2:',
+        '- blocker in the change as a whole: The order asks for a log line',
+        '  open',
+      ].join('\n'),
+    );
+  });
+
+  it('says how many more findings the event of a blocked round did not record', async () => {
+    const { prompt } = await planRound(blockedOnce([deadline], 4), 2);
+    assert.ok(
+      inputText(prompt, 'earlierFindings').endsWith(
+        'The poll has no deadline\n  open\n4 more findings were not recorded.',
+      ),
+    );
   });
 });
 
 /** Round 1 blocked by findings, and implement#2, routed back by them, done with `dispositions`. */
 const DISPOSED: Event[] = [
   ...ROUND_ONE,
-  blockedByFindings(1),
+  blockedByFindings(1, [deadline, cap]),
   scheduled('implement', 2, routed),
   started('implement', 2),
   succeeded('implement', 2, { dispositions: [fixed, dismissed] }),
@@ -498,7 +572,7 @@ describe('which attempts give a round its findings and dispositions (review of #
     it(`never takes the dispositions of an attempt a route from ${route.from} for ${route.why} brought back`, async () => {
       const events: Event[] = [
         ...ROUND_ONE,
-        blockedByFindings(1),
+        blockedByFindings(1, [deadline, cap]),
         scheduled('implement', 2, { route }),
         started('implement', 2),
         succeeded('implement', 2, { dispositions: [fixed, dismissed] }),
@@ -537,7 +611,7 @@ describe('which attempts give a round its findings and dispositions (review of #
   it('takes the dispositions of an answered attempt that continued the routed one', async () => {
     const events: Event[] = [
       ...ROUND_ONE,
-      blockedByFindings(1),
+      blockedByFindings(1, [deadline, cap]),
       scheduled('implement', 2, routed),
       started('implement', 2),
       {
@@ -582,88 +656,6 @@ describe('which attempts give a round its findings and dispositions (review of #
     assert.doesNotMatch(prompt, /name="earlierFindings"/);
     assert.doesNotMatch(prompt, NEVER_AGAIN);
     assert.deepEqual(reads, []);
-  });
-
-  it("reads a blocked round's out doc in its attempt's worktree, else its session's, and says so when neither is recorded", async () => {
-    const session = (stepId: string, attempt: number, folder?: string): Event => ({
-      type: 'step.started',
-      ...at(stepId, attempt),
-      ...(folder === undefined
-        ? {}
-        : { session: { id: SESSION, worktree: join('/work', folder) } }),
-    });
-    const events: Event[] = [
-      ...ROUND_ONE.slice(0, -1),
-      // Round 1 ran in its own worktree, beside another session folder.
-      {
-        type: 'step.started',
-        ...at('tasting', 1),
-        session: { id: SESSION, worktree: join('/work', 'session-1') },
-        worktree: {
-          repo: 'acme/api',
-          path: join('/work', 'tasting-1'),
-          branch: 'foedrum/12-1/tasting-1',
-          commit: COMMIT,
-        },
-      },
-      blockedByFindings(1),
-      // Round 2 resumed a session and recorded no worktree of its own.
-      scheduled('tasting', 2),
-      session('tasting', 2, 'session-2'),
-      blockedByFindings(2),
-      // Round 3 recorded neither.
-      scheduled('tasting', 3),
-      session('tasting', 3),
-      blockedByFindings(3),
-      scheduled('tasting', 4),
-      started('tasting', 4),
-    ];
-    const { prompt, reads } = await planRound(events, 4, {
-      [join('/work', 'tasting-1', 'taste.md')]: changes([deadline]),
-      [join('/work', 'session-2', 'taste.md')]: changes([log]),
-    });
-    assert.deepEqual(reads, [
-      join('/work', 'tasting-1', 'taste.md'),
-      join('/work', 'session-2', 'taste.md'),
-    ]);
-    assert.equal(
-      inputText(prompt, 'earlierFindings'),
-      [
-        'Round tasting#1:',
-        '- major in src/wait.ts:12: The poll has no deadline',
-        '  open',
-        '',
-        'Round tasting#2:',
-        '- blocker in the change as a whole: The order asks for a log line',
-        '  open',
-        '',
-        'Round tasting#3:',
-        'Its findings could not be read: no worktree of it is recorded.',
-      ].join('\n'),
-    );
-  });
-
-  it("says why a blocked round's out doc that is invalid, or that the read refused, could not be read", async () => {
-    const { prompt } = await planRound(ROUND_THREE, 3, {
-      [join('/work', 'tasting-1', 'taste.md')]:
-        '---\n{ "status": "done", "summary": "x", "verdict": "maybe" }\n---\n',
-      [join('/work', 'tasting-2', 'taste.md')]: {
-        kind: 'unread',
-        reason: 'it is larger than 1048576 bytes',
-      },
-    });
-    const text = inputText(prompt, 'earlierFindings');
-    // The schema's reason spans lines; the round reads it on one.
-    assert.match(
-      text,
-      /^Round tasting#1:\nIts findings could not be read: its out doc is invalid: [^\n]*at verdict\.\n\nRound tasting#2:/,
-    );
-    assert.ok(
-      text.endsWith(
-        'Round tasting#2:\nIts findings could not be read: it is larger than 1048576 bytes.',
-      ),
-      text,
-    );
   });
 });
 
