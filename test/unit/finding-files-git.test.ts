@@ -97,6 +97,26 @@ describe('readFilesAt (ADR 0421)', () => {
     assert.deepEqual(calls[0]?.args, ['ls-tree', '-z', commit, '--', 'src/a.ts']);
   });
 
+  it('reads a plain path that is no name Windows takes, such as aux.c or a trailing dot, which git holds on Linux', async () => {
+    const { calls, git } = fakeGit(
+      {
+        'drivers/aux.c': ['100644', 'blob', blob(1)],
+        'docs/notes.': ['100644', 'blob', blob(2)],
+      },
+      { [blob(1)]: 'int x;\n', [blob(2)]: 'notes\n' },
+    );
+    const paths = ['drivers/aux.c', 'docs/notes.'];
+    const read = await readFilesAt(git)('/work/api.git', commit, paths);
+    assert.deepEqual(read, {
+      kind: 'read',
+      files: new Map([
+        ['drivers/aux.c', 'int x;\n'],
+        ['docs/notes.', 'notes\n'],
+      ]),
+    });
+    assert.deepEqual(calls[0]?.args, ['ls-tree', '-z', commit, '--', ...paths]);
+  });
+
   it('is unread when ls-tree fails', async () => {
     const { git } = fakeGit(
       {},
