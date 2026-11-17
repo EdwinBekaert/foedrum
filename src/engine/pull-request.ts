@@ -511,11 +511,8 @@ const preExistingOf = (step: Step): PreExisting[] => {
  * lens when it names one.
  */
 export const findingText = (finding: TastingFinding): string => {
-  const { file, line, severity, introduced } = finding;
-  const where =
-    file === undefined
-      ? ''
-      : ` in ${file}${line === undefined ? '' : `:${line}`}${missingNote(finding)}`;
+  const { file, severity, introduced } = finding;
+  const where = file === undefined ? '' : ` in ${placeOf(finding)}${missingNote(finding)}`;
   // The lens it was found through, on a step of several lenses together (ADR 0220).
   return `${lensFirst(finding)}${severity}${where}${introduced ? '' : ', there before the change'}`;
 };

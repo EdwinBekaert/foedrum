@@ -2,7 +2,7 @@
 // a file, and a line within it, by the citation check /brew-review runs too. Git runs only through
 // the injected `ReadFiles`, so no model and no fold is involved.
 
-import { checkLine, isPlainPath } from '../checks/citations.ts';
+import { checkLine, isObject, isPlainPath } from '../checks/citations.ts';
 import { type TastingFinding, tastingOf } from '../schemas/out-doc.ts';
 import { z } from '../schemas/zod.ts';
 import type { Ending } from './decide.ts';
@@ -28,9 +28,6 @@ export type ReadFiles = (
   paths: readonly string[],
   signal?: AbortSignal,
 ) => Promise<FilesRead>;
-
-const isObject = (value: unknown): value is Record<string, unknown> =>
-  typeof value === 'object' && value !== null && !Array.isArray(value);
 
 /** The finding marked where its file, or its line, is not in `files`; one with no file as it is. */
 const checked = (

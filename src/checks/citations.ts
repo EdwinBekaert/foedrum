@@ -18,7 +18,7 @@ export const isPlainPath = (file: string): boolean =>
   file.split('/').every((segment) => segment !== '' && segment !== '.' && segment !== '..') &&
   !/[\\:\p{Cc}\p{Zl}\p{Zp}]/u.test(file);
 
-const isObject = (value: unknown): value is Record<string, unknown> =>
+export const isObject = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
 
 // The findings (a lens) or proposals (simplify) of a reviewer's answer, or why there are none.
