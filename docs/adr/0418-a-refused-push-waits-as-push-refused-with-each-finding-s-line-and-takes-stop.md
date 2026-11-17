@@ -1,6 +1,6 @@
 # 0418. A refused push waits as push_refused with each finding's line, and takes stop
 
-Date: 2026-11-17 · Status: Accepted · Amends [0079](0079-the-push-scans-the-batch-s-commits-for-secrets.md) (what a refused push makes the batch Stuck with, and that a finding names its line)
+Date: 2026-11-17 · Status: Accepted · Amends [0079](0079-the-push-scans-the-batch-s-commits-for-secrets.md) (what a refused push makes the batch Stuck with, and that a finding names its line), [0385](0385-a-person-reads-a-batch-as-one-of-four-states.md) (a refused push waits for an answer, not a look at a failure) and [0316](0316-a-brewery-issue-s-label-and-status-comment-name-the-person-s-next-action.md) (its label is `foedrum:awaiting-answer`)
 
 ## Context
 The push scans every commit it would send for what looks like a secret ([ADR 0079](0079-the-push-scans-the-batch-s-commits-for-secrets.md)).
