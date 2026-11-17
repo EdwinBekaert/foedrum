@@ -5,7 +5,7 @@
 import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import { devNull } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { describe, it } from 'node:test';
 import type { Git, GitOptions, GitResult } from '../../src/workspace/git.ts';
 import {
@@ -427,7 +427,15 @@ describe('openBranchCommit (ADR 0412)', () => {
     assert.equal(read?.args.at(-1), TIP);
     const index = read?.options?.env?.GIT_INDEX_FILE;
     assert.ok(index !== undefined);
-    assert.equal(call('hash-object')?.args.at(-1), join(seen[0] ?? '', 'web', 'package-lock.json'));
+    // Hashed inside the tree, through the tree's git directory as Foedrum names it, so the tree's
+    // .gitattributes take part.
+    const hashed = call('hash-object');
+    assert.equal(hashed?.cwd, seen[0]);
+    assert.equal(
+      hashed?.args[0],
+      `--git-dir=${join(dirname(seen[0] ?? ''), 'one.git', 'worktrees', 'one.tree')}`,
+    );
+    assert.equal(hashed?.args.at(-1), 'web/package-lock.json');
     assert.deepStrictEqual(call('update-index')?.args.slice(-3), [
       '--add',
       '--cacheinfo',
