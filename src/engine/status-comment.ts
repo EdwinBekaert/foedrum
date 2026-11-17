@@ -378,7 +378,8 @@ const openLines = (stepId: string, { rounds, open, more }: RoundsOut, told: Told
 export const shortSha = (sha: string): string => sha.slice(0, 8);
 
 /**
- * Each finding of a refused push as `<kind> in <place> line <n> of <commit>`, then how many more:
+ * Each finding of a refused push as `<kind> on line <n> of <commit> in <place>`, the place last as
+ * ADR 0088 has it, so a path like an assignment key never makes the line read as one; then how many more:
  * at least that many when the ledger's list is full, since the push keeps no more (ADR 0418).
  */
 export const refusedLines = ({
@@ -387,7 +388,7 @@ export const refusedLines = ({
 }: Extract<StuckReason, { kind: 'push_refused' }>): string[] => [
   ...findings.map(
     ({ commit, place, line, kind }) =>
-      `${kind} in ${place}${line === undefined ? '' : ` line ${line}`} of ${shortSha(commit)}`,
+      `${kind} ${line === undefined ? '' : `on line ${line} `}of ${shortSha(commit)} in ${place}`,
   ),
   ...(more > 0
     ? [`and ${findings.length + more >= MAX_REFUSED ? 'at least ' : ''}${more} more`]
