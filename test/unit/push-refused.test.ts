@@ -105,6 +105,16 @@ describe('decide: a refused push waits as push_refused (ADR 0418)', () => {
     assert.deepStrictEqual(event?.options, ['answer', 'cancel']);
   });
 
+  it('keeps every finding of a refusal under 10, with none more (ADR 0418)', () => {
+    const three = twelve.slice(0, 3);
+    const decision = decide(fold(pushing), finish({ commit: tip, findings: three }), context);
+    const event = stuckEvent(decision.kind === 'accepted' ? decision.events : []);
+    assert.deepStrictEqual(
+      event?.reason.kind === 'push_refused' ? [event.reason.findings, event.reason.more] : [],
+      [three, 0],
+    );
+  });
+
   it('answer stop ends the batch as a cancel does', () => {
     const decision = decide(stuck(), answer({ q: PUSH_REFUSED_QUESTION, answer: 'stop' }), context);
     assert.deepStrictEqual(decision, {
