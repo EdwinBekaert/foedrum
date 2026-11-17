@@ -12,6 +12,7 @@ import { cargoManifest } from '../formats/cargo-manifest.ts';
 import { PROJECT } from '../formats/dotnet-manifest.ts';
 import { fileName, inBuiltFolder } from '../formats/manifest-reader.ts';
 import { npmManifest } from '../formats/npm-manifest.ts';
+import { errorCode } from '../platform/errors.ts';
 import { pathInside } from '../platform/paths.ts';
 import type { ExecProcess } from '../platform/processes.ts';
 import { realPath } from '../platform/real-path.ts';
@@ -99,9 +100,15 @@ const ONE_LINE_BREAKER = new RegExp(
   'u',
 );
 
-/** The bytes of `file` when it is a regular file inside `tree`, through no link; else undefined. */
+/**
+ * The bytes of `file` when it is a regular file inside `tree`, through no link; else undefined.
+ * Only a missing file is none: one it cannot look at fails the refresh (ADR 0415).
+ */
 const regularFile = async (tree: string, file: string): Promise<Buffer | undefined> => {
-  const found = await lstat(file).catch(() => undefined);
+  const found = await lstat(file).catch((error: unknown) => {
+    if (errorCode(error) === 'ENOENT') return undefined;
+    throw error;
+  });
   if (found?.isFile() !== true) return undefined;
   if (pathInside(realPath(tree), realPath(file)) === undefined) return undefined;
   return readFile(file);
