@@ -60,4 +60,6 @@ No safeguard is added.
 ## Alternatives considered
 - **The brewer runs the install itself.** It needs a `tools` rule for `npm install` within the ceiling, the registry from the brewer's shell, and it runs outside the setup's sandbox.
 - **Refresh in the green step's worktree before its setup.** Green commits nothing, so the pull request would still carry the stale lockfile and the repository's own CI would fail.
+- **Hash the lockfile in Foedrum's bare git directory.** Tried with git 2.56 on Windows, a tree with `* text=auto` and `core.autocrlf` off: `hash-object --path` there, with `--work-tree=<scratch tree>`, and with the tip's index as `GIT_INDEX_FILE`, each stored the CRLF bytes, since a bare directory reads no `.gitattributes`.
+  `--attr-source=<tip>` stored LF, but it needs git 2.40, above the 2.38 `foedrum doctor` asks for. Git run inside the scratch tree, with its git directory named by Foedrum, stored LF.
 - **Refresh in the attempt's worktree and commit there.** The worktree's git files are the brewer's to write (ADR 0074), and its untracked leftovers would take part in the refresh.
