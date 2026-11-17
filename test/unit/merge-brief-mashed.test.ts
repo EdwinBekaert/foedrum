@@ -22,7 +22,7 @@ import { loadRecipes } from '../../src/engine/recipe-files.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import type { GravityReading, HeadCheck, UnreportedTests } from '../../src/schemas/events.ts';
 import type { Question } from '../../src/schemas/step-outcome.ts';
-import type { PushResult } from '../../src/schemas/store.ts';
+import type { ChangeSize, PushResult } from '../../src/schemas/store.ts';
 import { recipeText } from '../helpers/brewery-files.ts';
 
 const url = 'https://github.com/acme/web/pull/12';
@@ -222,8 +222,13 @@ describe('the merge brief of a batch mashed to a building recipe (#867)', () => 
     opened();
   };
   /** The pull request's action of a batch whose last other step ended: On tap, on `head`. */
-  const opened = (): void => {
-    const pushed: PushResult = { branch: 'foedrum/web-7/acme.web', commit: head, from: 'start' };
+  const opened = (size?: ChangeSize): void => {
+    const pushed: PushResult = {
+      branch: 'foedrum/web-7/acme.web',
+      commit: head,
+      from: 'start',
+      ...(size === undefined ? {} : { size }),
+    };
     const attempt = 1;
     accept({ kind: 'record', event: { type: 'step.started', batchId, stepId: 'open', attempt } });
     ledger(pushKey(batchId, 1), pushed);
@@ -292,7 +297,7 @@ describe('the merge brief of a batch mashed to a building recipe (#867)', () => 
   };
 
   /** The brief of a batch that `first` brewed under `reviewed`, then moved to `tasted`. */
-  const briefAfterMove = async (first: () => void): Promise<string> => {
+  const briefAfterMove = async (first: () => void, size?: ChangeSize): Promise<string> => {
     accept({ kind: 'order', batchId, order: { issue: 7 } });
     accept({ kind: 'route', batchId, recipe: 'reviewed', reason: 'label', source: 'label' });
     run('plan', done);
@@ -309,7 +314,7 @@ describe('the merge brief of a batch mashed to a building recipe (#867)', () => 
     });
     run('implement', done);
     run('new-taster', tasted('the cut was not run'));
-    opened();
+    opened(size);
     return briefBody();
   };
   const heldBack = {
@@ -351,6 +356,33 @@ describe('the merge brief of a batch mashed to a building recipe (#867)', () => 
       }),
     );
     assert.match(body, /\*\*Findings\*\*\nNo finding was recorded\./);
+  });
+
+  it("counts the findings of an earlier recipe's Taster on this head in the read-first line (ADR 0422)", async () => {
+    const size: ChangeSize = {
+      lines: 90,
+      files: 2,
+      largest: [
+        { path: 'src/big.ts', lines: 80 },
+        { path: 'src/small.ts', lines: 10 },
+      ],
+    };
+    const body = await briefAfterMove(
+      () =>
+        run('old-taster', {
+          kind: 'succeeded',
+          output: {
+            status: 'done',
+            summary: 'Tasted',
+            assumptions: [],
+            verdict: 'approve',
+            findings: [{ ...heldBack, severity: 'minor', file: 'src/small.ts' }],
+          },
+        }),
+      size,
+    );
+    // Its commits are on this head, as the dispositions of its rounds are (ADR 0363).
+    assert.match(body, /\*\*Read first:\*\* src\/small\.ts, src\/big\.ts · effort 2 of 5/);
   });
 
   it("leaves out an earlier recipe's check step from the evidence on this head", async () => {
