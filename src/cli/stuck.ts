@@ -108,11 +108,11 @@ export const formatStuck = (state: State): string => {
           `  1. ${ORDER_CHANGED_QUESTION} (continue, stop)`,
         ]
       : []),
-    // What the scan found, and the one question (ADR 0418).
+    // What the scan found, and the one question (ADR 0418, ADR 0420).
     ...(lane.reason.kind === 'push_refused'
       ? [
           ...refusedLines(lane.reason).map((line) => `    ${line}`),
-          `  1. ${PUSH_REFUSED_QUESTION} (stop)`,
+          `  1. ${PUSH_REFUSED_QUESTION} (allow "<why>", stop)`,
         ]
       : []),
     ...read(

@@ -164,6 +164,15 @@ const valid: Record<Event['type'], Event> = {
     by: 'octocat',
     via: 'terminal',
   },
+  'push.allowed': {
+    type: 'push.allowed',
+    batchId: 'b1',
+    stepId: 'open-pull-request',
+    commit: 'c'.repeat(40),
+    why: 'a fake token built in a test fixture',
+    by: 'octocat',
+    via: 'terminal',
+  },
   'batch.failing': {
     type: 'batch.failing',
     batchId: 'b1',

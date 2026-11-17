@@ -140,11 +140,23 @@ export type ApproveCommand = z.infer<typeof ApproveCommand>;
 export const CancelCommand = z.strictObject({ command: z.literal('cancel'), issue: BatchOrIssue });
 export type CancelCommand = z.infer<typeof CancelCommand>;
 
-/** One answer per question the batch asked, in the order it asked them. */
+/**
+ * One answer per question the batch asked, in the order it asked them; or `allow` and the words of
+ * its reason, which the answer to a refused push checks itself (ADR 0420).
+ */
 export const AnswerCommand = z.strictObject({
   command: z.literal('answer'),
   issue: BatchOrIssue,
-  answers: z.array(NonEmpty).min(1),
+  answers: z
+    .array(z.string())
+    .min(1)
+    .superRefine((answers, context) => {
+      answers.forEach((answer, at) => {
+        if ((at === 0 || answers[0] !== 'allow') && !NonEmpty.safeParse(answer).success) {
+          context.addIssue({ code: 'custom', path: [at], message: 'Must not be empty' });
+        }
+      });
+    }),
 });
 export type AnswerCommand = z.infer<typeof AnswerCommand>;
 
