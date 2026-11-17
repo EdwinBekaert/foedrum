@@ -1252,6 +1252,18 @@ describe('foedrum: commands that change state', () => {
       );
     });
 
+    it('refuses an empty answer after allow to a batch that asks other questions, appending nothing', async () => {
+      const before = lastId();
+      for (const blank of ['', ' ']) {
+        assert.deepStrictEqual(
+          await run(['answer', '21-1', 'allow', blank]),
+          refused('answer', 'an answer must not be empty'),
+          JSON.stringify(blank),
+        );
+      }
+      assert.equal(lastId(), before);
+    });
+
     it('refuses too few or too many answers, appending nothing', async () => {
       const before = lastId();
       const reason = '#21 asked 2 questions; give one answer to each, in order';
