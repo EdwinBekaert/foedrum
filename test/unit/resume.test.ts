@@ -245,7 +245,6 @@ describe('foedrum resume (ADR 0126)', () => {
   const nothingOpened = () =>
     assert.deepEqual([calls, started, settings, store.currentLeases(now)], [[], [], [], []]);
 
-  // ADR 0160: the settings written again hide the logins where serve's environment moved them.
   it("opens a Brewery order's attempt in its folder, with each checkout made again at its commit (ADR 0301)", async () => {
     const log = createCommandLog({ store, recipes });
     const folder = join(workRoot, 'brewery-orders', '30-1', 'plan', '1');
@@ -306,15 +305,18 @@ describe('foedrum resume (ADR 0126)', () => {
     assert.doesNotMatch(JSON.stringify(settings[0]?.settings), /npm test/);
   });
 
-  it("writes the settings again with the logins serve's environment moved", async () => {
-    const configDirs = { CLAUDE_CONFIG_DIR: '/data/claude-work' };
-    const moved = { ...setup, configDirs };
-    await resume(undefined, { setup: async () => ({ kind: 'ready', setup: moved }) });
-    const files = settings[0]?.settings.sandbox?.credentials.files.map(({ path }) => path);
-    assert.ok(files?.includes('/data/claude-work/.credentials.json'), JSON.stringify(files));
+  // ADR 0162: and re-open the toolchain folders of serve's PATH under its home.
+  // ADR 0414: and hide from sandboxed commands the agent keys serve passes to claude.
+  it('writes the settings again hiding the agent keys serve passes to claude', async () => {
+    const base = { PATH: '/bin', ANTHROPIC_AUTH_TOKEN: 'token-test' };
+    const withKey = { ...setup, brewerEnv: { ...setup.brewerEnv, base } };
+    await resume(undefined, { setup: async () => ({ kind: 'ready', setup: withKey }) });
+    const sandbox = settings[0]?.settings.sandbox as { credentials?: { envVars?: unknown } };
+    assert.deepEqual(sandbox.credentials?.envVars, [
+      { name: 'ANTHROPIC_AUTH_TOKEN', mode: 'deny' },
+    ]);
   });
 
-  // ADR 0162: and re-open the toolchain folders of serve's PATH under its home.
   it("writes the settings again with the toolchain folders of serve's PATH", async () => {
     const base = {
       PATH: '/home/brewer/.nvm/versions/node/v24.15.0/bin:/bin',

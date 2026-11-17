@@ -5,12 +5,10 @@ import { afterEach, beforeEach, describe, it } from 'node:test';
 import {
   type AttemptPermissions,
   attemptSettings,
-  type ConfigDirs,
-  configDirsOf,
   toolchainOf,
   writeAttemptSettings,
 } from '../../src/brewers/attempt-settings.ts';
-import { type AttemptSettings, sandboxCredentials } from '../../src/schemas/attempt-settings.ts';
+import { AttemptSettings } from '../../src/schemas/attempt-settings.ts';
 import { withinCeiling } from '../../src/schemas/primitives.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 
@@ -98,32 +96,29 @@ describe('attemptSettings', () => {
     assert.equal(settings.sandbox?.autoAllowBashIfSandboxed, false);
   });
 
-  // A sandboxed command reads most of the machine and inherits Claude Code's environment, and
-  // Claude Code has no credential deny list of its own (ADR 0087).
-  it('hides the credential files and variables from sandboxed commands', () => {
+  // ADR 0414: a list of places that may hold a login has no end; the agent's sandbox keeps the
+  // person's logins from a brewer's commands, and the settings name none.
+  it('writes a sandbox block that names no login place', () => {
     const settings = attemptSettings({ allow: ['Read'], deny: [], sandbox: true });
-    assert.deepEqual(settings.sandbox?.credentials, {
-      files: [
-        '~/.config/gh',
-        '~/.git-credentials',
-        '~/.config/git/credentials',
-        '~/.ssh',
-        '~/.aws',
-        '~/.npmrc',
-        '~/.claude/.credentials.json',
-        '~/.config/anthropic',
-      ].map((path) => ({ path, mode: 'deny' })),
-      envVars: [
-        'GH_TOKEN',
-        'GITHUB_TOKEN',
-        'GH_ENTERPRISE_TOKEN',
-        'GITHUB_ENTERPRISE_TOKEN',
-        'NPM_TOKEN',
-        'ANTHROPIC_API_KEY',
-        'ANTHROPIC_AUTH_TOKEN',
-        'CLAUDE_CODE_OAUTH_TOKEN',
-      ].map((name) => ({ name, mode: 'deny' })),
+    assert.equal(settings.sandbox?.enabled, true);
+    assert.equal(Object.hasOwn(settings.sandbox ?? {}, 'credentials'), false);
+  });
+
+  // ADR 0414: a sandboxed command inherits claude's environment, so the agent keys Foedrum passes
+  // to claude are hidden from it by name; no file and no login place is named.
+  it('hides from sandboxed commands the agent keys the driver passes to claude', () => {
+    const agentKeys = ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN'];
+    const settings = attemptSettings({ allow: ['Read'], deny: [], sandbox: true, agentKeys });
+    assert.deepEqual((settings.sandbox as { credentials?: unknown } | undefined)?.credentials, {
+      files: [],
+      envVars: agentKeys.map((name) => ({ name, mode: 'deny' })),
     });
+  });
+
+  it('hides no agent key without a sandbox', () => {
+    const agentKeys = ['ANTHROPIC_API_KEY'];
+    const settings = attemptSettings({ allow: ['Read'], deny: [], sandbox: false, agentKeys });
+    assert.equal(Object.hasOwn(settings, 'sandbox'), false);
   });
 
   // #247: a sandboxed command reads most of the machine, and a list of credential paths can't be
@@ -139,54 +134,6 @@ describe('attemptSettings', () => {
   it('leaves the read block out without a sandbox', () => {
     const settings = attemptSettings({ allow: ['Read'], deny: [], sandbox: false });
     assert.equal(Object.hasOwn(settings.permissions, 'blockReadsOutsideWorkingDirectories'), false);
-  });
-
-  // #247: a variable that moves a login moves it out of ADR 0087's `~/` paths, and out of the
-  // block too when it points outside the user roots.
-  const hiddenFiles = (configDirs: ConfigDirs, sandbox = true): string[] =>
-    (
-      attemptSettings({ allow: ['Read'], deny: [], sandbox, configDirs }).sandbox?.credentials
-        .files ?? []
-    ).map(({ path }) => path);
-  const defaultFiles = sandboxCredentials.files.map(({ path }) => path);
-
-  it('hides the gh configuration directory GH_CONFIG_DIR names', () => {
-    assert.deepEqual(hiddenFiles({ GH_CONFIG_DIR: '/srv/gh' }), [...defaultFiles, '/srv/gh']);
-  });
-
-  it("hides gh's directory and git's credential store under XDG_CONFIG_HOME", () => {
-    assert.deepEqual(hiddenFiles({ XDG_CONFIG_HOME: '/data/config' }), [
-      ...defaultFiles,
-      '/data/config/gh',
-      '/data/config/git/credentials',
-    ]);
-  });
-
-  it("hides Claude Code's login under CLAUDE_CONFIG_DIR", () => {
-    assert.deepEqual(hiddenFiles({ CLAUDE_CONFIG_DIR: '/data/claude-work' }), [
-      ...defaultFiles,
-      '/data/claude-work/.credentials.json',
-    ]);
-  });
-
-  it('hides each moved login once, when the variables name the same place', () => {
-    assert.deepEqual(
-      hiddenFiles({ GH_CONFIG_DIR: '/data/config/gh', XDG_CONFIG_HOME: '/data/config' }),
-      [...defaultFiles, '/data/config/gh', '/data/config/git/credentials'],
-    );
-  });
-
-  // A relative value resolves against whichever process reads it, so it names no one place; an
-  // empty one counts as unset, as gh reads it.
-  it('adds nothing for an empty or relative variable', () => {
-    assert.deepEqual(
-      hiddenFiles({ GH_CONFIG_DIR: '', XDG_CONFIG_HOME: 'config', CLAUDE_CONFIG_DIR: './c' }),
-      defaultFiles,
-    );
-  });
-
-  it('writes no credentials without a sandbox, whatever the variables say', () => {
-    assert.deepEqual(hiddenFiles({ GH_CONFIG_DIR: '/srv/gh' }, false), []);
   });
 
   // #427: the block takes a toolchain under the home from sandboxed commands; `allowRead` from the
@@ -274,32 +221,16 @@ describe('attemptSettings', () => {
       assert.equal(allowReadOf(settingsFor(entries.join(':'))), undefined);
     });
 
-    // The docs: "When read rules overlap, the rule with the narrower path applies", so an
-    // `allowRead` inside a hidden login would re-open it, and one around it would re-open what
-    // else lies there.
-    it('re-opens no folder at, inside or around a login the sandbox hides', () => {
+    // ADR 0414: the person's PATH is their own; a folder on it under the home is re-opened as it
+    // is, whatever it holds, and only the home itself never is.
+    it('re-opens a PATH folder under the home as it is, whatever login it may hold', () => {
       const entries = [
         `${HOME}/.config/gh/bin`,
         `${HOME}/.ssh`,
-        `${HOME}/.aws/cli/bin`,
         `${HOME}/.config`,
         `${HOME}/.claude`,
-        `${HOME}/xdg/gh/bin`,
       ];
-      const settings = settingsFor(entries.join(':'), {
-        configDirs: { XDG_CONFIG_HOME: `${HOME}/xdg` },
-      });
-      assert.equal(allowReadOf(settings), undefined);
-    });
-
-    // The overlap table: "The deny holds inside a wider allow, so a broad allow can't silently
-    // re-expose a secret"; `credentials.files` is the same restriction as `denyRead`.
-    it('keeps every hidden login next to the folders it re-opens', () => {
-      const settings = settingsFor(`${HOME}/.nvm/versions/node/v24.15.0/bin`);
-      assert.deepEqual(
-        settings.sandbox?.credentials.files.map(({ path }) => path),
-        sandboxCredentials.files.map(({ path }) => path),
-      );
+      assert.deepEqual(reopened(entries.join(':')), entries);
     });
 
     // `~/` in a sandbox path would expand to the HOME of the process that reads it.
@@ -337,24 +268,12 @@ describe('attemptSettings', () => {
       assert.equal(allowReadOf(settings), undefined);
     });
 
-    // Review of #437: a folder whose name starts with a login's is not at, inside or around it.
-    it("re-opens a folder beside a hidden login whose name starts with the login's", () => {
-      const entries = [`${HOME}/.sshtools/bin`, `${HOME}/.aws-vault/bin`, `${HOME}/.conf/bin`];
-      assert.deepEqual(reopened(entries.join(':')), entries);
-    });
-
     // Review of #437: only a layout's own bin goes up to its prefix.
     it("re-opens a folder deeper than a layout's bin as it is", () => {
       assert.deepEqual(reopened(`${HOME}/.volta/bin/sub:${HOME}/.asdf/shims/x`), [
         `${HOME}/.volta/bin/sub`,
         `${HOME}/.asdf/shims/x`,
       ]);
-    });
-
-    // Review of #437: macOS's default file system ignores case, so `~/.SSH` is `~/.ssh` there.
-    it('re-opens no folder at, inside or around a hidden login in any case', () => {
-      const entries = [`${HOME}/.SSH`, `${HOME}/.Config/gh/bin`, `${HOME}/.CONFIG`];
-      assert.equal(allowReadOf(settingsFor(entries.join(':'))), undefined);
     });
 
     // Review of #437: the home goes through the same normalisation as the PATH folders.
@@ -375,14 +294,6 @@ describe('attemptSettings', () => {
         `${HOME}/.nvm/versions/iojs/v1/bin`,
       ];
       assert.deepEqual(reopened(entries.join(':')), entries);
-    });
-
-    // Review of #437: a moved login spelled with a trailing slash is the same folder.
-    it('re-opens no folder inside a moved login spelled with a trailing slash', () => {
-      const settings = settingsFor(`${HOME}/ghc/bin:${HOME}/ghd/bin`, {
-        configDirs: { GH_CONFIG_DIR: `${HOME}/ghc/` },
-      });
-      assert.deepEqual(allowReadOf(settings), [`${HOME}/ghd/bin`]);
     });
 
     // Review of #437: npm reads its global configuration from `<prefix>/etc/npmrc` and its builtin
@@ -1030,7 +941,6 @@ const sandboxBlock = {
   failIfUnavailable: true,
   allowUnsandboxedCommands: false,
   autoAllowBashIfSandboxed: false,
-  credentials: sandboxCredentials,
 };
 const sandboxed = (
   sandbox: object,
@@ -1129,28 +1039,6 @@ describe('writeAttemptSettings', () => {
       /autoAllowBashIfSandboxed/,
     ],
     [
-      'a sandbox that leaves a credential variable set',
-      sandboxed({
-        ...sandboxBlock,
-        credentials: {
-          ...sandboxCredentials,
-          envVars: sandboxCredentials.envVars.filter(({ name }) => name !== 'GH_TOKEN'),
-        },
-      }),
-      /Must hide every credential/,
-    ],
-    [
-      'a sandbox that leaves a credential file readable',
-      sandboxed({
-        ...sandboxBlock,
-        credentials: {
-          ...sandboxCredentials,
-          files: sandboxCredentials.files.filter(({ path }) => path !== '~/.config/gh'),
-        },
-      }),
-      /Must hide every credential/,
-    ],
-    [
       'a sandbox without the read block',
       sandboxed(sandboxBlock, {}),
       /blockReadsOutsideWorkingDirectories/,
@@ -1161,36 +1049,9 @@ describe('writeAttemptSettings', () => {
       /blockReadsOutsideWorkingDirectories/,
     ],
     [
-      'a sandbox that hides no credentials',
-      sandboxed(withoutKey(sandboxBlock, 'credentials')),
-      /credentials/,
-    ],
-    [
       'a sandbox that auto-allows sandboxed commands',
       sandboxed({ ...sandboxBlock, autoAllowBashIfSandboxed: true }),
       /autoAllowBashIfSandboxed/,
-    ],
-    [
-      'a credential file masked instead of denied',
-      sandboxed({
-        ...sandboxBlock,
-        credentials: {
-          ...sandboxCredentials,
-          files: sandboxCredentials.files.map((entry) => ({ ...entry, mode: 'mask' })),
-        },
-      }),
-      /files/,
-    ],
-    [
-      'a credential variable masked instead of denied',
-      sandboxed({
-        ...sandboxBlock,
-        credentials: {
-          ...sandboxCredentials,
-          envVars: sandboxCredentials.envVars.map((entry) => ({ ...entry, mode: 'mask' })),
-        },
-      }),
-      /envVars/,
     ],
     // Review of #437: what toolchainReads writes, an absolute folder each, at least one.
     [
@@ -1237,28 +1098,34 @@ describe('writeAttemptSettings', () => {
   }
 });
 
-describe('configDirsOf', () => {
-  it('keeps only the variables that move a login', () => {
-    assert.deepEqual(
-      configDirsOf({
-        GH_CONFIG_DIR: '/srv/gh',
-        XDG_CONFIG_HOME: '/data/config',
-        CLAUDE_CONFIG_DIR: '/data/claude',
-        HOME: '/home/brewer',
-        GH_TOKEN: 'not-a-token',
-      }),
-      {
-        GH_CONFIG_DIR: '/srv/gh',
-        XDG_CONFIG_HOME: '/data/config',
-        CLAUDE_CONFIG_DIR: '/data/claude',
-      },
-    );
+// ADR 0414: the schema takes a sandbox block that names no login place, and refuses one that does.
+describe('AttemptSettings: no login places', () => {
+  it('accepts a sandbox block that names no login place', () => {
+    assert.equal(AttemptSettings.safeParse(sandboxed(sandboxBlock)).success, true);
   });
 
-  it('leaves out the variables that are not set', () => {
-    assert.deepEqual(configDirsOf({ XDG_CONFIG_HOME: '/data/config', GH_CONFIG_DIR: undefined }), {
-      XDG_CONFIG_HOME: '/data/config',
-    });
+  it('refuses a sandbox block that names login places, and writes nothing', () => {
+    const dir = makeTempDir('attempt-settings');
+    const file = join(dir.path, 'settings.json');
+    try {
+      const credentials = { files: [{ path: '~/.ssh', mode: 'deny' }], envVars: [] };
+      const settings = sandboxed({ ...sandboxBlock, credentials }) as AttemptSettings;
+      assert.throws(() => writeAttemptSettings(file, settings), /sandbox\.credentials\.files/);
+      assert.equal(existsSync(file), false);
+    } finally {
+      dir.remove();
+    }
+  });
+});
+
+// ADR 0414: the one credentials block the schema takes hides variables by name, and no file.
+describe('AttemptSettings: the agent keys', () => {
+  it('accepts a sandbox block that hides the agent keys by name', () => {
+    const credentials = { files: [], envVars: [{ name: 'ANTHROPIC_API_KEY', mode: 'deny' }] };
+    assert.equal(
+      AttemptSettings.safeParse(sandboxed({ ...sandboxBlock, credentials })).success,
+      true,
+    );
   });
 });
 

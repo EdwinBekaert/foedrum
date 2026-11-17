@@ -3,12 +3,7 @@
 
 import { writeFileSync } from 'node:fs';
 import { posix } from 'node:path';
-import {
-  AttemptSettings,
-  alwaysDenied,
-  sandboxCredentials,
-  scopedRule,
-} from '../schemas/attempt-settings.ts';
+import { AttemptSettings, alwaysDenied, scopedRule } from '../schemas/attempt-settings.ts';
 import { z } from '../schemas/zod.ts';
 
 export interface AttemptPermissions {
@@ -18,65 +13,26 @@ export interface AttemptPermissions {
   deny: readonly string[];
   /** Whether the isolation level relies on Claude Code's sandbox (ADR 0010). */
   sandbox: boolean;
-  /** Where the driver's environment moves the logins the sandbox hides (ADR 0160). */
-  configDirs?: ConfigDirs;
   /** The driver's home and PATH, whose toolchain folders sandboxed commands may read (ADR 0162). */
   toolchain?: Toolchain;
+  /** The agent's variables the driver passes to claude, which sandboxed commands lose (ADR 0414). */
+  agentKeys?: readonly string[];
 }
 
-type Variables = Readonly<Record<string, string | undefined>>;
-
-/** The variables of `env` among `names` that are set. */
-const setOf = <Name extends string>(names: readonly Name[], env: Variables) =>
-  Object.fromEntries(
-    names.flatMap((name) => (env[name] === undefined ? [] : [[name, env[name]]])),
-  ) as Partial<Record<Name, string>>;
-
-const TOOLCHAIN = ['HOME', 'PATH'] as const;
-
 /** The variables of the driver's environment the toolchain's folders are found from (ADR 0162). */
-export type Toolchain = Partial<Record<(typeof TOOLCHAIN)[number], string>>;
+export interface Toolchain {
+  HOME?: string;
+  PATH?: string;
+}
 
-/** The variables of `env` the toolchain's folders are found from. */
-export const toolchainOf = (env: Variables): Toolchain => setOf(TOOLCHAIN, env);
-
-const CONFIG_DIRS = ['GH_CONFIG_DIR', 'XDG_CONFIG_HOME', 'CLAUDE_CONFIG_DIR'] as const;
-
-/** The variables that move a login out of the paths `sandboxCredentials` names (ADR 0160). */
-export type ConfigDirs = Partial<Record<(typeof CONFIG_DIRS)[number], string>>;
-
-/** The variables of `env` that move a login. */
-export const configDirsOf = (env: Variables): ConfigDirs => setOf(CONFIG_DIRS, env);
-
-/**
- * The logins the variables move, on the sandboxed level's POSIX paths: gh's directory (gh's
- * `GH_CONFIG_DIR`, else `$XDG_CONFIG_HOME/gh`), git's credential store under `$XDG_CONFIG_HOME`,
- * and Claude Code's `.credentials.json` under `CLAUDE_CONFIG_DIR`. A relative or empty value names
- * no one place and adds nothing.
- */
-const movedLogins = ({
-  GH_CONFIG_DIR,
-  XDG_CONFIG_HOME,
-  CLAUDE_CONFIG_DIR,
-}: ConfigDirs): string[] => {
-  const under = (dir: string | undefined, ...parts: string[]): string[] =>
-    dir !== undefined && posix.isAbsolute(dir) ? [posix.join(dir, ...parts)] : [];
-  return [
-    ...under(GH_CONFIG_DIR),
-    ...under(XDG_CONFIG_HOME, 'gh'),
-    ...under(XDG_CONFIG_HOME, 'git', 'credentials'),
-    ...under(CLAUDE_CONFIG_DIR, '.credentials.json'),
-  ];
-};
-
-/** ADR 0087's credentials, with the logins the variables move, each path once. */
-const credentialsOf = (configDirs: ConfigDirs) => {
-  const moved = [...new Set(movedLogins(configDirs))];
-  return {
-    ...sandboxCredentials,
-    files: [...sandboxCredentials.files, ...moved.map((path) => ({ path, mode: 'deny' as const }))],
-  };
-};
+/** The variables of `env` the toolchain's folders are found from: those that are set. */
+export const toolchainOf = ({
+  HOME,
+  PATH,
+}: Readonly<Record<string, string | undefined>>): Toolchain => ({
+  ...(HOME === undefined ? {} : { HOME }),
+  ...(PATH === undefined ? {} : { PATH }),
+});
 
 /** Homebrew's prefix on Linux: under `/home`, a user root the block denies, whoever's home it is. */
 const LINUXBREW = '/home/linuxbrew/.linuxbrew';
@@ -111,28 +67,15 @@ const keptOf = (names: readonly string[]): number => {
 const folderOf = (path: string): string =>
   posix.isAbsolute(path) ? posix.normalize(path).replace(/\/+$/, '') : '';
 
-/** Whether `path` is `dir` or lies inside it, in any case: macOS's default file system ignores it. */
-const within = (path: string, dir: string): boolean => {
-  const [inner, outer] = [path.toLowerCase(), dir.toLowerCase()];
-  return inner === outer || inner.startsWith(`${outer}/`);
-};
-
 /**
  * The folders of the driver's toolchain that sandboxed commands may read under the block (ADR 0162):
  * Homebrew's prefix on Linux, and each PATH folder under the home, as a layout's prefix or as it is,
- * never its parent. Not a folder with a glob character, which a sandbox path reads as a wildcard,
- * nor one at, inside or around a hidden login, since the narrower read rule wins.
+ * never its parent nor the home itself. Not a folder with a glob character, which a sandbox path
+ * reads as a wildcard. The PATH is the person's own: a folder on it is re-opened whatever it holds
+ * (ADR 0414).
  */
-const toolchainReads = (
-  { HOME = '', PATH = '' }: Toolchain,
-  logins: readonly string[],
-): string[] => {
+const toolchainReads = ({ HOME = '', PATH = '' }: Toolchain): string[] => {
   const home = folderOf(HOME);
-  // In the PATH folders' form, so a moved login's trailing slash still matches.
-  const hidden = logins.flatMap((path) => {
-    if (!path.startsWith('~/')) return [folderOf(path)];
-    return home === '' ? [] : [folderOf(posix.join(home, path.slice(2)))];
-  });
   const reads = PATH.split(':').flatMap((entry) => {
     const folder = folderOf(entry);
     if (folder === `${LINUXBREW}/bin` || folder === `${LINUXBREW}/sbin`) return [LINUXBREW];
@@ -140,16 +83,13 @@ const toolchainReads = (
     const names = folder.slice(home.length + 1).split('/');
     return [posix.join(home, ...names.slice(0, keptOf(names)))];
   });
-  return [...new Set(reads)].filter(
-    (folder) =>
-      !/[*?[]/.test(folder) &&
-      !hidden.some((login) => within(folder, login) || within(login, folder)),
-  );
+  return [...new Set(reads)].filter((folder) => !/[*?[]/.test(folder));
 };
 
 /**
  * npm's configuration files anywhere in a re-opened folder: a prefix's global `etc/npmrc` and the
- * npm package's builtin `npmrc` can hold the login ADR 0087 hides as `~/.npmrc` (review of #437).
+ * npm package's builtin `npmrc` can hold an npm login, which the read block hides as `~/.npmrc`
+ * (ADR 0162).
  * A deny holds inside a wider allow, a wildcard one too.
  */
 const npmConfigsIn = (folder: string): string[] => [`${folder}/**/npmrc`, `${folder}/**/.npmrc`];
@@ -169,14 +109,10 @@ export function attemptSettings({
   allow,
   deny,
   sandbox,
-  configDirs = {},
   toolchain = {},
+  agentKeys = [],
 }: AttemptPermissions): AttemptSettings {
-  const credentials = credentialsOf(configDirs);
-  const allowRead = toolchainReads(
-    toolchain,
-    credentials.files.map(({ path }) => path),
-  );
+  const allowRead = toolchainReads(toolchain);
   return valid({
     permissions: {
       allow: [...new Set(allow.map(scopedRule))],
@@ -187,9 +123,10 @@ export function attemptSettings({
     // ADR 0151: no Co-Authored-By trailer, pull request footer or session URL from the tool.
     attribution: { commit: '', pr: '', sessionUrl: false },
     // ADR 0042: by default a sandbox that cannot start lets commands run unsandboxed. ADR 0087: by
-    // default it runs every sandboxed command whatever the allow rules say, and lets it read the
-    // machine's credentials, wherever a variable moved them (ADR 0160). ADR 0162: the block's
-    // command part takes a toolchain under the home, whose folders `allowRead` re-opens.
+    // default it runs every sandboxed command whatever the allow rules say. ADR 0414: it names no
+    // login place, and hides by name the agent keys claude's environment holds, which a sandboxed
+    // command inherits. ADR 0162: the block's command part takes a toolchain under the home, whose
+    // folders `allowRead` re-opens.
     ...(sandbox
       ? {
           sandbox: {
@@ -197,7 +134,14 @@ export function attemptSettings({
             failIfUnavailable: true,
             allowUnsandboxedCommands: false,
             autoAllowBashIfSandboxed: false,
-            credentials,
+            ...(agentKeys.length > 0
+              ? {
+                  credentials: {
+                    files: [],
+                    envVars: agentKeys.map((name) => ({ name, mode: 'deny' as const })),
+                  },
+                }
+              : {}),
             ...(allowRead.length > 0
               ? { filesystem: { allowRead, denyRead: allowRead.flatMap(npmConfigsIn) } }
               : {}),

@@ -1898,13 +1898,6 @@ describe('createAttemptPlans: plan', () => {
     assert.equal((await plans.plan(start)).permissions.sandbox, false);
   });
 
-  // ADR 0160: the settings hide the logins where the driver's environment moved them.
-  it('hands each plan where the environment moves the logins', async () => {
-    const configDirs = { GH_CONFIG_DIR: '/srv/gh' };
-    const { plans } = setup(undefined, {}, undefined, undefined, { sandbox: true, configDirs });
-    assert.deepEqual((await plans.plan(start)).permissions.configDirs, configDirs);
-  });
-
   it('makes the folder of the settings file under the work root', async () => {
     const { plans, folders } = setup();
     const plan = await plans.plan(start);
