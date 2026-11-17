@@ -88,8 +88,8 @@ A dry run keeps its records in a `dry-run/` folder of their own, inside the fold
 
   It builds the three heads again with a real Cellarman from their own failing tests ([ADR 0394](../adr/0394-tasting-compare-real-runs-a-real-cellarman-on-a-model-and-effort-it-is-given.md)).
   It records whether the checks passed, attempts, tokens and time, for a person to score blind.
-  It writes one blinded list per order under `.foedrum/tmp/tasting-compare/real/brewers/`, with the setups named only in `codes.md`.
-  A dry run's Cellarman is scripted, so its count of passed checks measures nothing: a dry run shows the setup only, and a "0 of N" passed there is expected.
+  It writes one blinded list per order under `.foedrum/tmp/tasting-compare/real/brewers/`, or `real/comparisons/<name>/brewers/` with `--comparison`, with the setups named only in `codes.md`.
+  A dry run's Cellarman is scripted, so its count of passed checks measures nothing: a dry run shows the setup only.
 
   From the real Brewmaster's plan, and with the Maltster's map:
 

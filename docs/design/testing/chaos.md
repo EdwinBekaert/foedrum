@@ -97,7 +97,7 @@ FOEDRUM_RUNS=200 node --test test/chaos/restarts.test.ts
 In PowerShell:
 
 ```
-$env:FOEDRUM_RUNS = 200; node --test test/chaos/restarts.test.ts
+$env:FOEDRUM_RUNS = 200; node --test test/chaos/restarts.test.ts; Remove-Item Env:FOEDRUM_RUNS
 ```
 
 Not yet covered: the real runner's processes, a second process of a live driver, and two drivers flushing one state worktree.

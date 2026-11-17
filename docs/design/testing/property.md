@@ -26,7 +26,7 @@ Setting the environment variable `FOEDRUM_SEED` to that seed replays it, in a PO
 
 ```
 FOEDRUM_SEED=<seed> node --test test/property/invariant-i2.test.ts
-$env:FOEDRUM_SEED = <seed>; node --test test/property/invariant-i2.test.ts
+$env:FOEDRUM_SEED = <seed>; node --test test/property/invariant-i2.test.ts; Remove-Item Env:FOEDRUM_SEED
 ```
 
 `FOEDRUM_RUNS` sets how many seeds each property runs (ADR 0134):
