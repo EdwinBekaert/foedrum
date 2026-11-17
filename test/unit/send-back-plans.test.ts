@@ -321,6 +321,13 @@ describe('createAttemptPlans: the lockfile refresh after a release bump (ADR 041
     assert.equal(plan.refresh?.env.npm_config_ignore_scripts, 'true');
   });
 
+  it('holds the refresh for a committing brewer whose repository foedrum.jsonc gives no checks', async () => {
+    const events = [...subOrder('release'), ...started('implement', 'c'.repeat(40))];
+    const plan = await plansOf(events, { repoChecks: null }).plan(startOf('implement'));
+    assert.equal(plan.sendBack, undefined);
+    assert.equal(plan.refresh?.own.url, 'https://github.com/acme/api.git');
+  });
+
   it('holds no refresh in a batch that waited for no release (regression test)', async () => {
     for (const events of [[...ordered, ...gauged], subOrder('code')]) {
       const plan = await plansOf([...events, ...started('implement', 'c'.repeat(40))]).plan(

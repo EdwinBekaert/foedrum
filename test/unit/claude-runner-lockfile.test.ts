@@ -84,7 +84,7 @@ const setup = (
     exit?: number;
     changed?: PathsChanged;
     outDoc?: string;
-    branchCommit?: false | 'throws' | 'stops';
+    branchCommit?: false | 'throws' | 'stops' | 'throws after';
     setupRunner?: false;
   } = {},
 ) => {
@@ -113,6 +113,8 @@ const setup = (
         writeFileSync(join(tree, ...file.split('/')), text);
       }
       const { value, files } = await use(tree);
+      // Its scratch tree cannot be removed after the refresh ran.
+      if (options.branchCommit === 'throws after') throw new Error('EBUSY: the tree is in use');
       opened.push({ clone, own: remote, branch, message, files });
       return files.length === 0 ? { value } : { value, commit: made };
     };
@@ -236,6 +238,17 @@ describe('claudeBrewerRunner: the lockfile refresh after a release bump (ADR 041
       blockerKind: 'environment',
       summary: 'the lockfiles could not be refreshed: git worktree add failed: no space',
     });
+  });
+
+  it('a refresh that fails names the lockfile, also when its scratch tree then fails', async () => {
+    const { runner } = setup({ exit: 1, branchCommit: 'throws after' });
+    const end = await runner.start(attempt).ended;
+    assert.deepStrictEqual(end.ending, {
+      kind: 'blocked',
+      blockerKind: 'environment',
+      summary: `the lockfile web/package-lock.json could not be refreshed: "${NPM_REFRESH}" failed with exit code 1`,
+    });
+    assert.equal(end.readings?.length, 1);
   });
 
   it("a stop while the refresh's commit runs cancels the attempt", async () => {

@@ -149,6 +149,34 @@ describe('refreshLockfiles', () => {
     assert.deepStrictEqual(runs, []);
   });
 
+  it('runs nothing for a lockfile in a folder that links out of the tree, though it is a regular file there', async () => {
+    const outside = treeWith({ 'package.json': '{}', 'package-lock.json': 'outside\n' });
+    const tree = nextFolder();
+    // The commit's folder web is a junction to a folder outside the tree.
+    symlinkSync(outside, join(tree, 'web'), 'junction');
+    const { exec, runs } = fakeExec();
+    assert.deepStrictEqual(await refreshLockfiles(tree, [web], runOf(exec)), {
+      readings: [],
+      files: [],
+    });
+    assert.deepStrictEqual(runs, []);
+  });
+
+  it("kills a refresh after 5 minutes, or 10 seconds before the attempt's deadline when that is sooner", async () => {
+    const tree = treeWith({ 'web/package.json': '{}', 'web/package-lock.json': 'v1.1.0\n' });
+    const { exec, runs } = fakeExec();
+    await refreshLockfiles(tree, [web], runOf(exec));
+    // Two minutes before the deadline.
+    await refreshLockfiles(tree, [web], {
+      ...runOf(exec),
+      now: () => new Date('2026-11-17T12:58:00.000Z'),
+    });
+    assert.deepStrictEqual(
+      runs.map(({ options }) => options?.timeoutMs),
+      [300_000, 110_000],
+    );
+  });
+
   it('stops at the first refresh that does not pass, its reading naming the lockfile', async () => {
     const tree = treeWith({
       'package.json': '{}',
