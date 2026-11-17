@@ -81,6 +81,22 @@ describe('readFilesAt (ADR 0421)', () => {
     );
   });
 
+  it('gives no text for a path that is no relative path, without asking git for it, and still reads the others', async () => {
+    const { calls, git } = fakeGit(
+      { 'src/a.ts': ['100644', 'blob', blob(1)] },
+      { [blob(1)]: 'a\n' },
+    );
+    const read = await readFilesAt(git)('/work/api.git', commit, ['src/*.ts', 'src/a.ts']);
+    assert.deepEqual(read, {
+      kind: 'read',
+      files: new Map([
+        ['src/*.ts', undefined],
+        ['src/a.ts', 'a\n'],
+      ]),
+    });
+    assert.deepEqual(calls[0]?.args, ['ls-tree', '-z', commit, '--', 'src/a.ts']);
+  });
+
   it('is unread when ls-tree fails', async () => {
     const { git } = fakeGit(
       {},
