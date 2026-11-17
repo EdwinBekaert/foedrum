@@ -903,6 +903,16 @@ export const commands: readonly RegisteredCommand[] = [
     handler: async ({ issue, answers }, context) =>
       changeBatch('answer', issue, context, (batch, issued, state) => {
         const asked = questionsOf(state(), batch);
+        // The words after allow are its reason, which the engine checks (ADR 0419).
+        const [first, ...reason] = answers;
+        if (asked[0] === PUSH_REFUSED_QUESTION && first === 'allow') {
+          return {
+            kind: 'answer',
+            ...issued(batch),
+            answers: [{ q: PUSH_REFUSED_QUESTION, answer: first }],
+            why: reason.join(' '),
+          };
+        }
         // A batch that asks nothing is decide's to refuse, with its reason.
         if (asked.length > 0 && answers.length !== asked.length) {
           const questions = asked.length === 1 ? '1 question' : `${asked.length} questions`;

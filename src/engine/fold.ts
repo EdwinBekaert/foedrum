@@ -1225,8 +1225,13 @@ function apply(state: State, event: Event): State {
     }
     case 'order.approved':
       return updateBatch(state, event.batchId, (batch) => ({ ...batch, approvedUpTo: event.upTo }));
-    case 'push.allowed':
-      throw new Error('not implemented');
+    case 'push.allowed': {
+      const { batchId, stepId, commit, why, by, via } = event;
+      return updateBatch(state, batchId, (batch) => ({
+        ...batch,
+        pushAllowed: { stepId, commit, why, by, via },
+      }));
+    }
     case 'pull_request.reviews_read': {
       const { batchId, pullRequest, reviews, more } = event;
       return updateBatch(state, batchId, (batch) => ({

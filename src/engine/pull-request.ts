@@ -71,17 +71,22 @@ export const pullRequestRound = (batch: Batch): number => {
  * The effect that pushes the batch's task tree in `round` after a person allowed its refused push:
  * `push.allowed`, then `push.<n>.allowed` (ADR 0419).
  */
-export const allowedPushKey = (_batchId: string, _round = 1): BatchEffectKey => {
-  throw new Error('not implemented');
-};
+export const allowedPushKey = (batchId: string, round = 1): BatchEffectKey => ({
+  batchId,
+  effect: `${pushKey(batchId, round).effect}.allowed`,
+});
 
 /**
  * What the ledger recorded for each push of `batchId`, round by round from the first, as far as
- * they go: a round pushes only after the one before (ADR 0219). Unread here: each reader passes
- * over a result that is no push.
+ * they go: a round pushes only after the one before (ADR 0219), and a round's push after an
+ * allowance stands for its refused one (ADR 0419). Unread here: each reader passes over a result
+ * that is no push.
  */
 export const recordedPushes = (state: State, batchId: string): unknown[] =>
-  numberedEffects(state, (round) => pushKey(batchId, round), z.unknown(), 'a push');
+  numberedEffects(state, (round) => pushKey(batchId, round), z.unknown(), 'a push').map(
+    (refusedOrNot, at) =>
+      state.effects.get(effectKey.encode(allowedPushKey(batchId, at + 1))) ?? refusedOrNot,
+  );
 
 /** The latest push the ledger recorded for `batchId` (ADR 0219), when it is one the engine records. */
 export const latestPush = (state: State, batchId: string): PushResult | undefined => {
