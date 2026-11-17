@@ -251,6 +251,28 @@ describe('the openPullRequest push with real git', () => {
     });
   });
 
+  it('records how large the change is from what git diff counts, lock files left out (ADR 0422)', async () => {
+    const { state } = await brew((path) => {
+      mkdirSync(join(path, 'src'));
+      writeFileSync(join(path, 'src', 'a.ts'), 'one\ntwo\nthree\n');
+      writeFileSync(join(path, 'src', 'b.ts'), 'one\n');
+      writeFileSync(join(path, 'package-lock.json'), '{\n}\n');
+      git(path, ['add', 'src', 'package-lock.json']);
+      git(path, ['commit', '-q', '-m', 'Add two sources and a lock file']);
+    });
+    assert.deepEqual(state.batches.get('12-1')?.lane, { kind: 'on_tap', pullRequests: [url] });
+    const pushed = store.findEffect({ batchId: '12-1', effect: 'push' });
+    // The lock file counts not at all.
+    assert.deepEqual(PushResult.parse(pushed?.result).size, {
+      lines: 4,
+      files: 2,
+      largest: [
+        { path: 'src/a.ts', lines: 3 },
+        { path: 'src/b.ts', lines: 1 },
+      ],
+    });
+  });
+
   it('never forces: a bottle branch the origin has at another commit stops the push', async () => {
     // Someone pushed an unrelated commit to the bottle branch's name first.
     const other = join(dir.path, `other-${runs}`);
