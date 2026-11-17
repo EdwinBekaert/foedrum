@@ -11,7 +11,7 @@ paths:
   - "**/scripts/mutant-coverage.ts"
   - "**/scripts/mutant-coverage/**"
   - "**/scripts/citations.ts"
-  - "**/scripts/citations/**"
+  - "**/src/checks/citations.ts"
   - "**/scripts/issue-draft.ts"
   - "**/scripts/issue-draft/**"
   - "**/scripts/house-yeast.ts"

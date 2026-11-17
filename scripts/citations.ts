@@ -1,11 +1,16 @@
 // `node scripts/citations.ts <checkout> <answer.json>`: checks that every finding in a reviewer's
-// answer cites a file of the checkout and a line within it (issue #43). citations/core.ts
+// answer cites a file of the checkout and a line within it (issue #43). src/checks/citations.ts
 // decides. Prints one line per finding; exits 1 when the answer cannot be read.
 
 import { readFile, realpath, stat } from 'node:fs/promises';
 import { join } from 'node:path';
+import {
+  type CitationCheck,
+  checkLine,
+  entriesOf,
+  parseCitation,
+} from '../src/checks/citations.ts';
 import { pathInside } from '../src/platform/paths.ts';
-import { type CitationCheck, checkLine, entriesOf, parseCitation } from './citations/core.ts';
 
 type Result = { ok: boolean; lines: string[] };
 
