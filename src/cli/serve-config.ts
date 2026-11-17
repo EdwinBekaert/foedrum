@@ -208,7 +208,7 @@ const read = <T>(
  * default `claude` block with the Brewery's over it, entry by entry. Undefined, with the problems added,
  * when a file does not pass.
  */
-const mergedModels = (
+export const mergedModels = (
   own: string | undefined,
   defaults: BreweryFile | undefined,
   problems: string[],

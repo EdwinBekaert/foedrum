@@ -109,6 +109,14 @@ export const gatherDoctorFacts = async (shell: DoctorShell): Promise<DoctorFacts
   } catch {
     // Left undefined: pastaResolverGap says the file cannot be read.
   }
+  // The Brewery's models.jsonc, for its tasted list (ADR 0419): unread, doctor says why.
+  let models: string | undefined;
+  let modelsUnreadable: string | undefined;
+  try {
+    models = shell.readFile?.(join(cwd, 'models.jsonc'));
+  } catch (error) {
+    modelsUnreadable = messageOf(error);
+  }
   const host = shell.githubHost ?? githubHostOfConfig(config);
   // A command doctor runs besides a version command: its exit code and what it printed, why the
   // runner killed it first. `undefined` when its program is not on PATH.
@@ -170,5 +178,8 @@ export const gatherDoctorFacts = async (shell: DoctorShell): Promise<DoctorFacts
     ...(shell.denylist === undefined ? {} : { denylist: denylistFact(shell.denylist()) }),
     ...(systemMap === undefined ? {} : { systemMap }),
     ...(modelBaseUrl === undefined ? {} : { modelBaseUrl }),
+    ...(models === undefined ? {} : { models }),
+    ...(modelsUnreadable === undefined ? {} : { modelsUnreadable }),
+    ...(shell.tasting === undefined ? {} : { tasting: shell.tasting() }),
   };
 };
