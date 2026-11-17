@@ -1208,6 +1208,21 @@ describe('sandboxedChecks and below normal priority (ADR 0413)', () => {
       ['setup bwrap', true],
     ]);
   });
+
+  it("starts a setup's network stack at normal priority, whatever the line asks for (regression test)", async () => {
+    const setup = fakeSetup();
+    await linuxSetup(setup.exec, { findStackTool: stackTools('slirp4netns') })(line, [], {
+      ...call,
+      belowNormal: true,
+    });
+    assert.deepEqual(
+      setup.calls.map(({ file, options }) => [file, options.belowNormal]),
+      [
+        ['/usr/bin/bwrap', true],
+        ['/usr/bin/slirp4netns', undefined],
+      ],
+    );
+  });
 });
 
 describe('worktreeGitDir', () => {
