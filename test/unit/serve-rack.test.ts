@@ -149,7 +149,10 @@ describe('runServe', () => {
       assert.deepStrictEqual(made.labels, ['recipe:rack']);
       assert.equal(made.title, 'Rack: clean up the Brewery');
       // The ages of the Brewery's own rack steps, in words.
-      assert.match(made.body ?? '', /archives the finished batches on the state branch/);
+      assert.match(
+        made.body ?? '',
+        /archives the finished batches whose newest attempt is 30 days old on the state branch/,
+      );
       assert.match(made.body ?? '', /archive folders older than 90 days/);
       assert.match(made.body ?? '', /older than 36 hours/);
       assert.match(made.body ?? '', /foedrum approve <n>/);

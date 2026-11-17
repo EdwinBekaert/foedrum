@@ -179,4 +179,20 @@ describe('doctorFromCheckout: the models brewer attempts reported (ADR 0419)', (
       brewery.remove();
     }
   });
+
+  it('says why, and still reports, when the event log cannot be read', async () => {
+    const brewery = makeTempDir('doctor-main-bad-store');
+    try {
+      mkdirSync(join(brewery.path, '.foedrum'));
+      writeFileSync(storePath(brewery.path), 'not a database, but text of the same name\n');
+      let facts: Awaited<ReturnType<typeof doctorFromCheckout>> | undefined;
+      await assert.doesNotReject(async () => {
+        facts = await doctorFromCheckout(brewery.path, options);
+      });
+      assert.deepEqual(facts?.tasting?.used, []);
+      assert.match(facts?.tasting?.unreadable ?? '', /\S/);
+    } finally {
+      brewery.remove();
+    }
+  });
 });

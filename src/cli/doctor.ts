@@ -103,6 +103,8 @@ export interface DoctorFacts {
 export interface TastingFact {
   used: readonly ModelUsed[];
   at: Date;
+  /** Why the event log could not be read, when it is there and could not be. */
+  unreadable?: string;
 }
 
 /** The denylist's state as doctor reports it: its path, never its words or their count. */

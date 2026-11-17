@@ -1718,4 +1718,17 @@ describe('diagnose: what could be tasted next (ADR 0419)', () => {
       'Tasting: models.jsonc cannot be read (EACCES: permission denied, open).',
     );
   });
+
+  it('says the event log cannot be read in place of suggestions', () => {
+    const tasting = { used: [], at, unreadable: 'file is not a database' };
+    assert.equal(
+      lineOf({ tasting }),
+      'Tasting: the event log cannot be read (file is not a database).',
+    );
+  });
+
+  it('says there is nothing to read when no recent attempt ran a step today’s recipes have', () => {
+    const tasting = { used: [used('gone', 'claude-opus-5-6')], at };
+    assert.equal(lineOf({ tasting }), 'Tasting: no brewer attempt in the last 30 days to read.');
+  });
 });
