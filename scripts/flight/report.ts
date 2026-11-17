@@ -7,7 +7,7 @@
 import { join } from 'node:path';
 import type { parseArgs } from 'node:util';
 import { parseJsonc } from '../../src/formats/jsonc.ts';
-import { ModelsConfig, type TastedEntry, tastedKey } from '../../src/schemas/models.ts';
+import { ModelId, ModelsConfig, type TastedEntry, tastedKey } from '../../src/schemas/models.ts';
 import { escapeCell, runsOfSetup } from '../tasting-compare/core.ts';
 import {
   brewerSteps,
@@ -212,6 +212,10 @@ const oneModelOf = (
       ),
     ),
   );
+  // A transcript's name is model output: quoted, so it stays on the reason's one line.
+  const odd = [...named].find((name) => !ModelId.safeParse(name).success);
+  if (odd !== undefined)
+    return { why: `${whose} steps named ${JSON.stringify(odd)}, which is no model id` };
   const [model, ...others] = named;
   if (model !== undefined && others.length === 0) return { model };
   return {
