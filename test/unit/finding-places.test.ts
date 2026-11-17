@@ -117,6 +117,19 @@ describe('placesChecked (ADR 0421)', () => {
     ]);
   });
 
+  it('marks a finding whose only cited path is no plain path, with no read at all', async () => {
+    const { calls, read } = fakeRead();
+    const ending = await placesChecked(
+      read,
+      tasted(finding({ file: 'C:/x.ts', line: 1 })),
+      reviewed,
+    );
+    assert.deepEqual(calls, []);
+    assert.deepEqual(findingsOf(ending), [
+      { ...finding({ file: 'C:/x.ts', line: 1 }), severity: 'minor', missing: 'file' },
+    ]);
+  });
+
   it('asks for each cited file once', async () => {
     const { calls, read } = fakeRead();
     await placesChecked(
