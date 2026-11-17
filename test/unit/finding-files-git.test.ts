@@ -86,11 +86,11 @@ describe('readFilesAt (ADR 0421)', () => {
       { 'src/a.ts': ['100644', 'blob', blob(1)] },
       { [blob(1)]: 'a\n' },
     );
-    const read = await readFilesAt(git)('/work/api.git', commit, ['src/*.ts', 'src/a.ts']);
+    const read = await readFilesAt(git)('/work/api.git', commit, ['C:/x.ts', 'src/a.ts']);
     assert.deepEqual(read, {
       kind: 'read',
       files: new Map([
-        ['src/*.ts', undefined],
+        ['C:/x.ts', undefined],
         ['src/a.ts', 'a\n'],
       ]),
     });
