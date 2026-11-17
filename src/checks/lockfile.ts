@@ -131,7 +131,8 @@ const found = async (tree: string, refresh: LockfileRefresh): Promise<LockfileRe
     case 'below': {
       const refreshes: LockfileRefresh[] = [];
       const walk = async (at: string): Promise<void> => {
-        const entries = await readdir(inTree(tree, at), { withFileTypes: true }).catch(() => []);
+        // A folder it cannot read fails the refresh, rather than leave its lockfile stale unseen.
+        const entries = await readdir(inTree(tree, at), { withFileTypes: true });
         entries.sort((a, b) => (a.name < b.name ? -1 : 1));
         const files = entries.filter((entry) => entry.isFile()).map((entry) => entry.name);
         const projects = files.filter((file) => PROJECT.test(file));
