@@ -463,7 +463,8 @@ export const nextFlightRun = (
 ): { setup: string; run: number; retry: boolean } | undefined =>
   nextRunOf(orders, records, runs, flightFailure);
 
-const tokensOf = (usage: Usage | undefined): number =>
+/** The tokens of one usage: the four kinds summed. */
+export const tokensOf = (usage: Usage | undefined): number =>
   usage === undefined
     ? 0
     : usage.inputTokens + usage.outputTokens + usage.cacheReadTokens + usage.cacheWriteTokens;
