@@ -214,6 +214,19 @@ describe('refreshLockfiles', () => {
   });
 });
 
+describe('refreshLockfiles: a lockfile it cannot look at (only-enoent-is-missing)', () => {
+  it('fails on a lockfile it cannot look at, rather than take it for one the repository does not keep', async () => {
+    const tree = treeWith({ 'web/package.json': '{}', 'web/package-lock.json': 'v1.1.0\n' });
+    // A NUL in the path fails the look alike on every platform, as an unreadable folder would.
+    const unreadable = { ...web, lockfile: 'web/package-lock.json\0' };
+    const { exec, runs } = fakeExec();
+    await assert.rejects(refreshLockfiles(tree, [unreadable], runOf(exec)), {
+      code: 'ERR_INVALID_ARG_VALUE',
+    });
+    assert.deepStrictEqual(runs, []);
+  });
+});
+
 describe('refreshLockfiles: a refresh that does not pass after one that did', () => {
   it('lists no lockfile to commit, not even the one an earlier refresh changed', async () => {
     const tree = treeWith({
@@ -434,6 +447,17 @@ describe('refreshLockfiles: a lockfile found above its manifest (ADR 0415)', () 
     assert.deepStrictEqual(await refreshLockfiles(tree, [member], runOf(exec)), {
       readings: [],
       files: [],
+    });
+    assert.deepStrictEqual(runs, []);
+  });
+
+  it('fails on a Cargo.lock it cannot look at, rather than refresh one further up', async () => {
+    const tree = treeWith({ 'crates/Cargo.lock': 'v1.1.0\n' });
+    // A NUL in the path fails the look alike on every platform, as an unreadable folder would.
+    const unreadable = { ...member, folder: 'crates/a\0', lockfile: 'crates/a\0/Cargo.lock' };
+    const { exec, runs } = writing('Cargo.lock');
+    await assert.rejects(refreshLockfiles(tree, [unreadable], runOf(exec)), {
+      code: 'ERR_INVALID_ARG_VALUE',
     });
     assert.deepStrictEqual(runs, []);
   });
