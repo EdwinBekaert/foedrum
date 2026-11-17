@@ -463,6 +463,12 @@ describe("the Flight report's tasted entry (ADR 0416)", () => {
     );
   });
 
+  it('keeps a header read with a BOM and CRLF line ends, written in LF without the BOM', () => {
+    const modelsText = `﻿${MODELS.replaceAll('\n', '\r\n')}`;
+    const { models } = written(undefined, undefined, { modelsText });
+    assert.equal(models.slice(0, HEADER.length + 1), `${HEADER}{`);
+  });
+
   it('replaces the entry of the same combination, in its place, and keeps the others', () => {
     const old = { ...ENTRY, model: 'claude-opus-5', date: '2026-11-01' };
     const other = { ...ENTRY, effort: 'full' };
