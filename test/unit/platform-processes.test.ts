@@ -3,6 +3,7 @@ import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 import { afterEach, beforeEach, describe, it, mock } from 'node:test';
 import {
+  belowNormalCommand,
   type ChildHandle,
   DEFAULT_MAX_OUTPUT_BYTES,
   type ExecProcess,
@@ -11,6 +12,7 @@ import {
   isPidAlive,
   type Kill,
   killProcessTree,
+  nicedCommand,
   runProcessThrough,
   type Spawner,
   shellCommand,
@@ -193,18 +195,20 @@ const fakeSpawner = (child: FakeChild | Error = new FakeChild()) => {
     cwd: string;
     env: NodeJS.ProcessEnv;
     shell?: boolean;
+    belowNormal?: boolean;
     stdin?: boolean;
     pipes?: number;
   }[] = [];
   const killed: number[] = [];
   const spawner: Spawner = {
-    spawn: (file, args, { cwd, env, shell, stdin, pipes }) => {
+    spawn: (file, args, { cwd, env, shell, belowNormal, stdin, pipes }) => {
       spawned.push({
         file,
         args,
         cwd,
         env,
         ...(shell === undefined ? {} : { shell }),
+        ...(belowNormal === undefined ? {} : { belowNormal }),
         ...(stdin === undefined ? {} : { stdin }),
         ...(pipes === undefined ? {} : { pipes }),
       });
@@ -231,6 +235,22 @@ describe('execProcessWith', () => {
     assert.deepEqual(spawned, [
       { file: 'git', args: ['status'], cwd: '/work/tree', env: { PATH: '/bin' } },
     ]);
+  });
+
+  it('asks the spawner to start the program below normal priority only when the caller does (ADR 0413)', async () => {
+    const child = new FakeChild();
+    const { spawned, exec } = fakeSpawner(child);
+    const low = exec('npm', ['test'], { cwd: '/work/tree', env: {}, belowNormal: true });
+    const plain = exec('git', ['status'], { cwd: '/work/tree', env: {} });
+    child.close(0);
+    await Promise.all([low, plain]);
+    assert.deepEqual(
+      spawned.map(({ file, belowNormal }) => [file, belowNormal]),
+      [
+        ['npm', true],
+        ['git', undefined],
+      ],
+    );
   });
 
   it("uses this process's environment by default", async () => {
@@ -1493,6 +1513,47 @@ describe('whyKilled', () => {
     );
     assert.equal(whyKilled('too-much-output', 1000, 64 * 1024), 'wrote more than 64 KiB of output');
     assert.equal(whyKilled('too-much-output', 1000, 1500), 'wrote more than 1500 bytes of output');
+  });
+});
+
+describe('belowNormalCommand (ADR 0413)', () => {
+  const env = { PATH: '/usr/bin' };
+
+  it('starts a program through nice -n 10 at the path it is given, with its arguments', () => {
+    const git = spawnCommand('/usr/bin/git', ['status', '--short'], 'linux', env);
+    assert.deepEqual(belowNormalCommand(git, '/usr/bin/nice'), {
+      file: '/usr/bin/nice',
+      args: ['-n', '10', '/usr/bin/git', 'status', '--short'],
+      shell: false,
+      env,
+    });
+  });
+
+  it("starts a command line through nice -n 10 and the shell, without a shell of nice's own", () => {
+    const line = shellCommand('npm test -- --reporter tap', 'darwin', env);
+    assert.deepEqual(belowNormalCommand(line, '/bin/nice'), {
+      file: '/bin/nice',
+      args: ['-n', '10', '/bin/sh', '-c', 'npm test -- --reporter tap'],
+      shell: false,
+      env,
+    });
+  });
+
+  it("looks nice up in the command's environment, and starts nothing without it", () => {
+    const git = spawnCommand('/usr/bin/git', ['status'], 'linux', env);
+    const asked: NodeJS.ProcessEnv[] = [];
+    const missing = (found: NodeJS.ProcessEnv) => {
+      asked.push(found);
+      return undefined;
+    };
+    assert.throws(() => nicedCommand(git, missing), /^Error: nice: not found on PATH \(ENOENT\)$/);
+    assert.deepEqual(asked, [env]);
+    assert.deepEqual(nicedCommand(git, () => '/opt/bin/nice').args, [
+      '-n',
+      '10',
+      '/usr/bin/git',
+      'status',
+    ]);
   });
 });
 

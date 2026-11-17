@@ -108,7 +108,7 @@ const run = ({
     ref,
     limits: { outDoc: { file: 'out.md', schema: undefined as never } },
   });
-  return { calls, asked, setup: setup.seen, started, runner };
+  return { calls, asked, setup: setup.seen, checked: checks.seen, started, runner };
 };
 
 const environment = (summary: string) => ({ kind: 'blocked', blockerKind: 'environment', summary });
@@ -285,5 +285,34 @@ describe('createCheckRunner: the repository setup (ADR 0140)', () => {
       why: "the repository's setup did not pass: exited",
     });
     assert.deepStrictEqual(calls, ['setup npm ci']);
+  });
+
+  it("runs a check step's setup and checks at normal priority (ADR 0413, regression test)", async () => {
+    const { setup, checked, started } = run();
+    await started.ended;
+    assert.deepEqual(
+      [...setup, ...checked].map(({ file, options }) => [file, options.belowNormal]),
+      [
+        ['npm ci', undefined],
+        ['npm test', undefined],
+      ],
+    );
+  });
+
+  it("runs a scratch tree's setup and test check below normal priority (ADR 0413)", async () => {
+    const { runner, setup, checked, started } = run();
+    await started.ended;
+    setup.length = 0;
+    checked.length = 0;
+    const tree = { repo: 'acme/api', path: worktree };
+    const end = await runner.testRun(tree, [], deadlineAt, new AbortController().signal);
+    assert.equal(end.kind, 'ran');
+    assert.deepEqual(
+      [...setup, ...checked].map(({ file, options }) => [file, options.belowNormal]),
+      [
+        ['npm ci', true],
+        ['npm test', true],
+      ],
+    );
   });
 });
