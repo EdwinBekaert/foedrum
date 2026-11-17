@@ -156,9 +156,13 @@ const setup = ({
   real = worktree,
   /** The platform the runner reads paths for. */
   platform = 'linux' as NodeJS.Platform,
+  /** The repository's checks in foedrum.jsonc. */
+  checksOf = repository,
 } = {}) => {
   const asked: string[] = [];
-  const exec: ExecProcess = (file) => {
+  const exec: ExecProcess = (line) => {
+    // testChanged's line runs as the test check's does (ADR 0242).
+    const file = line.startsWith('npm test') ? 'npm test' : line;
     const output = file === 'npm test' ? `Build FAILED.\n${compileError}\n` : '';
     if (file === 'npm test' && testExit === null) {
       const killed = 'timed-out' as const;
@@ -177,7 +181,7 @@ const setup = ({
   const runner = createCheckRunner({
     state: () => fold([...started, ...more]),
     checks: stepChecks,
-    repositoryChecks: () => repository,
+    repositoryChecks: () => checksOf,
     testReport: () => testReport,
     exec,
     // The batch's change is empty: the uncovered-line check has no line to judge.
@@ -602,6 +606,18 @@ describe('createCheckRunner: a stale test map (ADR 0274, ADR 0282)', () => {
       paths: ['web/test-results.xml (no report of module "web")'],
       more: 0,
     });
+  });
+
+  it("judges no freshness by a run of testChanged, whose modules' tests may not run (ADR 0242)", async () => {
+    const checksOf = { ...repository, testChanged: 'npm test -- --changed {base}' };
+    const { run } = setup({ maps: fresh, found: {}, checksOf });
+    const end = await run();
+    assert.deepEqual(end.ending, { kind: 'succeeded', output: null });
+    assert.deepEqual(
+      end.readings?.map((reading) => ('command' in reading ? reading.command : reading.check)),
+      ['npm run typecheck', `npm test -- --changed ${base}`],
+    );
+    assert.equal(end.staleMap, undefined);
   });
 
   it('finds the map stale when a run reports a test located outside every module', async () => {

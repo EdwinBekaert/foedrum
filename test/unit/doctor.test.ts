@@ -1486,6 +1486,26 @@ describe("diagnose: whether a test-first recipe's test line saves a report (ADR 
   });
 });
 
+describe('diagnose: which test the check step runs and what the full gate is (ADR 0242)', () => {
+  const checks = (test: string, more: Record<string, unknown> = {}) =>
+    JSON.stringify({ build: null, typecheck: null, lint: null, format: null, test, ...more });
+  const config = `{ "repositories": { "acme/web": { "checks": ${checks('npm test', { testChanged: 'vitest run --changed {base}' })} }, "acme/api": { "checks": ${checks('dotnet test')} } } }`;
+
+  it('foedrum doctor lists, per repository, the test the check step runs and the full gate', () => {
+    const diagnosis = diagnose({ ...linux(), config });
+    assert.match(
+      formatDiagnosis(diagnosis),
+      new RegExp(
+        [
+          'Tests \\(the check step and the full gate, ADR 0242\\):',
+          "- acme/web: the check step runs only testChanged \\(vitest run --changed \\{base\\}\\); your pull request's CI must run the full test \\(npm test\\)",
+          '- acme/api: the check step runs the full test \\(dotnet test\\)',
+        ].join('\n'),
+      ),
+    );
+  });
+});
+
 // pasta isolates itself, where its resolver works; slirp4netns keeps the home folder and /run/user
 // in reach (ADR 0400).
 describe("diagnose: the setup's network stack", () => {

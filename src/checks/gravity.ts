@@ -16,8 +16,13 @@ import {
 import type { CheckName, Command } from '../schemas/primitives.ts';
 import type { CheckRef } from '../schemas/recipe.ts';
 
-/** The command behind each check of a repository, or null where it has none (ADR 0023). */
-export type RepositoryChecks = Readonly<Record<CheckName, Command | null>>;
+/**
+ * The command behind each check of a repository, or null where it has none (ADR 0023), and the test
+ * of the changed code a check step runs in place of `test` (ADR 0242).
+ */
+export type RepositoryChecks = Readonly<Record<CheckName, Command | null>> & {
+  readonly testChanged?: Command;
+};
 
 // None of a repository's checks: what a step of literal commands plans against.
 export const NO_CHECKS: RepositoryChecks = {
@@ -40,7 +45,7 @@ export const blocked = (
 export type PlannedCheck =
   | { kind: 'skip'; check: CheckName }
   /** `check` is absent for a Brewery's literal command and a repository's setup (ADR 0140). */
-  | { kind: 'run'; check?: CheckName; setup?: true; command: string };
+  | { kind: 'run'; check?: CheckName; setup?: true; changed?: true; command: string };
 
 /** What the process runner answered for one command. */
 export interface CheckRun {
@@ -71,6 +76,7 @@ export function planChecks(
   checks: readonly CheckRef[],
   repository: RepositoryChecks,
   platform: NodeJS.Platform,
+  _base?: string,
 ): PlannedCheck[] {
   return checks.map((check): PlannedCheck => {
     if (typeof check !== 'string') return { kind: 'run', command: commandLine(check, platform) };
@@ -79,6 +85,15 @@ export function planChecks(
       ? { kind: 'skip', check }
       : { kind: 'run', check, command: commandLine(command, platform) };
   });
+}
+
+/** Which test a check step in `repo` runs and what the full gate is, for doctor (ADR 0242). */
+export function testGateOf(
+  _repo: string,
+  _repository: RepositoryChecks,
+  _platform: NodeJS.Platform,
+): string {
+  throw new Error('not implemented');
 }
 
 /** The end of `output` that a reading keeps (`MAX_TAIL_LENGTH`), never half a character. */
