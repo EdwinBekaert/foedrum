@@ -564,6 +564,22 @@ describe("the Flight report's tasted entry (ADR 0416)", () => {
     );
   });
 
+  it('writes no entry when a transcript names what is no model id, quoting it on one line', () => {
+    const odd = changed(flights.candidate, (flight) => ({
+      ...flight,
+      models: { implement: ['Claude-Opus-5-5\nforged'] },
+    }));
+    let result: ReturnType<typeof tasted> | undefined;
+    assert.doesNotThrow(() => {
+      result = tasted(undefined, odd);
+    });
+    assert.deepEqual(result, {
+      kind: 'not written',
+      why: `the candidate's cellarman steps named "Claude-Opus-5-5\\nforged", which is no model id, so defaults/models.jsonc is unchanged`,
+      exitCode: 1,
+    });
+  });
+
   it('gives its tasted entry with the report the options ask for', () => {
     const ran = flightReportRun(
       { baseline: 'base', candidate: 'next' },
