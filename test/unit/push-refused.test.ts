@@ -312,6 +312,32 @@ describe('a refused push a person allowed, as people see it (ADR 0419)', () => {
     );
   });
 
+  it("shows the allowance under the openPullRequest step's line alone", () => {
+    const implement = { batchId: 'b1', stepId: 'implement', attempt: 1 } as const;
+    const [ordered, chosen, ...started] = pushing;
+    const text = renderStatus(
+      fold([
+        ordered as Event,
+        chosen as Event,
+        { type: 'step.scheduled', ...implement, deadlineAt: '2026-11-17T13:00:00.000Z' },
+        { type: 'step.started', ...implement },
+        {
+          type: 'step.finished',
+          ...implement,
+          outcome: {
+            kind: 'succeeded',
+            output: { status: 'done', summary: 'Added the code', assumptions: [] },
+          },
+        },
+        ...started,
+        refusedPush,
+        ...allowed,
+      ]).batches.get('b1') as Batch,
+    );
+    assert.match(text, /`implement`: done/);
+    assert.equal(text.split('was allowed by').length - 1, 1, text);
+  });
+
   it('leaves a reason that looks like a secret out of the status comment (ADR 0088)', () => {
     // Built at run time, so no scanner takes this file for one that holds a token.
     const token = ['ghp', 'A1b2'.repeat(9)].join('_');
