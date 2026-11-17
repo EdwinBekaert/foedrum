@@ -40,6 +40,7 @@ import {
   stepReports,
 } from './pull-request.ts';
 import type { PushRefusal } from './push-refused.ts';
+import type { ChangedFile } from './read-first.ts';
 import { siblingSection, type VisibilityOf } from './sibling-pull-requests.ts';
 import { taskTreeStart } from './task-tree.ts';
 
@@ -95,6 +96,11 @@ export interface BranchPush {
    * and a rename at both paths (ADR 0201).
    */
   touchedFiles(since: string, commit: string, signal?: AbortSignal): Promise<string[]>;
+  /**
+   * Every path the diff from `since` to `commit` (both full shas) names, as `touchedFiles` does,
+   * with the lines it adds and deletes there; none for a binary file (ADR 0422).
+   */
+  changedLines(since: string, commit: string, signal?: AbortSignal): Promise<ChangedFile[]>;
   /**
    * The text of the file at `path` in `commit` (a full sha), as committed: `undefined` when the
    * commit has no such file, or why it cannot be read, such as one too large (ADR 0384).

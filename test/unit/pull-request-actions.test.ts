@@ -17,6 +17,7 @@ import {
   type PullRequestRequest,
   pullRequestActions,
 } from '../../src/engine/pull-request-actions.ts';
+import type { ChangedFile } from '../../src/engine/read-first.ts';
 import type { VisibilityOf } from '../../src/engine/sibling-pull-requests.ts';
 import { sensitiveLine } from '../../src/engine/status-comment.ts';
 import type { Event } from '../../src/schemas/events.ts';
@@ -46,12 +47,14 @@ const fakePush = (
   touched: string[] = [],
   commits: Record<string, string> = {},
   files: Record<string, string | { unread: string }> = {},
+  sized: ChangedFile[] = [],
 ) => {
   const asked: string[] = [];
   const pushes: string[] = [];
   const scans: string[] = [];
   const diffs: string[] = [];
   const reads: string[] = [];
+  const sizes: string[] = [];
   const target: BranchPush = {
     commit: async (revision) => {
       asked.push(revision);
@@ -76,13 +79,17 @@ const fakePush = (
       diffs.push(`${since}..${to}`);
       return touched;
     },
+    changedLines: async (since, to) => {
+      sizes.push(`${since}..${to}`);
+      return sized;
+    },
     fileAt: async (commit, path) => {
       reads.push(`${commit}:${path}`);
       const file = files[`${commit}:${path}`];
       return typeof file === 'string' ? { text: file } : file;
     },
   };
-  return { target, asked, pushes, remote, scans, diffs, reads };
+  return { target, asked, pushes, remote, scans, diffs, reads, sizes };
 };
 
 /** A code host with the pull requests the Brewery opened, by head branch, and their bodies by URL. */
@@ -174,6 +181,7 @@ const actionsWith = (
     unmeasured?: PullRequestRepository['unmeasured'];
     commits?: Record<string, string>;
     files?: Record<string, string | { unread: string }>;
+    sized?: ChangedFile[];
     bodies?: Record<string, string>;
     visibility?: VisibilityOf;
   } = {},
@@ -187,6 +195,7 @@ const actionsWith = (
     options.touched,
     options.commits,
     options.files,
+    options.sized,
   );
   const code = fakeHost(options.opened, options.answer, options.bodies);
   const titles: unknown[] = [];
@@ -1282,6 +1291,39 @@ describe('pullRequestActions: what to look at before merging (ADR 0384)', () => 
       message: 'git ls-tree failed: fatal: bad object',
     });
     assert.deepEqual(pushed.pushes, []);
+  });
+});
+
+describe('pullRequestActions: how large the change is (ADR 0422)', () => {
+  const sized = [
+    { path: 'package-lock.json', lines: 900 },
+    { path: 'src/a.ts', lines: 12 },
+    { path: 'logo.png' },
+    { path: 'src/b.ts', lines: 30 },
+  ];
+  const size = {
+    lines: 42,
+    files: 3,
+    largest: [
+      { path: 'src/b.ts', lines: 30 },
+      { path: 'src/a.ts', lines: 12 },
+    ],
+  };
+
+  it('records the size of the change from where it starts to the commit pushed, lock files left out', async () => {
+    const { actions, sizes } = actionsWith({ sized });
+    keysOf(brewing(), actions);
+    assert.deepEqual(await actions.target.apply(push), { branch, commit: tip, from, size });
+    // The batch started at its first attempt's commit.
+    assert.deepEqual(sizes, [`${other}..${tip}`]);
+  });
+
+  it('records the size on a push it finds too', async () => {
+    const { actions } = actionsWith({ sized, remote: { [branch]: tip } });
+    keysOf(brewing(), actions);
+    assert.deepEqual(await actions.target.find(push), {
+      result: { branch, commit: tip, from, size },
+    });
   });
 });
 

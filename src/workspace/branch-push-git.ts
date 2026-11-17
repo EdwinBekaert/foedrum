@@ -311,6 +311,9 @@ export const openBranchPush = (options: BranchPushOptions): BranchPush => {
       const listed = await gitOutput(local, clone, args, { ...aborts(signal), ...AS_COMMITTED });
       return listed.split('\0').filter((path) => path !== '');
     },
+    changedLines: async () => {
+      throw new Error('not implemented');
+    },
     fileAt: async (commit, path, signal) => {
       fullSha(commit);
       // The entry at exactly that path, with its object and size: none when the commit has no file.

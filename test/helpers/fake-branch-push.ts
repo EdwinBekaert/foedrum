@@ -13,6 +13,7 @@ export const fakeBranchPush = (overrides: Partial<BranchPush> = {}): BranchPush 
   push: async () => {},
   secretScan: async () => [],
   touchedFiles: async () => [],
+  changedLines: async () => [],
   fileAt: async () => undefined,
   ...overrides,
 });
