@@ -215,7 +215,7 @@ describe('the status comment', () => {
     assert.doesNotMatch(marked, /ghp_/);
     assert.match(
       marked,
-      /\*\*Failing\*\*: the effects pass has failed since 2026-11-06T11:00:00\.000Z: \\\[left out: a text of step .*that looks like a secret\\\]/,
+      /\*\*Failing\*\*: the effects pass has failed since 2026-11-06T11:00:00\.000Z: \\\[left out: a text that looks like a secret\\\]/,
     );
     const stuck = stuckFailing('1-1', 1);
     const reason = { kind: 'failing', stepId: 'plan', ...secret } as const;
@@ -225,6 +225,18 @@ describe('the status comment', () => {
     assert.match(
       waiting,
       /\*\*Waiting for you\*\*: look at a failure: `plan` could not go on: the effects pass has failed since 2026-11-06T11:00:00\.000Z: \\\[left out: a text of step plan that looks like a secret\\\]/,
+    );
+  });
+
+  it('names no step in the mark of a summary it leaves out', () => {
+    const summary = `ghp_${'a'.repeat(36)}`;
+    const text = renderStatus(batch('1-1', 1, { failing: { ...failing, summary } }));
+    assert.ok(
+      text
+        .split('\n')
+        .includes(
+          '⚠️ **Failing**: the effects pass has failed since 2026-11-06T11:00:00.000Z: \\[left out: a text that looks like a secret\\]',
+        ),
     );
   });
 
