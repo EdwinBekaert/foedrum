@@ -108,7 +108,7 @@ export const fakeRecipe = ({
     if (goto === undefined) return undefined;
     const group = groupOf(stepId);
     const from = why === 'findings' && group !== undefined ? (groups[group] ?? []) : [stepId];
-    const attempts = [...(batch.steps.get(goto)?.attempts.values() ?? [])];
+    const attempts = attemptsOf(batch, goto);
     return attempts
       .filter(({ route }) => route !== undefined && from.includes(route.from))
       .filter(({ route }) => route?.why === why).length;
