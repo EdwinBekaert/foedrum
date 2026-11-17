@@ -54,7 +54,13 @@ describe('execProcess with belowNormal (ADR 0413)', () => {
     if (skipWhenAlreadyLow(t)) return;
     const parent = getPriority();
     const child = await childPriority(t, true);
-    assert.ok(child >= below && child > parent, `child ${child}, parent ${parent}`);
+    // nice -n 10 is relative: 10 below this process, which a CI runner may start above normal
+    // (macOS's at -10). Windows's class is absolute: below normal, lower than this process.
+    if (process.platform === 'win32') {
+      assert.ok(child >= below && child > parent, `child ${child}, parent ${parent}`);
+    } else {
+      assert.equal(child, parent + 10, `child ${child}, parent ${parent}`);
+    }
   });
 
   it('runs it at this process priority without the option (regression test)', async (t) => {
