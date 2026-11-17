@@ -263,6 +263,13 @@ describe('createCheckRunner: a module no confirmed line reaches (ADR 0274)', () 
     ]);
   });
 
+  it('judges no new module unreached after a run of testChanged, which may not run its tests (ADR 0242)', async () => {
+    const checksOf = { ...repository, testChanged: 'npm test -- --changed {base}' };
+    const { run } = setup({ checksOf });
+    const end = await run();
+    assert.deepEqual(end.ending, { kind: 'succeeded', output: null });
+  });
+
   it("takes a module the base's map lists as reached: its missing report is no Stuck", async () => {
     const { run } = setup({ maps: { [base]: mapOf(web, billing), [tip]: mapOf(web, billing) } });
     const end = await run();

@@ -68,7 +68,11 @@ const testStep = (npmCli: string, tests: TestRun): CheckStep[] => {
   }
 };
 
-export const checkSteps = (npmCli: string, tests: TestRun = { kind: 'coverage' }): CheckStep[] => [
+export const checkSteps = (
+  npmCli: string,
+  tests: TestRun = { kind: 'coverage' },
+  _lcov = false,
+): CheckStep[] => [
   { label: 'npm run typecheck', args: [npmCli, 'run', 'typecheck'] },
   { label: 'npm run lint', args: [npmCli, 'run', 'lint'] },
   ...testStep(npmCli, tests),
@@ -128,6 +132,8 @@ export interface CheckOptions {
   affected?: () => Promise<Affected>;
   /** Runs no tests, finding no change: the push gate's check (`npm run check -- --no-tests`, ADR 0249). */
   noTests?: boolean;
+  /** Writes the coverage of the test files run to lcov.info, without thresholds (ADR 0242). */
+  lcov?: boolean;
   /** Lowers this process's priority before the steps start, which inherit it (#140). */
   lowerPriority?: () => void;
 }
@@ -145,7 +151,7 @@ const STEP_TIMEOUT_MS = 300_000;
 export const checkMode = (
   argv: string[],
   affected: (base?: string) => Promise<Affected>,
-): Pick<CheckOptions, 'affected' | 'noTests'> => {
+): Pick<CheckOptions, 'affected' | 'noTests' | 'lcov'> => {
   const {
     all,
     'no-tests': noTests,
