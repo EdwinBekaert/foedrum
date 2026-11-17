@@ -18,16 +18,15 @@ export const readFilesAt =
   async (clone, commit, paths, signal): Promise<FilesRead> => {
     // A full sha, so that nothing reaches git as an option or a revision expression.
     if (!isCommitSha(commit)) return { kind: 'unread', reason: noCommitSha(commit) };
-    const unsafe = paths.find((path) => !RelativePath.safeParse(path).success);
-    if (unsafe !== undefined) {
-      return { kind: 'unread', reason: `${JSON.stringify(unsafe)} is no relative path` };
-    }
+    // A path that is no relative path, a glob or a name Windows refuses, is no file of the tree:
+    // it never reaches git, and the others are still read.
+    const relative = paths.filter((path) => RelativePath.safeParse(path).success);
     // No hook or fsmonitor of the clone's runs in the engine's git (ADR 0137).
     const git = inClone(shared);
     const options = signal === undefined ? {} : { signal };
     // The object of each path that is a regular file: `<mode> <type> <object>\t<path>`.
     const objects = new Map<string, string>();
-    for (const run of runsOf(paths)) {
+    for (const run of runsOf(relative)) {
       // The paths as written: no `*`, `?` or `[` read as a pattern.
       const listed = await git(clone, ['ls-tree', '-z', commit, '--', ...run], {
         ...options,
