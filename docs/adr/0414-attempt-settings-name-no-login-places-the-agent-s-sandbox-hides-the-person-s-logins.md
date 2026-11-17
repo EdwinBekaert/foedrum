@@ -35,6 +35,7 @@ The tests of ADR 0087's list, of ADR 0160's moved logins and of ADR 0162's folde
 ## Consequences
 - Which logins a brewer's sandboxed commands can still reach is what Claude Code's sandbox docs say, and Foedrum's docs no longer repeat it.
 - A login outside the user folders, in a file the block re-opens (git's global configuration), or in the cases where the docs say the block does not reach sandboxed commands, is no longer hidden by a second entry of Foedrum's: ADR 0160's "What stays open" now holds without ADR 0087's list under it.
+- Claude's own login file, under a CLAUDE_CONFIG_DIR outside the user folders or wherever the re-open of ~/.claude reaches it, is no longer denied by Foedrum.
 - A PATH folder under the home that holds a login (`~/.config`, `~/.ssh/bin`) is re-opened when it is on serve's PATH; a Brewery keeps no such folder on its PATH.
 - The settings file of a sandboxed attempt is shorter by the list; of serve's environment, only the agent variables it passes on add an entry, one per name.
 - Claude itself still reads those variables: the deny applies to the commands a brewer runs in the sandbox, not to claude's own process.
