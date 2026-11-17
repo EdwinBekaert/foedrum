@@ -362,7 +362,7 @@ const EVIDENCE_CHECK =
   /check the evidence a dismissed or pre-existing finding's why names: a file and line, a test, or a sentence of the order or of a decision record\. Treat a dismissed or pre-existing finding whose why names no evidence, or whose evidence does not show what it claims, as held wrong, and raise it once the same way\./i;
 
 describe('a later tasting round gets the earlier findings with their dispositions (#501, ADR 0191)', () => {
-  it('gives round 3 both earlier rounds, read from their worktrees, in order, with the dispositions implement wrote', async () => {
+  it('gives round 3 both earlier rounds, read from their events, in order, with the dispositions implement wrote', async () => {
     const { prompt, reads } = await planRound(ROUND_THREE, 3);
     // Each blocked round's findings come from its event, not its worktree (ADR 0423).
     assert.deepEqual(reads, []);
