@@ -899,6 +899,9 @@ const tastingLine = (
 ): string | undefined => {
   const { tasting } = facts;
   if (tasting === undefined || steps === undefined) return undefined;
+  if (tasting.unreadable !== undefined) {
+    return `Tasting: the event log cannot be read (${oneLine(printable(tasting.unreadable))}).`;
+  }
   if (facts.modelsUnreadable !== undefined) {
     return `Tasting: models.jsonc cannot be read (${facts.modelsUnreadable}).`;
   }
@@ -912,7 +915,12 @@ const tastingLine = (
     now: tasting.at,
   });
   if (untasted.length === 0 && cheaper.length === 0) {
-    return tasting.used.some(({ deadlineAt }) => isRecent(deadlineAt, tasting.at))
+    // Only an attempt whose step today's recipes have was held against the tasted list.
+    const read = tasting.used.some(
+      ({ recipe, stepId, deadlineAt }) =>
+        isRecent(deadlineAt, tasting.at) && steps(recipe, stepId) !== undefined,
+    );
+    return read
       ? `Tasting: every model in use in the last ${TASTING_DAYS} days was tasted, and no step has a cheaper level to taste.`
       : `Tasting: no brewer attempt in the last ${TASTING_DAYS} days to read.`;
   }

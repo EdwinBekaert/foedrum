@@ -5,6 +5,7 @@
 // by the next read, so a crash after the open opens no second.
 
 import type { Recipe } from './recipes.ts';
+import { TASTING_DAYS } from './tasting-suggestions.ts';
 
 /** The label of the issue serve opens, which the intake routes to the rack recipe (ADR 0383). */
 export const RACK_LABEL = 'recipe:rack';
@@ -66,7 +67,9 @@ const rackIssueText = (rack: Recipe): { title: string; body: string } => {
     const action = rack.action(stepId);
     switch (action) {
       case 'archive':
-        return ['- it archives the finished batches on the state branch,'];
+        return [
+          `- it archives the finished batches whose newest attempt is ${TASTING_DAYS} days old on the state branch,`,
+        ];
       case 'deleteArchives':
         return [`- it deletes archive folders${age},`];
       case 'deleteTemporary':

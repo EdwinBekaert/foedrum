@@ -6,6 +6,7 @@ import { readBreweryFiles } from '../engine/brewery-files.ts';
 import { openSqliteEventStore } from '../engine/sqlite-event-store.ts';
 import { modelsUsed } from '../engine/tasting-suggestions.ts';
 import { readDenylist } from '../platform/denylist.ts';
+import { messageOf } from '../platform/errors.ts';
 import { resolveExecutable } from '../platform/executables.ts';
 import { execProcess } from '../platform/processes.ts';
 import { runGitWith } from '../workspace/git.ts';
@@ -16,17 +17,22 @@ import { storePath } from './serve-config.ts';
 
 /**
  * The models the Brewery's brewer attempts reported, read from its event log without creating or
- * changing one (ADR 0030, ADR 0419); none where it has no log yet.
+ * changing one (ADR 0030, ADR 0419); none where it has no log yet, and why where it cannot be read,
+ * so a log this Foedrum cannot read never stops the rest of doctor's report.
  */
 const readTasting = (cwd: string): TastingFact => {
   const at = new Date();
   const path = storePath(cwd);
   if (!existsSync(path)) return { used: [], at };
-  const store = openSqliteEventStore(path, { readOnly: true });
   try {
-    return { used: modelsUsed(store.eventsAfter(0).map(({ event }) => event)), at };
-  } finally {
-    store.close();
+    const store = openSqliteEventStore(path, { readOnly: true });
+    try {
+      return { used: modelsUsed(store.eventsAfter(0).map(({ event }) => event)), at };
+    } finally {
+      store.close();
+    }
+  } catch (error) {
+    return { used: [], at, unreadable: messageOf(error) };
   }
 };
 
