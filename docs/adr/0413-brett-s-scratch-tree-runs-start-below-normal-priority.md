@@ -23,7 +23,7 @@ Tools that start a child below normal set it when they create the child:
 ## Consequences
 - While a Brett step runs its mutants, its test processes show below normal priority (`ps -o ni` shows 10 more than the Brewery's own process; the task manager shows "Below normal"). The Brewery's other brewers and a person's terminal keep their share of the CPU.
 - A Brett step on a busy machine takes longer, within its deadline as before. A slow run leaves later mutants `notJudged`, as [ADR 0313](0313-the-engine-runs-brett-s-mutants-in-scratch-trees-against-a-fresh-baseline.md) says.
-- A Brewery needs no change. Outside Windows the Cellar needs `nice` on `PATH`, which coreutils and macOS install by default.
+- A Brewery needs no change. Outside Windows the Cellar needs `nice` on `PATH`. POSIX requires it, and coreutils, BusyBox and macOS install it by default, so `foedrum doctor` does not look for it as it does for bwrap, which a Cellar installs itself. On a Cellar without it, every mutant of a Brett step is recorded `notJudged` with the baseline's reason, `nice: not found on PATH`, and a blocking Brett step blocks nothing.
 - An integration test on every CI platform starts a command line with `belowNormal` and reads the priority of the program its shell starts.
 
 ## Alternatives considered
