@@ -1027,6 +1027,17 @@ export const Event = z.discriminatedUnion('type', [
     by: NonEmpty,
     via: Surface,
   }),
+  // A person let the refused push of `commit` at the openPullRequest step `stepId` go, for that
+  // exact commit and all its findings, with why (ADR 0420). An older Foedrum cannot read this event.
+  z.strictObject({
+    type: z.literal('push.allowed'),
+    batchId: BatchId,
+    stepId: StepId,
+    commit: CommitSha,
+    why: NonEmpty,
+    by: NonEmpty,
+    via: Surface,
+  }),
   // A driver's passes have failed on the batch for an hour, since `since`; it changes no lane
   // (ADR 0335). An older Foedrum cannot read this event.
   z.strictObject({

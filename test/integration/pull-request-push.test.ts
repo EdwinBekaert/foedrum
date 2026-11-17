@@ -17,6 +17,7 @@ import {
   type PullRequestRequest,
   pullRequestActions,
 } from '../../src/engine/pull-request-actions.ts';
+import { PUSH_REFUSED_QUESTION } from '../../src/engine/push-refused.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import { refusedLines } from '../../src/engine/status-comment.ts';
 import { removeTree } from '../../src/platform/remove.ts';
@@ -82,9 +83,14 @@ describe('the openPullRequest push with real git', () => {
 
   /**
    * Brews batch 12-1 of the ale recipe, whose plan does `work`, to the end of one tick, in a
-   * repository that names `sensitivePaths` when given.
+   * repository that names `sensitivePaths` when given; then, when `allow` is given, answers allow
+   * with it to a refused push and ticks once more (ADR 0420).
    */
-  const brew = async (work: (path: string) => void = commitPlan, sensitivePaths?: string[]) => {
+  const brew = async (
+    work: (path: string) => void = commitPlan,
+    sensitivePaths?: string[],
+    allow?: string,
+  ) => {
     const clock = () => new Date('2026-10-18T12:00:00.000Z');
     const requests: PullRequestRequest[] = [];
     const host: PullRequestHost = {
@@ -159,6 +165,13 @@ describe('the openPullRequest push with real git', () => {
       const route = { kind: 'route', batchId: '12-1', recipe: 'ale', reason: 'label' } as const;
       intake.issue({ ...route, source: 'label' }, clock());
       await driver.tick();
+      if (allow !== undefined) {
+        const answer = { q: PUSH_REFUSED_QUESTION, answer: 'allow' };
+        const command = { kind: 'answer', batchId: '12-1', answers: [answer], why: allow } as const;
+        const answered = intake.issue({ ...command, by: 'ada', via: 'terminal' }, clock());
+        assert.equal(answered.kind, 'accepted', JSON.stringify(answered));
+        await driver.tick();
+      }
       const plan = driver.state().batches.get('12-1')?.steps.get('plan')?.attempts.get(1);
       const planBranch = plan?.phase === 'finished' ? plan.worktree?.branch : undefined;
       return { state: driver.state(), requests, reported, planBranch };
@@ -546,6 +559,27 @@ describe('the openPullRequest push with real git', () => {
         git(path, ['commit', '-q', '-m', 'Change a']);
       });
       assert.match(stopped(state, requests), /GitHub token on line 15 of [0-9a-f]{8} in a\.txt$/);
+    });
+
+    it('pushes the refused commit a person allowed, with its token, and opens the pull request (ADR 0420)', async () => {
+      const { state, requests, planBranch } = await brew(
+        (path) => {
+          writeFileSync(join(path, 'plan.txt'), `${token}\n`);
+          git(path, ['add', 'plan.txt']);
+          git(path, ['commit', '-q', '-m', 'Plan']);
+        },
+        undefined,
+        'a fake token built in a test fixture',
+      );
+      const tip = git(user, ['rev-parse', `refs/heads/${planBranch}`]).trim();
+      assert.equal(git(origin, ['rev-parse', `refs/heads/${bottle}`]).trim(), tip);
+      assert.equal(requests.length, 1);
+      assert.deepEqual(state.batches.get('12-1')?.lane, { kind: 'on_tap', pullRequests: [url] });
+      const allowed = store
+        .eventsAfter(0)
+        .map(({ event }) => event)
+        .find((event) => event.type === 'push.allowed');
+      assert.equal(allowed?.type === 'push.allowed' ? allowed.commit : undefined, tip);
     });
 
     it('stops the push of a credential that only a merge commit adds', async () => {

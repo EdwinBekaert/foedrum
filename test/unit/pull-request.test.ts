@@ -984,6 +984,46 @@ describe('pullRequestText', () => {
     ]);
   });
 
+  it('says beside a finding that its line does not exist in the reviewed code (ADR 0421)', () => {
+    const reports = [
+      {
+        stepId: 'correctness',
+        summary: 'One blocker',
+        assumptions: [],
+        tasting: {
+          verdict: 'changes' as const,
+          findings: [{ ...blocker, line: 34, missing: 'line' as const }],
+        },
+      },
+    ];
+    const { body } = pullRequestText({ title: 'T', closes, reports });
+    assert.deepEqual(linesFrom(body, 'correctness: One blocker', 3), [
+      'correctness: One blocker',
+      '  verdict: changes',
+      '  finding: blocker in src/wait.ts:34 (that line does not exist in the reviewed code): The poll has no deadline',
+    ]);
+  });
+
+  it('says beside a finding that its file does not exist in the reviewed code (ADR 0421)', () => {
+    const reports = [
+      {
+        stepId: 'correctness',
+        summary: 'One blocker',
+        assumptions: [],
+        tasting: {
+          verdict: 'changes' as const,
+          findings: [{ ...blocker, file: 'src/gone.ts', missing: 'file' as const }],
+        },
+      },
+    ];
+    const { body } = pullRequestText({ title: 'T', closes, reports });
+    assert.deepEqual(linesFrom(body, 'correctness: One blocker', 3), [
+      'correctness: One blocker',
+      '  verdict: changes',
+      '  finding: blocker in src/gone.ts:13 (that file does not exist in the reviewed code): The poll has no deadline',
+    ]);
+  });
+
   it("lists a Taster's risk left after its findings, each on one line, leaving out one that looks like a secret (ADR 0214)", () => {
     const reports = [
       {

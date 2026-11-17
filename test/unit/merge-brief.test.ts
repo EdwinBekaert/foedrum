@@ -1256,6 +1256,31 @@ describe('the merge brief (ADR 0225)', () => {
       );
     });
 
+    it('says beside an open finding that its line does not exist in the reviewed code (ADR 0421)', async () => {
+      order('lined');
+      run('implement');
+      run(
+        'taste',
+        tasting([
+          {
+            severity: 'minor',
+            why: 'The retry has no limit',
+            introduced: true,
+            file: 'src/login.ts',
+            line: 34,
+            missing: 'line',
+          },
+        ]),
+        { commit: head },
+      );
+      open();
+      finished([passed('ci/build')]);
+      assert.match(
+        await brief(),
+        /- `taste`: open: minor in src\/login\.ts:34 \(that line does not exist in the reviewed code\): The retry has no limit/,
+      );
+    });
+
     it('says a pre-existing finding is filed in the Brewery once the pull request merges', async () => {
       order('lined');
       run('implement');

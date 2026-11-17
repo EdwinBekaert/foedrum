@@ -83,6 +83,7 @@ import {
   TakeoverCommand,
 } from '../schemas/commands.ts';
 import type { Event, OrderRef, Surface, UsageScope } from '../schemas/events.ts';
+import { NonEmpty } from '../schemas/step-outcome.ts';
 import type { z } from '../schemas/zod.ts';
 import { brewerReport, formatBrewerReport, recipesRun } from './brewer-report.ts';
 import { diagnose, formatDiagnosis } from './doctor.ts';
@@ -903,6 +904,20 @@ export const commands: readonly RegisteredCommand[] = [
     handler: async ({ issue, answers }, context) =>
       changeBatch('answer', issue, context, (batch, issued, state) => {
         const asked = questionsOf(state(), batch);
+        // The words after allow are its reason, which the engine checks (ADR 0420).
+        const [first, ...reason] = answers;
+        if (asked[0] === PUSH_REFUSED_QUESTION && first === 'allow') {
+          return {
+            kind: 'answer',
+            ...issued(batch),
+            answers: [{ q: PUSH_REFUSED_QUESTION, answer: first }],
+            why: reason.join(' '),
+          };
+        }
+        // Only the reason of an allow may hold a blank word, which the schema let through.
+        if (answers.some((answer) => !NonEmpty.safeParse(answer).success)) {
+          return { refused: 'an answer must not be empty' };
+        }
         // A batch that asks nothing is decide's to refuse, with its reason.
         if (asked.length > 0 && answers.length !== asked.length) {
           const questions = asked.length === 1 ? '1 question' : `${asked.length} questions`;

@@ -13,6 +13,7 @@ import {
   type ClaudeRunnerDeps,
   claudeBrewerRunnerWith,
   clearOutDocFile,
+  realRunnerDeps,
   restoreOutDocFile,
   waitFor,
   writeSystemPromptFile,
@@ -24,11 +25,13 @@ import type {
   CommitsScanned,
   CommitsSeen,
 } from '../../src/engine/brewer-runner.ts';
+import type { FilesRead } from '../../src/engine/finding-places.ts';
 import type { PathsRead, PlanRepository } from '../../src/engine/plan-touches.ts';
 import type { StreamOptions, StreamResult } from '../../src/platform/processes.ts';
 import type { AttemptSettings } from '../../src/schemas/attempt-settings.ts';
-import { FiningOutDoc, OutDocFrontmatter } from '../../src/schemas/out-doc.ts';
+import { FiningOutDoc, OutDocFrontmatter, TastingOutDoc } from '../../src/schemas/out-doc.ts';
 import { PlanOutDoc } from '../../src/schemas/plan.ts';
+import type { Git } from '../../src/workspace/git.ts';
 import {
   documentedUsageLimits,
   limitResults,
@@ -110,6 +113,10 @@ const setup = (
     touched?: PathsRead;
     /** Runs while a plan's paths are read, before the read answers (ADR 0233). */
     whileReading?: () => void;
+    /** The files git finds at the head a Taster reviewed (ADR 0421); default none. */
+    cited?: FilesRead;
+    /** Runs while those files are read, before the read answers (ADR 0421). */
+    whileCiting?: () => void;
     /** Runs while the commits are counted, before the count answers. */
     whileCounting?: () => void;
     /** Why removing the out doc a run before left fails, if it does. */
@@ -125,6 +132,12 @@ const setup = (
   const scans: { clone: string; branch: string; since: string; signal: AbortSignal | undefined }[] =
     [];
   const pathReads: {
+    clone: string;
+    commit: string;
+    paths: readonly string[];
+    signal: AbortSignal | undefined;
+  }[] = [];
+  const fileReads: {
     clone: string;
     commit: string;
     paths: readonly string[];
@@ -222,6 +235,11 @@ const setup = (
       more.whileReading?.();
       return more.touched ?? { kind: 'read', present: new Set(paths) };
     },
+    places: async (clone, commit, paths, signal) => {
+      fileReads.push({ clone, commit, paths, signal });
+      more.whileCiting?.();
+      return more.cited ?? { kind: 'read', files: new Map() };
+    },
   };
   return {
     calls,
@@ -235,6 +253,7 @@ const setup = (
     counts,
     scans,
     pathReads,
+    fileReads,
     runner: claudeBrewerRunnerWith(deps),
   };
 };
@@ -1257,6 +1276,88 @@ describe("claudeBrewerRunner: the touches check of a plan's done (ADR 0233)", ()
     assert.match(
       ending.kind === 'failed' ? ending.reason : '',
       /sub-order api, src\/api\.ts in acme\/api at c{12}$/,
+    );
+  });
+});
+
+describe("claudeBrewerRunner: a Taster's findings at the head it reviewed (ADR 0421)", () => {
+  const commit = 'e'.repeat(40);
+  const reviewing = async () => ({ ...plan(), reviewed: { clone: '/work/api.git', commit } });
+  const tasting: AttemptStart = {
+    ...attempt,
+    limits: { ...limits, outDoc: { file: 'taste.md', schema: TastingOutDoc } },
+  };
+  const tasted = outDoc({
+    status: 'done',
+    summary: 'One finding',
+    verdict: 'approve',
+    findings: [
+      { file: 'src/login.ts', line: 34, severity: 'minor', why: 'No limit', introduced: true },
+    ],
+  });
+  const cited: FilesRead = { kind: 'read', files: new Map([['src/login.ts', 'one\ntwo\n']]) };
+
+  it('reads the cited files at the commit it reviewed, and marks a finding whose line does not exist', async () => {
+    const { fileReads, runner } = setup(
+      { lines: fixture('success.jsonl'), result: exited(0) },
+      { plan: reviewing, outDoc: tasted, cited },
+    );
+    const { ending } = await runner.start(tasting).ended;
+    assert.deepEqual(
+      fileReads.map(({ clone, commit, paths }) => ({ clone, commit, paths })),
+      [{ clone: '/work/api.git', commit, paths: ['src/login.ts'] }],
+    );
+    assert.deepEqual(ending.kind === 'succeeded' && ending.output, {
+      status: 'done',
+      summary: 'One finding',
+      assumptions: [],
+      verdict: 'approve',
+      findings: [
+        {
+          file: 'src/login.ts',
+          line: 34,
+          severity: 'minor',
+          why: 'No limit',
+          introduced: true,
+          missing: 'line',
+        },
+      ],
+    });
+  });
+
+  it("cancels an attempt stopped while its findings' files are read, with the attempt's own stop signal", async () => {
+    let stop = (): void => {};
+    const { fileReads, runner } = setup(
+      { lines: fixture('success.jsonl'), result: exited(0) },
+      { plan: reviewing, outDoc: tasted, cited, whileCiting: () => stop() },
+    );
+    const run = runner.start(tasting);
+    stop = run.stop;
+    assert.deepEqual((await run.ended).ending, { kind: 'cancelled' });
+    assert.equal(fileReads[0]?.signal?.aborted, true);
+  });
+});
+
+describe("realRunnerDeps: the real runner's dependencies (ADR 0421)", () => {
+  it("reads a Taster's cited files with git, in the clone at the commit it reviewed", async () => {
+    const commit = 'e'.repeat(40);
+    const object = 'f'.repeat(40);
+    const calls: { cwd: string; args: readonly string[] }[] = [];
+    const git: Git = async (cwd, args) => {
+      calls.push({ cwd, args });
+      const stdout = args[0] === 'ls-tree' ? `100644 blob ${object}\tsrc/a.ts\0` : 'one\n';
+      return { code: 0, stdout, stderr: '' };
+    };
+    const { places } = realRunnerDeps({ claude: 'claude', plan: async () => plan() }, git);
+    assert.ok(places !== undefined, 'the real runner reads no cited file');
+    const read = await places('/work/api.git', commit, ['src/a.ts']);
+    assert.deepEqual(read, { kind: 'read', files: new Map([['src/a.ts', 'one\n']]) });
+    assert.deepEqual(
+      calls.map(({ cwd, args }) => [cwd, args[0]]),
+      [
+        ['/work/api.git', 'ls-tree'],
+        ['/work/api.git', 'cat-file'],
+      ],
     );
   });
 });

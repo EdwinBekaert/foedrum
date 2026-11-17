@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { checkLine, entriesOf, parseCitation } from '../../scripts/citations/core.ts';
+import { checkLine, entriesOf, parseCitation } from '../../src/checks/citations.ts';
 
 const finding = { severity: 'major', file: 'src/engine/wait.ts', line: 13, title: 'No deadline' };
 

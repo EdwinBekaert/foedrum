@@ -12,7 +12,7 @@ import { type Git, gitFailure } from './git.ts';
 const MOST_PATH_CHARS = 24_000;
 
 /** `paths` in runs of at most `MOST_PATH_CHARS` characters, each with at least one path. */
-const runsOf = (paths: readonly string[]): string[][] => {
+export const runsOf = (paths: readonly string[]): string[][] => {
   const runs: string[][] = [];
   let run: string[] = [];
   let size = 0;

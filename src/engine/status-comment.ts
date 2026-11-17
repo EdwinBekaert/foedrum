@@ -752,10 +752,10 @@ const nextLines = (
           `Next: answer the questions above with ${code(`foedrum answer ${called} ${answers}`)}${or}.`,
         ];
       }
-      // Stop is the one answer a refused push takes (ADR 0418).
+      // A refused push takes allow, for its commit, or stop (ADR 0418, ADR 0420).
       case 'push_refused':
         return [
-          `Next: look at each finding above, then end the batch with ${code(`foedrum answer ${called} stop`)}.`,
+          `Next: look at each finding above, then let the push of this commit go with ${code(`foedrum answer ${called} allow "<why>"`)}, or end the batch with ${code(`foedrum answer ${called} stop`)}.`,
         ];
       // The one question of an issue that changed since its approval (ADR 0368).
       case 'order_changed': {
@@ -963,6 +963,16 @@ const stepLine = (batch: Batch, stepId: string, told: Told, stateBranchUrl?: str
     default:
       return outcome satisfies never;
   }
+};
+
+/** Who let the refused push of the step go, of which commit, and why, under its line (ADR 0420). */
+const allowedLines = (batch: Batch, stepId: string, told: Told): string[] => {
+  const allowed = batch.pushAllowed;
+  if (allowed?.stepId !== stepId) return [];
+  const { commit, by, via, why } = allowed;
+  return [
+    `  - its push of ${code(shortSha(commit))} was allowed by ${plain(by)} (${via}): ${told(why, stepId)}`,
+  ];
 };
 
 /**
@@ -1442,6 +1452,7 @@ export const renderStatus = (
       ...pathLines(batch, told),
       ...stepIds.flatMap((stepId) => [
         stepLine(batch, stepId, told, stateBranchUrl),
+        ...allowedLines(batch, stepId, told),
         ...coverageLines(batch, stepId, told),
       ]),
     ],

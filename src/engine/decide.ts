@@ -97,7 +97,8 @@ interface Issuer {
 export type HumanCommand =
   | ({ kind: 'retry' } & Issuer)
   | ({ kind: 'skip' } & Issuer)
-  | ({ kind: 'answer'; answers: readonly Answer[] } & Issuer)
+  /** `why`: the reason given with `allow` to a refused push (ADR 0420). */
+  | ({ kind: 'answer'; answers: readonly Answer[]; why?: string } & Issuer)
   | ({ kind: 'recipe'; recipe: string; reason: string } & Issuer)
   /** `shas`: the commit of each repository at `toStepId`, by `owner/name`. */
   | ({ kind: 'rewind'; toStepId: string; shas: Readonly<Record<string, string>> } & Issuer)
@@ -1161,6 +1162,27 @@ function orderChanged(draft: Draft, command: Extract<Command, { kind: 'order_cha
 }
 
 /**
+ * Resumes the batch and schedules the attempt of `stepId` as it was scheduled, never as an answer a
+ * brewer reads, with the group's other children abandoned with it (ADR 0168): what a continue
+ * (ADR 0368) and an allow (ADR 0420) do after their own event.
+ */
+function resumeAsScheduled(
+  draft: Draft,
+  { batchId, by, via }: Pick<Extract<Command, { kind: 'answer' }>, 'batchId' | 'by' | 'via'>,
+  stepId: string,
+): void {
+  const step = draft.batch(batchId).steps.get(stepId);
+  const asked = step === undefined ? undefined : latestAttempt(step);
+  draft.push({ type: 'batch.resumed', batchId, by, via, action: 'answer' });
+  schedule(draft, batchId, stepId, {
+    ...(asked?.route === undefined ? {} : { route: asked.route }),
+    ...(asked?.retry === undefined ? {} : { retry: asked.retry }),
+    ...(asked?.answered === undefined ? {} : { answered: asked.answered }),
+  });
+  resumeGroup(draft, batchId, stepId);
+}
+
+/**
  * The engineer's answer to a batch whose issue changed (ADR 0368): `continue` approves the issue up
  * to the changes it was shown and schedules the step's attempt as it was scheduled, never as an
  * answer a brewer reads; `stop` ends the batch as a cancel does.
@@ -1176,17 +1198,8 @@ function continueOrStop(
   }
   switch (only.answer) {
     case 'continue': {
-      const step = draft.batch(batchId).steps.get(stepId);
-      const asked = step === undefined ? undefined : latestAttempt(step);
       draft.push({ type: 'order.approved', batchId, upTo, by, via });
-      draft.push({ type: 'batch.resumed', batchId, by, via, action: 'answer' });
-      schedule(draft, batchId, stepId, {
-        ...(asked?.route === undefined ? {} : { route: asked.route }),
-        ...(asked?.retry === undefined ? {} : { retry: asked.retry }),
-        ...(asked?.answered === undefined ? {} : { answered: asked.answered }),
-      });
-      // The group's other children, abandoned with it, run again (ADR 0168).
-      resumeGroup(draft, batchId, stepId);
+      resumeAsScheduled(draft, { batchId, by, via }, stepId);
       return;
     }
     case 'stop':
@@ -1197,17 +1210,36 @@ function continueOrStop(
   }
 }
 
-/** The answer to a batch whose push was refused (ADR 0418): `stop` ends it as a cancel does. */
-function stopRefused(
+/**
+ * The answer to a batch whose push was refused: `stop` ends it as a cancel does (ADR 0418); `allow`,
+ * with a reason, lets the push of the refused commit go and schedules the step again as it was
+ * scheduled, as an issue's continue does (ADR 0420).
+ */
+function allowOrStop(
   draft: Draft,
-  { batchId, by, via, answers }: Extract<Command, { kind: 'answer' }>,
+  { batchId, by, via, answers, why }: Extract<Command, { kind: 'answer' }>,
+  { stepId, commit }: Extract<StuckReason, { kind: 'push_refused' }>,
 ): void {
   const [only, ...rest] = answers;
   if (only?.q !== PUSH_REFUSED_QUESTION || rest.length > 0) {
     throw new Refusal(`batch ${batchId} asks one question: ${PUSH_REFUSED_QUESTION}`);
   }
-  if (only.answer !== 'stop') throw new Refusal(`answer stop, not "${only.answer}"`);
-  draft.push({ type: 'batch.cancelled', batchId, by, via });
+  switch (only.answer) {
+    case 'allow': {
+      if (why === undefined || !/\S/.test(why)) {
+        const called = calledAs(draft.state, draft.batch(batchId));
+        throw new Refusal(`allow takes a reason: foedrum answer ${called} allow "<why>"`);
+      }
+      draft.push({ type: 'push.allowed', batchId, stepId, commit, why, by, via });
+      resumeAsScheduled(draft, { batchId, by, via }, stepId);
+      return;
+    }
+    case 'stop':
+      draft.push({ type: 'batch.cancelled', batchId, by, via });
+      return;
+    default:
+      throw new Refusal(`answer allow "<why>" or stop, not "${only.answer}"`);
+  }
 }
 
 /** The next reminder of a Conditioning or Stuck batch, once the current one is due (ADR 0025). */
@@ -1256,7 +1288,7 @@ function answer(draft: Draft, command: Extract<Command, { kind: 'answer' }>): vo
     return;
   }
   if (reason.kind === 'push_refused') {
-    stopRefused(draft, command);
+    allowOrStop(draft, command, reason);
     return;
   }
   if (reason.kind !== 'needs_input') {
