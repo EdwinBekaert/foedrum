@@ -12,7 +12,7 @@ import { type Command, type Context, decide } from '../../src/engine/decide.ts';
 import { type Batch, emptyState, fold, type State } from '../../src/engine/fold.ts';
 import { laneLabel } from '../../src/engine/lane-labels.ts';
 import { PUSH_REFUSED_QUESTION } from '../../src/engine/push-refused.ts';
-import { renderStatus } from '../../src/engine/status-comment.ts';
+import { refusedLines, renderStatus } from '../../src/engine/status-comment.ts';
 import type { Event, StuckReason } from '../../src/schemas/events.ts';
 import type { ScanFinding } from '../../src/schemas/store.ts';
 import { fakeRecipe, fakeRecipes, hour } from '../helpers/fake-recipes.ts';
@@ -190,6 +190,16 @@ describe('a refused push, as people see it (ADR 0418)', () => {
       ),
       text,
     );
+  });
+
+  it('says "at least" of the findings past a full ledger list, which may have cut more (ADR 0418)', () => {
+    const full = {
+      ...reason,
+      findings: twelve.slice(0, 10),
+      more: 40,
+    } satisfies Extract<StuckReason, { kind: 'push_refused' }>;
+    assert.equal(refusedLines(full).at(-1), 'and at least 40 more');
+    assert.equal(refusedLines({ ...full, more: 39 }).at(-1), 'and 39 more');
   });
 
   it('carries the label of a batch that waits for an answer', () => {
