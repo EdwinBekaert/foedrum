@@ -9,6 +9,7 @@ import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import type { Git, GitOptions, GitResult } from '../../src/workspace/git.ts';
 import {
+  openBranchCommit,
   openCommitTree,
   openMergedTree,
   openMergeTree,
@@ -376,5 +377,110 @@ describe('openCommitTree', () => {
       { message: '"src/add.mjs" is not UTF-8: a rewrite would change more than its line' },
     );
     assert.equal(used, false);
+  });
+});
+
+describe('openBranchCommit (ADR 0412)', () => {
+  const BRANCH = 'foedrum/12-1/implement/1';
+  const BLOB = '1'.repeat(40);
+  const NEW_TREE = '2'.repeat(40);
+  const NEW_COMMIT = '3'.repeat(40);
+
+  /** A git that names TIP as the branch's tip and answers the plumbing with distinct shas. */
+  const branchGit = () => {
+    const recorded = recordingGit(ok());
+    const git: Git = async (cwd, args, options) => {
+      const result = await recorded.git(cwd, args, options);
+      if (args.includes('rev-parse') && args.includes(`refs/heads/${BRANCH}^{commit}`)) {
+        return ok(`${TIP}\n`);
+      }
+      if (args.includes('hash-object')) return ok(`${BLOB}\n`);
+      if (args.includes('write-tree')) return ok(`${NEW_TREE}\n`);
+      if (args.includes('commit-tree')) return ok(`${NEW_COMMIT}\n`);
+      return result;
+    };
+    const call = (command: string) => recorded.calls.find(({ args }) => args.includes(command));
+    return { git, calls: recorded.calls, call };
+  };
+
+  it("commits the files it names on the branch's tip as Foedrum, and moves the branch only from that tip", async () => {
+    const { git, call } = branchGit();
+    const commit = openBranchCommit({
+      git,
+      clone,
+      own: { url, root: nextFolder(), id: () => 'one' },
+    });
+    const seen: string[] = [];
+    const done = await commit(BRANCH, 'Refresh the lockfile', async (worktree) => {
+      seen.push(worktree);
+      return { value: 'refreshed', files: ['web/package-lock.json'] };
+    });
+    assert.deepStrictEqual(done, { value: 'refreshed', commit: NEW_COMMIT });
+    // The tree checked out is the tip's, and the lockfile goes onto that tip's tree.
+    assert.equal(call('worktree')?.args.at(-1), TIP);
+    assert.match(seen[0] ?? '', /one\.tree$/);
+    const read = call('read-tree');
+    assert.equal(read?.args.at(-1), TIP);
+    const index = read?.options?.env?.GIT_INDEX_FILE;
+    assert.ok(index !== undefined);
+    assert.equal(call('hash-object')?.args.at(-1), join(seen[0] ?? '', 'web', 'package-lock.json'));
+    assert.deepStrictEqual(call('update-index')?.args.slice(-3), [
+      '--add',
+      '--cacheinfo',
+      `100644,${BLOB},web/package-lock.json`,
+    ]);
+    assert.equal(call('update-index')?.options?.env?.GIT_INDEX_FILE, index);
+    assert.equal(call('write-tree')?.options?.env?.GIT_INDEX_FILE, index);
+    const made = call('commit-tree');
+    assert.deepStrictEqual(made?.args.slice(-5), [
+      NEW_TREE,
+      '-p',
+      TIP,
+      '-m',
+      'Refresh the lockfile',
+    ]);
+    assert.equal(made?.options?.env?.GIT_AUTHOR_NAME, 'Foedrum');
+    // In the clone, with none of its hooks, from the tip only.
+    const moved = call('update-ref');
+    assert.equal(moved?.cwd, clone);
+    assert.equal(moved?.options?.config?.['core.hooksPath'], devNull);
+    assert.deepStrictEqual(moved?.args.slice(-3), [`refs/heads/${BRANCH}`, NEW_COMMIT, TIP]);
+  });
+
+  it('commits nothing and leaves the branch where it is when it names no file', async () => {
+    const { git, calls } = branchGit();
+    const commit = openBranchCommit({
+      git,
+      clone,
+      own: { url, root: nextFolder(), id: () => 'one' },
+    });
+    const done = await commit(BRANCH, 'Refresh the lockfile', async () => ({
+      value: 1,
+      files: [],
+    }));
+    assert.deepStrictEqual(done, { value: 1 });
+    // It did check the tip out.
+    assert.ok(calls.some(({ args }) => args.includes('worktree')));
+    for (const command of ['hash-object', 'commit-tree', 'update-ref']) {
+      assert.equal(
+        calls.some(({ args }) => args.includes(command)),
+        false,
+        command,
+      );
+    }
+  });
+
+  it('refuses a branch that is no attempt branch, before git runs', async () => {
+    const { git, calls } = branchGit();
+    const commit = openBranchCommit({
+      git,
+      clone,
+      own: { url, root: nextFolder(), id: () => 'one' },
+    });
+    await assert.rejects(
+      commit('--output=x', 'Refresh', async () => ({ value: 1, files: [] })),
+      /"--output=x" is no attempt branch/,
+    );
+    assert.deepStrictEqual(calls, []);
   });
 });

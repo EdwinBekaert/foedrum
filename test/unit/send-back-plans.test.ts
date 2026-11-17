@@ -268,3 +268,69 @@ describe('createAttemptPlans: the checks before the end (ADR 0381)', () => {
     assert.ok((await plansOf(events).plan(startOf('implement'))).sendBack !== undefined);
   });
 });
+
+describe('createAttemptPlans: the lockfile refresh after a release bump (ADR 0412)', () => {
+  const lib = 'https://github.com/acme/lib/pull/5';
+  /** Order #1: #12 in acme/api waits on #11 in acme/lib by `kind`; #11 merged, v1.4.0 released. */
+  const subOrder = (kind: 'code' | 'release'): Event[] => [
+    {
+      type: 'batch.ordered',
+      batchId: '1-1',
+      order: { issue: 1 },
+      routeBy: '2026-10-18T14:00:00.000Z',
+    },
+    {
+      type: 'order.decomposed',
+      batchId: '1-1',
+      subOrders: [
+        { issue: 11, repo: 'acme/lib' },
+        { issue: 12, repo: 'acme/api' },
+      ],
+      dependencies: [{ subOrder: 12, blockedBy: 11, kind }],
+    },
+    { type: 'batch.on_tap', batchId: '1-1', pullRequests: [] },
+    {
+      type: 'batch.ordered',
+      batchId: '11-1',
+      order: { issue: 11 },
+      parentBatchId: '1-1',
+      routeBy: '2026-10-18T14:00:00.000Z',
+    },
+    { type: 'batch.on_tap', batchId: '11-1', pullRequests: [lib] },
+    { type: 'pull_request.ended', batchId: '11-1', pullRequest: lib, state: 'merged' },
+    { type: 'release.observed', repo: 'acme/lib', package: 'lib', version: 'v1.4.0' },
+    ...ordered.map((event) =>
+      event.type === 'batch.ordered' ? { ...event, parentBatchId: '1-1' } : event,
+    ),
+    ...gauged,
+  ];
+
+  it("the plan of a committing brewer in a batch that waited for a release holds its repository's refresh", async () => {
+    const events = [...subOrder('release'), ...started('implement', 'c'.repeat(40))];
+    const plan = await plansOf(events).plan(startOf('implement'));
+    assert.equal(plan.refresh?.repo, 'acme/api');
+    assert.equal(plan.refresh?.deadlineAt, deadlineAt('implement'));
+    assert.equal(plan.refresh?.unsandboxed, false);
+    // The setup's environment: claude's login is claude's alone (ADR 0069).
+    assert.equal(plan.refresh?.env.ANTHROPIC_API_KEY, undefined);
+    assert.equal(plan.refresh?.env.npm_config_ignore_scripts, 'true');
+  });
+
+  it('holds no refresh in a batch that waited for no release (regression test)', async () => {
+    for (const events of [[...ordered, ...gauged], subOrder('code')]) {
+      const plan = await plansOf([...events, ...started('implement', 'c'.repeat(40))]).plan(
+        startOf('implement'),
+      );
+      assert.equal(plan.refresh, undefined);
+      // The same brewer's plan, so the absence is the batch's.
+      assert.ok(plan.commits !== undefined);
+    }
+  });
+
+  it('holds no refresh for a brewer that does not commit (regression test)', async () => {
+    const events = [...subOrder('release'), ...started('correctness', 'c'.repeat(40))];
+    const plan = await plansOf(events).plan(startOf('correctness'));
+    assert.equal(plan.commits, undefined);
+    assert.equal(plan.refresh, undefined);
+  });
+});

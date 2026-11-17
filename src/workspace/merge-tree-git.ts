@@ -176,6 +176,24 @@ const checkedOut = async <T>(
   }
 };
 
+/**
+ * Runs `use` with a scratch worktree of the tip of `branch`, an attempt's branch in the clone, and
+ * commits the files it names on that branch, as Foedrum, with `message` (ADR 0412); the commit's
+ * sha, or none when `use` names no file.
+ */
+export type BranchCommit = <T>(
+  branch: string,
+  message: string,
+  use: (worktree: string) => Promise<{ value: T; files: readonly string[] }>,
+  signal?: AbortSignal,
+) => Promise<{ value: T; commit?: string }>;
+
+export const openBranchCommit =
+  (_options: MergeTreeOptions): BranchCommit =>
+  () => {
+    throw new Error('not implemented');
+  };
+
 /** A file of a scratch tree rewritten after its checkout: a mutant's (ADR 0313). */
 export interface TreeEdit {
   /** A plain relative path, with forward slashes. */

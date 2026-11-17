@@ -46,6 +46,7 @@ import {
   scanAttemptCommits,
 } from '../workspace/attempt-commits-git.ts';
 import { runGit } from '../workspace/git.ts';
+import type { BranchCommit } from '../workspace/merge-tree-git.ts';
 import { readPathsAt } from '../workspace/plan-paths-git.ts';
 import { type AttemptSystemPrompt, outDocCopyOf } from './attempt-plan.ts';
 import {
@@ -96,6 +97,12 @@ export interface ClaudeAttemptPlan {
    * its session ended done with commits, and a failure sent back to that session once.
    */
   sendBack?: SendBackPlan;
+  /**
+   * For a brewer that produces commits in a batch that waited for a release: its repository, and
+   * the setup's environment and the attempt's deadline, under which the lockfile beside each
+   * manifest its commits changed is refreshed and committed once it ends succeeded (ADR 0412).
+   */
+  refresh?: { repo: string; deadlineAt: string; env: Env; unsandboxed: boolean };
   /** The house-yeast rules the plan gave the brewer, which its end records (ADR 0169). */
   houseYeast?: HouseYeastSelection;
   /** The highest comment id per issue the prompt holds, which its end records (ADR 0338). */
@@ -130,6 +137,12 @@ export interface ClaudeRunnerDeps {
    * 0158). A plan with a setup and no runner for it is blocked on its environment.
    */
   setup?: ExecProcess;
+  /**
+   * A scratch tree of an attempt's branch in `clone`, a repository's, whose refreshed lockfiles are
+   * committed on that branch (ADR 0412). A plan with a refresh and none is blocked on its
+   * environment.
+   */
+  branchCommit?: (clone: string, repo: string) => BranchCommit;
   files: {
     writeSettings: (file: string, settings: AttemptSettings) => void;
     /** Writes the attempt's system prompt file (ADR 0183). */
