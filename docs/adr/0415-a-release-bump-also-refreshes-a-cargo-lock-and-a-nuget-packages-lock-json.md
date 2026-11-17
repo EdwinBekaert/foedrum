@@ -19,7 +19,8 @@ Two of their lockfiles are not beside the manifest that changed:
   A project whose name a shell line cannot quote alike in `/bin/sh` and cmd.exe (the test the checks before a brewer's end use, ADR 0381) is left out.
   No `--force-evaluate`: it is for floating versions, and restore already "re-evaluates the package graph and updates the lock file" when the project's dependencies changed.
 - **NuGet, a `Directory.Packages.props`.** For each changed one, every `packages.lock.json` in its folder and the folders below, beside the one project of its folder, restored as above.
-  The walk passes over `bin`, `obj`, `node_modules` and `.git`, and does not follow a link or a junction.
+  The walk passes over `bin`, `obj`, `node_modules` and `.git` in any case, and does not follow a link or a junction.
+  A folder it cannot read ends the attempt `blocked`, `environment`: `the lockfiles could not be refreshed: <why>` (ADR 0412), rather than leave a lockfile stale unseen.
   A folder with two projects is passed over: NuGet names their lockfiles `packages.<project_name>.lock.json`.
   A project below a deeper props is restored too; its dependencies did not change, so its lockfile stays as it was.
 - **Once each.** A lockfile two changed manifests lead to, such as a workspace's for two members, is refreshed once.
@@ -30,7 +31,8 @@ Two of their lockfiles are not beside the manifest that changed:
 ## Security
 `dotnet restore` evaluates the project's MSBuild files, so a `Directory.Build.targets` a brewer wrote runs, as ADR 0158 already names for a setup's `dotnet restore`.
 It runs in the same sandbox, with the same environment, as the setup does before every brewer attempt (ADR 0163).
-`cargo update` runs no build script.
+`cargo update` builds nothing, so it runs no build script; it still reads the repository's Cargo configuration (`.cargo/config.toml`), which a brewer can write and which can name programs Cargo starts, such as a registry's credential provider.
+Those run in the same sandbox and environment as the setup and `dotnet restore`.
 So no row of [docs/trust-boundaries.md](../trust-boundaries.md) gains a risk, and no safeguard is added.
 The project's name goes into the command line only when it passes the quoting test; that is the command's own correctness, not a safeguard.
 
