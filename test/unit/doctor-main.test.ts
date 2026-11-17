@@ -127,30 +127,34 @@ describe('doctorFromCheckout: the models brewer attempts reported (ADR 0419)', (
       mkdirSync(join(brewery.path, '.foedrum'));
       const store = openSqliteEventStore(storePath(brewery.path));
       const ref = { batchId: 'b1', stepId: 'brew', attempt: 1 };
-      store.withTransaction((tx) => {
-        tx.append({
-          type: 'batch.ordered',
-          batchId: 'b1',
-          order: { issue: 1 },
-          routeBy: '2026-12-31T00:00:00.000Z',
+      try {
+        store.withTransaction((tx) => {
+          tx.append({
+            type: 'batch.ordered',
+            batchId: 'b1',
+            order: { issue: 1 },
+            routeBy: '2026-12-31T00:00:00.000Z',
+          });
+          tx.append({
+            type: 'batch.recipe_chosen',
+            batchId: 'b1',
+            recipe: 'nip',
+            reason: 'label',
+            source: 'label',
+          });
+          tx.append({ type: 'step.scheduled', ...ref, deadlineAt: '2026-11-29T12:00:00.000Z' });
+          tx.append({ type: 'step.started', ...ref });
+          tx.append({
+            type: 'step.finished',
+            ...ref,
+            outcome: { kind: 'succeeded', output: null },
+            claude: { version: '2.1.301', model: 'claude-opus-5-6' },
+          });
         });
-        tx.append({
-          type: 'batch.recipe_chosen',
-          batchId: 'b1',
-          recipe: 'nip',
-          reason: 'label',
-          source: 'label',
-        });
-        tx.append({ type: 'step.scheduled', ...ref, deadlineAt: '2026-11-29T12:00:00.000Z' });
-        tx.append({ type: 'step.started', ...ref });
-        tx.append({
-          type: 'step.finished',
-          ...ref,
-          outcome: { kind: 'succeeded', output: null },
-          claude: { version: '2.1.301', model: 'claude-opus-5-6' },
-        });
-      });
-      store.close();
+      } finally {
+        // Closed before the folder goes: Windows cannot delete an open file.
+        store.close();
+      }
       const facts = await doctorFromCheckout(brewery.path, options);
       assert.deepEqual(facts.tasting?.used, [
         {
