@@ -42,7 +42,7 @@ export const blocked = (
 });
 
 /** What `testChanged` holds for the commit a batch's change starts from (ADR 0242). */
-export const BASE = '{base}';
+const BASE = '{base}';
 
 /** A check ready to run: its command line on this platform, or a skip. */
 export type PlannedCheck =
