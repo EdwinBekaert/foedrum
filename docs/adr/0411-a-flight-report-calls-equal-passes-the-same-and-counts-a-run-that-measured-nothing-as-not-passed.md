@@ -18,7 +18,8 @@ Nothing compared two Flights, and three cases the rule does not name decide what
   Two Flights of unequal runs that both passed every run of an order, such as 1 of 1 against 3 of 3, are too close to call: the side with at most one pass did not fail, so a shorter Flight never makes a difference easier to call.
 - **Decided in #1084's plan on 2026-11-17: a run that measured nothing counts as a run that did not pass.**
   An order's passes are out of its Flight's runs, the highest run number the Flight recorded, so a Flight that stopped short of an order's last runs did not pass them either.
-  A setup "passes every run" only when it passed as many runs as its Flight has: a difference is never called from fewer runs than were asked for.
+  A setup "passes every run" only when it passed as many runs as its Flight recorded: a difference is never called from fewer runs than the Flight brewed.
+  The records do not say how many runs a Flight was asked for, so a Flight stopped after its first runs counts only those: 1 of 1 against 0 of 3 is still called, and a person reads the Runs column of each Flight's own table.md before trusting a report of two Flights of unequal runs.
   The other columns are over the runs that measured something.
 - **Decided in #1084's plan on 2026-11-17: an order only one Flight has, or that one Flight measured no run of, is listed under the table and left out of every count.**
   There is nothing to compare it with, and counting it on one side would move that side's total for an order the other never brewed.
@@ -35,5 +36,5 @@ None: this is a development script of Foedrum's own repository, run by hand on s
 
 ## Alternatives considered
 - **Equal counts as "too close to call":** the summary would count every order both Flights solved alike as a near miss.
-- **Passes out of the runs that measured something:** 2 of 2 measured would pass "every run" of a Flight asked for 3, calling a difference on less than the rule's evidence.
+- **Passes out of the runs that measured something:** 2 of 2 measured would pass "every run" of a Flight that brewed 3, calling a difference on less than the rule's evidence.
 - **A mode of `flight.ts`:** the report reads two finished Flights and brews nothing, so it is a script of its own over the same records.
