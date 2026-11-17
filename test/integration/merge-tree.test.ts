@@ -9,6 +9,7 @@ import { join } from 'node:path';
 import { after, before, describe, it } from 'node:test';
 import { runGit } from '../../src/workspace/git.ts';
 import {
+  openBranchCommit,
   openCommitTree,
   openMergedTree,
   openMergeTree,
@@ -228,5 +229,80 @@ describe('openMergedTree, with real git (ADR 0203)', () => {
     assert.equal(existsSync(root) ? readdirSync(root).length : 0, 0);
     // The commit as it is: the clone's file stays.
     assert.equal(git(clone, ['show', `${head}:app.txt`]), 'the batch');
+  });
+
+  it("commits a refreshed file on an attempt's branch as Foedrum, the rest of the tip's tree as it was (ADR 0412)", async () => {
+    const branch = 'foedrum/12-1/implement/1';
+    git(clone, ['branch', branch, head]);
+    const commit = openBranchCommit({
+      git: runGit,
+      clone,
+      own: { url: join(dir.path, 'nowhere.git'), root },
+    });
+    const done = await commit(branch, 'Refresh app.txt', async (worktree) => {
+      writeFileSync(join(worktree, 'app.txt'), 'refreshed\n');
+      return { value: 'ran', files: ['app.txt'] };
+    });
+    assert.equal(done.value, 'ran');
+    assert.equal(git(clone, ['rev-parse', branch]), done.commit);
+    assert.equal(
+      git(clone, ['log', '-1', '--format=%P %an %s', branch]),
+      `${head} Foedrum Refresh app.txt`,
+    );
+    assert.equal(git(clone, ['show', `${branch}:app.txt`]), 'refreshed');
+    assert.equal(git(clone, ['show', `${branch}:other.txt`]), 'one');
+    assert.equal(existsSync(root) ? readdirSync(root).length : 0, 0);
+  });
+
+  it('commits a refreshed file with the line ends the repository keeps, where the checkout wrote CRLF (ADR 0412)', async () => {
+    const branch = 'foedrum/12-1/implement/2';
+    git(clone, ['branch', branch, head]);
+    const config = process.env.GIT_CONFIG_GLOBAL ?? '';
+    const kept = readFileSync(config, 'utf8');
+    // As Git for Windows' installer sets it: the checkout writes CRLF.
+    writeFileSync(config, `${kept}[core]\n\tautocrlf = true\n`);
+    try {
+      const commit = openBranchCommit({
+        git: runGit,
+        clone,
+        own: { url: join(dir.path, 'nowhere.git'), root },
+      });
+      await commit(branch, 'Refresh app.txt', async (worktree) => {
+        // npm keeps the line ends of the lockfile it read.
+        writeFileSync(join(worktree, 'app.txt'), 'one\r\ntwo\r\n');
+        return { value: 'ran', files: ['app.txt'] };
+      });
+    } finally {
+      writeFileSync(config, kept);
+    }
+    assert.equal(git(clone, ['cat-file', '-p', `${branch}:app.txt`]), 'one\ntwo');
+  });
+
+  it("commits a refreshed file with the line ends the repository's .gitattributes keeps, with core.autocrlf off (ADR 0412)", async () => {
+    const branch = 'foedrum/12-1/implement/3';
+    // The repository normalises text through its own attributes; the machine sets nothing.
+    git(clone, ['switch', '--quiet', '-c', 'attributed', head]);
+    writeFileSync(join(clone, '.gitattributes'), '* text=auto\n');
+    git(clone, ['add', '.gitattributes']);
+    git(clone, ['commit', '--quiet', '-m', 'Normalise line ends']);
+    git(clone, ['switch', '--quiet', 'main']);
+    git(clone, ['branch', branch, 'attributed']);
+    const config = process.env.GIT_CONFIG_GLOBAL ?? '';
+    const kept = readFileSync(config, 'utf8');
+    writeFileSync(config, `${kept}[core]\n\tautocrlf = false\n`);
+    try {
+      const commit = openBranchCommit({
+        git: runGit,
+        clone,
+        own: { url: join(dir.path, 'nowhere.git'), root },
+      });
+      await commit(branch, 'Refresh app.txt', async (worktree) => {
+        writeFileSync(join(worktree, 'app.txt'), 'one\r\ntwo\r\n');
+        return { value: 'ran', files: ['app.txt'] };
+      });
+    } finally {
+      writeFileSync(config, kept);
+    }
+    assert.equal(git(clone, ['cat-file', '-p', `${branch}:app.txt`]), 'one\ntwo');
   });
 });
