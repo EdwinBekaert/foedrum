@@ -1016,7 +1016,8 @@ describe('runBrew', () => {
       });
       assert.equal(await runBrew(f.setup, again, request), 3);
       assert.equal(retried, true);
-      assert.match(shown(), /🔔 \*\*Waiting for you\*\*: look at a failure: `open-pull-request`/);
+      // A refused push waits for an answer (ADR 0418).
+      assert.match(shown(), /🔔 \*\*Waiting for you\*\*: answer a question: `open-pull-request`/);
       assert.equal(stuckLines().length, 1, f.lines.join('\n'));
     });
 

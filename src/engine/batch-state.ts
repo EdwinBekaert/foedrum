@@ -91,6 +91,7 @@ const stuckFor = (
       return atGate(batch, reason) ? { kind: 'go' } : { kind: 'approve' };
     case 'needs_input':
     case 'order_changed':
+    case 'push_refused':
       return { kind: 'answer' };
     case 'waiting_for_session':
       return { kind: 'session' };

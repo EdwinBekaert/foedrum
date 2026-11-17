@@ -79,6 +79,7 @@ import {
   pullRequestProblem,
   pullRequestRoute,
 } from './pull-request-fix.ts';
+import { PUSH_REFUSED_QUESTION, type PushRefusal, pushRefusedReason } from './push-refused.ts';
 import { rankRefusal } from './ranks.ts';
 import type { Recipe, Recipes } from './recipes.ts';
 import { checkOf } from './status-comment.ts';
@@ -130,6 +131,8 @@ export type Ending =
       findings?: readonly TastingFinding[];
       /** The usage window claude said ran out, on an end blocked on the environment (ADR 0206). */
       usageLimit?: UsageLimit;
+      /** The push the secret scan refused, on an openPullRequest action's end (ADR 0418). */
+      refused?: PushRefusal;
     };
 
 /** Events the engine records as they happen; they decide nothing about a batch's lane. */
@@ -329,7 +332,9 @@ export function stuckOptions(reason: StuckReason): StuckOption[] {
     case 'routing':
       return ['retry', 'recipe', 'cancel'];
     // The one question: continue with the issue as it is, or stop (ADR 0368).
+    // The one question of a refused push: stop, or cancel (ADR 0418).
     case 'order_changed':
+    case 'push_refused':
       return ['answer', 'cancel'];
     default: {
       const unhandled: never = reason;
@@ -832,7 +837,12 @@ function finish(draft: Draft, command: Extract<Command, { kind: 'finish' }>): vo
         // Another round would hit the same wall, or the plan does not match reality.
         case 'environment':
         case 'divergence':
-          stick(draft, batchId, blocked);
+          // A push the secret scan refused waits with what it found (ADR 0418).
+          stick(
+            draft,
+            batchId,
+            ending.refused === undefined ? blocked : pushRefusedReason(stepId, ending.refused),
+          );
           return;
         default: {
           const unhandled: never = blockerKind;
@@ -1187,6 +1197,19 @@ function continueOrStop(
   }
 }
 
+/** The answer to a batch whose push was refused (ADR 0418): `stop` ends it as a cancel does. */
+function stopRefused(
+  draft: Draft,
+  { batchId, by, via, answers }: Extract<Command, { kind: 'answer' }>,
+): void {
+  const [only, ...rest] = answers;
+  if (only?.q !== PUSH_REFUSED_QUESTION || rest.length > 0) {
+    throw new Refusal(`batch ${batchId} asks one question: ${PUSH_REFUSED_QUESTION}`);
+  }
+  if (only.answer !== 'stop') throw new Refusal(`answer stop, not "${only.answer}"`);
+  draft.push({ type: 'batch.cancelled', batchId, by, via });
+}
+
 /** The next reminder of a Conditioning or Stuck batch, once the current one is due (ADR 0025). */
 function remind(draft: Draft, batchId: string): void {
   const batch = draft.batch(batchId);
@@ -1230,6 +1253,10 @@ function answer(draft: Draft, command: Extract<Command, { kind: 'answer' }>): vo
   const { reason } = stuckLane(draft.batch(batchId), 'answer');
   if (reason.kind === 'order_changed') {
     continueOrStop(draft, command, reason);
+    return;
+  }
+  if (reason.kind === 'push_refused') {
+    stopRefused(draft, command);
     return;
   }
   if (reason.kind !== 'needs_input') {

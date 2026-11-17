@@ -1134,6 +1134,49 @@ describe('foedrum: commands that change state', () => {
       });
     });
 
+    it('answers stop to a batch whose push was refused, and refuses a second word (ADR 0418)', async () => {
+      const batchId = '27-1';
+      const log = createCommandLog({ store, recipes });
+      const tip = 'c'.repeat(40);
+      for (const command of [
+        { kind: 'order', batchId, order: { issue: 27 } },
+        { kind: 'route', batchId, recipe: 'pint', reason: 'label', source: 'label' },
+        { kind: 'record', event: { type: 'step.started', batchId, stepId: 'plan', attempt: 1 } },
+        {
+          kind: 'finish',
+          batchId,
+          stepId: 'plan',
+          attempt: 1,
+          ending: {
+            kind: 'blocked',
+            blockerKind: 'environment',
+            summary: 'the push of batch 27-1 stopped before anything left the machine',
+            refused: {
+              commit: tip,
+              findings: [
+                { commit: tip, place: 'notes/aws.txt', line: 3, kind: 'AWS access key id' },
+              ],
+            },
+          },
+        },
+      ] satisfies Parameters<typeof log.issue>[0][]) {
+        assert.equal(log.issue(command, t0).kind, 'accepted', JSON.stringify(command));
+      }
+      const before = lastId();
+      assert.deepStrictEqual(
+        await run(['answer', batchId, 'allow', 'a fake token in a test']),
+        refused('answer', '#27 asked 1 question; give one answer to each, in order'),
+      );
+      assert.equal(lastId(), before);
+      assert.equal((await run(['answer', batchId, 'stop'])).exitCode, 0);
+      assert.deepStrictEqual(appended(1)[0], {
+        type: 'batch.cancelled',
+        batchId,
+        by: 'ada',
+        via: 'terminal',
+      });
+    });
+
     it('refuses too few or too many answers, appending nothing', async () => {
       const before = lastId();
       const reason = '#21 asked 2 questions; give one answer to each, in order';

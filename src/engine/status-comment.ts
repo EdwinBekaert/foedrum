@@ -15,7 +15,7 @@ import { finingOf, gaugeOf, OutDocAssumptions, tastingOf } from '../schemas/out-
 import { planOf } from '../schemas/plan.ts';
 import { ChosenBy } from '../schemas/recipe.ts';
 import type { MergeBrief } from '../schemas/status-comment.ts';
-import type { SensitiveFiles } from '../schemas/store.ts';
+import { MAX_REFUSED, type SensitiveFiles } from '../schemas/store.ts';
 import {
   type BatchState,
   batchState,
@@ -347,6 +347,9 @@ const stuckText = (
       const answer = (word: string) => code(`foedrum answer ${called} ${word}`);
       return `${code(reason.stepId)}: ${where} changed after its approval: ${changesText(reason, plain)}. Run ${answer('continue')} to brew it as it is now, or ${answer('stop')} to end the batch`;
     }
+    // Its findings follow, a line each (ADR 0418).
+    case 'push_refused':
+      return `${code(reason.stepId)}: the push of ${code(shortSha(reason.commit))} was refused before anything left the machine: its commits hold what looks like a secret, or what the scan cannot read (ADR 0079)`;
     default:
       return reason satisfies never;
   }
@@ -373,6 +376,24 @@ const openLines = (stepId: string, { rounds, open, more }: RoundsOut, told: Told
 
 /** A commit as the comments show it: its first eight digits. */
 export const shortSha = (sha: string): string => sha.slice(0, 8);
+
+/**
+ * Each finding of a refused push as `<kind> on line <n> of <commit> in <place>`, the place last as
+ * ADR 0088 has it, so a path like an assignment key never makes the line read as one; then how many more:
+ * at least that many when the ledger's list is full, since the push keeps no more (ADR 0418).
+ */
+export const refusedLines = ({
+  findings,
+  more,
+}: Extract<StuckReason, { kind: 'push_refused' }>): string[] => [
+  ...findings.map(
+    ({ commit, place, line, kind }) =>
+      `${kind} ${line === undefined ? '' : `on line ${line} `}of ${shortSha(commit)} in ${place}`,
+  ),
+  ...(more > 0
+    ? [`and ${findings.length + more >= MAX_REFUSED ? 'at least ' : ''}${more} more`]
+    : []),
+];
 
 /**
  * How the pull request `url` of `batch` merges with its base, by its latest check (ADR 0198): the
@@ -643,6 +664,9 @@ const laneText = (
         ...(reason.kind === 'blocked' && reason.roundsOut !== undefined
           ? openLines(reason.stepId, reason.roundsOut, told)
           : []),
+        ...(reason.kind === 'push_refused'
+          ? refusedLines(reason).map((line) => `- ${told(line, reason.stepId)}`)
+          : []),
       ];
     }
     case 'on_tap': {
@@ -728,6 +752,11 @@ const nextLines = (
           `Next: answer the questions above with ${code(`foedrum answer ${called} ${answers}`)}${or}.`,
         ];
       }
+      // Stop is the one answer a refused push takes (ADR 0418).
+      case 'push_refused':
+        return [
+          `Next: look at each finding above, then end the batch with ${code(`foedrum answer ${called} stop`)}.`,
+        ];
       // The one question of an issue that changed since its approval (ADR 0368).
       case 'order_changed': {
         const answer = (word: string) => code(`foedrum answer ${called} ${word}`);
