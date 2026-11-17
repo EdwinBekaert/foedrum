@@ -903,7 +903,7 @@ const tastingLine = (
     return `Tasting: the event log cannot be read (${oneLine(printable(tasting.unreadable))}).`;
   }
   if (facts.modelsUnreadable !== undefined) {
-    return `Tasting: models.jsonc cannot be read (${facts.modelsUnreadable}).`;
+    return `Tasting: models.jsonc cannot be read (${oneLine(printable(facts.modelsUnreadable))}).`;
   }
   const problems: string[] = [];
   const models = mergedModels(facts.models, facts.brewery?.defaults?.models, problems);
