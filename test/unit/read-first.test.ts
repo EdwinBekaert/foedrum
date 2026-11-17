@@ -3,7 +3,7 @@
 
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { effortOf, readFirstLine, sizeOf } from '../../src/engine/read-first.ts';
+import { readFirstLine, reviewEffortOf, sizeOf } from '../../src/engine/read-first.ts';
 
 describe('sizeOf: the size the push records (ADR 0422)', () => {
   it('adds up the lines and files of a change, the largest first, ties by path', () => {
@@ -65,28 +65,28 @@ describe('sizeOf: the size the push records (ADR 0422)', () => {
 
 describe('effortOf: the review effort by changed lines (ADR 0422)', () => {
   it('is 1 for up to 50 lines', () => {
-    assert.equal(effortOf(0), 1);
-    assert.equal(effortOf(50), 1);
+    assert.equal(reviewEffortOf(0), 1);
+    assert.equal(reviewEffortOf(50), 1);
   });
 
   it('is 2 for 51 to 200 lines', () => {
-    assert.equal(effortOf(51), 2);
-    assert.equal(effortOf(200), 2);
+    assert.equal(reviewEffortOf(51), 2);
+    assert.equal(reviewEffortOf(200), 2);
   });
 
   it('is 3 for 201 to 400 lines', () => {
-    assert.equal(effortOf(201), 3);
-    assert.equal(effortOf(400), 3);
+    assert.equal(reviewEffortOf(201), 3);
+    assert.equal(reviewEffortOf(400), 3);
   });
 
   it('is 4 for 401 to 1000 lines', () => {
-    assert.equal(effortOf(401), 4);
-    assert.equal(effortOf(1_000), 4);
+    assert.equal(reviewEffortOf(401), 4);
+    assert.equal(reviewEffortOf(1_000), 4);
   });
 
   it('is 5 past 1000 lines', () => {
-    assert.equal(effortOf(1_001), 5);
-    assert.equal(effortOf(50_000), 5);
+    assert.equal(reviewEffortOf(1_001), 5);
+    assert.equal(reviewEffortOf(50_000), 5);
   });
 });
 

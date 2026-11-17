@@ -14,8 +14,8 @@ export interface ChangedFile {
 
 /** How many files the line names. */
 const MOST_NAMED = 3;
-/** The most changed lines of each effort below 5, the maintainer's to tune (ADR 0422). */
-const EFFORT_CUTS = [50, 200, 400, 1_000];
+/** The most changed lines of each review effort below 5, the maintainer's to tune (ADR 0422). */
+const REVIEW_EFFORT_CUTS = [50, 200, 400, 1_000];
 
 /** Paths in code-unit order, the same on every machine. */
 const byPath = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
@@ -35,9 +35,9 @@ export const sizeOf = (files: readonly ChangedFile[]): ChangeSize | undefined =>
 };
 
 /** The review effort, 1 to 5, of a change of `lines` changed lines. */
-export const effortOf = (lines: number): number => {
-  const below = EFFORT_CUTS.findIndex((most) => lines <= most);
-  return below < 0 ? EFFORT_CUTS.length + 1 : below + 1;
+export const reviewEffortOf = (lines: number): number => {
+  const below = REVIEW_EFFORT_CUTS.findIndex((most) => lines <= most);
+  return below < 0 ? REVIEW_EFFORT_CUTS.length + 1 : below + 1;
 };
 
 const counted = (n: number, word: string): string => `${n} ${word}${n === 1 ? '' : 's'}`;
@@ -63,7 +63,7 @@ export const readFirstLine = (
     .sort((a, b) => b.findings - a.findings || b.lines - a.lines || byPath(a.path, b.path))
     .slice(0, MOST_NAMED)
     .map(({ path }) => plain(path));
-  const effort = `${effortOf(size.lines)} of 5 (${counted(size.lines, 'changed line')} in ${counted(size.files, 'file')})`;
+  const effort = `${reviewEffortOf(size.lines)} of 5 (${counted(size.lines, 'changed line')} in ${counted(size.files, 'file')})`;
   return named.length === 0
     ? `**Effort:** ${effort}.`
     : `**Read first:** ${named.join(', ')} · effort ${effort}.`;
