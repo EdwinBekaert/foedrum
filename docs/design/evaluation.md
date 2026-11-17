@@ -174,9 +174,10 @@ A dry run keeps its records in a `dry-run/` folder of their own, inside the fold
 
 ## Not built yet
 
-- **`foedrum taste`:** a command that is to swap one brewer's model, run the Flight several times and compare with the baseline.
+- **`foedrum taste`** (#1143): a command that is to list the tasting suggestions and run a picked one, ending in a pull request.
   Until it comes, the comparisons above are its pieces.
-- **The model watcher** (#1085): when a new model is listed, it is to run a Flight and open a pull request on the Brewery that updates `models.jsonc`, with the report as its description.
+- **A `tasted` list in `models.jsonc`** (#1141): the latest result per brewer, recipe, level and effort, to be written by the pull request a Flight report opens.
+- **Tasting suggestions** (#1142): untasted models in use, cheaper levels or efforts that might hold, and stale results.
 - **Real batches as samples:** a batch that went Stuck or needed a person's fixes is to be exported into the tasting room as an order.
 - **Metrics per recipe, brewer and model:** hidden-test pass rate, first-attempt gravity pass rate, retries, Stuck rate, tokens, duration, diff size and planted-defect recall; today each comparison prints its own table.
 - Planted bugs for Infection check and pull requests with planted defects for Guest tasting.
