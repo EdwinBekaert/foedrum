@@ -171,14 +171,42 @@ export const flightReport = (
   ].join('\n')}\n`;
 };
 
+/** What the report reads beyond the records to write the tasted entry (ADR 0416). */
+export interface TastedInputs {
+  /** A default recipe's text by its name, undefined when there is none. */
+  recipeText: (name: string) => string | undefined;
+  /** defaults/models.jsonc's text. */
+  modelsText: string;
+  today: Date;
+}
+
+/** The tasted entry of a report: written, with the models.jsonc and the description, or not, with why. */
+export type Tasted =
+  | { kind: 'written'; models: string; title: string; description: string }
+  | { kind: 'not written'; why: string; exitCode: 0 | 1 };
+
+/** The tasted entry two Flights' records give, and the files that hold it (ADR 0416). */
+export const tastedOf = (
+  _baseline: readonly FlightRecord[],
+  _candidate: readonly FlightRecord[],
+  _report: string,
+  _inputs: TastedInputs,
+): Tasted => {
+  throw new Error('not implemented');
+};
+
 /**
- * The report `values` ask for and the file it goes to, or the refusal that stops the script with
- * exit 2; `recordsIn` reads a Flight folder's records, none when it has no results.jsonl.
+ * The report `values` ask for, the file it goes to and its tasted entry, or the refusal that stops
+ * the script with exit 2; `recordsIn` reads a Flight folder's records, none when it has no
+ * results.jsonl.
  */
 export const flightReportRun = (
   values: FlightReportValues,
   recordsIn: (folder: string) => readonly FlightRecord[],
-): { kind: 'report'; report: string; file: string } | { kind: 'refused'; message: string } => {
+  inputs: TastedInputs,
+):
+  | { kind: 'report'; report: string; file: string; tasted: Tasted }
+  | { kind: 'refused'; message: string } => {
   const refused = (message: string) => ({ kind: 'refused' as const, message });
   const { baseline, candidate } = values;
   if (baseline === undefined) {
@@ -196,9 +224,11 @@ export const flightReportRun = (
       );
     }
   }
+  const report = flightReport(read.baseline, read.candidate);
   return {
     kind: 'report',
-    report: flightReport(read.baseline, read.candidate),
+    report,
     file: join(candidate, 'report.md'),
+    tasted: tastedOf(read.baseline, read.candidate, report, inputs),
   };
 };
