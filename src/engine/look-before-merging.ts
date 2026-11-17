@@ -42,7 +42,8 @@ const MAX_MANIFESTS = 64;
 /** How many of each kind the line names. */
 const MOST_NAMED = 10;
 
-const isLock = (path: string): boolean => LOCK_FILES.has(fileName(path));
+/** Whether `path` is a lock file, by its name at any depth. */
+export const isLock = (path: string): boolean => LOCK_FILES.has(fileName(path));
 const isCi = (path: string): boolean =>
   CI_FILES.has(path) || CI_FOLDERS.some((folder) => path.startsWith(folder));
 const isMigration = (path: string): boolean => inFolderNamed(path, ['migrations']);

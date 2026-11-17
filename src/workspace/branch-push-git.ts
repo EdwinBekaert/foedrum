@@ -311,8 +311,35 @@ export const openBranchPush = (options: BranchPushOptions): BranchPush => {
       const listed = await gitOutput(local, clone, args, { ...aborts(signal), ...AS_COMMITTED });
       return listed.split('\0').filter((path) => path !== '');
     },
-    changedLines: async () => {
-      throw new Error('not implemented');
+    changedLines: async (since, commit, signal) => {
+      for (const sha of [since, commit]) {
+        fullSha(sha);
+      }
+      // As touchedFiles names them, each with its added and deleted lines, `-` for a binary file.
+      const args = [
+        'diff',
+        '--numstat',
+        '-z',
+        '--no-renames',
+        '--no-ext-diff',
+        '--no-relative',
+        '--ignore-submodules=none',
+        '--end-of-options',
+        since,
+        commit,
+      ];
+      const listed = await gitOutput(local, clone, args, { ...aborts(signal), ...AS_COMMITTED });
+      return listed
+        .split('\0')
+        .filter((entry) => entry !== '')
+        .map((entry) => {
+          // The path is the rest after two tabs: a tab of its own stays in it.
+          const [added = '', deleted = '', ...rest] = entry.split('\t');
+          const path = rest.join('\t');
+          return added === '-' || deleted === '-'
+            ? { path }
+            : { path, lines: Number(added) + Number(deleted) };
+        });
     },
     fileAt: async (commit, path, signal) => {
       fullSha(commit);
