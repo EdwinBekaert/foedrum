@@ -2,14 +2,15 @@
 {
   "name": "cellarman",
   "description": "Makes the Gauger's failing tests pass in one repository, without changing them.",
-  "version": 18,
+  "version": 19,
   "inputs": [
     { "name": "order", "from": "order" },
     { "name": "tests", "from": "step:gauge" },
     { "name": "map", "from": "step:map" },
     { "name": "planEntry", "from": "plan-entry" },
     { "name": "release", "from": "release" },
-    { "name": "earlierSections", "from": "earlier-sections" }
+    { "name": "earlierSections", "from": "earlier-sections" },
+    { "name": "testChanged", "from": "test-changed" }
   ],
   "output": { "doc": "brew.md", "schema": "pullRequest" },
   "produces": "commits",
@@ -53,7 +54,7 @@ Follow the repository's conventions.
 
 The Gauger's tests and the existing tests that cover the code you changed pass, the repository's format, lint and typecheck pass on what you changed, and everything is committed.
 
-The repository's setup, when it has one, has installed its dependencies in your worktree. Before you commit, run the repository's formatter on the files you changed, then its lint and typecheck, then the tests that cover the code you changed, each with the command the repository uses (its scripts, its README, its CI), and fix what they find. Run each that the repository's tools let you: a command they do not allow is denied, so do not try it again or another way. You don't need to run the whole test suite or the build: the recipe's check step runs every check after you and is the gate, and a failure there sends the batch back to you.
+The repository's setup, when it has one, has installed its dependencies in your worktree. Before you commit, run the repository's formatter on the files you changed, then its lint and typecheck, then the tests that cover the code you changed, each with the command the repository uses (its scripts, its README, its CI), and fix what they find. Run each that the repository's tools let you: a command they do not allow is denied, so do not try it again or another way. You don't need to run the whole test suite or the build: the recipe's check step runs every check after you and is the gate, and a failure there sends the batch back to you. When there is a {testChanged} input, it is the repository's test of the changed code: run it to check the change while you work; the check step and the pull request's checks run the rest.
 
 When you end done with commits, Foedrum runs the repository's build, typecheck, lint and format, and the Gauger's tests where its test command takes files, before your session closes. When one fails, it sends you its output once, in this session: fix what it found, commit, and end again.
 

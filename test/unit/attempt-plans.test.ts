@@ -3069,24 +3069,25 @@ describe('createAttemptPlans: a recorded test name (ADR 0342)', () => {
   });
 });
 
+/** The default brewers, with the recipe pale's step brew brewed by `brewer`. */
+const brewedBy = (brewer: string) => {
+  const loaded = loadRecipes({
+    ...readBreweryFiles(join(FOEDRUM_DEFAULTS, 'no-such-brewery')),
+    recipes: [
+      {
+        path: 'recipes/pale.jsonc',
+        // One brewer step: no red proof to name, and a pull request for its commits.
+        text: recipeText('pale', [{ id: 'brew', brewer }, { action: 'openPullRequest' }], {
+          testFirst: false,
+        }),
+      },
+    ],
+  });
+  assert.ok(loaded.valid, loaded.valid ? '' : loaded.problems.join('\n'));
+  return loaded.brewers;
+};
+
 describe("the Brewery's test line for the Maltster (ADR 0376)", () => {
-  /** The default brewers, with the recipe pale's step brew brewed by `brewer`. */
-  const brewedBy = (brewer: string) => {
-    const loaded = loadRecipes({
-      ...readBreweryFiles(join(FOEDRUM_DEFAULTS, 'no-such-brewery')),
-      recipes: [
-        {
-          path: 'recipes/pale.jsonc',
-          // One brewer step: no red proof to name, and a pull request for its commits.
-          text: recipeText('pale', [{ id: 'brew', brewer }, { action: 'openPullRequest' }], {
-            testFirst: false,
-          }),
-        },
-      ],
-    });
-    assert.ok(loaded.valid, loaded.valid ? '' : loaded.problems.join('\n'));
-    return loaded.brewers;
-  };
   const line = 'node --test --test-reporter=tap test/';
   const repoTestLine = (repo: string) => (repo === 'acme/api' ? line : 'make test');
 
@@ -3129,5 +3130,95 @@ describe("the Brewery's test line for the Maltster (ADR 0376)", () => {
       assert.match(prompt, /name="order">\nAdd a --json flag\.\n/, brewer);
       assert.doesNotMatch(prompt, /test line|--test-reporter=tap/, brewer);
     }
+  });
+});
+
+describe("the repository's testChanged line for the Gauger and the Cellarman (ADR 0417)", () => {
+  const checks = {
+    build: null,
+    typecheck: null,
+    lint: null,
+    format: null,
+    test: 'npm test',
+    testChanged: 'vitest run --changed {base}',
+  };
+  const batchStart = 'a'.repeat(40);
+  // The batch started at map#1, before the attempt planned here, which starts at c…c.
+  const mapStarted: Event[] = [
+    { type: 'step.scheduled', ...ref, stepId: 'map', deadlineAt: '2026-10-17T13:00:00.000Z' },
+    {
+      type: 'step.started',
+      ...ref,
+      stepId: 'map',
+      session: { id: sessionId, worktree },
+      worktree: {
+        repo: 'acme/api',
+        path: worktree,
+        branch: 'foedrum/12-1/map/1',
+        commit: batchStart,
+      },
+    },
+  ];
+  const events = [...ordered, ...mapStarted, started];
+
+  it("the Gauger's input holds the testChanged line, {base} replaced by the batch's start", async () => {
+    const { plans } = setup(events, {}, undefined, brewedBy('gauger'), {
+      repoChecks: () => checks,
+    });
+    const { prompt } = await plans.plan(start);
+    assert.match(
+      prompt,
+      /<untrusted-input-([0-9a-f]+) source="the Brewery's testChanged line for acme\/api, from commit a{40}" name="testChanged">\nvitest run --changed a{40}\n<\/untrusted-input-\1>/,
+    );
+  });
+
+  it("the Cellarman's input holds the testChanged line too", async () => {
+    const { plans } = setup(events, {}, undefined, brewedBy('cellarman'), {
+      repoChecks: () => checks,
+    });
+    const { prompt } = await plans.plan(start);
+    assert.match(prompt, /name="testChanged">\nvitest run --changed a{40}\n<\//);
+  });
+
+  it('after a base merge, the testChanged line starts from the base the batch merged', async () => {
+    const merge: Event = {
+      type: 'effect.applied',
+      key: effectKey.encode(baseMergeKey({ batchId: '12-1', stepId: 'map', attempt: 1 })),
+      result: { base: 'b'.repeat(40), merged: 'd'.repeat(40) },
+    };
+    const merged = [...ordered, ...mapStarted, merge, started];
+    const { plans } = setup(merged, {}, undefined, brewedBy('gauger'), {
+      repoChecks: () => checks,
+    });
+    const { prompt } = await plans.plan(start);
+    assert.match(
+      prompt,
+      /source="the Brewery's testChanged line for acme\/api, from commit b{40}" name="testChanged">\nvitest run --changed b{40}\n<\//,
+    );
+  });
+
+  it("names only this platform's line of a testChanged given per platform", async () => {
+    const perPlatform = { run: 'vitest --changed {base}', windows: 'vitest.cmd --changed {base}' };
+    for (const [platform, line] of [
+      ['linux', 'vitest --changed'],
+      ['win32', 'vitest\\.cmd --changed'],
+    ] as const) {
+      const { plans } = setup(events, {}, undefined, brewedBy('gauger'), {
+        repoChecks: () => ({ ...checks, testChanged: perPlatform }),
+        platform,
+      });
+      const { prompt } = await plans.plan(start);
+      assert.match(prompt, new RegExp(`name="testChanged">\\n${line} a{40}\\n</`), platform);
+    }
+  });
+
+  it('gives no testChanged input for a repository without testChanged: regression test', async () => {
+    const { testChanged: _, ...withoutChanged } = checks;
+    const { plans } = setup(events, {}, undefined, brewedBy('gauger'), {
+      repoChecks: () => withoutChanged,
+    });
+    const { prompt } = await plans.plan(start);
+    assert.match(prompt, /name="order">\nAdd a --json flag\.\n/);
+    assert.doesNotMatch(prompt, /testChanged line|--changed/);
   });
 });

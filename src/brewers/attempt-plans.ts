@@ -5,7 +5,7 @@
 
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
-import type { RepositoryChecks } from '../checks/gravity.ts';
+import { type RepositoryChecks, testChangedLine } from '../checks/gravity.ts';
 import { redTestFiles } from '../checks/red-tests.ts';
 import { checksEnv, setupRunOf } from '../checks/setup.ts';
 import { stepTests } from '../checks/step-commits.ts';
@@ -712,6 +712,20 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
       own === undefined || command === undefined || command === null
         ? undefined
         : { repo: own.repo, command };
+    // After a merge of the base, the batch's own change starts at the base it merged (ADR 0164).
+    const merged = mergedBase(state(), batch.id);
+    const start = own === undefined ? undefined : (merged ?? changeStart(batch, own.repo));
+    // The testChanged line from where the change starts, as a check step runs it (ADR 0417).
+    const asksChanged = found.brewer.inputs.some(({ from }) => from === 'test-changed');
+    const changed = asksChanged && own !== undefined ? options.repoChecks?.(own.repo) : undefined;
+    const testChanged =
+      own === undefined || start === undefined || changed?.testChanged === undefined
+        ? undefined
+        : {
+            repo: own.repo,
+            base: start,
+            line: testChangedLine(changed.testChanged, platform, start),
+          };
     // A step a findings route sent back corrects the plan they name, as a chosen step does (ADR 0318),
     // and a fresh retry of it too (ADR 0325).
     const routedStep = batch.steps.get(ref.stepId);
@@ -732,6 +746,7 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
       claimOrderOf(state(), batch.id).issue,
       earlierSections,
       testLine,
+      testChanged,
     );
     // A step's lenses together share one folder (ADR 0143, ADR 0220).
     const diffLens = stepLenses[0]?.startsWith('diff/') === true;
@@ -746,11 +761,8 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
         inputs.push(...(await orderCommentsFor(input.name, batch, { body: text })));
       }
     }
-    // After a merge of the base, the batch's own change starts at the base it merged (ADR 0164).
     // A Finer simplifies the change, and Brett mutates it, so each reads it as a Taster of a diff
     // does (ADR 0166, ADR 0311).
-    const merged = mergedBase(state(), batch.id);
-    const start = own === undefined ? undefined : (merged ?? changeStart(batch, own.repo));
     const since =
       diffLens || found.brewer.output.schema === FINING || found.brewer.output.schema === MUTANTS
         ? start
