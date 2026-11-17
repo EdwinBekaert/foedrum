@@ -250,6 +250,19 @@ describe('modelsUsed', () => {
     ]);
   });
 
+  it('keeps apart two steps’ attempts of one batch with the same attempt number', () => {
+    const events: Event[] = [
+      chosen('b1', 'nip'),
+      scheduled('b1', 'gauge', 1, '2026-11-20T10:00:00.000Z'),
+      scheduled('b1', 'brew', 1, '2026-10-01T10:00:00.000Z'),
+      finished('b1', 'gauge', 1, 'claude-opus-5-6'),
+    ];
+    assert.deepEqual(
+      modelsUsed(events).map(({ stepId, deadlineAt }) => `${stepId} ${deadlineAt.toISOString()}`),
+      ['gauge 2026-11-20T10:00:00.000Z'],
+    );
+  });
+
   it('leaves out an attempt that ended before claude’s init event', () => {
     const events: Event[] = [
       chosen('b1', 'nip'),

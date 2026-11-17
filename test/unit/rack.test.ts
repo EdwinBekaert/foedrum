@@ -239,6 +239,27 @@ describe('rack (ADR 0383)', () => {
     assert.deepStrictEqual(ran.reads, []);
   });
 
+  it('keeps a finished batch whose later attempt is recent though its first is old (ADR 0419)', async () => {
+    const attempt = (n: number, ago: number): Event[] => {
+      const ref = { batchId: '6-1', stepId: 'archive', attempt: n };
+      const deadlineAt = new Date(now.getTime() - ago).toISOString();
+      return [
+        { type: 'step.scheduled', ...ref, deadlineAt },
+        { type: 'step.started', ...ref },
+        { type: 'step.finished', ...ref, outcome: { kind: 'succeeded', output: null } },
+      ];
+    };
+    const before = ordered('6-1', 6);
+    const events = [
+      ...before,
+      ...attempt(1, 40 * day),
+      ...attempt(2, 2 * day),
+      ...onTap('6-1', 6).slice(before.length),
+    ];
+    const ran = await run('archive', events, [6]);
+    assert.deepStrictEqual(ran.batches, ['6-1', '20-1']);
+  });
+
   it('archives a finished group once its newest attempt’s deadline is 30 days old (ADR 0419): regression test', async () => {
     const events = [...ranOnTap('6-1', 6, 31 * day), ...ranOnTap('7-1', 7, 30 * day)];
     const ran = await run('archive', events, [6, 7]);
