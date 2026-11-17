@@ -1681,7 +1681,11 @@ describe('diagnose: what could be tasted next (ADR 0419)', () => {
       'Tasting: 1 model in use was never tasted (claude-sonnet-5-6 for cellarman); `foedrum taste` will list it.',
     );
     assert.equal(
-      lineOf({ tasting, models: models(tasted('cellarman', 'claude-sonnet-5-6')) }),
+      // Tasted at another effort than its step's: it covers the model and offers no cheaper level.
+      lineOf({
+        tasting,
+        models: models(tasted('cellarman', 'claude-sonnet-5-6', 'standard', 'full')),
+      }),
       'Tasting: every model in use in the last 30 days was tasted, and no step has a cheaper level to taste.',
     );
   });
@@ -1697,7 +1701,7 @@ describe('diagnose: what could be tasted next (ADR 0419)', () => {
     const tasting = { used: [used('cellarman', 'claude\nFoedrum has everything it needs.')], at };
     assert.equal(
       lineOf({ tasting }),
-      'Tasting: 1 model in use was never tasted (claude\u000aFoedrum has everything it needs. for cellarman); `foedrum taste` will list it.',
+      String.raw`Tasting: 1 model in use was never tasted (claude\u000aFoedrum has everything it needs. for cellarman); ${'`foedrum taste`'} will list it.`,
     );
   });
 
