@@ -428,6 +428,16 @@ describe('refreshLockfiles: a lockfile found above its manifest (ADR 0415)', () 
     assert.equal(readFileSync(join(tree, 'Cargo.lock'), 'utf8'), 'root\n');
   });
 
+  it('runs nothing when no folder from the manifest up to the root holds a Cargo.lock', async () => {
+    const tree = treeWith({ 'crates/a/Cargo.toml': '[package]\n' });
+    const { exec, runs } = writing('Cargo.lock');
+    assert.deepStrictEqual(await refreshLockfiles(tree, [member], runOf(exec)), {
+      readings: [],
+      files: [],
+    });
+    assert.deepStrictEqual(runs, []);
+  });
+
   it('refreshes a Cargo.lock two changed members share once', async () => {
     const tree = treeWith({
       'Cargo.lock': 'v1.1.0\n',
@@ -510,6 +520,36 @@ describe('refreshLockfiles: the lockfiles of the projects below a Directory.Pack
     assert.deepStrictEqual(
       runs.map(({ command }) => command),
       [`${NUGET_REFRESH} "One.vbproj"`],
+    );
+  });
+
+  it('passes over a Bin folder in any case, as a file system that ignores case holds it', async () => {
+    const tree = treeWith({
+      'src/Bin/F/F.csproj': '<Project />',
+      'src/Bin/F/packages.lock.json': 'v1.1.0\n',
+      'src/E/E.csproj': '<Project />',
+      'src/E/packages.lock.json': 'v1.1.0\n',
+    });
+    const { exec, runs } = writing('packages.lock.json');
+    await refreshLockfiles(tree, [props], runOf(exec));
+    assert.deepStrictEqual(
+      runs.map(({ command }) => command),
+      [`${NUGET_REFRESH} "E.csproj"`],
+    );
+  });
+
+  it('restores no project in a folder whose path holds a line separator', async () => {
+    const tree = treeWith({
+      [`src/a${String.fromCodePoint(0x2028)}b/One.csproj`]: '<Project />',
+      [`src/a${String.fromCodePoint(0x2028)}b/packages.lock.json`]: 'v1.1.0\n',
+      'src/Two/Two.csproj': '<Project />',
+      'src/Two/packages.lock.json': 'v1.1.0\n',
+    });
+    const { exec, runs } = writing('packages.lock.json');
+    await refreshLockfiles(tree, [props], runOf(exec));
+    assert.deepStrictEqual(
+      runs.map(({ command }) => command),
+      [`${NUGET_REFRESH} "Two.csproj"`],
     );
   });
 
