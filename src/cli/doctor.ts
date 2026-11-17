@@ -3,7 +3,7 @@
 // is missing. doctor-facts.ts gathers the facts.
 
 import { assembleBrewerPrompt } from '../brewers/prompt.ts';
-import { commandLine } from '../checks/gravity.ts';
+import { commandLine, testGateOf } from '../checks/gravity.ts';
 import { readTestLine } from '../checks/test-line.ts';
 import {
   type BreweryFile,
@@ -157,6 +157,8 @@ export interface Diagnosis {
   denylist?: DenylistFact;
   /** The system map's lines, whole, when the Brewery has repositories (ADR 0317). */
   systemMap?: readonly string[];
+  /** Each repository's test in the check step and its full gate, when foedrum.jsonc reads (ADR 0242). */
+  testGates?: readonly string[];
   /** No required problem. */
   ok: boolean;
 }
@@ -809,6 +811,12 @@ export const diagnose = (facts: DoctorFacts): Diagnosis => {
   ];
   const setupNetwork = setupNetworkLine(facts);
   const modelTraffic = modelTrafficLine(facts.modelBaseUrl);
+  const read = facts.config === undefined ? undefined : readJsonc(facts.config, BreweryConfig);
+  const testGates = read?.valid
+    ? Object.entries(read.value.repositories).map(
+        ([repo, { checks }]) => `- ${testGateOf(repo, checks, facts.platform)}`,
+      )
+    : [];
   return {
     tools: [
       { name: 'node', version: facts.node, path: undefined },
@@ -834,6 +842,7 @@ export const diagnose = (facts: DoctorFacts): Diagnosis => {
     ...(facts.systemMap === undefined || facts.systemMap.length === 0
       ? {}
       : { systemMap: systemMapLines(facts.systemMap) }),
+    ...(testGates.length === 0 ? {} : { testGates }),
     ok: problems.every((problem) => !problem.required),
   };
 };
@@ -886,6 +895,7 @@ export const formatDiagnosis = ({
   denylist,
   keepAwake,
   systemMap = [],
+  testGates = [],
   ok,
 }: Diagnosis): string => {
   const lines = [
@@ -935,6 +945,9 @@ export const formatDiagnosis = ({
   }
   if (systemMap.length > 0) {
     lines.push("System map (the planners' repositories input, ADR 0317):", ...systemMap, '');
+  }
+  if (testGates.length > 0) {
+    lines.push('Tests (the check step and the full gate, ADR 0242):', ...testGates, '');
   }
   if (problems.length > 0) {
     lines.push(

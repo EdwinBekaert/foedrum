@@ -21,7 +21,7 @@ import type { CheckRef } from '../schemas/recipe.ts';
  * of the changed code a check step runs in place of `test` (ADR 0242).
  */
 export type RepositoryChecks = Readonly<Record<CheckName, Command | null>> & {
-  readonly testChanged?: Command;
+  readonly testChanged?: Command | undefined;
 };
 
 // None of a repository's checks: what a step of literal commands plans against.
@@ -41,10 +41,14 @@ export const blocked = (
   ending: { kind: 'blocked', blockerKind, summary },
 });
 
+/** What `testChanged` holds for the commit a batch's change starts from (ADR 0242). */
+export const BASE = '{base}';
+
 /** A check ready to run: its command line on this platform, or a skip. */
 export type PlannedCheck =
   | { kind: 'skip'; check: CheckName }
   /** `check` is absent for a Brewery's literal command and a repository's setup (ADR 0140). */
+  /** `changed`: the repository's testChanged in place of its test (ADR 0242). */
   | { kind: 'run'; check?: CheckName; setup?: true; changed?: true; command: string };
 
 /** What the process runner answered for one command. */
@@ -71,29 +75,41 @@ export function commandLine(command: Command, platform: NodeJS.Platform): string
   }
 }
 
-/** The checks of a step, in order, as `repository` maps the named ones. */
+/**
+ * The checks of a step, in order, as `repository` maps the named ones: with the change's `base`,
+ * its `testChanged` in place of `test`, `{base}` replaced (ADR 0242).
+ */
 export function planChecks(
   checks: readonly CheckRef[],
   repository: RepositoryChecks,
   platform: NodeJS.Platform,
-  _base?: string,
+  base?: string,
 ): PlannedCheck[] {
   return checks.map((check): PlannedCheck => {
     if (typeof check !== 'string') return { kind: 'run', command: commandLine(check, platform) };
     const command = repository[check];
-    return command === null
-      ? { kind: 'skip', check }
-      : { kind: 'run', check, command: commandLine(command, platform) };
+    if (command === null) return { kind: 'skip', check };
+    const { testChanged } = repository;
+    if (check === 'test' && testChanged !== undefined && base !== undefined) {
+      const line = commandLine(testChanged, platform).replaceAll(BASE, base);
+      return { kind: 'run', check, changed: true, command: line };
+    }
+    return { kind: 'run', check, command: commandLine(command, platform) };
   });
 }
 
 /** Which test a check step in `repo` runs and what the full gate is, for doctor (ADR 0242). */
 export function testGateOf(
-  _repo: string,
-  _repository: RepositoryChecks,
-  _platform: NodeJS.Platform,
+  repo: string,
+  repository: RepositoryChecks,
+  platform: NodeJS.Platform,
 ): string {
-  throw new Error('not implemented');
+  const { test, testChanged } = repository;
+  if (test === null) return `${repo}: no test check`;
+  const full = commandLine(test, platform);
+  return testChanged === undefined
+    ? `${repo}: the check step runs the full test (${full})`
+    : `${repo}: the check step runs only testChanged (${commandLine(testChanged, platform)}); your pull request's CI must run the full test (${full})`;
 }
 
 /** The end of `output` that a reading keeps (`MAX_TAIL_LENGTH`), never half a character. */
@@ -136,6 +152,7 @@ export function readingOf(
   const ran = {
     ...(check.check === undefined ? {} : { check: check.check }),
     ...(check.setup === undefined ? {} : { setup: check.setup }),
+    ...(check.changed === undefined ? {} : { changed: check.changed }),
     command: check.command,
   };
   // Secrets out first, so the bound never keeps half of one.
