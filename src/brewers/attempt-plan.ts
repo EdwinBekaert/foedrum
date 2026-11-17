@@ -716,26 +716,25 @@ export type PlannedRound =
 
 /**
  * The earlier rounds of the lens step of attempt `ref` (ADR 0191), in the order they started: each
- * attempt of it that reviewed (`reviewed`), with the findings of a success from its event, or the
- * out doc `outDoc` in the worktree of one blocked by findings, as the route input reads it
- * (ADR 0128). Each gets the dispositions of the attempt its findings route brought back, or of a
+ * attempt of it that reviewed (`reviewed`), with the findings of a success from its event, and of
+ * one blocked by findings as its event records them, with the engine's marks and how many more it
+ * did not keep (ADR 0423). Each gets the dispositions of the attempt its findings route brought back, or of a
  * retry or an answered attempt that continued that one; a route of another step is never its own.
  */
 export function earlierRoundsOf(
   batch: Batch,
   ref: AttemptRef,
-  outDoc: string | undefined,
-): PlannedRound[] {
+  _outDoc: string | undefined,
+): EarlierRound[] {
   return lensRounds(batch, ref.stepId, ref.attempt).map(({ attempt, ran, dispositions }) => {
     const step = `${ref.stepId}#${attempt}`;
     if (ran.outcome.kind === 'succeeded') {
       return { step, dispositions, findings: roundFindings(ran) };
     }
-    // A resumed attempt ran in the worktree of the session it continues (ADR 0117).
-    const root = ran.worktree?.path ?? ran.session?.worktree;
-    return root === undefined || outDoc === undefined
-      ? { step, dispositions, unread: 'no worktree of it is recorded' }
-      : { step, dispositions, outDoc: { path: join(root, outDoc), root } };
+    // A blocked round's findings as its event records them, with the engine's marks (ADR 0423).
+    return ran.findings === undefined
+      ? { step, dispositions, unread: 'no findings of it are recorded' }
+      : { step, dispositions, findings: ran.findings.kept, more: ran.findings.more };
   });
 }
 
@@ -763,22 +762,28 @@ function findingLine(finding: TastingFinding, of: Reviewed): string {
 }
 
 /**
- * One round's findings, each with the first disposition at its place not already taken; a finding
- * with no file is about the change, or the plan, as a whole (ADR 0318).
+ * One round's findings, each with the first disposition at its place not already taken, and how
+ * many more its event did not record (ADR 0423); a finding with no file is about the change, or the
+ * plan, as a whole (ADR 0318).
  */
 function roundLines(
   findings: readonly TastingFinding[],
+  more: number,
   dispositions: readonly Disposition[],
   of: Reviewed,
 ) {
   if (findings.length === 0) return ['No findings.'];
-  return withDispositions(findings, dispositions).flatMap(({ finding, disposition: disposed }) => {
-    const said =
-      disposed === undefined
-        ? 'open'
-        : `${disposed.disposition}${disposed.why === undefined ? '' : `: ${flatLine(disposed.why)}`}`;
-    return [findingLine(finding, of), `  ${said}`];
-  });
+  const lines = withDispositions(findings, dispositions).flatMap(
+    ({ finding, disposition: disposed }) => {
+      const said =
+        disposed === undefined
+          ? 'open'
+          : `${disposed.disposition}${disposed.why === undefined ? '' : `: ${flatLine(disposed.why)}`}`;
+      return [findingLine(finding, of), `  ${said}`];
+    },
+  );
+  if (more === 0) return lines;
+  return [...lines, `${more} more ${more === 1 ? 'finding was' : 'findings were'} not recorded.`];
 }
 
 /**
@@ -797,7 +802,7 @@ export function earlierFindingsInput(
         `Round ${round.step}:`,
         ...('unread' in round
           ? [`Its findings could not be read: ${flatLine(round.unread)}.`]
-          : roundLines(round.findings, round.dispositions, of)),
+          : roundLines(round.findings, round.more ?? 0, round.dispositions, of)),
       ].join('\n'),
     )
     .join('\n\n');
