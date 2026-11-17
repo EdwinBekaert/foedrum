@@ -102,8 +102,8 @@ export interface ClaudeAttemptPlan {
   /**
    * For a brewer that produces commits in a batch that waited for a release: its repository as
    * Foedrum's own git directories reach it, and the setup's environment and the attempt's
-   * deadline, under which the lockfile beside each manifest its commits changed is refreshed and
-   * committed once it ends succeeded (ADR 0412).
+   * deadline, under which the lockfiles its commits left behind are refreshed and committed
+   * once it ends succeeded (ADR 0412, ADR 0415).
    */
   refresh?: { own: OwnRemote; deadlineAt: string; env: Env; unsandboxed: boolean };
   /** The house-yeast rules the plan gave the brewer, which its end records (ADR 0169). */
@@ -654,8 +654,8 @@ export function claudeBrewerRunnerWith(deps: ClaudeRunnerDeps): BrewerRunner {
         }
       };
       /**
-       * Refreshes the lockfile beside each manifest the attempt's commits changed, in a scratch tree
-       * of its branch, and commits those that changed there, when its plan has a refresh and it
+       * Refreshes the lockfiles the attempt's commits left behind (ADR 0415), in a scratch tree of
+       * its branch, and commits those that changed there, when its plan has a refresh and it
        * ended succeeded (ADR 0412): the readings, and the ending when one did not pass.
        */
       const lockfilesRefreshed = async ({
@@ -691,8 +691,8 @@ export function claudeBrewerRunnerWith(deps: ClaudeRunnerDeps): BrewerRunner {
           if (branchCommit === undefined || exec === undefined) {
             return unrefreshed('the brewer runner has no scratch tree or process runner for them');
           }
-          const lockfiles = refreshes.map(({ lockfile }) => lockfile).join(', ');
-          const message = `Refresh ${lockfiles} after the release bump (ADR 0412)`;
+          // Which lockfiles a refresh finds is known only in its scratch tree (ADR 0415).
+          const message = 'Refresh the lockfiles after the release bump (ADR 0412)';
           const run = { ...refresh, exec, now: deps.now, signal: stopping.signal };
           let readings: GravityReading[] = [];
           try {
