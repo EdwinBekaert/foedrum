@@ -22,7 +22,7 @@ import {
   settleAttempt,
 } from '../engine/brewer-runner.ts';
 import type { Ending } from '../engine/decide.ts';
-import type { ReadFiles, ReviewedTree } from '../engine/finding-places.ts';
+import { placesChecked, type ReadFiles, type ReviewedTree } from '../engine/finding-places.ts';
 import { type PlanRepository, type ReadPaths, touchesChecked } from '../engine/plan-touches.ts';
 import type { AttemptProgress } from '../engine/supervisor.ts';
 import { type BoundedRead, readOutDocFile } from '../platform/bounded-read.ts';
@@ -48,6 +48,7 @@ import {
   scanAttemptCommits,
 } from '../workspace/attempt-commits-git.ts';
 import type { OwnRemote } from '../workspace/clone-git.ts';
+import { readFilesAt } from '../workspace/finding-files-git.ts';
 import { runGit } from '../workspace/git.ts';
 import { type BranchCommit, openBranchCommit } from '../workspace/merge-tree-git.ts';
 import { readPathsAt } from '../workspace/plan-paths-git.ts';
@@ -608,14 +609,20 @@ export function claudeBrewerRunnerWith(deps: ClaudeRunnerDeps): BrewerRunner {
         };
         // Its retry can write another way what the push would refuse (ADR 0187), or a plan with
         // the paths that exist (ADR 0233).
-        const ending = await touchesChecked(
+        const touched = await touchesChecked(
           deps.touches,
           await scannedIfDone(deps.scan, facts, limits, plan, stopping.signal),
           plan.touches,
           stopping.signal,
         );
-        // A stop while scanning or reading the plan's paths kills git: the attempt was stopped,
-        // git did not fail.
+        // A Taster's findings whose place does not exist at the head it reviewed are marked,
+        // never dropped (ADR 0421).
+        const ending =
+          deps.places === undefined
+            ? touched
+            : await placesChecked(deps.places, touched, plan.reviewed, stopping.signal);
+        // A stop while scanning or reading the plan's paths or the findings' files kills git: the
+        // attempt was stopped, git did not fail.
         if (!stopped && stopping.signal.aborted) return { end: { ...cancelled(), ...reported } };
         // The text as read, valid or not, for the state branch (ADR 0103).
         const outDoc = facts.outDoc === undefined ? {} : { outDoc: facts.outDoc };
@@ -811,6 +818,7 @@ export function claudeBrewerRunner(
     commits: countCommits(runGit),
     scan: scanAttemptCommits(runGit),
     touches: readPathsAt(runGit),
+    places: readFilesAt(runGit),
     changed: changedPaths(runGit),
     // A lockfile's refresh in a scratch tree of the attempt's branch (ADR 0412).
     branchCommit: (clone, own) => openBranchCommit({ git: runGit, clone, own }),

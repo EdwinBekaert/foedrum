@@ -2,6 +2,9 @@
 // a file, and a line within it, by the citation check /brew-review runs too. Git runs only through
 // the injected `ReadFiles`, so no model and no fold is involved.
 
+import { checkLine, isPlainPath } from '../checks/citations.ts';
+import { type TastingFinding, tastingOf } from '../schemas/out-doc.ts';
+import { z } from '../schemas/zod.ts';
 import type { Ending } from './decide.ts';
 
 /** The tree a Taster reviewed: the commit its worktree started at, in its repository's clone. */
@@ -26,15 +29,48 @@ export type ReadFiles = (
   signal?: AbortSignal,
 ) => Promise<FilesRead>;
 
+const isObject = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value);
+
+/** The finding marked where its file, or its line, is not in `files`; one with no file as it is. */
+const checked = (
+  finding: TastingFinding,
+  files: ReadonlyMap<string, string | undefined>,
+): TastingFinding => {
+  const { file, line } = finding;
+  if (file === undefined) return finding;
+  const content = isPlainPath(file) ? files.get(file) : undefined;
+  if (content === undefined) return { ...finding, missing: 'file' };
+  if (line === undefined || checkLine({ file, line }, content).ok) return finding;
+  return { ...finding, missing: 'line' };
+};
+
 /**
  * `ending`, with each finding of a Taster's marked where its file or its line does not exist in
- * `reviewed` (ADR 0421).
+ * `reviewed` (ADR 0421): a succeeded Taster's, or one blocked by its findings. Nothing is marked
+ * when git cannot read the files, and no finding is dropped; any other ending as it is.
  */
 export async function placesChecked(
-  _read: ReadFiles,
-  _ending: Ending,
-  _reviewed: ReviewedTree | undefined,
-  _signal?: AbortSignal,
+  read: ReadFiles,
+  ending: Ending,
+  reviewed: ReviewedTree | undefined,
+  signal?: AbortSignal,
 ): Promise<Ending> {
-  throw new Error('not implemented');
+  if (reviewed === undefined) return ending;
+  const findings =
+    ending.kind === 'blocked'
+      ? ending.findings
+      : ending.kind === 'succeeded'
+        ? tastingOf(ending.output)?.findings
+        : undefined;
+  const cited = (findings ?? []).flatMap(({ file }) =>
+    file !== undefined && isPlainPath(file) ? [file] : [],
+  );
+  if (findings === undefined || cited.length === 0) return ending;
+  const files = await read(reviewed.clone, reviewed.commit, [...new Set(cited)], signal);
+  if (files.kind === 'unread') return ending;
+  const marked = findings.map((finding) => checked(finding, files.files));
+  if (ending.kind === 'blocked') return { ...ending, findings: marked };
+  if (ending.kind !== 'succeeded' || !isObject(ending.output)) return ending;
+  return { ...ending, output: z.json().parse({ ...ending.output, findings: marked }) };
 }
