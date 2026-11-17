@@ -33,6 +33,10 @@ Test runners already offer that reading for a change (`vitest run --changed <ref
 - Its coverage still judges the changed lines ([ADR 0274](0274-the-red-proof-reads-line-coverage-of-the-change-and-a-test-map-not-test-names.md)): the tests that cover them are the ones it runs.
 - It judges no freshness of the test map ([ADR 0282](0282-a-stale-test-map-sends-back-the-change-that-made-it-and-the-maltster-surveys-a-new-one.md)): a module whose tests it did not run wrote no report, which says nothing of the map. Freshness by manifests before the run stays.
 
+### Foedrum's own repository uses it
+- `npm run check -- --base <commit>` reads the change from that commit, a full commit id, instead of the merge base with `origin/main` (`checkMode` in `scripts/check.ts`, `affectedByChange` in `scripts/affected-tests.ts`), and is refused with `--all` or `--no-tests`, which read no change.
+- Foedrum's own `testChanged` is `npm run check -- --base {base}`: the test files the change reaches ([ADR 0241](0241-each-test-runs-at-the-stage-where-it-pays-the-check-runs-the-test-files-a-change-reaches.md)), one command on every system, while its CI runs every test file on every leg.
+
 ## Consequences
 - A repository with a slow suite and a CI that runs it pays for the full suite once per pull request head, in its CI, instead of once per round on the Brewery's machine.
 - A test the change breaks that `testChanged` does not reach fails in the pull request's checks, and the batch goes back to its fix step a round later than it would have from the check step.
