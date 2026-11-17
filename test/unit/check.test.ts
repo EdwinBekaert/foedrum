@@ -243,6 +243,26 @@ describe('checkMode', () => {
     }
   });
 
+  it('takes a --base of 64 hexadecimal characters, a SHA-256 commit id (ADR 0242)', async () => {
+    const long = 'b'.repeat(64);
+    const asked: (string | undefined)[] = [];
+    const mode = checkMode([`--base=${long}`], async (base) => {
+      asked.push(base);
+      return { kind: 'some', files: [] };
+    });
+    await mode.affected?.();
+    assert.deepEqual(asked, [long]);
+  });
+
+  it('refuses a --base in capitals or longer than a SHA-256 commit id (ADR 0242)', () => {
+    for (const base of ['A'.repeat(40), 'a'.repeat(65)]) {
+      assert.throws(
+        () => checkMode([`--base=${base}`], affected),
+        /--base must be a full commit id/,
+      );
+    }
+  });
+
   it('refuses --no-tests with --all', () => {
     assert.throws(() => checkMode(['--all', '--no-tests'], affected), /--all and --no-tests/);
   });

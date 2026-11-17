@@ -179,6 +179,12 @@ describe('readingOf', () => {
     });
   });
 
+  it('records a run of testChanged as changed, and only as true, in a reading the event store takes (ADR 0242)', () => {
+    const reading = { result: 'exited', check: 'test', command: 'vitest', exitCode: 0, tail: '' };
+    assert.equal(GravityReading.safeParse({ ...reading, changed: true }).success, true);
+    assert.equal(GravityReading.safeParse({ ...reading, changed: false }).success, false);
+  });
+
   it('reads a literal command without a check name', () => {
     const e2e = { kind: 'run', command: 'make e2e' } as const;
     assert.deepEqual(readingOf(e2e, { exitCode: 0, output: '' }), {
