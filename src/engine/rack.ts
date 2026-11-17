@@ -14,6 +14,7 @@ import { effectKey } from './effect-key.ts';
 import type { EventStore } from './event-store.ts';
 import { type Batch, batchEnded, type State } from './fold.ts';
 import type { Recipe, RecipeAction, Recipes } from './recipes.ts';
+import { TASTING_DAYS } from './tasting-suggestions.ts';
 
 /** The archive on the state branch, as rack moves batches into it and deletes its old folders. */
 export interface ArchiveShelf {
@@ -98,11 +99,22 @@ const issuesOf = (state: State, batch: Batch, brewery: string): [string, number]
   return issues;
 };
 
+/** The latest deadline any attempt of the batch was scheduled with, as epoch milliseconds. */
+const lastDeadline = (batch: Batch): number =>
+  Math.max(
+    -Infinity,
+    ...[...batch.steps.values()].flatMap(({ attempts }) =>
+      [...attempts.values()].map(({ deadlineAt }) => Date.parse(deadlineAt)),
+    ),
+  );
+
 /**
  * The batches that go together, in the state's order: every batch of an issue, and a split order
- * with its sub-orders'. Only a group whose batches are all finished is listed.
+ * with its sub-orders'. Only a group whose batches are all finished is listed, and only once its
+ * newest attempt's deadline is `TASTING_DAYS` days old, so the tasting suggestions read that many
+ * days of attempts (ADR 0419).
  */
-export const finishedGroups = (state: State): Batch[][] => {
+export const finishedGroups = (state: State, now: Date): Batch[][] => {
   const root = new Map<string, string>();
   const find = (id: string): string => {
     const up = root.get(id) ?? id;
@@ -124,7 +136,12 @@ export const finishedGroups = (state: State): Batch[][] => {
     const key = find(batch.id);
     groups.set(key, [...(groups.get(key) ?? []), batch]);
   }
-  return [...groups.values()].filter((group) => group.every((batch) => finished(state, batch)));
+  const until = now.getTime() - TASTING_DAYS * DAY_MS;
+  return [...groups.values()].filter(
+    (group) =>
+      group.every((batch) => finished(state, batch)) &&
+      Math.max(...group.map(lastDeadline)) <= until,
+  );
 };
 
 /** Rack's actions, for the driver: one effect per attempt, which does the step's work. */
@@ -155,7 +172,7 @@ export const rackActions = (options: RackActionsOptions): DriverActions => {
     // Checked again with no await before the forget: a batch may have joined a group meanwhile.
     // Rows first, then the folders: a crash between them leaves a folder the next run moves.
     const forgetRead = (): void => {
-      const now = new Set(finishedGroups(state()).map((group) => named(group)));
+      const now = new Set(finishedGroups(state(), clock()).map((group) => named(group)));
       const gone = read
         .filter((group) => now.has(named(group)))
         .flatMap((g) => g.map(({ id }) => id));
@@ -165,7 +182,7 @@ export const rackActions = (options: RackActionsOptions): DriverActions => {
       since = clock().getTime();
     };
     try {
-      for (const group of finishedGroups(before)) {
+      for (const group of finishedGroups(before, clock())) {
         const issues = group.flatMap((batch) => issuesOf(before, batch, brewery));
         let all = true;
         for (const issue of issues) all = all && (await closed(issue));
