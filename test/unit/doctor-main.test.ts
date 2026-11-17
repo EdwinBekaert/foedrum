@@ -3,10 +3,12 @@
 // asked about the host foedrum.jsonc names through the runner it is given (ADR 0021, ADR 0073).
 
 import assert from 'node:assert/strict';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { after, describe, it } from 'node:test';
 import { doctorFromCheckout } from '../../src/cli/doctor-main.ts';
+import { storePath } from '../../src/cli/serve-config.ts';
+import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import type { ExecProcess } from '../../src/platform/processes.ts';
 import { makeTempDir } from '../helpers/temp-dir.ts';
 
@@ -106,6 +108,89 @@ describe('doctorFromCheckout', () => {
           },
         },
       ]);
+    } finally {
+      brewery.remove();
+    }
+  });
+});
+
+describe('doctorFromCheckout: the models brewer attempts reported (ADR 0419)', () => {
+  const options = {
+    exec: fakeRunner().exec,
+    resolve: (name: string) => `/usr/bin/${name}`,
+    denylist: () => ({ kind: 'none' as const, path: '/made-up/denylist.txt' }),
+  };
+
+  it("reads them from the Brewery's event log", async () => {
+    const brewery = makeTempDir('doctor-main-tasting');
+    try {
+      mkdirSync(join(brewery.path, '.foedrum'));
+      const store = openSqliteEventStore(storePath(brewery.path));
+      const ref = { batchId: 'b1', stepId: 'brew', attempt: 1 };
+      try {
+        store.withTransaction((tx) => {
+          tx.append({
+            type: 'batch.ordered',
+            batchId: 'b1',
+            order: { issue: 1 },
+            routeBy: '2026-12-31T00:00:00.000Z',
+          });
+          tx.append({
+            type: 'batch.recipe_chosen',
+            batchId: 'b1',
+            recipe: 'nip',
+            reason: 'label',
+            source: 'label',
+          });
+          tx.append({ type: 'step.scheduled', ...ref, deadlineAt: '2026-11-29T12:00:00.000Z' });
+          tx.append({ type: 'step.started', ...ref });
+          tx.append({
+            type: 'step.finished',
+            ...ref,
+            outcome: { kind: 'succeeded', output: null },
+            claude: { version: '2.1.301', model: 'claude-opus-5-6' },
+          });
+        });
+      } finally {
+        // Closed before the folder goes: Windows cannot delete an open file.
+        store.close();
+      }
+      const facts = await doctorFromCheckout(brewery.path, options);
+      assert.deepEqual(facts.tasting?.used, [
+        {
+          recipe: 'nip',
+          stepId: 'brew',
+          model: 'claude-opus-5-6',
+          deadlineAt: new Date('2026-11-29T12:00:00.000Z'),
+        },
+      ]);
+    } finally {
+      brewery.remove();
+    }
+  });
+
+  it('reads none, and makes no event log, where the Brewery has none yet', async () => {
+    const brewery = makeTempDir('doctor-main-no-store');
+    try {
+      const facts = await doctorFromCheckout(brewery.path, options);
+      assert.deepEqual(facts.tasting?.used, []);
+      assert.equal(existsSync(storePath(brewery.path)), false);
+    } finally {
+      brewery.remove();
+    }
+  });
+
+  it('says why, and still reports, when the event log cannot be read', async () => {
+    const brewery = makeTempDir('doctor-main-bad-store');
+    try {
+      mkdirSync(join(brewery.path, '.foedrum'));
+      writeFileSync(storePath(brewery.path), 'not a database, but text of the same name\n');
+      let facts: Awaited<ReturnType<typeof doctorFromCheckout>> | undefined;
+      await assert.doesNotReject(async () => {
+        facts = await doctorFromCheckout(brewery.path, options);
+      });
+      assert.deepEqual(facts?.tasting?.used, []);
+      assert.match(facts?.tasting?.unreadable ?? '', /\S/);
     } finally {
       brewery.remove();
     }

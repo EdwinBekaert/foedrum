@@ -17,6 +17,7 @@ import {
   INVALID_RECIPES,
   invalidRecipes,
 } from '../../src/engine/recipe-files.ts';
+import type { ModelUsed } from '../../src/engine/tasting-suggestions.ts';
 import { BrewerFrontmatter } from '../../src/schemas/brewer.ts';
 import { readDoc } from '../../src/schemas/read.ts';
 import { brewerText, recipeText } from '../helpers/brewery-files.ts';
@@ -1599,5 +1600,174 @@ describe("formatDiagnosis: where brewers' model traffic goes (ADR 0063, ADR 0087
     assert.ok(formatDiagnosis(diagnosis).includes(goesTo('https://gateway.example.com')));
     assert.equal(diagnosis.ok, true);
     assert.deepStrictEqual(diagnosis.problems, diagnose(linux()).problems);
+  });
+});
+
+describe('diagnose: what could be tasted next (ADR 0419)', () => {
+  const at = new Date('2026-11-30T12:00:00.000Z');
+  const brewers = ['cellarman', 'gauger', 'maltster'].map((name) => ({
+    path: `brewers/${name}.md`,
+    text: brewerText(name),
+  }));
+  const nip = {
+    path: 'recipes/nip.jsonc',
+    text: recipeText('nip', [
+      { brewer: 'maltster' },
+      { brewer: 'gauger', model: 'strong', effort: 'larger' },
+      { brewer: 'cellarman' },
+    ]),
+  };
+  const brewery: BreweryFiles = { recipes: [nip], brewers };
+  const used = (stepId: string, model: string): ModelUsed => ({
+    recipe: 'nip',
+    stepId,
+    model,
+    deadlineAt: new Date('2026-11-29T12:00:00.000Z'),
+  });
+  const tasted = (brewer: string, model: string, level = 'standard', effort = 'moderate') => ({
+    brewer,
+    recipe: 'nip',
+    level,
+    effort,
+    model,
+    passed: 9,
+    runs: 10,
+    baseline: { passed: 8, runs: 10, model: 'claude-opus-5-5' },
+    tokensPerOrder: 412000,
+    date: '2026-11-20',
+  });
+  const models = (...entries: unknown[]) => JSON.stringify({ claude: { tasted: entries } });
+  const lineOf = (facts: Partial<DoctorFacts>): string | undefined =>
+    formatDiagnosis(diagnose({ ...linux(), brewery, ...facts }))
+      .split('\n')
+      .find((line) => line.startsWith('Tasting:'));
+
+  it('names the one model in use no tasted entry covers, and its brewer', () => {
+    const tasting = { used: [used('cellarman', 'claude-opus-5-6')], at };
+    assert.equal(
+      lineOf({ tasting }),
+      'Tasting: 1 model in use was never tasted (claude-opus-5-6 for cellarman); `foedrum taste` will list it.',
+    );
+  });
+
+  it('names every untasted model with its brewers, and the steps a cheaper level may do for', () => {
+    const tasting = {
+      used: [
+        used('maltster', 'claude-sonnet-5-6'),
+        used('gauger', 'claude-opus-5-6'),
+        used('cellarman', 'claude-opus-5-6'),
+        used('gauger', 'claude-opus-5-7'),
+      ],
+      at,
+    };
+    assert.equal(
+      lineOf({ tasting, models: models(tasted('gauger', 'claude-opus-5-7', 'strong', 'larger')) }),
+      'Tasting: 2 models in use were never tasted (claude-opus-5-6 for cellarman and gauger, claude-sonnet-5-6 for maltster) and 1 step may do on a cheaper level (gauger in nip on standard); `foedrum taste` will list them.',
+    );
+  });
+
+  it('names a step a cheaper level may do for when every model in use was tasted', () => {
+    const tasting = { used: [used('gauger', 'claude-opus-5-7')], at };
+    assert.equal(
+      lineOf({ tasting, models: models(tasted('gauger', 'claude-opus-5-7', 'strong', 'larger')) }),
+      'Tasting: 1 step may do on a cheaper level (gauger in nip on standard); `foedrum taste` will list it.',
+    );
+  });
+
+  it('says so when every model in use was tasted, reading the Brewery’s own tasted list', () => {
+    const tasting = { used: [used('cellarman', 'claude-sonnet-5-6')], at };
+    assert.equal(
+      lineOf({ tasting }),
+      'Tasting: 1 model in use was never tasted (claude-sonnet-5-6 for cellarman); `foedrum taste` will list it.',
+    );
+    assert.equal(
+      // Tasted at another effort than its step's: it covers the model and offers no cheaper level.
+      lineOf({
+        tasting,
+        models: models(tasted('cellarman', 'claude-sonnet-5-6', 'standard', 'full')),
+      }),
+      'Tasting: every model in use in the last 30 days was tasted, and no step has a cheaper level to taste.',
+    );
+  });
+
+  it('says there is nothing to read when no brewer attempt of the last 30 days reported a model', () => {
+    assert.equal(
+      lineOf({ tasting: { used: [], at } }),
+      'Tasting: no brewer attempt in the last 30 days to read.',
+    );
+  });
+
+  it('keeps a model id that holds a line break on its line', () => {
+    const tasting = { used: [used('cellarman', 'claude\nFoedrum has everything it needs.')], at };
+    assert.equal(
+      lineOf({ tasting }),
+      String.raw`Tasting: 1 model in use was never tasted (claude\u000aFoedrum has everything it needs. for cellarman); ${'`foedrum taste`'} will list it.`,
+    );
+  });
+
+  it('names the models.jsonc problem in place of suggestions when the file does not load', () => {
+    const tasting = { used: [used('cellarman', 'claude-opus-5-6')], at };
+    const line = lineOf({ tasting, models: '{ "claude": { "tasted": [{}] } }' });
+    assert.match(line ?? '', /^Tasting: models\.jsonc: /);
+  });
+
+  it('says models.jsonc cannot be read in place of suggestions', () => {
+    const tasting = { used: [used('cellarman', 'claude-opus-5-6')], at };
+    assert.equal(
+      lineOf({ tasting, modelsUnreadable: 'EACCES: permission denied, open' }),
+      'Tasting: models.jsonc cannot be read (EACCES: permission denied, open).',
+    );
+  });
+
+  it('keeps a models.jsonc read error that holds a line break and a control character on its line', () => {
+    const tasting = { used: [used('cellarman', 'claude-opus-5-6')], at };
+    const why = `EACCES\nFoedrum has everything it needs.${String.fromCodePoint(0x1b)}[2J`;
+    assert.equal(
+      lineOf({ tasting, modelsUnreadable: why }),
+      String.raw`Tasting: models.jsonc cannot be read (EACCES\u000aFoedrum has everything it needs.\u001b[2J).`,
+    );
+  });
+
+  it('says the event log cannot be read in place of suggestions', () => {
+    const tasting = { used: [], at, unreadable: 'file is not a database' };
+    assert.equal(
+      lineOf({ tasting }),
+      'Tasting: the event log cannot be read (file is not a database).',
+    );
+  });
+
+  it('says there is nothing to read when every attempt is older than 30 days', () => {
+    const old = { ...used('cellarman', 'claude-opus-5-6'), deadlineAt: new Date('2026-10-01') };
+    assert.equal(
+      lineOf({ tasting: { used: [old], at } }),
+      'Tasting: no brewer attempt in the last 30 days to read.',
+    );
+  });
+
+  it('reads Foedrum’s default tasted list under the Brewery’s', () => {
+    const tasting = { used: [used('cellarman', 'claude-sonnet-5-6')], at };
+    const defaults = {
+      models: {
+        path: 'defaults/models.jsonc',
+        text: models(tasted('cellarman', 'claude-sonnet-5-6', 'standard', 'full')),
+      },
+    };
+    assert.equal(
+      lineOf({ tasting, brewery: { ...brewery, defaults } }),
+      'Tasting: every model in use in the last 30 days was tasted, and no step has a cheaper level to taste.',
+    );
+  });
+
+  it('prints no tasting line when the recipes do not load', () => {
+    const tasting = { used: [used('cellarman', 'claude-opus-5-6')], at };
+    const broken = { recipes: [{ path: 'recipes/nip.jsonc', text: '{}' }], brewers };
+    const diagnosis = diagnose({ ...linux(), brewery: broken, tasting });
+    assert.ok(diagnosis.problems.some(({ what }) => what === INVALID_RECIPES));
+    assert.equal(diagnosis.tasting, undefined);
+  });
+
+  it('says there is nothing to read when no recent attempt ran a step today’s recipes have', () => {
+    const tasting = { used: [used('gone', 'claude-opus-5-6')], at };
+    assert.equal(lineOf({ tasting }), 'Tasting: no brewer attempt in the last 30 days to read.');
   });
 });

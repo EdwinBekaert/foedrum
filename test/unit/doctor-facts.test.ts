@@ -357,8 +357,55 @@ describe('gatherDoctorFacts: the Brewery config', () => {
       },
     });
     // And on Linux the host's resolver's file, for pasta (ADR 0400).
-    assert.deepEqual(read, [join('/work/brewery', 'foedrum.jsonc'), '/etc/resolv.conf']);
+    // And the Brewery's models.jsonc, for its tasted list (ADR 0419).
+    assert.deepEqual(read, [
+      join('/work/brewery', 'foedrum.jsonc'),
+      '/etc/resolv.conf',
+      join('/work/brewery', 'models.jsonc'),
+    ]);
     assert.equal(facts.config, '{ "repositories": {} }');
+  });
+
+  it('reads the Brewery’s models.jsonc in the working directory (ADR 0419)', async () => {
+    const { shell } = fakeShell();
+    const models = '{ "claude": { "tasted": [] } }';
+    const facts = await gatherDoctorFacts({
+      ...shell,
+      readFile: (path) => (path === join('/work/brewery', 'models.jsonc') ? models : undefined),
+    });
+    assert.equal(facts.models, models);
+  });
+
+  it('keeps a models.jsonc it cannot read as the reason, instead of failing (ADR 0419)', async () => {
+    const { shell } = fakeShell();
+    const facts = await gatherDoctorFacts({
+      ...shell,
+      readFile: (path) => {
+        if (path === join('/work/brewery', 'models.jsonc')) {
+          throw new Error('EACCES: permission denied, open');
+        }
+        return undefined;
+      },
+    });
+    assert.equal(facts.modelsUnreadable, 'EACCES: permission denied, open');
+    assert.equal('models' in facts, false);
+  });
+
+  it('passes on the brewer attempts the shell read from the event log (ADR 0419)', async () => {
+    const { shell } = fakeShell();
+    const tasting = {
+      used: [
+        {
+          recipe: 'nip',
+          stepId: 'brew',
+          model: 'claude-opus-5-6',
+          deadlineAt: new Date('2026-11-29T12:00:00.000Z'),
+        },
+      ],
+      at: new Date('2026-11-30T12:00:00.000Z'),
+    };
+    const facts = await gatherDoctorFacts({ ...shell, tasting: () => tasting });
+    assert.deepEqual(facts.tasting, tasting);
   });
 
   it('has no config where there is no foedrum.jsonc', async () => {

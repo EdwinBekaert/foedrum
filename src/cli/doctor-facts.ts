@@ -16,6 +16,7 @@ import {
   type DenylistFact,
   type DoctorFacts,
   githubHostOfConfig,
+  type TastingFact,
   type ToolName,
   type ToolRun,
 } from './doctor.ts';
@@ -62,6 +63,8 @@ export interface DoctorShell {
   restrictsUserns?: () => boolean | undefined;
   /** Each repository of the Brewery read at its base for the system map (`readDoctorMap`, ADR 0317). */
   systemMap?: () => Promise<DoctorMapRepository[]>;
+  /** The models the Brewery's brewer attempts reported, from its event log (ADR 0419). */
+  tasting?: () => TastingFact;
 }
 
 // The list's state without its text: doctor never prints a word of it (ADR 0114).
@@ -105,6 +108,14 @@ export const gatherDoctorFacts = async (shell: DoctorShell): Promise<DoctorFacts
     if (shell.platform === 'linux') resolvConf = shell.readFile?.('/etc/resolv.conf');
   } catch {
     // Left undefined: pastaResolverGap says the file cannot be read.
+  }
+  // The Brewery's models.jsonc, for its tasted list (ADR 0419): unread, doctor says why.
+  let models: string | undefined;
+  let modelsUnreadable: string | undefined;
+  try {
+    models = shell.readFile?.(join(cwd, 'models.jsonc'));
+  } catch (error) {
+    modelsUnreadable = messageOf(error);
   }
   const host = shell.githubHost ?? githubHostOfConfig(config);
   // A command doctor runs besides a version command: its exit code and what it printed, why the
@@ -167,5 +178,8 @@ export const gatherDoctorFacts = async (shell: DoctorShell): Promise<DoctorFacts
     ...(shell.denylist === undefined ? {} : { denylist: denylistFact(shell.denylist()) }),
     ...(systemMap === undefined ? {} : { systemMap }),
     ...(modelBaseUrl === undefined ? {} : { modelBaseUrl }),
+    ...(models === undefined ? {} : { models }),
+    ...(modelsUnreadable === undefined ? {} : { modelsUnreadable }),
+    ...(shell.tasting === undefined ? {} : { tasting: shell.tasting() }),
   };
 };

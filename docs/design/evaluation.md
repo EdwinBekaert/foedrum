@@ -186,12 +186,19 @@ A dry run keeps its records in a `dry-run/` folder of their own, inside the fold
   - a brewer whose steps named two model ids or none in either Flight.
 
   Each time the report says why in one line.
+- **Tasting suggestions** (#1142): what is worth tasting next?
+  `foedrum doctor` prints two kinds on one `Tasting:` line, from the models the Brewery's brewer attempts reported in the last 30 days and the merged `tasted` list ([ADR 0419](../adr/0419-doctor-lists-the-untasted-models-in-use-and-the-cheaper-levels-a-tasting-could-try.md)):
+  - a model in use that no entry of its brewer names, never tasted;
+  - a cheaper level that might be enough: a step whose entry on the model in use did no worse than its baseline, with the level below never tasted for that brewer, recipe and effort.
+
+  `tastingSuggestions` in `src/engine/tasting-suggestions.ts` builds the list, which `foedrum taste` (#1143) is to show whole.
+  Rack keeps a finished batch in the store until its group's newest attempt's deadline is 30 days old, so the 30 days hold after a rack run; an event log doctor cannot read is named on the line instead, and the rest of the report goes on.
 
 ## Not built yet
 
 - **`foedrum taste`** (#1143): a command that is to list the tasting suggestions and run a picked one: swap one brewer's model, run the Flight several times, compare with the baseline, record the entry into the Brewery's own `models.jsonc` and open the pull request itself, in place of the model watcher (#1085, [ADR 0416](../adr/0416-models-jsonc-keeps-a-tasted-list-the-latest-flight-of-each-brewer-recipe-level-and-effort.md)).
   Until it comes, the comparisons above are its pieces.
-- **Tasting suggestions** (#1142): untasted models in use, cheaper levels or efforts that might hold, and stale results.
+- **More tasting suggestions** (#1148): the other three kinds, a lower effort that might be enough, a level that could switch model, and a result older than its recipe, wait for tasting results from real Flights.
 - **Real batches as samples:** a batch that went Stuck or needed a person's fixes is to be exported into the tasting room as an order.
 - **Metrics per recipe, brewer and model:** hidden-test pass rate, first-attempt gravity pass rate, retries, Stuck rate, tokens, duration, diff size and planted-defect recall; today each comparison prints its own table.
 - Planted bugs for Infection check and pull requests with planted defects for Guest tasting.

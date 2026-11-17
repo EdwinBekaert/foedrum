@@ -15,13 +15,23 @@ import {
   replacedDefaults,
 } from '../engine/recipe-files.ts';
 import { mapLines } from '../engine/system-map.ts';
+import {
+  isRecent,
+  type ModelUsed,
+  type StepInUse,
+  TASTING_DAYS,
+  type TastingSuggestions,
+  tastingSuggestions,
+} from '../engine/tasting-suggestions.ts';
 import { pastaResolverGap, setupStack } from '../platform/check-sandbox.ts';
 import type { AwakeMechanism } from '../platform/keep-awake.ts';
 import { BreweryConfig } from '../schemas/brewery-config.ts';
 import { readJsonc } from '../schemas/read.ts';
+import { oneLine } from './brew.ts';
 import { columns } from './columns.ts';
 import type { DoctorMapRepository } from './doctor-map.ts';
-import { githubHostname } from './serve-config.ts';
+import { printable } from './run.ts';
+import { githubHostname, mergedModels } from './serve-config.ts';
 
 /** The tools doctor looks for on PATH. */
 export type ToolName =
@@ -81,6 +91,20 @@ export interface DoctorFacts {
    * ADR 0087); absent when it is not set. Never printed as it is: it may hold a key.
    */
   modelBaseUrl?: string | undefined;
+  /** The text of the Brewery's models.jsonc, for its tasted list (ADR 0419); absent when there is none. */
+  models?: string | undefined;
+  /** Why models.jsonc could not be read, when it is there and could not be. */
+  modelsUnreadable?: string | undefined;
+  /** The brewer attempts of the event log that reported a model, and when doctor read them (ADR 0419). */
+  tasting?: TastingFact | undefined;
+}
+
+/** The models brewer attempts reported, as the event log holds them, read `at` (ADR 0419). */
+export interface TastingFact {
+  used: readonly ModelUsed[];
+  at: Date;
+  /** Why the event log could not be read, when it is there and could not be. */
+  unreadable?: string;
 }
 
 /** The denylist's state as doctor reports it: its path, never its words or their count. */
@@ -141,6 +165,8 @@ export interface Diagnosis {
   modelTraffic?: string;
   /** How this machine is kept awake while an attempt runs (ADR 0195); never a problem. */
   keepAwake?: AwakeMechanism;
+  /** What could be tasted next, in one line, when doctor read the event log (ADR 0419). */
+  tasting?: string;
   isolation: { level: IsolationLevel; why: string };
   advice: readonly string[];
   problems: readonly Problem[];
@@ -661,6 +687,7 @@ const recipesOf = ({
   defaults?: string[];
   prompts?: PromptSize[];
   notices?: string[];
+  steps?: (recipe: string, stepId: string) => StepInUse | undefined;
 } => {
   if (brewery === undefined) return { problems: [] };
   const loaded = loadRecipes(brewery);
@@ -688,6 +715,12 @@ const recipesOf = ({
         ...replacements,
         ...lines.notices,
       ],
+      steps: (recipe, stepId) => {
+        const step = loaded.brewers.find(recipe, stepId)?.brewer;
+        return step === undefined
+          ? undefined
+          : { brewer: step.name, level: step.model, effort: step.effort };
+      },
     };
   }
   return {
@@ -801,6 +834,7 @@ export const diagnose = (facts: DoctorFacts): Diagnosis => {
     ...stackProblems(facts),
   ];
   const setupNetwork = setupNetworkLine(facts);
+  const tasting = tastingLine(facts, recipes.steps);
   const modelTraffic = modelTrafficLine(facts.modelBaseUrl);
   const read = facts.config === undefined ? undefined : readJsonc(facts.config, BreweryConfig);
   const testGates = read?.valid
@@ -830,6 +864,7 @@ export const diagnose = (facts: DoctorFacts): Diagnosis => {
     ...(recipes.notices === undefined ? {} : { notices: recipes.notices }),
     ...(facts.denylist === undefined ? {} : { denylist: facts.denylist }),
     ...(facts.keepAwake === undefined ? {} : { keepAwake: facts.keepAwake }),
+    ...(tasting === undefined ? {} : { tasting }),
     ...(facts.systemMap === undefined || facts.systemMap.length === 0
       ? {}
       : { systemMap: systemMapLines(facts.systemMap) }),
@@ -852,6 +887,70 @@ const denylistLine = (denylist: DenylistFact): string => {
       throw new Error(`unknown denylist state ${JSON.stringify(unknown)}`);
     }
   }
+};
+
+/**
+ * What could be tasted next, in one line, from the models brewer attempts reported and the merged
+ * tasted list (ADR 0419); none when doctor read no event log or the recipes do not load.
+ */
+const tastingLine = (
+  facts: DoctorFacts,
+  steps: ((recipe: string, stepId: string) => StepInUse | undefined) | undefined,
+): string | undefined => {
+  const { tasting } = facts;
+  if (tasting === undefined || steps === undefined) return undefined;
+  if (tasting.unreadable !== undefined) {
+    return `Tasting: the event log cannot be read (${oneLine(printable(tasting.unreadable))}).`;
+  }
+  if (facts.modelsUnreadable !== undefined) {
+    return `Tasting: models.jsonc cannot be read (${oneLine(printable(facts.modelsUnreadable))}).`;
+  }
+  const problems: string[] = [];
+  const models = mergedModels(facts.models, facts.brewery?.defaults?.models, problems);
+  if (models === undefined) return `Tasting: ${oneLine(printable(problems.join('; ')))}`;
+  const { untasted, cheaper } = tastingSuggestions({
+    attempts: tasting.used,
+    stepOf: steps,
+    tasted: models.claude.tasted,
+    now: tasting.at,
+  });
+  if (untasted.length === 0 && cheaper.length === 0) {
+    // Only an attempt whose step today's recipes have was held against the tasted list.
+    const read = tasting.used.some(
+      ({ recipe, stepId, deadlineAt }) =>
+        isRecent(deadlineAt, tasting.at) && steps(recipe, stepId) !== undefined,
+    );
+    return read
+      ? `Tasting: every model in use in the last ${TASTING_DAYS} days was tasted, and no step has a cheaper level to taste.`
+      : `Tasting: no brewer attempt in the last ${TASTING_DAYS} days to read.`;
+  }
+  return `Tasting: ${suggestionWords({ untasted, cheaper })}; \`foedrum taste\` will list ${
+    untasted.length + cheaper.length === 1 ? 'it' : 'them'
+  }.`;
+};
+
+// "a", "a and b", "a, b and c".
+const andList = (words: readonly string[]): string =>
+  words.length <= 1 ? (words[0] ?? '') : `${words.slice(0, -1).join(', ')} and ${words.at(-1)}`;
+
+// The two kinds of suggestion in words; a model id is claude's, kept on its line.
+const suggestionWords = ({ untasted, cheaper }: TastingSuggestions): string => {
+  const parts: string[] = [];
+  if (untasted.length > 0) {
+    const named = untasted
+      .map(({ model, brewers }) => `${oneLine(printable(model))} for ${andList(brewers)}`)
+      .join(', ');
+    parts.push(
+      `${untasted.length} ${untasted.length === 1 ? 'model in use was' : 'models in use were'} never tasted (${named})`,
+    );
+  }
+  if (cheaper.length > 0) {
+    const named = cheaper.map(({ brewer, recipe, to }) => `${brewer} in ${recipe} on ${to}`);
+    parts.push(
+      `${cheaper.length} ${cheaper.length === 1 ? 'step' : 'steps'} may do on a cheaper level (${named.join(', ')})`,
+    );
+  }
+  return parts.join(' and ');
 };
 
 // The machine's way to stay awake while an attempt runs, or why it has none (ADR 0195).
@@ -885,6 +984,7 @@ export const formatDiagnosis = ({
   notices = [],
   denylist,
   keepAwake,
+  tasting,
   systemMap = [],
   testGates = [],
   ok,
@@ -918,6 +1018,7 @@ export const formatDiagnosis = ({
         ]),
     ...(denylist === undefined ? [] : [denylistLine(denylist)]),
     ...(keepAwake === undefined ? [] : [keepAwakeLine(keepAwake)]),
+    ...(tasting === undefined ? [] : [tasting]),
     '',
   ];
   if (prompts.length > 0) {
