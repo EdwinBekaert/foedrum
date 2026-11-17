@@ -75,6 +75,13 @@ export function commandLine(command: Command, platform: NodeJS.Platform): string
   }
 }
 
+/** The line `testChanged` runs on `platform` from the commit `base`, `{base}` replaced (ADR 0242). */
+export const testChangedLine = (
+  testChanged: Command,
+  platform: NodeJS.Platform,
+  base: string,
+): string => commandLine(testChanged, platform).replaceAll(BASE, base);
+
 /**
  * The checks of a step, in order, as `repository` maps the named ones: with the change's `base`,
  * its `testChanged` in place of `test`, `{base}` replaced (ADR 0242).
@@ -91,7 +98,7 @@ export function planChecks(
     if (command === null) return { kind: 'skip', check };
     const { testChanged } = repository;
     if (check === 'test' && testChanged !== undefined && base !== undefined) {
-      const line = commandLine(testChanged, platform).replaceAll(BASE, base);
+      const line = testChangedLine(testChanged, platform, base);
       return { kind: 'run', check, changed: true, command: line };
     }
     return { kind: 'run', check, command: commandLine(command, platform) };
