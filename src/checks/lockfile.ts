@@ -107,8 +107,8 @@ const regularFile = async (tree: string, file: string): Promise<Buffer | undefin
   return readFile(file);
 };
 
-/** The file of `lockfile`, relative with forward slashes, in `tree`. */
-const inTree = (tree: string, lockfile: string): string => join(tree, ...lockfile.split('/'));
+/** The path in `tree` of `relative`, a path relative with forward slashes. */
+const inTree = (tree: string, relative: string): string => join(tree, ...relative.split('/'));
 
 /**
  * The lockfiles `refresh` names in `tree`: itself, the nearest of its name from its folder up
@@ -197,7 +197,7 @@ export async function refreshLockfiles(
     // A repository that keeps no lockfile there has none to refresh.
     const before = await regularFile(worktree, file);
     if (before === undefined) continue;
-    const cwd = join(worktree, ...folder.split('/'));
+    const cwd = inTree(worktree, folder);
     const timeoutMs = REFRESH_TIMEOUT_MS;
     const result = await runLine(exec, command, { cwd, env, deadlineAt, now, signal, timeoutMs });
     const reading = { ...readingOn({ kind: 'run', command }, result, unsandboxed), lockfile };
