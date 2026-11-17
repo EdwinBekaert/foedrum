@@ -355,6 +355,13 @@ export interface TestLineInput {
   command: Command;
 }
 
+/** A repository's testChanged line on this platform from `base`, `{base}` replaced (ADR 0417). */
+export interface TestChangedInput {
+  repo: string;
+  base: string;
+  line: string;
+}
+
 /** The test-line input's text: the line as written, or each platform's line of it, named. */
 const testLineText = (command: Command): string =>
   typeof command === 'string'
@@ -415,7 +422,8 @@ export const planLensInputs = (
  * Brewery issue that is a claimed batch's order, which its order input's source names (ADR 0334).
  * The earlier-sections input's text is in `earlierSections`, left out when no earlier attempt of
  * the step wrote any (ADR 0353), and the test-line input's in `testLine`, left out when the
- * attempt's repository has none (ADR 0376).
+ * attempt's repository has none (ADR 0376), and the test-changed input's in `testChanged`, left
+ * out when the repository sets no testChanged (ADR 0417).
  */
 export function inputsOf(
   inputs: BrewerFrontmatter['inputs'],
@@ -433,6 +441,7 @@ export function inputsOf(
   breweryIssue?: number,
   earlierSections?: EarlierSectionsInput,
   testLine?: TestLineInput,
+  testChanged?: TestChangedInput,
 ): PlannedInput[] {
   // A step the batch skipped, or one its recipe does not have (#774), gives the input nothing.
   const stepLeftOut = (step: string): boolean =>
@@ -447,6 +456,7 @@ export function inputsOf(
     (from === 'checks' && checks === undefined) ||
     (from === 'earlier-sections' && earlierSections === undefined) ||
     (from === 'test-line' && testLine === undefined) ||
+    (from === 'test-changed' && testChanged === undefined) ||
     (from.startsWith('step:') && stepLeftOut(from.slice('step:'.length)));
   return inputs
     .filter(({ from }) => !skipped(from))
@@ -490,6 +500,14 @@ export function inputsOf(
       if (from === 'test-line' && testLine !== undefined) {
         const source = { kind: 'test-line', repo: testLine.repo } as const;
         return { name, source, read: { kind: 'text', text: testLineText(testLine.command) } };
+      }
+      if (from === 'test-changed' && testChanged !== undefined) {
+        const { repo, base, line } = testChanged;
+        return {
+          name,
+          source: { kind: 'test-changed', repo, base },
+          read: { kind: 'text', text: line },
+        };
       }
       if (from === 'plan') return planInput(name, batch, stepBrewer);
       if (from.startsWith('step:')) {

@@ -46,6 +46,7 @@ export type InputSource =
   | { kind: 'recipes' }
   /** The test line `foedrum.jsonc` gives the attempt's repository (ADR 0376). */
   | { kind: 'test-line'; repo: string }
+  | { kind: 'test-changed'; repo: string; base: string }
   /** A human's answers to the questions a step asked (ADR 0006: the in-doc of a fresh attempt). */
   | { kind: 'answers'; step: string }
   /** What sent a step back along a route: the failed checks or the findings of `from` (ADR 0128). */
@@ -130,6 +131,8 @@ function describeSource(source: InputSource): string {
       return `the checks that ran on commit ${source.commit}`;
     case 'test-line':
       return `the Brewery's test line for ${source.repo}`;
+    case 'test-changed':
+      return `the Brewery's testChanged line for ${source.repo}, from commit ${source.base}`;
     case 'earlier-sections':
       return `the pull request's sections that attempt ${source.attempt} of this step wrote`;
     case 'recipes':
