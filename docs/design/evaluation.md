@@ -31,10 +31,20 @@ Each brews with `foedrum brew`'s own run in a scratch Brewery on the fake code h
 - **The Flight's fairness proof:** `test/integration/flight-orders.test.ts` runs, for every order in `orders/`, its hidden tests on the starting repository, where they must fail, and with the reference solution, where they must pass ([ADR 0404](../adr/0404-the-flight-s-tasting-room-is-a-folder-of-orders-each-proved-by-its-hidden-tests.md)).
   It needs no model, so CI runs it with the other integration tests; it proves an order fair, not that a brewer solves it.
 - **A Flight:** `node scripts/flight.ts --recipe <name> [--brewer <name> --model <level or id> --effort <effort>]` brews every order of `orders/` 3 times with a default recipe as it ships, or with only that brewer's steps moved, then runs the order's hidden tests over the head a person gets, in the check sandbox as a check step runs (unsandboxed on native Windows), and records whether they passed, the changes outside its allowed paths and the tokens, turns and time, under `.foedrum/tmp/flight/`; `--dry-run` scripts every brewer and skips the recipe's test-first steps ([ADR 0409](../adr/0409-a-flight-brews-every-tasting-room-order-on-a-recipe-as-it-ships-or-with-one-brewer-swapped.md)).
+- **A Flight report:** did the candidate Flight do better than the baseline, order by order, or is it too close to call?
+
+  ```
+  node scripts/flight-report.ts --baseline .foedrum/tmp/flight/nip --candidate .foedrum/tmp/flight/nip-cellarman-claude-opus-5-5-larger
+  ```
+
+  It reads both folders' `results.jsonl`, prints the report and writes it as `report.md` in the candidate's folder ([ADR 0411](../adr/0411-a-flight-report-calls-equal-passes-the-same-and-counts-a-run-that-measured-nothing-as-not-passed.md)).
+  Each order both Flights measured gets a row: the hidden tests passed in each ("3 of 3 against 1 of 3"), and, over the runs that measured something, those with changes outside its paths and the tokens and the brewers' time per run, and a verdict.
+  A difference is called only when one Flight passes every run and the other at most one ([ADR 0404](../adr/0404-the-flight-s-tasting-room-is-a-folder-of-orders-each-proved-by-its-hidden-tests.md)); equal counts of equal runs are the same, two Flights that both passed every run are never a difference, and anything else is too close to call (ADR 0411).
+  A run that measured nothing counts as one that did not pass, and an order only one Flight has, or that one measured no run of, is listed under the table and left out of the counts.
+  One summary line gives each Flight's orders passed on every run, the orders too close to call and the candidate's tokens per order against the baseline's, never a cost in money.
 
 ## Not built yet
 
-- **Flight reports** (#1084): it is to compare two Flights order by order and call a difference only when one setup passes every run and the other at most one.
 - **`foedrum taste`:** a command that is to swap one brewer's model, run the Flight several times and compare with the baseline.
   Until it comes, the comparisons above are its pieces.
 - **The model watcher** (#1085): when a new model is listed, it is to run a Flight and open a pull request on the Brewery that updates `models.jsonc`, with the report as its description.
