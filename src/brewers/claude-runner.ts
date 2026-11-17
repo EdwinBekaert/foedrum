@@ -691,8 +691,8 @@ export function claudeBrewerRunnerWith(deps: ClaudeRunnerDeps): BrewerRunner {
           if (branchCommit === undefined || exec === undefined) {
             return unrefreshed('the brewer runner has no scratch tree or process runner for them');
           }
-          const lockfiles = refreshes.map(({ lockfile }) => lockfile).join(', ');
-          const message = `Refresh ${lockfiles} after the release bump (ADR 0412)`;
+          // Which lockfiles a refresh finds is known only in its scratch tree (ADR 0415).
+          const message = 'Refresh the lockfiles after the release bump (ADR 0412)';
           const run = { ...refresh, exec, now: deps.now, signal: stopping.signal };
           let readings: GravityReading[] = [];
           try {
