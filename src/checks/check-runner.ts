@@ -192,8 +192,16 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
     worktree: TreeIn,
     deadlineAt: string,
     signal: AbortSignal,
+    belowNormal = false,
   ): Promise<ExecResult> =>
-    runLine(exec, check.command, { cwd: worktree.path, env, deadlineAt, now: clock, signal });
+    runLine(exec, check.command, {
+      cwd: worktree.path,
+      env,
+      deadlineAt,
+      now: clock,
+      signal,
+      belowNormal,
+    });
 
   /**
    * The repository's setup running, or undefined when it has none: then nothing is awaited, so
@@ -203,10 +211,11 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
     worktree: TreeIn,
     deadlineAt: string,
     signal: AbortSignal,
+    belowNormal = false,
   ): Promise<GravityReading[]> | undefined => {
     const found = options.setup?.of(worktree.repo);
     if (options.setup === undefined || found === undefined) return undefined;
-    const run = { cwd: worktree.path, env, deadlineAt, now: clock, signal };
+    const run = { cwd: worktree.path, env, deadlineAt, now: clock, signal, belowNormal };
     // Once the step needs nothing else before its checks (ADR 0140).
     return runSetup(options.setup.exec, setupRunOf(found, platform), run).then((read) => [read]);
   };
@@ -235,12 +244,16 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
     return merged === undefined ? end : mergedNaming(end, worktree, merged, signal);
   };
 
-  /** The checks `refs` of the tree in `worktree`, as `checkTree` runs them, before any naming. */
+  /**
+   * The checks `refs` of the tree in `worktree`, as `checkTree` runs them, before any naming; below
+   * normal priority for a scratch tree's test run (ADR 0413).
+   */
   const checksOf = async (
     refs: readonly CheckRef[],
     worktree: TreeIn,
     deadlineAt: string,
     signal: AbortSignal,
+    belowNormal = false,
   ): Promise<AttemptEnd> => {
     let repository = NO_CHECKS;
     const named = refs.find((check) => typeof check === 'string');
@@ -258,7 +271,7 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
     // The repository's setup once nothing else blocks the step and a check will run, so the
     // checks find what it installed (ADR 0140).
     const preparing = planned.some((check) => check.kind === 'run')
-      ? prepare(worktree, deadlineAt, signal)
+      ? prepare(worktree, deadlineAt, signal, belowNormal)
       : undefined;
     const before = preparing === undefined ? [] : await preparing;
     if (!before.every(passed)) return { ending: settleReadings(before), readings: before };
@@ -268,7 +281,8 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
         readings.push({ result: 'skipped', check: check.check });
         continue;
       }
-      const reading = readingIn(check, await runCheck(check, worktree, deadlineAt, signal));
+      const ran = await runCheck(check, worktree, deadlineAt, signal, belowNormal);
+      const reading = readingIn(check, ran);
       readings.push(reading);
       if (!passed(reading)) break;
     }
@@ -277,8 +291,9 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
 
   /**
    * The test check in a scratch tree (ADR 0313): every report path of `modules` cleared, since a
-   * report the commit holds must never stand for the run's, the setup and the test check run, and
-   * each module's reports read where the map says. A TRX report is left unread (#727).
+   * report the commit holds must never stand for the run's, the setup and the test check run below
+   * normal priority (ADR 0413), and each module's reports read where the map says. A TRX report is
+   * left unread (#727).
    */
   const testRun: TestRun = async (tree, modules, deadlineAt, signal) => {
     const read = modules.filter(({ module }) => module.testReport.format !== 'trx');
@@ -290,7 +305,7 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
     if (unclear !== undefined) {
       return { kind: 'unrun', why: `the test reports cannot be cleared: ${unclear}` };
     }
-    const end = await checksOf(['test'], tree, deadlineAt, signal);
+    const end = await checksOf(['test'], tree, deadlineAt, signal, true);
     const readings = end.readings ?? [];
     const reading = readings.find((each) => each.check === 'test');
     if (reading === undefined) {
