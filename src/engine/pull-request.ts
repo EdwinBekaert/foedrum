@@ -17,12 +17,13 @@ import {
   gaugeOf,
   lensFirst,
   MutantsOutDoc,
+  missingNote,
   OutDocFrontmatter,
   PullRequestOutDoc,
   type PullRequestSections,
   placeOf,
+  StoredTastingOutDoc,
   type TastingFinding,
-  TastingOutDoc,
   type TastingReport,
   tastingOf,
 } from '../schemas/out-doc.ts';
@@ -448,7 +449,7 @@ export const stepReports = (batch: Batch): StepReport[] => {
     // (ADR 0166), a Gauger's its tests (ADR 0170), and Brett's its mutants (ADR 0319).
     const { output } = latest.outcome;
     const { mutants = [] } = latest;
-    const doc = OutDocFrontmatter.or(TastingOutDoc)
+    const doc = OutDocFrontmatter.or(StoredTastingOutDoc)
       .or(PullRequestOutDoc)
       .or(FiningOutDoc)
       .or(GaugeOutDoc)
@@ -523,8 +524,8 @@ const preExistingOf = (step: Step): PreExisting[] => {
  * lens when it names one.
  */
 export const findingText = (finding: TastingFinding): string => {
-  const { file, line, severity, introduced } = finding;
-  const where = file === undefined ? '' : ` in ${file}${line === undefined ? '' : `:${line}`}`;
+  const { file, severity, introduced } = finding;
+  const where = file === undefined ? '' : ` in ${placeOf(finding)}${missingNote(finding)}`;
   // The lens it was found through, on a step of several lenses together (ADR 0220).
   return `${lensFirst(finding)}${severity}${where}${introduced ? '' : ', there before the change'}`;
 };

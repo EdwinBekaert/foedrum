@@ -40,6 +40,7 @@ import {
   lensFirst,
   MUTANTS,
   MutantsOutDoc,
+  missingNote,
   OutDocFrontmatter,
   PULL_REQUEST,
   PullRequestOutDoc,
@@ -747,6 +748,20 @@ const flatLine = (text: string): string => text.replace(/\s+/g, ' ').trim();
 export type Reviewed = 'change' | 'plan';
 
 /**
+ * One finding on one line: its lens, how bad, where, with the engine's note when that place does
+ * not exist in the reviewed code (ADR 0421), and why; one with no file is about the change, or the
+ * plan, as a whole (ADR 0318).
+ */
+function findingLine(finding: TastingFinding, of: Reviewed): string {
+  const where =
+    finding.file === undefined
+      ? `the ${of} as a whole`
+      : `${placeOf(finding)}${missingNote(finding)}`;
+  const before = finding.introduced ? '' : ', there before the change';
+  return `- ${lensFirst(finding)}${finding.severity} in ${where}${before}: ${flatLine(finding.why)}`;
+}
+
+/**
  * One round's findings, each with the first disposition at its place not already taken; a finding
  * with no file is about the change, or the plan, as a whole (ADR 0318).
  */
@@ -757,15 +772,11 @@ function roundLines(
 ) {
   if (findings.length === 0) return ['No findings.'];
   return withDispositions(findings, dispositions).flatMap(({ finding, disposition: disposed }) => {
-    const before = finding.introduced ? '' : ', there before the change';
     const said =
       disposed === undefined
         ? 'open'
         : `${disposed.disposition}${disposed.why === undefined ? '' : `: ${flatLine(disposed.why)}`}`;
-    return [
-      `- ${lensFirst(finding)}${finding.severity} in ${finding.file === undefined ? `the ${of} as a whole` : placeOf(finding)}${before}: ${flatLine(finding.why)}`,
-      `  ${said}`,
-    ];
+    return [findingLine(finding, of), `  ${said}`];
   });
 }
 
@@ -935,7 +946,21 @@ export function routeOf(
   const reason = outcome.kind === 'failed' ? outcome.reason : outcome.kind;
   // A red proof's reason quotes its test run, whose tail alone was filtered (#188).
   const said = findSecrets(reason, () => false).length > 0 ? leftOutReason : reason;
-  const text = [`Step ${from} ended: ${said}`, ...readings.flatMap(failedReading)].join('\n\n');
+  // The findings it recorded whose place does not exist in the reviewed code: its out doc, which
+  // the route input quotes, does not say so (ADR 0421).
+  const missing = (routing.findings?.kept ?? []).filter((found) => found.missing !== undefined);
+  const unfound =
+    missing.length === 0
+      ? []
+      : [
+          [
+            'Of its findings, these cite a place that does not exist in the reviewed code:',
+            ...missing.map((found) => findingLine(found, 'change')),
+          ].join('\n'),
+        ];
+  const text = [`Step ${from} ended: ${said}`, ...readings.flatMap(failedReading), ...unfound].join(
+    '\n\n',
+  );
   const doc = outDocOf(from, routing.attempt);
   // A resumed attempt ran in the worktree of the session it continues (ADR 0117).
   const root = routing.worktree?.path ?? routing.session?.worktree;
@@ -1336,7 +1361,7 @@ function groupSections(others: readonly GroupStepFindings[]) {
     const head = `Step ${step}${through}, ${verdict}:`;
     const of: Reviewed = lenses[0]?.startsWith('plan/') === true ? 'plan' : 'change';
     const lines = findings.map((finding) => ({
-      text: `- ${lensFirst(finding)}${finding.severity} in ${finding.file === undefined ? `the ${of} as a whole` : placeOf(finding)}${finding.introduced ? '' : ', there before the change'}: ${flatLine(finding.why)}`,
+      text: findingLine(finding, of),
       count: 1,
     }));
     if (more > 0)

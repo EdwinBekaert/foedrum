@@ -951,13 +951,20 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
                 env: checksEnv(options.env, platform),
               },
             };
+      // A Taster of a change reviewed its worktree's head; a plan lens's reviewed a plan (ADR 0312).
+      const [lens] = found.together ?? (found.lens === undefined ? [] : [found.lens]);
+      const reviewsHead =
+        found.brewer.output.schema === TASTING && lens?.startsWith('plan/') !== true;
       const checked =
         found.brewer.output.schema === PLAN
           ? {
               ...prepared,
               touches: await planRepositories(own, own === undefined ? checkouts : []),
             }
-          : prepared;
+          : reviewsHead && own !== undefined
+            ? // Its findings are checked at the head it reviewed, in its clone (ADR 0421).
+              { ...prepared, reviewed: { clone: options.clone(own.repo), commit: own.commit } }
+            : prepared;
       if (found.brewer.produces !== 'commits') return checked;
       // Its commits are counted on its branch in the clone, built from the attempt that made the
       // worktree as the worktree's is, never from the recorded branch or the worktree's own git

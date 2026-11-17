@@ -123,6 +123,9 @@ export const TastingFinding = z.strictObject({
   // Optional, so a one-lens out doc reads as before; an older Foedrum cannot read a finding with
   // it (ADR 0220, as ADR 0191 records for dispositions).
   lens: LensName.optional(),
+  // The engine's, never the Taster's: its file, or its line, does not exist at the head the
+  // Taster reviewed (ADR 0421).
+  missing: z.enum(['file', 'line']).optional(),
 });
 export type TastingFinding = z.infer<typeof TastingFinding>;
 
@@ -150,10 +153,11 @@ export const withinLimit = (line: string, max: number, field: string): string =>
 };
 
 /**
- * A Taster's out doc: the contract's, with its findings, a verdict when it is done, and the risk
- * its review leaves (ADR 0214), optional, so an out doc without it reads as before.
+ * A Taster's out doc as the engine keeps it: the contract's, with its findings, a verdict when it is
+ * done, and the risk its review leaves (ADR 0214), optional, so an out doc without it reads as
+ * before. A finding may carry the engine's mark of a place that does not exist (ADR 0421).
  */
-export const TastingOutDoc = outDocFrontmatter({
+export const StoredTastingOutDoc = outDocFrontmatter({
   verdict: Verdict.optional(),
   findings: z.array(TastingFinding).default([]),
   riskLeft: z
@@ -177,6 +181,18 @@ export const TastingOutDoc = outDocFrontmatter({
       message:
         'Must be "changes" exactly when a finding the change introduced is a blocker or major',
       path: ['verdict'],
+    });
+  }
+});
+
+/** A Taster's out doc as it writes it: no finding carries the engine's mark (ADR 0421). */
+export const TastingOutDoc = StoredTastingOutDoc.superRefine((doc, ctx) => {
+  for (const [at, { missing }] of doc.findings.entries()) {
+    if (missing === undefined) continue;
+    ctx.addIssue({
+      code: 'custom',
+      message: "Is the engine's to set: leave it out",
+      path: ['findings', at, 'missing'],
     });
   }
 });
@@ -227,7 +243,7 @@ export interface TastingReport {
  * check's success, which has none.
  */
 export const tastingOf = (output: unknown): TastingReport | undefined => {
-  const read = TastingOutDoc.safeParse(output);
+  const read = StoredTastingOutDoc.safeParse(output);
   if (!read.success || read.data.status !== 'done' || read.data.verdict === undefined) {
     return undefined;
   }
@@ -244,6 +260,10 @@ export const placeOf = ({
   line?: number | undefined;
 }) =>
   file === undefined ? 'the change as a whole' : `${file}${line === undefined ? '' : `:${line}`}`;
+
+/** What a person reads after a finding's place when the engine found it missing (ADR 0421). */
+export const missingNote = ({ missing }: { missing?: 'file' | 'line' | undefined }): string =>
+  missing === undefined ? '' : ` (that ${missing} does not exist in the reviewed code)`;
 
 /** Any out doc's dispositions, read leniently: none when it lists none, or none it can read. */
 const Disposed = z.object({ dispositions: z.array(Disposition) });
