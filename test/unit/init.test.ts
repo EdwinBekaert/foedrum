@@ -323,6 +323,7 @@ describe('foedrum init (ADR 0199)', () => {
     assert.deepStrictEqual(parsed(clone, 'models.jsonc', ModelsConfig).claude, {
       models: {},
       efforts: {},
+      tasted: [],
     });
     assert.deepStrictEqual(parsed(clone, '.claude/settings.json', BreweryClaudeSettings), {
       enabledPlugins: { 'foedrum@foedrum': true },

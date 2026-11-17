@@ -55,6 +55,9 @@
               "max"
             ]
           }
+        },
+        "tasted": {
+          "not": {}
         }
       },
       "additionalProperties": false

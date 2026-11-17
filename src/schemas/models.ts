@@ -34,6 +34,8 @@ const ClaudeBlock = z.strictObject({
     .partialRecord(Effort, ClaudeEffort)
     .default({})
     .describe("The word `claude --effort` gets for each of Foedrum's efforts"),
+  // Not implemented: the red step's stub.
+  tasted: z.never().optional(),
 });
 
 /** A models.jsonc: Foedrum's own, or a Brewery's that merges over it entry by entry (ADR 0153). */
