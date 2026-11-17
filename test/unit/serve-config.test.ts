@@ -69,6 +69,7 @@ describe('serveSetup', () => {
     assert.deepStrictEqual(setup.models.claude, {
       models: { light: 'claude-haiku-5-5' },
       efforts: { small: 'low' },
+      tasted: [],
     });
     assert.notEqual(setup.recipes.find('stout'), undefined);
     assert.equal(setup.brewers.find('stout', 'brew')?.brewer.name, 'cellarman');
