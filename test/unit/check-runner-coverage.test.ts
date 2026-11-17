@@ -786,6 +786,25 @@ describe('createCheckRunner: the uncovered-line check (ADR 0274)', () => {
     assert.deepEqual(end.ending, { kind: 'succeeded', output: null });
   });
 
+  it('still fails a changed line no test ran in a module the change touches after a run of testChanged (ADR 0242)', async () => {
+    const web: TestMapModule = {
+      ...calc,
+      name: 'web',
+      code: ['web/**'],
+      tests: { paths: ['web-test/**'] },
+      coverage: { format: 'lcov', path: 'web/lcov.info' },
+    };
+    const { run } = setup({
+      maps: { [base]: mapOf(calc, web), [tip]: mapOf(calc, web) },
+      diff: adding('src/calc.ts', 1, 1),
+      coverage: { 'lcov.info': lcov(record('src/calc.ts', { 1: 0 })) },
+      testChanged: 'npm test -- --changed {base}',
+    });
+    const end = await run();
+    assert.equal(end.ending.kind, 'failed');
+    assert.match(end.ending.kind === 'failed' ? end.ending.reason : '', /src\/calc\.ts:1/);
+  });
+
   it("refuses to clear a coverage path that names git's own files or every top folder", async () => {
     for (const [path, why] of [
       ['.git', ".git is git's own, never a report"],
