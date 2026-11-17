@@ -1206,7 +1206,7 @@ describe('foedrum: commands that change state', () => {
       }
     };
 
-    it('answers allow with a reason to a batch whose push was refused, recording who and why (ADR 0419)', async () => {
+    it('answers allow with a reason to a batch whose push was refused, recording who and why (ADR 0420)', async () => {
       const tip = 'e'.repeat(40);
       refusedAt('28-1', tip);
       assert.equal(
@@ -1226,7 +1226,7 @@ describe('foedrum: commands that change state', () => {
       assert.equal(resumed?.type, 'batch.resumed');
     });
 
-    it('refuses allow with an empty reason or none, saying what to type (ADR 0419)', async () => {
+    it('refuses allow with an empty reason or none, saying what to type (ADR 0420)', async () => {
       refusedAt('28-1', 'e'.repeat(40));
       const before = lastId();
       for (const words of [['allow', ''], ['allow'], ['allow', ' ']]) {
@@ -1239,7 +1239,7 @@ describe('foedrum: commands that change state', () => {
       assert.equal(lastId(), before);
     });
 
-    it('takes allow as a plain answer from a batch that asks other questions (ADR 0419)', async () => {
+    it('takes allow as a plain answer from a batch that asks other questions (ADR 0420)', async () => {
       assert.deepStrictEqual(
         await run(['answer', '21-1', 'allow', 'no']),
         ok('#21 brewing: plan #2 scheduled\n'),

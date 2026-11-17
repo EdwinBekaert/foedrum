@@ -946,7 +946,7 @@ describe('pullRequestActions: the secret scan before the push (ADR 0079)', () =>
   });
 });
 
-describe('pullRequestActions: the push of a commit a person allowed (ADR 0419)', () => {
+describe('pullRequestActions: the push of a commit a person allowed (ADR 0420)', () => {
   const found: ScanFinding[] = [{ commit: tip, place: 'notes/aws.txt', kind: 'GitHub token' }];
   const allowedPush = () => effectKey.encode(allowedPushKey('12-1'));
   const again = { ...action, attempt: 2 };
@@ -1652,7 +1652,7 @@ describe('pullRequestActions: a later round pushes to the same pull request (ADR
   const withRemote = (remote: Record<string, string>) =>
     actionsWith({ remote, commits: { [from2]: fixed } });
 
-  it("pushes round 2's allowed commit under push.2.allowed without a scan, which its readers take (ADR 0419)", async () => {
+  it("pushes round 2's allowed commit under push.2.allowed without a scan, which its readers take (ADR 0420)", async () => {
     const { actions, pushes, scans } = actionsWith({
       remote: { [branch]: tip },
       commits: { [from2]: fixed },
@@ -1690,7 +1690,7 @@ describe('pullRequestActions: a later round pushes to the same pull request (ADR
     assert.deepEqual(latestPush(fold([...allowedAgain, applied(allowed2, went)]), '12-1'), went);
   });
 
-  it("scans round 2's new commit under push.2 after round 1's allowance (ADR 0419)", async () => {
+  it("scans round 2's new commit under push.2 after round 1's allowance (ADR 0420)", async () => {
     const found = [{ commit: fixed, place: 'a.txt', kind: 'GitHub token' }];
     const { actions, pushes, scans } = actionsWith({
       remote: { [branch]: tip },
@@ -1733,7 +1733,7 @@ describe('pullRequestActions: a later round pushes to the same pull request (ADR
     assert.deepEqual(pushes, []);
   });
 
-  it("expects round 2's branch where the push after round 1's allowance left it, not at the refused commit (ADR 0419)", async () => {
+  it("expects round 2's branch where the push after round 1's allowance left it, not at the refused commit (ADR 0420)", async () => {
     // The push after the allowance resolved `other`, which the scan passed, and pushed it.
     const { actions, pushes } = actionsWith({
       remote: { [branch]: other },

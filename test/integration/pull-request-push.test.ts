@@ -84,7 +84,7 @@ describe('the openPullRequest push with real git', () => {
   /**
    * Brews batch 12-1 of the ale recipe, whose plan does `work`, to the end of one tick, in a
    * repository that names `sensitivePaths` when given; then, when `allow` is given, answers allow
-   * with it to a refused push and ticks once more (ADR 0419).
+   * with it to a refused push and ticks once more (ADR 0420).
    */
   const brew = async (
     work: (path: string) => void = commitPlan,
@@ -539,7 +539,7 @@ describe('the openPullRequest push with real git', () => {
       assert.match(stopped(state, requests), /GitHub token on line 15 of [0-9a-f]{8} in a\.txt$/);
     });
 
-    it('pushes the refused commit a person allowed, with its token, and opens the pull request (ADR 0419)', async () => {
+    it('pushes the refused commit a person allowed, with its token, and opens the pull request (ADR 0420)', async () => {
       const { state, requests, planBranch } = await brew(
         (path) => {
           writeFileSync(join(path, 'plan.txt'), `${token}\n`);

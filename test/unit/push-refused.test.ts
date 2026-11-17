@@ -234,7 +234,7 @@ describe('a refused push, as people see it (ADR 0418)', () => {
   });
 });
 
-describe('decide: allow lets the refused push of its exact commit go (ADR 0419)', () => {
+describe('decide: allow lets the refused push of its exact commit go (ADR 0420)', () => {
   const why = 'a fake token built in a test fixture';
 
   it('answer allow with a reason records push.allowed for the refused commit, then schedules the step again', () => {
@@ -287,7 +287,7 @@ describe('decide: allow lets the refused push of its exact commit go (ADR 0419)'
   });
 });
 
-describe('a refused push a person allowed, as people see it (ADR 0419)', () => {
+describe('a refused push a person allowed, as people see it (ADR 0420)', () => {
   const why = 'a fake token built in a test fixture';
   const allowed: Event[] = [
     { type: 'push.allowed', batchId: 'b1', stepId: 'open-pull-request', commit: tip, why, ...by },
