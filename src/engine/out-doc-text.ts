@@ -4,12 +4,15 @@
 import { findSecrets, type IsCommit } from '../formats/secrets.ts';
 
 /**
- * `text`, or a fixed line naming `stepId` when it looks like a secret: never the matched text, nor
- * `findSecrets`' excerpt of it. The text is read as written and as shown, on one line, since
- * joining its lines can make a match (`password` and `= x` on two lines).
+ * `text`, or a fixed line naming `stepId` when it looks like a secret (no step when `stepId` is
+ * empty, as for a batch's Failing mark): never the matched text, nor `findSecrets`' excerpt of it.
+ * The text is read as written and as shown, on one line, since joining its lines can make a match
+ * (`password` and `= x` on two lines).
  */
 export const withoutSecrets = (text: string, stepId: string, isCommit: IsCommit): string => {
   const oneLine = text.replace(/\s+/g, ' ');
   const found = [text, oneLine].some((each) => findSecrets(each, isCommit).length > 0);
-  return found ? `[left out: a text of step ${stepId} that looks like a secret]` : text;
+  if (!found) return text;
+  const of = stepId === '' ? '' : ` of step ${stepId}`;
+  return `[left out: a text${of} that looks like a secret]`;
 };
