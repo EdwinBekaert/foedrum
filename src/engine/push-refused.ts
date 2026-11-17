@@ -2,7 +2,7 @@
 // what was found, by kind, place and line, never the text, and the one question a person answers
 // with `foedrum answer <issue> stop` (ADR 0418).
 
-import type { StuckReason } from '../schemas/events.ts';
+import { MOST_REFUSED_SHOWN, type StuckReason } from '../schemas/events.ts';
 import type { ScanFinding } from '../schemas/store.ts';
 
 /** The one question a batch whose push was refused asks, which `foedrum answer` answers. */
@@ -17,13 +17,12 @@ export interface PushRefusal {
 
 /** The Stuck reason of the push `refusal` at `stepId`: its first findings, and how many more. */
 export const pushRefusedReason = (
-  _stepId: string,
-  _refusal: PushRefusal,
-): Extract<StuckReason, { kind: 'push_refused' }> => {
-  throw new Error('not implemented');
-};
-
-/** Each finding of `reason` as `<kind> in <place> line <n> of <commit>`, then how many more. */
-export const refusedLines = (_reason: Extract<StuckReason, { kind: 'push_refused' }>): string[] => {
-  throw new Error('not implemented');
-};
+  stepId: string,
+  { commit, findings }: PushRefusal,
+): Extract<StuckReason, { kind: 'push_refused' }> => ({
+  kind: 'push_refused',
+  stepId,
+  commit,
+  findings: findings.slice(0, MOST_REFUSED_SHOWN),
+  more: Math.max(0, findings.length - MOST_REFUSED_SHOWN),
+});

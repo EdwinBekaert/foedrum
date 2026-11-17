@@ -17,7 +17,7 @@ import { subOrderRows } from '../engine/order-end.ts';
 import { pauseOf, stopAtText } from '../engine/pauses.ts';
 import { atGate } from '../engine/plan-applied.ts';
 import { totalParts } from '../engine/receipt.ts';
-import { issueNumbers, sessionCommand } from '../engine/status-comment.ts';
+import { issueNumbers, refusedLines, sessionCommand, shortSha } from '../engine/status-comment.ts';
 import { plainReason } from '../engine/supervisor.ts';
 import { sameRepo } from '../engine/task-tree.ts';
 import { usageWindowsText } from '../engine/usage-window.ts';
@@ -87,8 +87,9 @@ const stuckOn = (reason: StuckReason, called: string, batch: Batch): string => {
       return `stopped at ${reason.stepId} by ${reason.by} via ${reason.via}${reason.why === undefined ? '' : `: ${reason.why}`}`;
     case 'order_changed':
       return `the order changed at ${reason.stepId}: ${repo ?? ''}#${issue} changed after its approval: ${changesText(reason)}`;
+    // What the scan found, never the text (ADR 0418).
     case 'push_refused':
-      throw new Error('not implemented');
+      return `the push of ${shortSha(reason.commit)} at ${reason.stepId} was refused: ${refusedLines(reason).join('; ')}`;
     default: {
       const unhandled: never = reason;
       throw new Error(`Unhandled stuck reason ${JSON.stringify(unhandled)}`);

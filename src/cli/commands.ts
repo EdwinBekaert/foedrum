@@ -44,6 +44,7 @@ import {
 } from '../engine/limits.ts';
 import { ORDER_CHANGED_QUESTION } from '../engine/order-changes.ts';
 import { orderOfBatch, pauseOf, stopAtText } from '../engine/pauses.ts';
+import { PUSH_REFUSED_QUESTION } from '../engine/push-refused.ts';
 import { onePerOrder, placeAt, rankQueue, rankRefusal } from '../engine/ranks.ts';
 import { batchOf } from '../engine/state-branch.ts';
 import { sameRepo } from '../engine/task-tree.ts';
@@ -584,6 +585,7 @@ const questionsOf = (state: State, batchId: string): readonly string[] => {
   const lane = state.batches.get(batchId)?.lane;
   if (lane?.kind !== 'stuck') return [];
   if (lane.reason.kind === 'order_changed') return [ORDER_CHANGED_QUESTION];
+  if (lane.reason.kind === 'push_refused') return [PUSH_REFUSED_QUESTION];
   return lane.reason.kind === 'needs_input' ? lane.reason.questions.map(({ q }) => q) : [];
 };
 

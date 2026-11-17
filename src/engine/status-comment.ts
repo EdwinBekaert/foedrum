@@ -347,8 +347,9 @@ const stuckText = (
       const answer = (word: string) => code(`foedrum answer ${called} ${word}`);
       return `${code(reason.stepId)}: ${where} changed after its approval: ${changesText(reason, plain)}. Run ${answer('continue')} to brew it as it is now, or ${answer('stop')} to end the batch`;
     }
+    // Its findings follow, a line each (ADR 0418).
     case 'push_refused':
-      throw new Error('not implemented');
+      return `${code(reason.stepId)}: the push of ${code(shortSha(reason.commit))} was refused before anything left the machine: its commits hold what looks like a secret, or what the scan cannot read (ADR 0079)`;
     default:
       return reason satisfies never;
   }
@@ -375,6 +376,18 @@ const openLines = (stepId: string, { rounds, open, more }: RoundsOut, told: Told
 
 /** A commit as the comments show it: its first eight digits. */
 export const shortSha = (sha: string): string => sha.slice(0, 8);
+
+/** Each finding of a refused push as `<kind> in <place> line <n> of <commit>`, then how many more (ADR 0418). */
+export const refusedLines = ({
+  findings,
+  more,
+}: Extract<StuckReason, { kind: 'push_refused' }>): string[] => [
+  ...findings.map(
+    ({ commit, place, line, kind }) =>
+      `${kind} in ${place}${line === undefined ? '' : ` line ${line}`} of ${shortSha(commit)}`,
+  ),
+  ...(more > 0 ? [`and ${more} more`] : []),
+];
 
 /**
  * How the pull request `url` of `batch` merges with its base, by its latest check (ADR 0198): the
@@ -645,6 +658,9 @@ const laneText = (
         ...(reason.kind === 'blocked' && reason.roundsOut !== undefined
           ? openLines(reason.stepId, reason.roundsOut, told)
           : []),
+        ...(reason.kind === 'push_refused'
+          ? refusedLines(reason).map((line) => `- ${told(line, reason.stepId)}`)
+          : []),
       ];
     }
     case 'on_tap': {
@@ -730,6 +746,11 @@ const nextLines = (
           `Next: answer the questions above with ${code(`foedrum answer ${called} ${answers}`)}${or}.`,
         ];
       }
+      // Stop is the one answer a refused push takes (ADR 0418).
+      case 'push_refused':
+        return [
+          `Next: look at each finding above, then end the batch with ${code(`foedrum answer ${called} stop`)}.`,
+        ];
       // The one question of an issue that changed since its approval (ADR 0368).
       case 'order_changed': {
         const answer = (word: string) => code(`foedrum answer ${called} ${word}`);

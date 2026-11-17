@@ -52,6 +52,8 @@ export const laneLabel = (
         case 'needs_input':
         // An issue that changed since its approval waits for continue or stop (ADR 0368).
         case 'order_changed':
+        // A refused push waits for stop (ADR 0418).
+        case 'push_refused':
           return 'foedrum:awaiting-answer';
         default:
           return 'foedrum:stuck';

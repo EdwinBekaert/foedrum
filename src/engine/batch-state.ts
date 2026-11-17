@@ -91,6 +91,7 @@ const stuckFor = (
       return atGate(batch, reason) ? { kind: 'go' } : { kind: 'approve' };
     case 'needs_input':
     case 'order_changed':
+    case 'push_refused':
       return { kind: 'answer' };
     case 'waiting_for_session':
       return { kind: 'session' };
@@ -104,8 +105,6 @@ const stuckFor = (
     case 'routing':
     case 'pull_request_failed':
       return { kind: 'failure' };
-    case 'push_refused':
-      throw new Error('not implemented');
     default: {
       const unhandled: never = reason;
       throw new Error(`Unhandled stuck reason ${JSON.stringify(unhandled)}`);

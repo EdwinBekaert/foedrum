@@ -669,17 +669,13 @@ export const StuckReason = z.discriminatedUnion('kind', [
   // The secret scan refused the push of `commit` at the openPullRequest step `stepId`: the first
   // findings, each with its line where it has one, and how many more the ledger keeps (ADR 0418).
   // An older Foedrum cannot read it.
-  z
-    .strictObject({
-      kind: z.literal('push_refused'),
-      stepId: StepId,
-      commit: CommitSha,
-      findings: z.array(ScanFinding).min(1).max(MOST_REFUSED_SHOWN),
-      more: Count,
-    })
-    .superRefine(() => {
-      throw new Error('not implemented');
-    }),
+  z.strictObject({
+    kind: z.literal('push_refused'),
+    stepId: StepId,
+    commit: CommitSha,
+    findings: z.array(ScanFinding).min(1).max(MOST_REFUSED_SHOWN),
+    more: Count,
+  }),
   // A person stopped the batch's order (ADR 0205): `stepId` is the step a retry schedules again.
   z.strictObject({
     kind: z.literal('stopped'),

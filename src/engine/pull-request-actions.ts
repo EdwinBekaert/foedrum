@@ -39,6 +39,7 @@ import {
   type StepReport,
   stepReports,
 } from './pull-request.ts';
+import type { PushRefusal } from './push-refused.ts';
 import { siblingSection, type VisibilityOf } from './sibling-pull-requests.ts';
 import { taskTreeStart } from './task-tree.ts';
 
@@ -187,8 +188,8 @@ type Plan =
       ended?: true;
     }
   | { kind: 'fail'; reason: string }
-  /** The secret scan stopped the push: the batch waits on a human (ADR 0079). */
-  | { kind: 'blocked'; summary: string };
+  /** The secret scan stopped the push: the batch waits on a human (ADR 0079, ADR 0418). */
+  | { kind: 'blocked'; summary: string; refused: PushRefusal };
 
 /** The findings the blocked summary names; it counts the rest. */
 const NAMED_FINDINGS = 3;
@@ -245,7 +246,11 @@ export const pullRequestActions = (options: PullRequestActionsOptions): DriverAc
       const why = pushed?.data;
       // Recorded for good: a rewind after it does not scan again (ADR 0079).
       if (why?.refused !== undefined) {
-        return { kind: 'blocked', summary: refusal(batchId, why.refused) };
+        return {
+          kind: 'blocked',
+          summary: refusal(batchId, why.refused),
+          refused: { commit: why.commit, findings: why.refused },
+        };
       }
       if (why?.empty === true) {
         return {
@@ -528,7 +533,8 @@ export const pullRequestActions = (options: PullRequestActionsOptions): DriverAc
       if (planned.kind === 'fail')
         return { kind: 'failed', retryable: false, reason: planned.reason };
       if (planned.kind === 'blocked') {
-        return { kind: 'blocked', blockerKind: 'environment', summary: planned.summary };
+        const { summary, refused } = planned;
+        return { kind: 'blocked', blockerKind: 'environment', summary, refused };
       }
       const url = openedPullRequest(state, batchId);
       if (url === undefined) {
