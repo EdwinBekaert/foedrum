@@ -1,7 +1,12 @@
 // A fake of the Brewery's recipes for state machine tests: steps in a line, with optional loops back.
 
-import type { Batch } from '../../src/engine/fold.ts';
-import { deliveryRound } from '../../src/engine/recipe-files.ts';
+import type { Attempt, Batch } from '../../src/engine/fold.ts';
+import {
+  actionMayRetry,
+  checkMayRetry,
+  deliveryRound,
+  readingRound,
+} from '../../src/engine/recipe-files.ts';
 import type {
   ChosenOption,
   Recipe,
@@ -19,8 +24,8 @@ export interface FakeRecipe {
   /** The stall limit of every step; default none. */
   stall?: Stall;
   /**
-   * Attempts per round of every step, since its latest that delivered (ADR 0325), before the batch
-   * is Stuck; default 2.
+   * Attempts per round of every brewer step, since its latest that delivered (ADR 0325), before
+   * the batch is Stuck; default 2. Actions and check steps have the loaded recipe's own limits.
    */
   maxAttempts?: number;
   /** The `when` that is false for each step the batch skips, by step id; default none. */
@@ -64,6 +69,7 @@ export const fakeRecipe = ({
   maxAttempts = 2,
   skips = {},
   routes = {},
+  checks = [],
   actions = {},
   olderThan = {},
   pullRequests = ['https://github.com/acme/api/pull/7'],
@@ -80,10 +86,19 @@ export const fakeRecipe = ({
   if (firstStep === undefined) throw new Error('A recipe needs a step');
   // The step that opens the pull request, which the batch goes on tap with (ADR 0071).
   const opens = steps.find((stepId) => actions[stepId] === 'openPullRequest');
-  // As the loaded recipe does for a brewer step, a step's attempts count since its latest that
-  // delivered (ADR 0325): the fake treats every step as a brewer step, actions and checks too.
+  const attemptsOf = (batch: Batch, stepId: string): readonly Attempt[] => [
+    ...(batch.steps.get(stepId)?.attempts.values() ?? []),
+  ];
+  // As the loaded recipe does, a check step's round runs since its latest attempt that read the
+  // tree, and any other step's since its latest that delivered (ADR 0325).
   const roundOf = (batch: Batch, stepId: string) =>
-    deliveryRound([...(batch.steps.get(stepId)?.attempts.values() ?? [])]);
+    (checks.includes(stepId) ? readingRound : deliveryRound)(attemptsOf(batch, stepId));
+  // Each kind of step gets the loaded recipe's attempts for it; a brewer step gets maxAttempts.
+  const mayRetry: Recipe['mayRetry'] = (batch, stepId) => {
+    if (checks.includes(stepId)) return checkMayRetry(attemptsOf(batch, stepId));
+    if (actions[stepId] !== undefined) return actionMayRetry(attemptsOf(batch, stepId));
+    return roundOf(batch, stepId).length < maxAttempts;
+  };
   const groupOf = (stepId: string): string | undefined =>
     Object.entries(groups).find(([, children]) => children.includes(stepId))?.[0];
   // As the loaded recipe does, a route counts the attempts of its goto step it scheduled, and the
@@ -128,7 +143,7 @@ export const fakeRecipe = ({
         ? { kind: 'done', pullRequests }
         : { kind: 'done', pullRequests, opens };
     },
-    mayRetry: (batch, stepId) => roundOf(batch, stepId).length < maxAttempts,
+    mayRetry,
     roundAttempts: (batch, stepId) => roundOf(batch, stepId).length,
     rounds: roundsOf,
     maxRounds: (stepId, why) => (routes[stepId]?.[why] === undefined ? undefined : maxRounds),
