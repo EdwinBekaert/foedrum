@@ -51,8 +51,8 @@ import {
 } from '../schemas/out-doc.ts';
 import { PLAN } from '../schemas/plan.ts';
 import { type Command, parseRule } from '../schemas/primitives.ts';
-import { attemptBranch } from '../workspace/attempt-worktrees.ts';
-import { inClone, type OwnRemote } from '../workspace/clone-git.ts';
+import { attemptBranch, ownRemote } from '../workspace/attempt-worktrees.ts';
+import { inClone } from '../workspace/clone-git.ts';
 import type { Git, GitOptions } from '../workspace/git.ts';
 import {
   answersOf,
@@ -245,11 +245,6 @@ const heardIn = (inputs: readonly PromptInput[]): HeardComments[] | undefined =>
 
 /** What an attempt without a brewer is limited to: the plan then fails it, before it runs. */
 const noBrewer: AttemptLimits = { outDoc: { file: 'out.md', schema: OutDocFrontmatter } };
-
-/** The repository as Foedrum's own git directories reach it, for a lockfile's refresh (ADR 0412). */
-const refreshRemote = (_workRoot: string, _repo: string): OwnRemote => {
-  throw new Error('not implemented');
-};
 
 export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
   const { state, brewers, workRoot, platform = process.platform, files = realFiles } = options;
@@ -974,7 +969,7 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
               ...checked,
               commits,
               refresh: {
-                own: refreshRemote(workRoot, own.repo),
+                own: ownRemote(workRoot, own.repo),
                 deadlineAt: started.deadlineAt,
                 env: checksEnv(options.env, platform),
                 unsandboxed: checksRunUnsandboxed(platform),

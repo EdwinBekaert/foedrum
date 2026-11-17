@@ -48,7 +48,7 @@ import {
 } from '../workspace/attempt-commits-git.ts';
 import type { OwnRemote } from '../workspace/clone-git.ts';
 import { runGit } from '../workspace/git.ts';
-import type { BranchCommit } from '../workspace/merge-tree-git.ts';
+import { type BranchCommit, openBranchCommit } from '../workspace/merge-tree-git.ts';
 import { readPathsAt } from '../workspace/plan-paths-git.ts';
 import { type AttemptSystemPrompt, outDocCopyOf } from './attempt-plan.ts';
 import {
@@ -800,5 +800,7 @@ export function claudeBrewerRunner(
     scan: scanAttemptCommits(runGit),
     touches: readPathsAt(runGit),
     changed: changedPaths(runGit),
+    // A lockfile's refresh in a scratch tree of the attempt's branch (ADR 0412).
+    branchCommit: (clone, own) => openBranchCommit({ git: runGit, clone, own }),
   });
 }
