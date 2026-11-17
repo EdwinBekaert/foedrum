@@ -46,6 +46,7 @@ export type InputSource =
   | { kind: 'recipes' }
   /** The test line `foedrum.jsonc` gives the attempt's repository (ADR 0376). */
   | { kind: 'test-line'; repo: string }
+  /** The repository's testChanged line on this platform, from the commit `base` (ADR 0417). */
   | { kind: 'test-changed'; repo: string; base: string }
   /** A human's answers to the questions a step asked (ADR 0006: the in-doc of a fresh attempt). */
   | { kind: 'answers'; step: string }
