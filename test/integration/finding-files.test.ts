@@ -52,4 +52,15 @@ describe('readFilesAt (ADR 0421)', () => {
       ]),
     });
   });
+
+  it('gives no text for a path in another letter case, on every file system, since the tree is case-sensitive', async () => {
+    const read = await readFilesAt(runGit)(clone, reviewed, ['SRC/a.ts', 'src/A.ts']);
+    assert.deepEqual(read, {
+      kind: 'read',
+      files: new Map([
+        ['SRC/a.ts', undefined],
+        ['src/A.ts', undefined],
+      ]),
+    });
+  });
 });
