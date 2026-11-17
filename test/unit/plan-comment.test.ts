@@ -554,6 +554,159 @@ describe('renderPlan (ADR 0233)', () => {
   it('reads as before without a link: regression test (#659)', () => {
     assert.doesNotMatch(renderPlan('7-1', 'plan', three), /Full plan/);
   });
+
+  // Each digest was read on main before #862 changed how renderPlan takes its parts, so no plan
+  // comment becomes due again (ADR 0361).
+  describe("its text's digest, as before (#862)", () => {
+    const approval = {
+      stepId: 'plan',
+      attempt: 2,
+      plan: '0123456789abcdef',
+      by: 'grace',
+      via: 'plugin',
+      at: '2026-10-28T10:30:00.000Z',
+    } as const;
+    const note: ReviewNote = {
+      stepId: 'naive',
+      attempt: 1,
+      finding: { severity: 'major', why: 'api: the endpoint is there', introduced: true },
+      left: 'dismissed',
+      why: 'it is not',
+    };
+    const hex = 'a1b2c3d4e5f60718293a4b5c6d7e8f90';
+
+    it('of a plan with nothing more: regression test (#862)', () => {
+      assert.equal(digest(renderPlan('7-1', 'plan', three)), 'c36085c3e91c7435');
+    });
+
+    it('of a plan with its link: regression test (#862)', () => {
+      assert.equal(
+        digest(renderPlan('7-1', 'plan', three, undefined, fullPlan)),
+        '661beece86848f74',
+      );
+    });
+
+    it('of a plan waiting for its review: regression test (#862)', () => {
+      assert.equal(
+        digest(renderPlan('7-1', 'plan', three, undefined, undefined, true)),
+        'b881244498a9e7cf',
+      );
+    });
+
+    it('of a plan waiting for its review with its link: regression test (#862)', () => {
+      assert.equal(
+        digest(renderPlan('7-1', 'plan', three, undefined, fullPlan, true)),
+        'fec4d68b3c229d97',
+      );
+    });
+
+    it('of a plan waiting for its review with another option, named as its order: regression test (#862)', () => {
+      const text = renderPlan(
+        '7-1',
+        'plan',
+        three,
+        undefined,
+        undefined,
+        true,
+        undefined,
+        undefined,
+        [],
+        undefined,
+        ['recipe'],
+        '7',
+      );
+      assert.equal(digest(text), '2dd8ef8175f6d995');
+    });
+
+    it('of an approved plan: regression test (#862)', () => {
+      const text = renderPlan('7-1', 'plan', three, undefined, fullPlan, false, approval);
+      assert.equal(digest(text), '6da1bbfa98c39653');
+    });
+
+    it('of an approved plan with its sub-issues opened: regression test (#862)', () => {
+      const opened = [
+        { id: 'api', number: 8 },
+        { id: 'ui', number: 9 },
+      ];
+      const text = renderPlan(
+        '7-1',
+        'plan',
+        three,
+        undefined,
+        fullPlan,
+        false,
+        approval,
+        undefined,
+        opened,
+      );
+      assert.equal(digest(text), '2128e51539eba324');
+    });
+
+    it('of a plan changed in a session: regression test (#862)', () => {
+      const changed = { by: 'ann', via: 'terminal', at: '2026-10-28T09:00:00.000Z' } as const;
+      const text = renderPlan(
+        '7-1',
+        'lauter',
+        three,
+        undefined,
+        undefined,
+        true,
+        undefined,
+        changed,
+      );
+      assert.equal(digest(text), '802f683f464f97fb');
+    });
+
+    it('of a plan whose lenses left no note: regression test (#862)', () => {
+      const text = renderPlan(
+        '7-1',
+        'plan',
+        three,
+        undefined,
+        fullPlan,
+        true,
+        undefined,
+        undefined,
+        [],
+        [],
+      );
+      assert.equal(digest(text), '944ce3b533012d49');
+    });
+
+    it('of a plan whose lenses left a note: regression test (#862)', () => {
+      const text = renderPlan(
+        '7-1',
+        'plan',
+        three,
+        undefined,
+        fullPlan,
+        true,
+        undefined,
+        undefined,
+        [],
+        [note],
+      );
+      assert.equal(digest(text), 'ec754f921495d073');
+    });
+
+    it('of a plan with a text that looks like a secret: regression test (#862)', () => {
+      const leaky = { subOrders: [subOrder(hex), subOrder('ui', { title: `use ${token}` })] };
+      assert.equal(digest(renderPlan('7-1', 'plan', leaky)), '801886ae5a1bf9ef');
+    });
+
+    it('of a plan with a commit the batch knows: regression test (#862)', () => {
+      const known = { subOrders: [subOrder(hex), subOrder('ui')] };
+      const text = renderPlan('7-1', 'plan', known, (text) => text === hex);
+      assert.equal(digest(text), 'd891e50d40fd3e64');
+    });
+
+    it('of a plan cut to length while it waits for its review: regression test (#862)', () => {
+      assert.equal(
+        digest(renderPlan('7-1', 'plan', longest(), undefined, fullPlan, true)),
+        '8b344a43adf4bd09',
+      );
+    });
+  });
 });
 
 /** A fake of the comments host: the Brewery's own comments, ids from 1, and the writes it took. */
@@ -805,6 +958,15 @@ describe('planEffects (ADR 0233)', () => {
       ),
       only().body.slice(-400),
     );
+  });
+
+  it('records the digest it read before #862 for a plan waiting Stuck for its review: regression test (#862)', async () => {
+    const driver = await open();
+    issue({ kind: 'order', batchId: '7-1', order: { issue: 7 } });
+    issue({ kind: 'route', batchId: '7-1', recipe: 'pale', reason: 'label', source: 'label' });
+    step('plan', planned(three));
+    await driver.applyEffects();
+    assert.deepEqual(revision(1), { result: { comment: 1, digest: '2dd8ef8175f6d995' } });
   });
 
   it('a plan rendered with no other option ends with the plan’s own Next line, as before: regression test (#855)', () => {
