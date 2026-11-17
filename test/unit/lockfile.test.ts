@@ -33,6 +33,13 @@ describe('lockfileRefreshes', () => {
     );
   });
 
+  it('names nothing for a package.json whose path holds a paragraph separator', () => {
+    assert.deepStrictEqual(
+      lockfileRefreshes([`a${String.fromCodePoint(0x2029)}b/package.json`, 'web/package.json']),
+      [{ folder: 'web', lockfile: 'web/package-lock.json', command: NPM_REFRESH }],
+    );
+  });
+
   it('names nothing for a package.json under node_modules, nor for a changed lockfile alone', () => {
     assert.deepStrictEqual(
       lockfileRefreshes([

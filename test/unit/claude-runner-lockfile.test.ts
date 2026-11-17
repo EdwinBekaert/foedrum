@@ -83,6 +83,8 @@ const setup = (
     writes?: string;
     exit?: number;
     changed?: PathsChanged;
+    /** Stops the attempt while git lists the changed paths. */
+    stopWhileListing?: boolean;
     outDoc?: string;
     branchCommit?: false | 'throws' | 'stops' | 'throws after';
     setupRunner?: false;
@@ -141,7 +143,14 @@ const setup = (
     commits: async () => ({ kind: 'counted', count: 1 }),
     scan: async () => ({ kind: 'scanned', findings: [] }),
     touches: async (_clone, _commit, paths) => ({ kind: 'read', present: new Set(paths) }),
-    changed: async () => options.changed ?? { kind: 'listed', paths: ['web/package.json'] },
+    changed: async () => {
+      // A stop kills git, which answers that it could not list them.
+      if (options.stopWhileListing === true) {
+        stop();
+        return { kind: 'unlisted', reason: 'git diff failed: killed' };
+      }
+      return options.changed ?? { kind: 'listed', paths: ['web/package.json'] };
+    },
     ...(options.setupRunner === false
       ? {}
       : {
@@ -249,6 +258,13 @@ describe('claudeBrewerRunner: the lockfile refresh after a release bump (ADR 041
       summary: `the lockfile web/package-lock.json could not be refreshed: "${NPM_REFRESH}" failed with exit code 1`,
     });
     assert.equal(end.readings?.length, 1);
+  });
+
+  it('a stop while git lists the changed paths cancels the attempt, and opens no scratch tree', async () => {
+    const { opened, runner } = setup({ stopWhileListing: true });
+    const end = await runner.start(attempt).ended;
+    assert.deepStrictEqual(end.ending, { kind: 'cancelled' });
+    assert.deepStrictEqual(opened, []);
   });
 
   it("a stop while the refresh's commit runs cancels the attempt", async () => {
