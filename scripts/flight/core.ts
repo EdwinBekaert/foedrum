@@ -75,10 +75,10 @@ interface BrewerStep {
 }
 
 /** A recipe's text, read and checked as the engine reads a recipe. */
-const recipeOf = (text: string): Recipe => Recipe.parse(parseJsonc(text));
+export const recipeOf = (text: string): Recipe => Recipe.parse(parseJsonc(text));
 
 /** Each brewer step of `recipe`, in order, a parallel group's children included: its own objects. */
-const brewerSteps = (recipe: Recipe): BrewerStep[] => {
+export const brewerSteps = (recipe: Recipe): BrewerStep[] => {
   const steps: BrewerStep[] = [];
   for (const step of recipe.steps) {
     for (const each of 'parallel' in step ? step.parallel : [step]) {
@@ -93,7 +93,7 @@ const brewerSteps = (recipe: Recipe): BrewerStep[] => {
  * no other step of the recipe names, which models.jsonc maps to it alone, since a level is shared
  * Brewery-wide (ADR 0409); undefined when every level is taken.
  */
-const swapLevelOf = (swap: Swap, recipe: Recipe): ModelLevel | undefined => {
+export const swapLevelOf = (swap: Swap, recipe: Recipe): ModelLevel | undefined => {
   const level = ModelLevel.safeParse(swap.model);
   if (level.success) return level.data;
   const named = new Set(

@@ -98,15 +98,8 @@ const runsOf = (records: readonly FlightRecord[]): number =>
 /** `percent` with its sign, as the summary gives the candidate's tokens against the baseline's. */
 const signed = (percent: number): string => `${percent > 0 ? '+' : ''}${percent}%`;
 
-/**
- * The report comparing two Flights' records: who they are, one summary line, one row per order both
- * measured, and the orders left out of both with why.
- */
-export const flightReport = (
-  baseline: readonly FlightRecord[],
-  candidate: readonly FlightRecord[],
-): string => {
-  const names = { baseline: flightLabelOf(baseline), candidate: flightLabelOf(candidate) };
+/** What two Flights' records compare: each order's row, the orders left out, and the summary's figures. */
+const comparisonOf = (baseline: readonly FlightRecord[], candidate: readonly FlightRecord[]) => {
   const runs = { baseline: runsOf(baseline), candidate: runsOf(candidate) };
   const inCandidate = new Set(ordersOf(candidate));
   const inBaseline = new Set(ordersOf(baseline));
@@ -147,7 +140,19 @@ export const flightReport = (
   for (const side of ['baseline', 'candidate'] as const) {
     note(`No run measured in the ${side}`, unmeasured[side]);
   }
-  const compared = rows.length;
+  return { rows, notes, totals, every, tooClose, compared: rows.length };
+};
+
+/**
+ * The report comparing two Flights' records: who they are, one summary line, one row per order both
+ * measured, and the orders left out of both with why.
+ */
+export const flightReport = (
+  baseline: readonly FlightRecord[],
+  candidate: readonly FlightRecord[],
+): string => {
+  const names = { baseline: flightLabelOf(baseline), candidate: flightLabelOf(candidate) };
+  const { rows, notes, totals, every, tooClose, compared } = comparisonOf(baseline, candidate);
   const tokens =
     totals.baseline === 0
       ? 'tokens per order not compared: the baseline counted none'
