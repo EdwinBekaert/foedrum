@@ -1182,6 +1182,34 @@ describe('sandboxedChecks elsewhere', () => {
   });
 });
 
+describe('sandboxedChecks and below normal priority (ADR 0413)', () => {
+  // The sandbox starts niced with everything under it, and the line on Windows is created below
+  // normal in its Job Object: the caller's option reaches the process the sandbox starts.
+  it("passes belowNormal on to bwrap, a setup's bwrap, sandbox-exec and native Windows's line (regression test)", async () => {
+    const low = { ...call, belowNormal: true };
+    const temp = { make: () => '/private/var/folders/x/T/foedrum-check-1', remove: async () => {} };
+    const asked: [string, boolean | undefined][] = [];
+    for (const platform of ['linux', 'darwin', 'win32'] as const) {
+      const { calls, exec } = fake();
+      await sandboxedChecks(options(exec, { platform, temp }))(line, [], low);
+      asked.push(
+        ...calls.map(
+          ({ file, options }) => [file, options.belowNormal] as [string, boolean | undefined],
+        ),
+      );
+    }
+    const setup = fakeSetup();
+    await linuxSetup(setup.exec, { findStackTool: stackTools('slirp4netns') })(line, [], low);
+    asked.push(['setup bwrap', setup.calls[0]?.options.belowNormal]);
+    assert.deepEqual(asked, [
+      ['/usr/bin/bwrap', true],
+      [SANDBOX_EXEC, true],
+      [line, true],
+      ['setup bwrap', true],
+    ]);
+  });
+});
+
 describe('worktreeGitDir', () => {
   /** A worktree folder whose `.git` holds `text`, or is a folder when `text` is undefined. */
   const worktreeWith = (text: string | undefined) => {

@@ -56,4 +56,9 @@ describe('execProcess with belowNormal (ADR 0413)', () => {
     const child = await childPriority(t, true);
     assert.ok(child >= below && child > parent, `child ${child}, parent ${parent}`);
   });
+
+  it('runs it at this process priority without the option (regression test)', async (t) => {
+    if (skipWhenAlreadyLow(t)) return;
+    assert.equal(await childPriority(t, false), getPriority());
+  });
 });
