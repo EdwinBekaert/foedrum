@@ -12,7 +12,7 @@ src/
   workspace/    git (a non-interactive runner with timeouts) and worktrees
   platform/     OS differences: removal, path comparison, process trees ([cross-platform rules](platform/cross-platform.md))
   checks/       gravity readings and the setup, the red proof, the testsUnchanged guard, the test map and its survey, the uncovered-line check, Brett's mutant runs (ADR 0274, ADR 0298, ADR 0313)
-  evals/        flight, blind tasting, model watcher
+  evals/        flight, blind tasting, tasting suggestions
   schemas/      zod schemas (source of types, validation and JSON Schema)
   formats/      JSONC, frontmatter and TOML readers (limits for untrusted input: 64 levels, 1 MiB; ADR 0020), TAP, JUnit XML, LCOV and Cobertura readers (ADR 0274), the system map's manifest readers (ADR 0317, ADR 0320), and git diff readers
 schemas/        JSON Schema files generated from src/schemas (npm run schemas)
