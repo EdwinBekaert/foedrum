@@ -11,8 +11,9 @@ Nothing compared two Flights, and three cases the rule does not name decide what
 - **`node scripts/flight-report.ts --baseline <Flight folder> --candidate <Flight folder>`**, by hand, reads both folders' records with the harness's reader, prints the report and writes it as `report.md` in the candidate's folder.
   Its options and refusals go through one tested function, `flightReportRun` in `scripts/flight/report.ts`; a missing option, or a folder with no records, exits 2.
 - **Each order both Flights measured gets one row:** each Flight's hidden tests passed ("3 of 3 against 1 of 3"), its runs with changes outside the order's paths, its tokens and brewers' time per measured run, and a verdict.
-- **Decided in #1084's plan on 2026-11-17: equal pass counts are "the same", a verdict of their own**, apart from "too close to call".
+- **Decided in #1084's plan on 2026-11-17: equal pass counts of an equal number of runs are "the same", a verdict of their own**, apart from "too close to call".
   3 of 3 against 3 of 3 is no near miss, and the summary's "too close to call" count is to hold only the orders that differ without meeting the rule, as #1084's example line reads.
+  With unequal runs, equal counts are not the same: 1 of 3 against 1 of 1 is ADR 0404's difference, and 3 of 3 against 3 of 5 is too close to call.
 - **Decided in #1084's plan on 2026-11-17: a run that measured nothing counts as a run that did not pass.**
   An order's passes are out of its Flight's runs, the highest run number the Flight recorded, so a Flight that stopped short of an order's last runs did not pass them either.
   A setup "passes every run" only when it passed as many runs as its Flight has: a difference is never called from fewer runs than were asked for.
