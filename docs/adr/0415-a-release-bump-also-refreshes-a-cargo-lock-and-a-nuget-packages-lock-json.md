@@ -24,6 +24,7 @@ Two of their lockfiles are not beside the manifest that changed:
   A folder with two projects is passed over: NuGet names their lockfiles `packages.<project_name>.lock.json`.
   A project below a deeper props is restored too; its dependencies did not change, so its lockfile stays as it was.
 - **Once each.** A lockfile two changed manifests lead to, such as a workspace's for two members, is refreshed once.
+- **Only a missing lockfile is none.** A lockfile the refresh cannot look at, for any reason but that it is not there, ends the attempt the same way as a folder it cannot read, for every row; the search for a Cargo.lock stops there rather than refresh one further up.
 - **The commit's message** is `Refresh the lockfiles after the release bump (ADR 0412)`: which lockfiles a refresh finds is known only in its scratch tree, after the message is given; the commit's diff names them.
 - Everything else is ADR 0412's: the scratch tree, the setup's sandbox with the network, the 5-minute limit, the readings, and the commit only when every refresh passed.
 - **Not overridden:** a repository that sets `RestoreLockedMode` to true where restore runs fails it ("restore will … fail if you updated the defined package dependencies"), and the batch goes Stuck on its environment, naming the lockfile.
