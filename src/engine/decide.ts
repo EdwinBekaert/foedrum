@@ -1162,6 +1162,27 @@ function orderChanged(draft: Draft, command: Extract<Command, { kind: 'order_cha
 }
 
 /**
+ * Resumes the batch and schedules the attempt of `stepId` as it was scheduled, never as an answer a
+ * brewer reads, with the group's other children abandoned with it (ADR 0168): what a continue
+ * (ADR 0368) and an allow (ADR 0419) do after their own event.
+ */
+function resumeAsScheduled(
+  draft: Draft,
+  { batchId, by, via }: Pick<Extract<Command, { kind: 'answer' }>, 'batchId' | 'by' | 'via'>,
+  stepId: string,
+): void {
+  const step = draft.batch(batchId).steps.get(stepId);
+  const asked = step === undefined ? undefined : latestAttempt(step);
+  draft.push({ type: 'batch.resumed', batchId, by, via, action: 'answer' });
+  schedule(draft, batchId, stepId, {
+    ...(asked?.route === undefined ? {} : { route: asked.route }),
+    ...(asked?.retry === undefined ? {} : { retry: asked.retry }),
+    ...(asked?.answered === undefined ? {} : { answered: asked.answered }),
+  });
+  resumeGroup(draft, batchId, stepId);
+}
+
+/**
  * The engineer's answer to a batch whose issue changed (ADR 0368): `continue` approves the issue up
  * to the changes it was shown and schedules the step's attempt as it was scheduled, never as an
  * answer a brewer reads; `stop` ends the batch as a cancel does.
@@ -1177,17 +1198,8 @@ function continueOrStop(
   }
   switch (only.answer) {
     case 'continue': {
-      const step = draft.batch(batchId).steps.get(stepId);
-      const asked = step === undefined ? undefined : latestAttempt(step);
       draft.push({ type: 'order.approved', batchId, upTo, by, via });
-      draft.push({ type: 'batch.resumed', batchId, by, via, action: 'answer' });
-      schedule(draft, batchId, stepId, {
-        ...(asked?.route === undefined ? {} : { route: asked.route }),
-        ...(asked?.retry === undefined ? {} : { retry: asked.retry }),
-        ...(asked?.answered === undefined ? {} : { answered: asked.answered }),
-      });
-      // The group's other children, abandoned with it, run again (ADR 0168).
-      resumeGroup(draft, batchId, stepId);
+      resumeAsScheduled(draft, { batchId, by, via }, stepId);
       return;
     }
     case 'stop':
@@ -1218,16 +1230,8 @@ function allowOrStop(
         const called = calledAs(draft.state, draft.batch(batchId));
         throw new Refusal(`allow takes a reason: foedrum answer ${called} allow "<why>"`);
       }
-      const step = draft.batch(batchId).steps.get(stepId);
-      const asked = step === undefined ? undefined : latestAttempt(step);
       draft.push({ type: 'push.allowed', batchId, stepId, commit, why, by, via });
-      draft.push({ type: 'batch.resumed', batchId, by, via, action: 'answer' });
-      schedule(draft, batchId, stepId, {
-        ...(asked?.route === undefined ? {} : { route: asked.route }),
-        ...(asked?.retry === undefined ? {} : { retry: asked.retry }),
-        ...(asked?.answered === undefined ? {} : { answered: asked.answered }),
-      });
-      resumeGroup(draft, batchId, stepId);
+      resumeAsScheduled(draft, { batchId, by, via }, stepId);
       return;
     }
     case 'stop':
