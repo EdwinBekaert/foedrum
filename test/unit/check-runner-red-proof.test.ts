@@ -255,6 +255,16 @@ const onMap = (tap = stubFails) => ({
 });
 
 describe('createCheckRunner: the red proof (ADR 0078)', () => {
+  it("runs the full test, not the repository's testChanged, in a red proof: regression test (ADR 0242)", async () => {
+    const checks = { ...repository, testChanged: 'vitest run --changed {base}' };
+    const { order, run } = setup({ ...onMap(), checks });
+    await run();
+    assert.deepEqual(
+      order.filter((line) => line.startsWith('exec ')),
+      [`exec npm test in ${redTree}`],
+    );
+  });
+
   it("runs the repository's setup in the worktree before the red run (ADR 0140)", async () => {
     const { order, run } = setup({ ...onMap(), prepare: 'npm ci' });
     const end = await run();

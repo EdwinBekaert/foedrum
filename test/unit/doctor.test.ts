@@ -1504,6 +1504,10 @@ describe('diagnose: which test the check step runs and what the full gate is (AD
       ),
     );
   });
+
+  it('foedrum doctor lists no tests without a foedrum.jsonc: regression test (ADR 0242)', () => {
+    assert.doesNotMatch(formatDiagnosis(diagnose(linux())), /^Tests /m);
+  });
 });
 
 // pasta isolates itself, where its resolver works; slirp4netns keeps the home folder and /run/user

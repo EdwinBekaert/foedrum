@@ -334,6 +334,15 @@ describe('createCheckRunner: a module no confirmed line reaches (ADR 0274)', () 
     const head = 'e'.repeat(40);
     const live = new AbortController().signal;
 
+    it("runs the full test, not the repository's testChanged, on the merged tree: regression test (ADR 0242)", async () => {
+      const checksOf = { ...repository, testChanged: 'npm test -- --changed {base}' };
+      const { runner } = setup({ maps: { [tip]: mapOf(web), [head]: mapOf(web) }, checksOf });
+      const tree = { repo: 'acme/api', path: merged };
+      const end = await runner.checkTree(['test'], tree, deadlineAt, live, { head, tip });
+      const test = end.readings?.find((reading) => reading.check === 'test');
+      assert.equal(test !== undefined && 'command' in test ? test.command : undefined, 'npm test');
+    });
+
     it('a failing check on the merged tree names its failing tests from the test map', async () => {
       const { runner, asked } = setup({
         testExit: 1,
@@ -1299,5 +1308,15 @@ describe("createCheckRunner's testRun: a scratch tree's tests (ADR 0313)", () =>
       asked.some((line) => line.includes('TestResults')),
       false,
     );
+  });
+
+  it("runs the full test, not the repository's testChanged, in a scratch tree: regression test (ADR 0242)", async () => {
+    const checksOf = { ...repository, testChanged: 'npm test -- --changed {base}' };
+    const { runner } = setup({ found: { 'web/test-results.xml': [webReport] }, checksOf });
+    const scratch = { repo: 'acme/api', path: worktree };
+    const modules = [{ module: web, added: false }];
+    const end = await runner.testRun(scratch, modules, deadlineAt, new AbortController().signal);
+    const { reading } = end.kind === 'ran' ? end : assert.fail();
+    assert.equal('command' in reading ? reading.command : undefined, 'npm test');
   });
 });
