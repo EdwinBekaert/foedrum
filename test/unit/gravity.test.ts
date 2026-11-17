@@ -9,6 +9,7 @@ import {
   readingOf,
   settleReadings,
   tailOf,
+  testGateOf,
   withFailing,
 } from '../../src/checks/gravity.ts';
 import { parseJunit } from '../../src/formats/junit.ts';
@@ -63,6 +64,57 @@ describe('planChecks', () => {
       { kind: 'run', command: 'make -j e2e' },
     ]);
   });
+
+  const changed: RepositoryChecks = {
+    ...repository,
+    testChanged: {
+      run: 'vitest run --changed {base}',
+      windows: 'vitest.cmd --changed {base} -x {base}',
+    },
+  };
+  const base = 'a'.repeat(40);
+
+  it("runs testChanged from the change's base in place of test, saying so (ADR 0242)", () => {
+    assert.deepEqual(planChecks(['lint', 'test'], changed, 'win32', base), [
+      { kind: 'run', check: 'lint', command: 'npm.cmd run lint' },
+      {
+        kind: 'run',
+        check: 'test',
+        changed: true,
+        command: `vitest.cmd --changed ${base} -x ${base}`,
+      },
+    ]);
+  });
+
+  it('runs test when the change has no base, though the repository names testChanged (ADR 0242)', () => {
+    assert.deepEqual(planChecks(['test'], changed, 'linux'), [
+      { kind: 'run', check: 'test', command: 'npm test' },
+    ]);
+  });
+});
+
+describe('testGateOf', () => {
+  it('says the check step runs only testChanged and the pull request must run the full test (ADR 0242)', () => {
+    const repo = { ...repository, testChanged: 'vitest run --changed {base}' };
+    assert.equal(
+      testGateOf('acme/web', repo, 'linux'),
+      "acme/web: the check step runs only testChanged (vitest run --changed {base}); your pull request's CI must run the full test (npm test)",
+    );
+  });
+
+  it('says the check step runs the full test when the repository names no testChanged (ADR 0242)', () => {
+    assert.equal(
+      testGateOf('acme/web', repository, 'linux'),
+      'acme/web: the check step runs the full test (npm test)',
+    );
+  });
+
+  it('says a repository without a test check has none (ADR 0242)', () => {
+    assert.equal(
+      testGateOf('acme/web', { ...repository, test: null }, 'linux'),
+      'acme/web: no test check',
+    );
+  });
 });
 
 describe('tailOf', () => {
@@ -113,6 +165,24 @@ describe('readingOf', () => {
       exitCode: 1,
       tail: `${'x'.repeat(MAX_TAIL_LENGTH - 8)}not ok 1`,
     });
+  });
+
+  it('says a run of testChanged ran the changed tests only (ADR 0242)', () => {
+    const changed = { ...test, changed: true, command: 'vitest run --changed abc' } as const;
+    assert.deepEqual(readingOf(changed, { exitCode: 0, output: '' }), {
+      result: 'exited',
+      check: 'test',
+      changed: true,
+      command: 'vitest run --changed abc',
+      exitCode: 0,
+      tail: '',
+    });
+  });
+
+  it('records a run of testChanged as changed, and only as true, in a reading the event store takes (ADR 0242)', () => {
+    const reading = { result: 'exited', check: 'test', command: 'vitest', exitCode: 0, tail: '' };
+    assert.equal(GravityReading.safeParse({ ...reading, changed: true }).success, true);
+    assert.equal(GravityReading.safeParse({ ...reading, changed: false }).success, false);
   });
 
   it('reads a literal command without a check name', () => {

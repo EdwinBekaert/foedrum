@@ -28,6 +28,7 @@ import {
   passed,
   planChecks,
   type RepositoryChecks,
+  ranChanged,
   settleReadings,
 } from './gravity.ts';
 import {
@@ -245,15 +246,19 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
   };
 
   /**
-   * The checks `refs` of the tree in `worktree`, as `checkTree` runs them, before any naming; below
-   * normal priority for a scratch tree's test run (ADR 0413).
+   * The checks `refs` of the tree in `worktree`, as `checkTree` runs them, before any naming: with
+   * the batch's `base`, a plain check step's, the repository's testChanged in place of its test
+   * (ADR 0242); `belowNormal` for a scratch tree's test run, below normal priority (ADR 0413).
    */
   const checksOf = async (
     refs: readonly CheckRef[],
     worktree: TreeIn,
     deadlineAt: string,
     signal: AbortSignal,
-    belowNormal = false,
+    {
+      base,
+      belowNormal = false,
+    }: { readonly base?: string | undefined; readonly belowNormal?: boolean } = {},
   ): Promise<AttemptEnd> => {
     let repository = NO_CHECKS;
     const named = refs.find((check) => typeof check === 'string');
@@ -267,7 +272,7 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
       }
       repository = found;
     }
-    const planned = planChecks(refs, repository, platform);
+    const planned = planChecks(refs, repository, platform, base);
     // The repository's setup once nothing else blocks the step and a check will run, so the
     // checks find what it installed (ADR 0140).
     const preparing = planned.some((check) => check.kind === 'run')
@@ -305,7 +310,7 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
     if (unclear !== undefined) {
       return { kind: 'unrun', why: `the test reports cannot be cleared: ${unclear}` };
     }
-    const end = await checksOf(['test'], tree, deadlineAt, signal, true);
+    const end = await checksOf(['test'], tree, deadlineAt, signal, { belowNormal: true });
     const readings = end.readings ?? [];
     const reading = readings.find((each) => each.check === 'test');
     if (reading === undefined) {
@@ -385,7 +390,14 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
     const end =
       of !== undefined
         ? await proveRed(batch, ref, worktree, current.deadlineAt, of, signal)
-        : await checkTree(refs, worktree, current.deadlineAt, signal);
+        : await checksOf(
+            refs,
+            worktree,
+            current.deadlineAt,
+            signal,
+            // A survey's check reads every module's report: the full test (ADR 0242).
+            survey === undefined ? { base: baseOf(batch, worktree.repo) } : {},
+          );
     const judged = await afterRun(batch, worktree, end, fresh, maps, signal, survey !== undefined);
     if (survey !== undefined) return agreed(batch, ref, worktree, survey, judged);
     return maps === undefined ? judged : namedTestsRead(batch, judged, worktree, maps);
@@ -413,9 +425,11 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
   ): Promise<AttemptEnd> => {
     const named = [...(stale?.named ?? [])];
     const kept = stale?.kept ?? options.testMap?.keptIn?.(worktree.repo) ?? 'repo';
-    // A repository with no map has none to be stale by a run.
+    // A repository with no map has none to be stale by a run, and a run of testChanged, which may
+    // leave a module's tests unrun, says nothing of the map (ADR 0242).
+    const changed = ranChanged(end);
     const byRun =
-      tip?.kind === 'map'
+      tip?.kind === 'map' && !changed
         ? (modules: readonly EffectiveModule[]) => named.push(...staleByRun(worktree, modules))
         : undefined;
     const judged = await afterTest(batch, worktree, end, read, signal, byRun, surveying);
@@ -488,8 +502,11 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
     if (after.kind === 'none') return end;
     const modules = stepModules(before, after.map);
     const find = testMap.reports ?? reportPaths;
+    // A run of testChanged may leave a new module's tests unrun: only a full run says it is
+    // unreached (ADR 0242, ADR 0280).
+    const changed = ranChanged(end);
     for (const { module, added } of modules) {
-      if (!added) continue;
+      if (!added || changed) continue;
       const { name, testReport } = module;
       const found = find(testReport.path, worktree.path);
       if ('refused' in found) {

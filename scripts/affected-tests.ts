@@ -13,6 +13,8 @@ export interface ChangeOptions {
   git: OkGit;
   // A file's text by its absolute path; undefined when it is not there.
   read: (path: string) => Promise<string | undefined>;
+  // The commit the change starts from, in place of the merge base with origin/main (ADR 0242).
+  base?: string;
 }
 
 const paths = (stdout: string): string[] => stdout.split('\0').filter((path) => path !== '');
@@ -28,16 +30,20 @@ const output = async (git: OkGit, cwd: string, args: string[]): Promise<string> 
 
 /** The test files the change in the checkout at cwd reaches. */
 export const affectedByChange = async (
-  { cwd, git, read }: ChangeOptions,
+  { cwd, git, read, base: given }: ChangeOptions,
   isTest?: (path: string, text: string) => boolean,
 ): Promise<Affected> => {
-  const base = await git(cwd, ['merge-base', 'HEAD', 'origin/main']);
-  if (!base.ok) {
-    return { kind: 'all', why: `no merge base with origin/main: ${firstLine(base.stderr)}` };
+  let base = given;
+  if (base === undefined) {
+    const merged = await git(cwd, ['merge-base', 'HEAD', 'origin/main']);
+    if (!merged.ok) {
+      return { kind: 'all', why: `no merge base with origin/main: ${firstLine(merged.stderr)}` };
+    }
+    base = merged.stdout.trim();
   }
   try {
     const [changed, untracked, typescript] = await Promise.all([
-      output(git, cwd, ['diff', '--name-only', '--no-renames', '-z', base.stdout.trim()]),
+      output(git, cwd, ['diff', '--name-only', '--no-renames', '-z', base]),
       output(git, cwd, ['ls-files', '-z', '--others', '--exclude-standard']),
       output(git, cwd, [
         'ls-files',
@@ -96,9 +102,12 @@ const inCheckout = async (cwd: string): Promise<ChangeOptions> => {
   };
 };
 
-/** affectedByChange with the real git and file reads, for the checkout at cwd. */
-export const affectedInCheckout = async (cwd: string): Promise<Affected> =>
-  affectedByChange(await inCheckout(cwd));
+/**
+ * affectedByChange with the real git and file reads, for the checkout at cwd, from `base` when
+ * given (ADR 0242).
+ */
+export const affectedInCheckout = async (cwd: string, base?: string): Promise<Affected> =>
+  affectedByChange({ ...(await inCheckout(cwd)), ...(base === undefined ? {} : { base }) });
 
 // With --real-claude, the tests against the installed claude the change reaches, as CI runs them
 // on a pull request; with --all too, every one, as the nightly run does.

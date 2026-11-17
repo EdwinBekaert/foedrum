@@ -380,12 +380,14 @@ export type Receipt = z.infer<typeof Receipt>;
 
 const Tail = z.string().max(MAX_TAIL_LENGTH);
 // A named check, or none for a Brewery's literal command or the repository's setup, which says so
-// (ADR 0140); the command line as it ran; and where no sandbox held it, that it ran unsandboxed:
-// a check or a setup on native Windows (ADR 0076, ADR 0158). A refresh of a lockfile after a
-// release bump names the file (ADR 0412).
+// (ADR 0140); whether the test check ran the repository's testChanged (ADR 0242); the command line
+// as it ran; and where no sandbox held it, that it ran unsandboxed: a check or a setup on native
+// Windows (ADR 0076, ADR 0158). A refresh of a lockfile after a release bump names the file
+// (ADR 0412).
 const ran = {
   check: CheckName.optional(),
   setup: z.literal(true).optional(),
+  changed: z.literal(true).optional(),
   lockfile: NonEmpty.optional(),
   command: NonEmpty,
   unsandboxed: z.literal(true).optional(),

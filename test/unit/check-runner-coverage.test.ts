@@ -129,9 +129,13 @@ const setup = ({
   testReports = {} as Record<string, BoundedRead>,
   /** The report paths that are folders. */
   folders = [] as string[],
+  /** The repository's testChanged line, when it names one (ADR 0242). */
+  testChanged = undefined as string | undefined,
 } = {}) => {
   const asked: string[] = [];
-  const exec: ExecProcess = (file) => {
+  const exec: ExecProcess = (line) => {
+    // testChanged's line runs as the test check's does (ADR 0242).
+    const file = line.startsWith('npm test') ? 'npm test' : line;
     asked.push(`run ${file}`);
     const exitCode = file === 'npm test' ? testExit : file === 'npm run lint' ? 1 : 0;
     return Promise.resolve({ exitCode, stdout: '', stderr: '', output: '' });
@@ -167,6 +171,7 @@ const setup = ({
       lint: 'npm run lint',
       format: null,
       test: 'npm test',
+      ...(testChanged === undefined ? {} : { testChanged }),
     }),
     testReport: () => undefined,
     exec,
@@ -761,6 +766,43 @@ describe('createCheckRunner: the uncovered-line check (ADR 0274)', () => {
       summary:
         'the coverage report of module "web" at web/lcov.info cannot be read, though the change touches none of its code: no report at web/lcov.info',
     });
+  });
+
+  it('reads no coverage of an untouched module after a run of testChanged, which may not run its tests (ADR 0242)', async () => {
+    const web: TestMapModule = {
+      ...calc,
+      name: 'web',
+      code: ['web/**'],
+      tests: { paths: ['web-test/**'] },
+      coverage: { format: 'lcov', path: 'web/lcov.info' },
+    };
+    const { run } = setup({
+      maps: { [base]: mapOf(calc, web), [tip]: mapOf(calc, web) },
+      diff: adding('src/calc.ts', 1, 1),
+      coverage: { 'lcov.info': lcov(record('src/calc.ts', { 1: 1 })) },
+      testChanged: 'npm test -- --changed {base}',
+    });
+    const end = await run();
+    assert.deepEqual(end.ending, { kind: 'succeeded', output: null });
+  });
+
+  it('still fails a changed line no test ran in a module the change touches after a run of testChanged (ADR 0242)', async () => {
+    const web: TestMapModule = {
+      ...calc,
+      name: 'web',
+      code: ['web/**'],
+      tests: { paths: ['web-test/**'] },
+      coverage: { format: 'lcov', path: 'web/lcov.info' },
+    };
+    const { run } = setup({
+      maps: { [base]: mapOf(calc, web), [tip]: mapOf(calc, web) },
+      diff: adding('src/calc.ts', 1, 1),
+      coverage: { 'lcov.info': lcov(record('src/calc.ts', { 1: 0 })) },
+      testChanged: 'npm test -- --changed {base}',
+    });
+    const end = await run();
+    assert.equal(end.ending.kind, 'failed');
+    assert.match(end.ending.kind === 'failed' ? end.ending.reason : '', /src\/calc\.ts:1/);
   });
 
   it("refuses to clear a coverage path that names git's own files or every top folder", async () => {

@@ -148,6 +148,35 @@ describe('checkSteps for the test files a change reaches', () => {
     ]);
   });
 
+  // node's coverage of the files run, as LCOV, for a check step's uncovered-line check (ADR 0242).
+  const lcov = [
+    '--experimental-test-coverage',
+    '--test-reporter=lcov',
+    '--test-reporter-destination=lcov.info',
+  ];
+
+  it('writes the coverage of the files the change reaches to lcov.info, without thresholds, when asked (ADR 0242)', () => {
+    const files = ['test/unit/a.test.ts'];
+    assert.deepEqual(testStepOf(checkSteps(npmCli, { kind: 'some', files }, true)), [
+      {
+        label: 'node --test (1 test file the change reaches, with its coverage in lcov.info)',
+        args: [...testRun, ...lcov, ...files],
+      },
+    ]);
+  });
+
+  it('writes the coverage of every test file to lcov.info when the change reaches them all and it is asked (ADR 0242)', () => {
+    assert.deepEqual(
+      testStepOf(checkSteps(npmCli, { kind: 'all', why: 'package.json changed' }, true)),
+      [
+        {
+          label: 'node --test (every test file, with its coverage in lcov.info)',
+          args: [...testRun, ...lcov, 'test/{unit,property,chaos}/**/*.test.ts'],
+        },
+      ],
+    );
+  });
+
   it('has no test step with --no-tests, and keeps the others', () => {
     assert.deepEqual(
       checkSteps(npmCli, { kind: 'none' }).map(({ label }) => label),
@@ -214,6 +243,59 @@ describe('checkMode', () => {
     assert.deepEqual(checkMode(['--no-tests'], affected), { noTests: true });
   });
 
+  const sha = 'a'.repeat(40);
+
+  it('finds the test files the change since --base reaches (ADR 0242)', async () => {
+    const asked: (string | undefined)[] = [];
+    const mode = checkMode(['--base', sha], async (base) => {
+      asked.push(base);
+      return { kind: 'some', files: [] };
+    });
+    await mode.affected?.();
+    assert.deepEqual(asked, [sha]);
+  });
+
+  it('refuses --base with --all or --no-tests, which find no change (ADR 0242)', () => {
+    assert.throws(() => checkMode(['--all', '--base', sha], affected), /--base and --all/);
+    assert.throws(
+      () => checkMode(['--no-tests', '--base', sha], affected),
+      /--base and --no-tests/,
+    );
+  });
+
+  it('asks for the coverage of the files it runs with --base, which a check step reads (ADR 0242)', () => {
+    assert.equal(checkMode(['--base', sha], affected).lcov, true);
+  });
+
+  it('refuses a --base that is not a full commit id (ADR 0242)', () => {
+    for (const base of ['main', 'a'.repeat(39), `${'a'.repeat(40)}x`, `--output=${sha}`]) {
+      assert.throws(
+        () => checkMode([`--base=${base}`], affected),
+        /--base must be a full commit id/,
+      );
+    }
+  });
+
+  it('takes a --base of 64 hexadecimal characters, a SHA-256 commit id (ADR 0242)', async () => {
+    const long = 'b'.repeat(64);
+    const asked: (string | undefined)[] = [];
+    const mode = checkMode([`--base=${long}`], async (base) => {
+      asked.push(base);
+      return { kind: 'some', files: [] };
+    });
+    await mode.affected?.();
+    assert.deepEqual(asked, [long]);
+  });
+
+  it('refuses a --base in capitals or longer than a SHA-256 commit id (ADR 0242)', () => {
+    for (const base of ['A'.repeat(40), 'a'.repeat(65)]) {
+      assert.throws(
+        () => checkMode([`--base=${base}`], affected),
+        /--base must be a full commit id/,
+      );
+    }
+  });
+
   it('refuses --no-tests with --all', () => {
     assert.throws(() => checkMode(['--all', '--no-tests'], affected), /--all and --no-tests/);
   });
@@ -244,6 +326,26 @@ describe('runCheck with the test files a change reaches', () => {
     });
     return { exitCode, written, calls };
   };
+
+  it('passes the coverage it is asked for on to the test step (ADR 0242)', async () => {
+    const calls: string[][] = [];
+    const runProcess: RunProcess = async (_file, args) => {
+      calls.push(args);
+      return green('');
+    };
+    await runCheck({
+      env,
+      execPath,
+      runProcess,
+      cwd,
+      read: upToDate,
+      write: () => {},
+      affected: async () => ({ kind: 'some', files: ['test/unit/a.test.ts'] }),
+      lcov: true,
+    });
+    const test = calls.find((args) => args.includes('test/unit/a.test.ts'));
+    assert.ok(test?.includes('--test-reporter-destination=lcov.info'), JSON.stringify(calls));
+  });
 
   it('runs the files the change reaches and names them first', async () => {
     const files = ['test/unit/a.test.ts', 'test/unit/b.test.ts'];

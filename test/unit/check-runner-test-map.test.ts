@@ -156,9 +156,13 @@ const setup = ({
   real = worktree,
   /** The platform the runner reads paths for. */
   platform = 'linux' as NodeJS.Platform,
+  /** The repository's checks in foedrum.jsonc. */
+  checksOf = repository,
 } = {}) => {
   const asked: string[] = [];
-  const exec: ExecProcess = (file) => {
+  const exec: ExecProcess = (line) => {
+    // testChanged's line runs as the test check's does (ADR 0242).
+    const file = line.startsWith('npm test') ? 'npm test' : line;
     const output = file === 'npm test' ? `Build FAILED.\n${compileError}\n` : '';
     if (file === 'npm test' && testExit === null) {
       const killed = 'timed-out' as const;
@@ -177,7 +181,7 @@ const setup = ({
   const runner = createCheckRunner({
     state: () => fold([...started, ...more]),
     checks: stepChecks,
-    repositoryChecks: () => repository,
+    repositoryChecks: () => checksOf,
     testReport: () => testReport,
     exec,
     // The batch's change is empty: the uncovered-line check has no line to judge.
@@ -259,6 +263,13 @@ describe('createCheckRunner: a module no confirmed line reaches (ADR 0274)', () 
     ]);
   });
 
+  it('judges no new module unreached after a run of testChanged, which may not run its tests (ADR 0242)', async () => {
+    const checksOf = { ...repository, testChanged: 'npm test -- --changed {base}' };
+    const { run } = setup({ checksOf });
+    const end = await run();
+    assert.deepEqual(end.ending, { kind: 'succeeded', output: null });
+  });
+
   it("takes a module the base's map lists as reached: its missing report is no Stuck", async () => {
     const { run } = setup({ maps: { [base]: mapOf(web, billing), [tip]: mapOf(web, billing) } });
     const end = await run();
@@ -329,6 +340,15 @@ describe('createCheckRunner: a module no confirmed line reaches (ADR 0274)', () 
     const mergedReport = join(merged, 'web', 'test-results.xml');
     const head = 'e'.repeat(40);
     const live = new AbortController().signal;
+
+    it("runs the full test, not the repository's testChanged, on the merged tree: regression test (ADR 0242)", async () => {
+      const checksOf = { ...repository, testChanged: 'npm test -- --changed {base}' };
+      const { runner } = setup({ maps: { [tip]: mapOf(web), [head]: mapOf(web) }, checksOf });
+      const tree = { repo: 'acme/api', path: merged };
+      const end = await runner.checkTree(['test'], tree, deadlineAt, live, { head, tip });
+      const test = end.readings?.find((reading) => reading.check === 'test');
+      assert.equal(test !== undefined && 'command' in test ? test.command : undefined, 'npm test');
+    });
 
     it('a failing check on the merged tree names its failing tests from the test map', async () => {
       const { runner, asked } = setup({
@@ -602,6 +622,18 @@ describe('createCheckRunner: a stale test map (ADR 0274, ADR 0282)', () => {
       paths: ['web/test-results.xml (no report of module "web")'],
       more: 0,
     });
+  });
+
+  it("judges no freshness by a run of testChanged, whose modules' tests may not run (ADR 0242)", async () => {
+    const checksOf = { ...repository, testChanged: 'npm test -- --changed {base}' };
+    const { run } = setup({ maps: fresh, found: {}, checksOf });
+    const end = await run();
+    assert.deepEqual(end.ending, { kind: 'succeeded', output: null });
+    assert.deepEqual(
+      end.readings?.map((reading) => ('command' in reading ? reading.command : reading.check)),
+      ['npm run typecheck', `npm test -- --changed ${base}`],
+    );
+    assert.equal(end.staleMap, undefined);
   });
 
   it('finds the map stale when a run reports a test located outside every module', async () => {
@@ -1283,5 +1315,15 @@ describe("createCheckRunner's testRun: a scratch tree's tests (ADR 0313)", () =>
       asked.some((line) => line.includes('TestResults')),
       false,
     );
+  });
+
+  it("runs the full test, not the repository's testChanged, in a scratch tree: regression test (ADR 0242)", async () => {
+    const checksOf = { ...repository, testChanged: 'npm test -- --changed {base}' };
+    const { runner } = setup({ found: { 'web/test-results.xml': [webReport] }, checksOf });
+    const scratch = { repo: 'acme/api', path: worktree };
+    const modules = [{ module: web, added: false }];
+    const end = await runner.testRun(scratch, modules, deadlineAt, new AbortController().signal);
+    const { reading } = end.kind === 'ran' ? end : assert.fail();
+    assert.equal('command' in reading ? reading.command : undefined, 'npm test');
   });
 });

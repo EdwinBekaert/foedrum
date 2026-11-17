@@ -678,6 +678,10 @@
                     "type": "boolean",
                     "const": true
                   },
+                  "changed": {
+                    "type": "boolean",
+                    "const": true
+                  },
                   "lockfile": {
                     "type": "string",
                     "pattern": "\\S"
@@ -754,6 +758,10 @@
                     "type": "boolean",
                     "const": true
                   },
+                  "changed": {
+                    "type": "boolean",
+                    "const": true
+                  },
                   "lockfile": {
                     "type": "string",
                     "pattern": "\\S"
@@ -808,6 +816,10 @@
                     "type": "boolean",
                     "const": true
                   },
+                  "changed": {
+                    "type": "boolean",
+                    "const": true
+                  },
                   "lockfile": {
                     "type": "string",
                     "pattern": "\\S"
@@ -855,6 +867,10 @@
                     ]
                   },
                   "setup": {
+                    "type": "boolean",
+                    "const": true
+                  },
+                  "changed": {
                     "type": "boolean",
                     "const": true
                   },
@@ -3322,6 +3338,10 @@
                   "type": "boolean",
                   "const": true
                 },
+                "changed": {
+                  "type": "boolean",
+                  "const": true
+                },
                 "lockfile": {
                   "type": "string",
                   "pattern": "\\S"
@@ -3398,6 +3418,10 @@
                   "type": "boolean",
                   "const": true
                 },
+                "changed": {
+                  "type": "boolean",
+                  "const": true
+                },
                 "lockfile": {
                   "type": "string",
                   "pattern": "\\S"
@@ -3452,6 +3476,10 @@
                   "type": "boolean",
                   "const": true
                 },
+                "changed": {
+                  "type": "boolean",
+                  "const": true
+                },
                 "lockfile": {
                   "type": "string",
                   "pattern": "\\S"
@@ -3499,6 +3527,10 @@
                   ]
                 },
                 "setup": {
+                  "type": "boolean",
+                  "const": true
+                },
+                "changed": {
                   "type": "boolean",
                   "const": true
                 },

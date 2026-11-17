@@ -32,6 +32,8 @@ Both are JSONC with a `$schema` reference for editor autocompletion; unknown fie
 ```
 
 - `checks` requires all five keys, so a missing check is always an explicit `null`.
+  It may add a sixth, `testChanged`, a command written the same way whose every line holds `{base}`, such as `"testChanged": "npx vitest run --changed {base}"`: a check step runs it in place of `test` from the commit the batch's change starts from, and setting it says that the pull request's checks run the full `test`, the full gate ([check steps](../checks/check-steps.md), [ADR 0242](../../adr/0242-a-repository-can-name-a-fast-local-test-and-its-pull-request-checks-are-the-full-gate.md)).
+  It needs a `test` check, and `foedrum doctor` lists, per repository, which test the check step runs and what the full gate is.
   A command is one line, or `{ "run", "windows", "macos", "linux" }` with per-OS overrides.
   `"files": true`, which any command object takes and only a `lint`, `format` or `test` command's is read, says its line takes paths: the checks before a brewer's end then add the changed files to lint and format, and the red step's test files to test, which otherwise does not run there; a check step runs the line as written ([ADR 0381](../../adr/0381-a-brewer-that-writes-code-runs-the-quick-checks-before-its-end-and-is-sent-back-once.md)).
 - `testReport` is `{ "format": "tap" }` (the test command writes TAP to standard output), `{ "format": "tap", "path": … }` or `{ "format": "junit", "path": … }`; the path is relative to the worktree, never leaves it, and uses only file names Windows can create (no device names such as `con`, no trailing dot or space, none of `<>:"|?*` or control characters).
@@ -49,12 +51,17 @@ Both are JSONC with a `$schema` reference for editor autocompletion; unknown fie
   So is a `tools` rule that is a `Write`, `MultiEdit`, `NotebookEdit` or `Glob` path rule ([ADR 0093](../../adr/0093-brewers-file-tool-rules-are-read-and-edit-rules-scoped-to-the-worktree.md)).
 - `setup` runs in the worktree of every attempt of a brewer with a shell (a `Bash` or `PowerShell` rule, its own or from `tools`), before the brewer, and of every check step, before its checks, in the check sandbox with the network kept ([ADR 0158](../../adr/0158-a-repository-s-setup-runs-in-the-check-sandbox-with-the-network-kept.md), [ADR 0163](../../adr/0163-a-repository-s-setup-runs-before-a-brewer-attempt.md)).
   So a brewer can run the repository's format, lint, typecheck and tests itself, which the default Gauger and Cellarman do when `tools` allows the commands; the check step after them stays the gate.
-  Foedrum's own repository allows them within a ceiling that names them and nothing broader:
+  Foedrum's own repository allows them within a ceiling that names them and nothing broader, and its check steps run only the test files the change reaches, since its CI runs every test:
 
   ```jsonc
   "permissionCeiling": ["Bash(npm run *)", "Bash(node --test *)"],
   "repositories": {
     "edwinbekaert/foedrum": {
+      "checks": {
+        "build": null, "typecheck": "npm run typecheck", "lint": "npm run lint", "format": null,
+        "test": "npm test",                                      // every test file with coverage, as its CI runs them
+        "testChanged": "npm run check -- --base {base}"          // the test files the change reaches, their coverage in lcov.info (ADR 0241, ADR 0242)
+      },
       "setup": { "command": "npm ci", "timeout": "10m" },
       "tools": [
         "Bash(npm run lint)",

@@ -129,6 +129,8 @@ const setup = ({
   testReport = undefined as { format: 'junit'; path: string } | undefined,
   /** The proposed map's manifests against the worktree's files. */
   manifests = { kind: 'fresh' } as ManifestFreshness,
+  /** The repository's checks in foedrum.jsonc. */
+  checksOf = repository,
 } = {}) => {
   const ran: string[] = [];
   const stepChecks: StepChecks = {
@@ -145,7 +147,7 @@ const setup = ({
   const runner = createCheckRunner({
     state: () => fold(events),
     checks: stepChecks,
-    repositoryChecks: () => repository,
+    repositoryChecks: () => checksOf,
     testReport: () => testReport,
     exec: (file) => {
       ran.push(file);
@@ -186,6 +188,13 @@ describe("createCheckRunner: a survey's check against one run (ADR 0298)", () =>
     const end = await run();
     assert.deepEqual(ran, ['npm test']);
     assert.equal(end.ending.kind, 'succeeded');
+  });
+
+  it("runs the full test, not the repository's testChanged, in a survey-check: regression test (ADR 0242)", async () => {
+    const checksOf = { ...repository, testChanged: 'npm test -- --changed {base}' };
+    const { run, ran } = setup({ found: reported, checksOf });
+    await run();
+    assert.deepEqual(ran, ['npm test']);
   });
 
   it('fails a survey-check whose run disagrees with the proposed map back to the survey', async () => {
