@@ -9,7 +9,7 @@ import { baseMergeKey } from '../../src/engine/base-merge.ts';
 import { effectKey } from '../../src/engine/effect-key.ts';
 import { fold, type State } from '../../src/engine/fold.ts';
 import { withoutSecrets } from '../../src/engine/out-doc-text.ts';
-import { knownCommits } from '../../src/engine/pull-request.ts';
+import { allowedPushKey, knownCommits, latestPush } from '../../src/engine/pull-request.ts';
 import {
   type BranchPush,
   type PullRequestHost,
@@ -943,6 +943,94 @@ describe('pullRequestActions: the secret scan before the push (ADR 0079)', () =>
       withoutSecrets(stopped, 'open-pull-request', knownCommits(state, '12-1')),
       stopped,
     );
+  });
+});
+
+describe('pullRequestActions: the push of a commit a person allowed (ADR 0419)', () => {
+  const found: ScanFinding[] = [{ commit: tip, place: 'notes/aws.txt', kind: 'GitHub token' }];
+  const allowedPush = () => effectKey.encode(allowedPushKey('12-1'));
+  const again = { ...action, attempt: 2 };
+  /** The push of `tip` refused, then allowed for `commit`, and the step's second attempt started. */
+  const allowedFor = (commit: string, ...ledger: Event[]): State =>
+    fold([
+      ordered({ issue: 12 }),
+      ...brewed,
+      ...opening,
+      applied(push, { branch, commit: tip, from, refused: found }),
+      {
+        type: 'step.finished',
+        ...action,
+        outcome: { kind: 'failed', retryable: false, reason: 'the push was refused' },
+      },
+      {
+        type: 'push.allowed',
+        batchId: '12-1',
+        stepId: 'open-pull-request',
+        commit,
+        why: 'a fake token built in a test fixture',
+        by: 'ada',
+        via: 'terminal',
+      },
+      { type: 'step.scheduled', ...again, deadlineAt: '2026-10-15T15:00:00.000Z' },
+      { type: 'step.started', ...again },
+      ...ledger,
+    ]);
+
+  it('keys the push after an allowance apart from the push of each round', () => {
+    assert.deepEqual(allowedPushKey('12-1'), { batchId: '12-1', effect: 'push.allowed' });
+    assert.deepEqual(allowedPushKey('12-1', 2), { batchId: '12-1', effect: 'push.2.allowed' });
+  });
+
+  it('pushes the allowed commit under its own key, without scanning it', async () => {
+    const { actions, pushes, scans } = actionsWith({ found });
+    const state = allowedFor(tip);
+    assert.deepEqual(
+      actions.due(state, again).map((key) => effectKey.encode(key)),
+      [allowedPush(), open],
+    );
+    assert.deepEqual(await actions.target.apply(allowedPush()), { branch, commit: tip, from });
+    assert.deepEqual(scans, []);
+    assert.deepEqual(pushes, [`${tip} ${branch}`]);
+  });
+
+  it('scans a commit that is not the allowed one, and refuses what it finds', async () => {
+    // The task tree now resolves to `other`, which nobody allowed.
+    const { actions, pushes, scans } = actionsWith({ found, commits: { [from]: other } });
+    actions.due(allowedFor(tip), again);
+    assert.deepEqual(await actions.target.apply(allowedPush()), {
+      branch,
+      commit: other,
+      from,
+      refused: found,
+    });
+    assert.deepEqual(scans, [`${base}..${other}`]);
+    assert.deepEqual(pushes, []);
+  });
+
+  it('calls for no push when the allowance names another commit than the refused one', () => {
+    const { actions } = actionsWith({ found });
+    const ending = actions.ending(allowedFor(other), again);
+    assert.deepEqual(actions.due(allowedFor(other), again), []);
+    assert.equal(ending.kind, 'blocked');
+  });
+
+  it("reads the allowed key's push before the refused one: the push went", () => {
+    const state = allowedFor(tip, applied(allowedPush(), { branch, commit: tip, from }));
+    assert.deepEqual(latestPush(state, '12-1'), { branch, commit: tip, from });
+  });
+
+  it('blocks again with what the allowed key refused', () => {
+    const { actions } = actionsWith();
+    const refusedAgain = [{ commit: other, place: 'a.txt', kind: 'GitHub token' }];
+    const state = allowedFor(
+      tip,
+      applied(allowedPush(), { branch, commit: other, from, refused: refusedAgain }),
+    );
+    const ending = actions.ending(state, again);
+    assert.deepEqual(ending.kind === 'blocked' ? ending.refused : undefined, {
+      commit: other,
+      findings: refusedAgain,
+    });
   });
 });
 

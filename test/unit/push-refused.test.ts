@@ -8,6 +8,7 @@ import { describe, it } from 'node:test';
 import { formatReplay } from '../../src/cli/replay.ts';
 import { describeLane, statusRow } from '../../src/cli/status.ts';
 import { formatStuck } from '../../src/cli/stuck.ts';
+import { admit } from '../../src/engine/admit.ts';
 import { type Command, type Context, decide } from '../../src/engine/decide.ts';
 import { type Batch, emptyState, fold, type State } from '../../src/engine/fold.ts';
 import { laneLabel } from '../../src/engine/lane-labels.ts';
@@ -83,7 +84,9 @@ const refusedPush: Event = {
   remindAt: '2026-11-19T12:00:00.000Z',
 };
 const stuck = (): State => fold([...pushing, refusedPush]);
-const answer = (...answers: { q: string; answer: string }[]): Command => ({
+const answer = (
+  ...answers: { q: string; answer: string }[]
+): Extract<Command, { kind: 'answer' }> => ({
   kind: 'answer',
   batchId: 'b1',
   ...by,
@@ -127,7 +130,7 @@ describe('decide: a refused push waits as push_refused (ADR 0418)', () => {
     const q = PUSH_REFUSED_QUESTION;
     const one = `batch b1 asks one question: ${q}`;
     for (const [answers, why] of [
-      [[{ q, answer: 'allow' }], 'answer stop, not "allow"'],
+      [[{ q, answer: 'go' }], 'answer allow "<why>" or stop, not "go"'],
       [[{ q: 'Keep the old endpoint?', answer: 'stop' }], one],
       [
         [
@@ -169,14 +172,14 @@ describe('a refused push, as people see it (ADR 0418)', () => {
       .find((line) => line.startsWith('Next:'));
     assert.equal(
       next,
-      'Next: look at each finding above, then end the batch with `foedrum answer 12 stop`.',
+      'Next: look at each finding above, then let the push of this commit go with `foedrum answer 12 allow "<why>"`, or end the batch with `foedrum answer 12 stop`.',
     );
   });
 
   it('foedrum stuck lists the findings and asks the one question, answered with stop', () => {
     const text = formatStuck(emptyStateWith(batch));
     for (const line of lines) assert.ok(text.includes(`    ${line}\n`), text);
-    assert.ok(text.includes(`  1. ${PUSH_REFUSED_QUESTION} (stop)`), text);
+    assert.ok(text.includes(`  1. ${PUSH_REFUSED_QUESTION} (allow "<why>", stop)`), text);
     assert.ok(text.includes('  options: answer, cancel'), text);
   });
 
@@ -228,6 +231,96 @@ describe('a refused push, as people see it (ADR 0418)', () => {
 
   it('carries the label of a batch that waits for an answer', () => {
     assert.equal(laneLabel(batch), 'foedrum:awaiting-answer');
+  });
+});
+
+describe('decide: allow lets the refused push of its exact commit go (ADR 0419)', () => {
+  const why = 'a fake token built in a test fixture';
+
+  it('answer allow with a reason records push.allowed for the refused commit, then schedules the step again', () => {
+    const decision = decide(
+      stuck(),
+      { ...answer({ q: PUSH_REFUSED_QUESTION, answer: 'allow' }), why },
+      context,
+    );
+    assert.equal(decision.kind, 'accepted', JSON.stringify(decision));
+    const events = decision.kind === 'accepted' ? decision.events : [];
+    assert.deepStrictEqual(events.slice(0, 2), [
+      {
+        type: 'push.allowed',
+        batchId: 'b1',
+        stepId: 'open-pull-request',
+        commit: tip,
+        why,
+        ...by,
+      },
+      { type: 'batch.resumed', batchId: 'b1', ...by, action: 'answer' },
+    ]);
+    const scheduled = events[2];
+    assert.deepStrictEqual(
+      scheduled?.type === 'step.scheduled' ? [scheduled.stepId, scheduled.attempt] : scheduled,
+      ['open-pull-request', 2],
+    );
+  });
+
+  it('refuses allow with no reason or a blank one, saying what to type', () => {
+    const allow = answer({ q: PUSH_REFUSED_QUESTION, answer: 'allow' });
+    for (const command of [allow, { ...allow, why: ' \t ' }]) {
+      assert.deepStrictEqual(decide(stuck(), command, context), {
+        kind: 'refused',
+        reason: 'allow takes a reason: foedrum answer 12 allow "<why>"',
+      });
+    }
+  });
+
+  it('admits push.allowed only on a batch that is Stuck', () => {
+    const allowed: Event = {
+      type: 'push.allowed',
+      batchId: 'b1',
+      stepId: 'open-pull-request',
+      commit: tip,
+      why,
+      ...by,
+    };
+    assert.equal(admit(fold(pushing), [allowed]).kind, 'refused');
+    assert.equal(admit(stuck(), [allowed]).kind, 'accepted');
+  });
+});
+
+describe('a refused push a person allowed, as people see it (ADR 0419)', () => {
+  const why = 'a fake token built in a test fixture';
+  const allowed: Event[] = [
+    { type: 'push.allowed', batchId: 'b1', stepId: 'open-pull-request', commit: tip, why, ...by },
+    { type: 'batch.resumed', batchId: 'b1', ...by, action: 'answer' },
+    {
+      type: 'step.scheduled',
+      ...step,
+      attempt: 2,
+      deadlineAt: '2026-11-17T14:00:00.000Z',
+    },
+  ];
+  const allowedBatch = (): Batch =>
+    fold([...pushing, refusedPush, ...allowed]).batches.get('b1') as Batch;
+
+  it("the status comment says under the step's line who allowed the push of which commit, and why", () => {
+    const text = renderStatus(allowedBatch());
+    assert.ok(
+      text.includes(
+        '`open-pull-request`: brewing, attempt 2\n  - its push of `cccccccc` was allowed by ada (terminal): a fake token built in a test fixture',
+      ),
+      text,
+    );
+  });
+
+  it('foedrum replay shows the allowance in the state', () => {
+    const text = formatReplay(allowedBatch(), [{ id: 6, event: allowed[0] as Event }]);
+    assert.ok(text.includes(' push.allowed '), text);
+    assert.ok(
+      text.includes(
+        '  allowed push cccccccc at open-pull-request by ada via terminal: a fake token built in a test fixture\n',
+      ),
+      text,
+    );
   });
 });
 

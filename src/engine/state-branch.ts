@@ -75,6 +75,7 @@ export const batchOf = (event: Event): string | undefined => {
     case 'pull_request.reviews_read':
     case 'step.rescheduled':
     case 'order.approved':
+    case 'push.allowed':
       return event.batchId;
     default: {
       const unhandled: never = event;

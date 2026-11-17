@@ -97,7 +97,8 @@ interface Issuer {
 export type HumanCommand =
   | ({ kind: 'retry' } & Issuer)
   | ({ kind: 'skip' } & Issuer)
-  | ({ kind: 'answer'; answers: readonly Answer[] } & Issuer)
+  /** `why`: the reason given with `allow` to a refused push (ADR 0419). */
+  | ({ kind: 'answer'; answers: readonly Answer[]; why?: string } & Issuer)
   | ({ kind: 'recipe'; recipe: string; reason: string } & Issuer)
   /** `shas`: the commit of each repository at `toStepId`, by `owner/name`. */
   | ({ kind: 'rewind'; toStepId: string; shas: Readonly<Record<string, string>> } & Issuer)

@@ -339,6 +339,8 @@ export interface Batch {
   orderedBy?: string;
   /** Up to when a person's "continue" approved its claimed issue (ADR 0368); absent before one. */
   approvedUpTo?: string;
+  /** The latest refused push a person let go, for its exact commit (ADR 0419); absent before one. */
+  pushAllowed?: { stepId: string; commit: string; why: string; by: string; via: Surface };
   /** What chose the recipe; a human's choice also records who issued it and from where. */
   recipe?: { name: string; reason: string; type?: RecipeType } & (
     | { source: 'label' | 'router' }
@@ -1223,6 +1225,8 @@ function apply(state: State, event: Event): State {
     }
     case 'order.approved':
       return updateBatch(state, event.batchId, (batch) => ({ ...batch, approvedUpTo: event.upTo }));
+    case 'push.allowed':
+      throw new Error('not implemented');
     case 'pull_request.reviews_read': {
       const { batchId, pullRequest, reviews, more } = event;
       return updateBatch(state, batchId, (batch) => ({

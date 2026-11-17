@@ -1164,7 +1164,7 @@ describe('foedrum: commands that change state', () => {
       }
       const before = lastId();
       assert.deepStrictEqual(
-        await run(['answer', batchId, 'allow', 'a fake token in a test']),
+        await run(['answer', batchId, 'stop', 'now']),
         refused('answer', '#27 asked 1 question; give one answer to each, in order'),
       );
       assert.equal(lastId(), before);
@@ -1175,6 +1175,68 @@ describe('foedrum: commands that change state', () => {
         by: 'ada',
         via: 'terminal',
       });
+    });
+
+    /** Batch `batchId` of issue 28, Stuck as push_refused at its plan step on the push of `tip`. */
+    const refusedAt = (batchId: string, tip: string): void => {
+      const log = createCommandLog({ store, recipes });
+      for (const command of [
+        { kind: 'order', batchId, order: { issue: 28 } },
+        { kind: 'route', batchId, recipe: 'pint', reason: 'label', source: 'label' },
+        { kind: 'record', event: { type: 'step.started', batchId, stepId: 'plan', attempt: 1 } },
+        {
+          kind: 'finish',
+          batchId,
+          stepId: 'plan',
+          attempt: 1,
+          ending: {
+            kind: 'blocked',
+            blockerKind: 'environment',
+            summary: 'the push of batch 28-1 stopped before anything left the machine',
+            refused: {
+              commit: tip,
+              findings: [
+                { commit: tip, place: 'notes/aws.txt', line: 3, kind: 'AWS access key id' },
+              ],
+            },
+          },
+        },
+      ] satisfies Parameters<typeof log.issue>[0][]) {
+        assert.equal(log.issue(command, t0).kind, 'accepted', JSON.stringify(command));
+      }
+    };
+
+    it('answers allow with a reason to a batch whose push was refused, recording who and why (ADR 0419)', async () => {
+      const tip = 'e'.repeat(40);
+      refusedAt('28-1', tip);
+      assert.equal(
+        (await run(['answer', '28-1', 'allow', 'a fake token', 'in a test'])).exitCode,
+        0,
+      );
+      const [allowed, resumed] = appended(3);
+      assert.deepStrictEqual(allowed, {
+        type: 'push.allowed',
+        batchId: '28-1',
+        stepId: 'plan',
+        commit: tip,
+        why: 'a fake token in a test',
+        by: 'ada',
+        via: 'terminal',
+      });
+      assert.equal(resumed?.type, 'batch.resumed');
+    });
+
+    it('refuses allow with an empty reason or none, saying what to type (ADR 0419)', async () => {
+      refusedAt('28-1', 'e'.repeat(40));
+      const before = lastId();
+      for (const words of [['allow', ''], ['allow'], ['allow', ' ']]) {
+        assert.deepStrictEqual(
+          await run(['answer', '28-1', ...words]),
+          refused('answer', 'allow takes a reason: foedrum answer 28 allow "<why>"'),
+          JSON.stringify(words),
+        );
+      }
+      assert.equal(lastId(), before);
     });
 
     it('refuses too few or too many answers, appending nothing', async () => {
