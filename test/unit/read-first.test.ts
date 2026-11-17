@@ -131,6 +131,13 @@ describe('readFirstLine: the merge brief line (ADR 0422)', () => {
     );
   });
 
+  it("counts a finding's file written with a leading ./ or with backslashes as the path git gave", () => {
+    assert.equal(
+      readFirstLine(size, ['./src/small.ts', String.raw`src\small.ts`, 'src/b.ts']),
+      '**Read first:** src/small.ts, src/b.ts, src/big.ts · effort 3 of 5 (312 changed lines in 7 files).',
+    );
+  });
+
   it('names one file of a one-file change', () => {
     assert.equal(
       readFirstLine({ lines: 12, files: 1, largest: [{ path: 'src/a.ts', lines: 12 }] }, []),
