@@ -676,13 +676,14 @@ export const streamProcessWith =
 const jobObjectsHere = process.platform === 'win32';
 
 /**
- * The command through nice outside Windows when it starts below normal (ADR 0413); nice is found on
- * PATH, as bwrap is, and a run that cannot have it does not start. On Windows only the Job Object's
- * helper starts a program below normal.
+ * The command through nice, found by `findNice` in the command's environment (ADR 0413): on PATH,
+ * as bwrap is. A run that cannot have it does not start.
  */
-const niced = (command: SpawnCommand, belowNormal: boolean): SpawnCommand => {
-  if (!belowNormal || jobObjectsHere) return command;
-  const nice = resolveExecutable('nice', { env: command.env });
+export const nicedCommand = (
+  command: SpawnCommand,
+  findNice: (env: NodeJS.ProcessEnv) => string | undefined,
+): SpawnCommand => {
+  const nice = findNice(command.env);
   if (nice === undefined) throw new Error('nice: not found on PATH (ENOENT)');
   return belowNormalCommand(command, nice);
 };
@@ -698,7 +699,13 @@ export const processSpawner: Spawner = {
     const start =
       jobObjectsHere && jobObject
         ? jobObjectCommand(command, cwd, { belowNormal })
-        : { ...niced(command, belowNormal), cwd };
+        : {
+            // On Windows only the Job Object's helper starts a program below normal (ADR 0413).
+            ...(belowNormal && !jobObjectsHere
+              ? nicedCommand(command, (found) => resolveExecutable('nice', { env: found }))
+              : command),
+            cwd,
+          };
     const options = {
       cwd: start.cwd,
       env: start.env,
