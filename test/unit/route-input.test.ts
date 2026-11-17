@@ -955,6 +955,54 @@ describe("routeOf: every finding of a parallel group's round (#938, ADR 0349)", 
     );
   });
 
+  it("says after the routing step's reason which of its findings cite a place that does not exist in the reviewed code (ADR 0421)", () => {
+    const route = inGroup(
+      [
+        ...attempt('implement', 1),
+        ...blocked('correctness', 1, [
+          finding('src/wait.ts', 12, 'No deadline'),
+          { ...finding('src/login.ts', 34, 'The retry has no limit'), missing: 'line' },
+        ]),
+        ...routed('implement', 2, 'correctness', 'findings'),
+      ],
+      'implement',
+      2,
+    );
+    assert.ok(route !== undefined);
+    const { text } = routeInput(route, { kind: 'text', text: doc });
+    assert.equal(
+      text,
+      [
+        'Step correctness ended: blocked (findings): the Taster asks for changes: correctness',
+        '',
+        'Of its findings, these cite a place that does not exist in the reviewed code:',
+        '- major in src/login.ts:34 (that line does not exist in the reviewed code): The retry has no limit',
+        '',
+        `Its out doc:\n${doc}`,
+      ].join('\n'),
+    );
+  });
+
+  it("says beside another child's finding that its file does not exist in the reviewed code (ADR 0421)", () => {
+    const route = inGroup(
+      [
+        ...attempt('implement', 1),
+        ...blocked('correctness', 1, [finding('src/wait.ts', 12, 'No deadline')]),
+        ...advised('acceptance', 1, [
+          { ...finding('src/gone.ts', 4, 'The flag is not parsed'), missing: 'file' },
+        ]),
+        ...routed('implement', 2, 'correctness', 'findings'),
+      ],
+      'implement',
+      2,
+    );
+    assert.ok(route !== undefined);
+    assert.match(
+      routeInput(route).text,
+      /\nStep acceptance, [^\n]*\n- major in src\/gone\.ts:4 \(that file does not exist in the reviewed code\): The flag is not parsed$/,
+    );
+  });
+
   it("gives a second child's recorded findings in the same round, those that asked for changes before those that approved (ADR 0354)", () => {
     const route = inGroup(
       [

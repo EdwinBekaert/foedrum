@@ -22,6 +22,7 @@ import {
   settleAttempt,
 } from '../engine/brewer-runner.ts';
 import type { Ending } from '../engine/decide.ts';
+import type { ReadFiles, ReviewedTree } from '../engine/finding-places.ts';
 import { type PlanRepository, type ReadPaths, touchesChecked } from '../engine/plan-touches.ts';
 import type { AttemptProgress } from '../engine/supervisor.ts';
 import { type BoundedRead, readOutDocFile } from '../platform/bounded-read.ts';
@@ -116,6 +117,11 @@ export interface ClaudeAttemptPlan {
    */
   touches?: readonly PlanRepository[];
   /**
+   * For a Taster of a change: its repository's clone and the commit its worktree started at, the
+   * head it reviewed, where each finding's file and line are checked once it ends (ADR 0421).
+   */
+  reviewed?: ReviewedTree;
+  /**
    * For a resumed run after a turn overrun: the copy of the out doc the run before left. The
    * runner keeps the out doc in the worktree, or puts this copy back there (ADR 0175).
    */
@@ -184,6 +190,11 @@ export interface ClaudeRunnerDeps {
   checks?: ExecProcess;
   /** The paths an attempt's commits changed, for the checks before its end (ADR 0381). */
   changed?: ChangedPaths;
+  /**
+   * Reads the files a Taster's findings cite at the head it reviewed (ADR 0421). Without it, no
+   * finding's place is checked.
+   */
+  places?: ReadFiles;
 }
 
 /**

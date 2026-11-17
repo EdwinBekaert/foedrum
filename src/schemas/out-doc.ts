@@ -123,6 +123,9 @@ export const TastingFinding = z.strictObject({
   // Optional, so a one-lens out doc reads as before; an older Foedrum cannot read a finding with
   // it (ADR 0220, as ADR 0191 records for dispositions).
   lens: LensName.optional(),
+  // The engine's, never the Taster's: its file, or its line, does not exist at the head the
+  // Taster reviewed (ADR 0421).
+  missing: z.enum(['file', 'line']).optional(),
 });
 export type TastingFinding = z.infer<typeof TastingFinding>;
 

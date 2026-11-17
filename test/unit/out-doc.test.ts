@@ -452,3 +452,22 @@ describe("a finding's lens (#560, ADR 0220)", () => {
     });
   });
 });
+
+describe("the engine's mark of a finding's missing place (ADR 0421)", () => {
+  const finding = { file: 'src/a.ts', line: 40, severity: 'major', why: 'Wrong', introduced: true };
+  const changes = { status: 'done', summary: 'Tasted', verdict: 'changes' } as const;
+
+  it('refuses a Taster that marks its own finding missing: only the engine checks a place', () => {
+    const read = TastingOutDoc.safeParse({
+      ...changes,
+      findings: [{ ...finding, missing: 'line' }],
+    });
+    assert.equal(read.success, false);
+  });
+
+  it("refuses the mark in the out doc of a step's lenses together too", () => {
+    const schema = tastingOutDocOf(['diff/correctness', 'diff/security']);
+    const marked = { ...finding, lens: 'diff/security', missing: 'file' };
+    assert.equal(schema.safeParse({ ...changes, findings: [marked] }).success, false);
+  });
+});

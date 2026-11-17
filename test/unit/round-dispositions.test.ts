@@ -83,6 +83,24 @@ describe('earlierFindingsInput (#501, ADR 0191)', () => {
     );
   });
 
+  it("says beside an earlier round's finding that its line does not exist in the reviewed code (ADR 0421)", () => {
+    const { text } = earlierFindingsInput('tasting', [
+      {
+        step: 'tasting#1',
+        findings: [{ ...deadline, line: 40, missing: 'line' }],
+        dispositions: [],
+      },
+    ]);
+    assert.equal(
+      text,
+      [
+        'Round tasting#1:',
+        '- major in src/wait.ts:40 (that line does not exist in the reviewed code): The poll has no deadline',
+        '  open',
+      ].join('\n'),
+    );
+  });
+
   it('keeps a why the brewer gave a fixed finding, says when a round had none, and when its findings could not be read', () => {
     const { text } = earlierFindingsInput('tasting', [
       {
