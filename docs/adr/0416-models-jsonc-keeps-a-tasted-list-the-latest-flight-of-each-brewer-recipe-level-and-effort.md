@@ -39,6 +39,7 @@ Decided with the maintainer on 2026-11-17 (#1141), in place of a model watcher (
   Its level is the one the swapped steps ran on: `--model` when it is a level, otherwise the level the Flight borrowed for the id (ADR 0409); its effort is the swap's.
   It writes `pull-request.md` beside `report.md` and prints the pull request's title and description: a "How it works" section with what the pull request adds or replaces and both Flights in one line, the report, and a last line that asks for the link in `report`.
   It does not branch, commit, push or open the pull request: a person or a session does that the usual way.
+  It never changes `claude.models`: moving a level to the tasted model is the person's choice, made by hand in the same pull request when they make it, since the issue leaves that choice to them and the maintainer settled on a report with no option.
 - **When no entry is written, the report says why in one line and leaves `defaults/models.jsonc` as it is.**
   A dry run of either Flight ends with exit 0, since nothing went wrong.
   A candidate as it ships, two Flights of different recipes, a recipe that is no default recipe, no order measured by both, or steps that named two model ids or none end with exit 1.

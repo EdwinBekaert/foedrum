@@ -37,13 +37,14 @@ Each brews with `foedrum brew`'s own run in a scratch Brewery on the fake code h
   node scripts/flight-report.ts --baseline .foedrum/tmp/flight/nip --candidate .foedrum/tmp/flight/nip-cellarman-claude-opus-5-5-larger
   ```
 
-  It reads both folders' `results.jsonl`, prints the report and writes it as `report.md` in the candidate's folder ([ADR 0411](../adr/0411-a-flight-report-calls-equal-passes-the-same-and-counts-a-run-that-measured-nothing-as-not-passed.md)).
+  It reads both folders' `results.jsonl`, writes the report as `report.md` in the candidate's folder, and prints it, unless it writes a tasted entry (below) ([ADR 0411](../adr/0411-a-flight-report-calls-equal-passes-the-same-and-counts-a-run-that-measured-nothing-as-not-passed.md)).
   Each order both Flights measured gets a row: the hidden tests passed in each ("3 of 3 against 1 of 3"), and, over the runs that measured something, those with changes outside its paths and the tokens and the brewers' time per run, and a verdict.
   A difference is called only when one Flight passes every run and the other at most one ([ADR 0404](../adr/0404-the-flight-s-tasting-room-is-a-folder-of-orders-each-proved-by-its-hidden-tests.md)); equal counts of equal runs are the same, two Flights that both passed every run are never a difference, and anything else is too close to call (ADR 0411).
   A run that measured nothing counts as one that did not pass, and an order only one Flight has, or that one measured no run of, is listed under the table and left out of the counts.
   One summary line gives each Flight's orders passed on every run, the orders too close to call and the candidate's tokens per order against the baseline's, never a cost in money.
   For a real Flight whose candidate swapped a brewer, the report adds that brewer's entry to `defaults/models.jsonc`'s `tasted` list, or replaces the one of its brewer, recipe, level and effort, writes `pull-request.md` beside `report.md`, and prints the pull request's title and description; a person or a session opens the pull request and adds its link to the entry ([ADR 0416](../adr/0416-models-jsonc-keeps-a-tasted-list-the-latest-flight-of-each-brewer-recipe-level-and-effort.md)).
-  A dry run writes no entry; nor does a candidate as it ships, two Flights of different recipes, or a brewer whose steps named two model ids or none, and the report says why in one line.
+  Moving a level's model in `claude.models` is the person's choice, made by hand in that pull request.
+  A dry run of either Flight writes no entry and ends with exit 0; a candidate as it ships, two Flights of different recipes, a recipe that is no default recipe, no order measured by both Flights, or a brewer whose steps named two model ids or none in either Flight writes none either and ends with exit 1; each time the report says why in one line.
 
 ## Not built yet
 
