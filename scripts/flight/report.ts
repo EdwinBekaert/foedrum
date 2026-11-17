@@ -32,10 +32,10 @@ const passedEvery = ({ passed, runs }: Passes): boolean => passed === runs;
 
 /**
  * The verdict on an order that `baseline` and `candidate` passed: a difference only when one passes
- * every run and the other at most one (ADR 0404), the same on equal counts (ADR 0411).
+ * every run and the other at most one (ADR 0404), the same on equal counts of equal runs (ADR 0411).
  */
 export const verdictOf = (baseline: Passes, candidate: Passes): Verdict => {
-  if (baseline.passed === candidate.passed) return 'the same';
+  if (baseline.passed === candidate.passed && baseline.runs === candidate.runs) return 'the same';
   if (passedEvery(baseline) && candidate.passed <= 1) return 'baseline better';
   if (passedEvery(candidate) && baseline.passed <= 1) return 'candidate better';
   return 'too close to call';
