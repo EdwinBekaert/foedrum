@@ -1,6 +1,6 @@
 # 0412. Foedrum refreshes and commits the npm lockfile a release bump leaves behind
 
-Date: 2026-11-17 · Status: Accepted · Amends [0291](0291-a-release-blocked-sub-order-s-brewers-read-the-release-it-waited-for-as-written.md) (after the bump, Foedrum refreshes the lockfile itself) and [0163](0163-a-repository-s-setup-runs-before-a-brewer-attempt.md) (the setup's sandbox and environment also run a lockfile's refresh, after a brewer attempt)
+Date: 2026-11-17 · Status: Accepted · Amends [0291](0291-a-release-blocked-sub-order-s-brewers-read-the-release-it-waited-for-as-written.md) (after the bump, Foedrum refreshes the lockfile itself) [0163](0163-a-repository-s-setup-runs-before-a-brewer-attempt.md) (the setup's sandbox and environment also run a lockfile's refresh, after a brewer attempt) and [0187](0187-a-committing-brewer-s-attempt-is-scanned-for-secrets-when-it-ends-done.md) (the refresh's commit comes after the attempt's scan, and the push's scan reads it)
 
 ## Context
 A sub-order that waited for a release starts by bumping its dependency to that release (ADR 0291).
@@ -25,11 +25,13 @@ An install needs the registry and a `tools` rule within the Brewery's `permissio
   The line runs through the setup's process runner: the check sandbox with the network kept (ADR 0158, ADR 0218), in a Job Object on Windows, and unsandboxed on native Windows only, its reading saying so.
   It is killed at 5 minutes, or 10 seconds before the attempt's deadline when that is sooner.
 - **How it is committed.** Only when every refresh passed, each lockfile a refresh changed is committed on the attempt's branch in the clone by plumbing.
-  The blob is written into the clone's objects as a commit of its path stores it, so a checkout's CRLF goes back to the repository's line ends (`hash-object --path`; Git for Windows sets `core.autocrlf`), put on the tip's tree in an index of the git directory's own, and committed by `commit-tree` with the tip as its parent, as Foedrum (the identity the merged tree's commit uses, ADR 0203).
+  Only a regular file of the tip's tree is committed, with the mode the tip gives it (`100644` or `100755`); a link the tip holds, which a checkout without symlinks writes as a file, is left as it is.
+  The blob is written into the clone's objects as a commit of its path stores it, by git run inside the scratch tree with the git directory Foedrum names, so the tree's `.gitattributes` and `core.autocrlf` (which Git for Windows sets) turn a checkout's CRLF back into the repository's line ends (`hash-object --path`; a bare git directory reads no attributes, and `--attr-source` needs git 2.40, above Foedrum's 2.38), put on the tip's tree in an index of the git directory's own, and committed by `commit-tree` with the tip as its parent, as Foedrum (the identity the merged tree's commit uses, ADR 0203).
   The branch then moves by `update-ref` only from that tip.
   No hook or configuration of the clone's takes part.
   Nothing resumes in the attempt's worktree after a success: only a retry after a failure resumes, and a route starts fresh (ADR 0117).
   So the worktree, which now lags behind its branch, is never committed on again; an attempt whose refresh did not pass committed nothing, so its retry finds its worktree at its branch.
+  One case is left: when the commit landed and only removing the scratch tree then fails (`removeTree` gives up after five tries on a busy file), the attempt ends `blocked` with its branch already moved, and a person's retry resumes in a worktree behind its branch.
 - **A refresh that does not pass makes the batch Stuck on its environment.** Its reading goes on `step.finished` with `lockfile`, the file it refreshed.
   The attempt ends `blocked`, `environment`, as a setup that did not pass does (ADR 0140): `the lockfile <path> could not be refreshed: "<command>" failed with exit code <n>`, or was ended, timed out, wrote too much, or could not start.
   A stop cancels it, also while git lists the changed paths or commits.
