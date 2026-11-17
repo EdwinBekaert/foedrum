@@ -1747,12 +1747,16 @@ describe("the default Nip's round back to the Cellarman carries every Taster's f
     );
     // The fake runner keeps no worktree, so each blocked round's dispositions are read from the
     // events. Acceptance's round was blocked by its findings too (ADR 0354), and a blocked round's
-    // findings are read from its out doc in that worktree, which the fake runner does not keep.
+    // findings are read from its event too (ADR 0423).
     assert.deepEqual(disposed.get('correctness'), [dispositions[0]]);
     assert.deepEqual(disposed.get('acceptance'), [dispositions[1]]);
-    assert.match(
-      earlier.get('acceptance') ?? '',
-      /^Round acceptance#1:\nIts findings could not be read: no worktree of it is recorded\.$/,
+    assert.equal(
+      earlier.get('acceptance'),
+      [
+        'Round acceptance#1:',
+        '- major in src/status.ts:40: The order asks for --json; the flag added is --JSON',
+        "  dismissed: The order's second sentence asks for --JSON",
+      ].join('\n'),
     );
     const started = events.flatMap((event) =>
       event.type === 'step.started' ? [event.stepId] : [],

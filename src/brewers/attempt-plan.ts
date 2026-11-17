@@ -700,11 +700,12 @@ function laterRoundText(round: LaterRound): string {
 }
 
 /**
- * One earlier round of a lens step (ADR 0191): its attempt, its findings or why they could not be
- * read, and the dispositions the brewer its findings route brought back wrote.
+ * One earlier round of a lens step (ADR 0191): its attempt, its findings, with how many more its
+ * event did not record (ADR 0423), or why they could not be read, and the dispositions the brewer
+ * its findings route brought back wrote.
  */
 export type EarlierRound = { step: string; dispositions: readonly Disposition[] } & (
-  | { findings: readonly TastingFinding[] }
+  | { findings: readonly TastingFinding[]; more?: number }
   | { unread: string }
 );
 
