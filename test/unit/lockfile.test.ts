@@ -513,6 +513,14 @@ describe('refreshLockfiles: the lockfiles of the projects below a Directory.Pack
     );
   });
 
+  it('fails on a folder below it that cannot be read, rather than refresh nothing there', async () => {
+    // The props's folder is a file in this tree, so reading it fails.
+    const tree = treeWith({ src: 'not a folder\n' });
+    const { exec, runs } = writing('packages.lock.json');
+    await assert.rejects(refreshLockfiles(tree, [props], runOf(exec)));
+    assert.deepStrictEqual(runs, []);
+  });
+
   it('runs nothing below a folder that links out of the tree', async () => {
     const outside = treeWith({
       'Web/Web.csproj': '<Project />',
