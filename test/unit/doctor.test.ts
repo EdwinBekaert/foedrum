@@ -1727,6 +1727,36 @@ describe('diagnose: what could be tasted next (ADR 0419)', () => {
     );
   });
 
+  it('says there is nothing to read when every attempt is older than 30 days', () => {
+    const old = { ...used('cellarman', 'claude-opus-5-6'), deadlineAt: new Date('2026-10-01') };
+    assert.equal(
+      lineOf({ tasting: { used: [old], at } }),
+      'Tasting: no brewer attempt in the last 30 days to read.',
+    );
+  });
+
+  it('reads Foedrum’s default tasted list under the Brewery’s', () => {
+    const tasting = { used: [used('cellarman', 'claude-sonnet-5-6')], at };
+    const defaults = {
+      models: {
+        path: 'defaults/models.jsonc',
+        text: models(tasted('cellarman', 'claude-sonnet-5-6', 'standard', 'full')),
+      },
+    };
+    assert.equal(
+      lineOf({ tasting, brewery: { ...brewery, defaults } }),
+      'Tasting: every model in use in the last 30 days was tasted, and no step has a cheaper level to taste.',
+    );
+  });
+
+  it('prints no tasting line when the recipes do not load', () => {
+    const tasting = { used: [used('cellarman', 'claude-opus-5-6')], at };
+    const broken = { recipes: [{ path: 'recipes/nip.jsonc', text: '{}' }], brewers };
+    const diagnosis = diagnose({ ...linux(), brewery: broken, tasting });
+    assert.ok(diagnosis.problems.some(({ what }) => what === INVALID_RECIPES));
+    assert.equal(diagnosis.tasting, undefined);
+  });
+
   it('says there is nothing to read when no recent attempt ran a step today’s recipes have', () => {
     const tasting = { used: [used('gone', 'claude-opus-5-6')], at };
     assert.equal(lineOf({ tasting }), 'Tasting: no brewer attempt in the last 30 days to read.');

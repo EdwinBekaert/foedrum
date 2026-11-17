@@ -151,6 +151,16 @@ describe('tastingSuggestions: a cheaper level that might be enough (ADR 0419)', 
     assert.deepEqual(suggest({ attempts: [used()], tasted }).cheaper, []);
   });
 
+  it('suggests nothing when only another brewer was tasted on the step’s level', () => {
+    const tasted = [entry({ brewer: 'gauger' })];
+    assert.deepEqual(suggest({ attempts: [used()], tasted }).cheaper, []);
+  });
+
+  it('still suggests the level below when only another brewer was tasted there', () => {
+    const tasted = [entry(), entry({ brewer: 'gauger', level: 'standard' })];
+    assert.equal(suggest({ attempts: [used()], tasted }).cheaper.length, 1);
+  });
+
   it('suggests nothing when the entry is of another recipe', () => {
     const tasted = [entry({ recipe: 'stout' })];
     assert.deepEqual(suggest({ attempts: [used()], tasted }).cheaper, []);
