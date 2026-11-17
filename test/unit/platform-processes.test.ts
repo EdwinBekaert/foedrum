@@ -12,6 +12,7 @@ import {
   isPidAlive,
   type Kill,
   killProcessTree,
+  nicedCommand,
   runProcessThrough,
   type Spawner,
   shellCommand,
@@ -1536,6 +1537,23 @@ describe('belowNormalCommand (ADR 0413)', () => {
       shell: false,
       env,
     });
+  });
+
+  it("looks nice up in the command's environment, and starts nothing without it", () => {
+    const git = spawnCommand('/usr/bin/git', ['status'], 'linux', env);
+    const asked: NodeJS.ProcessEnv[] = [];
+    const missing = (found: NodeJS.ProcessEnv) => {
+      asked.push(found);
+      return undefined;
+    };
+    assert.throws(() => nicedCommand(git, missing), /^Error: nice: not found on PATH \(ENOENT\)$/);
+    assert.deepEqual(asked, [env]);
+    assert.deepEqual(nicedCommand(git, () => '/opt/bin/nice').args, [
+      '-n',
+      '10',
+      '/usr/bin/git',
+      'status',
+    ]);
   });
 });
 
