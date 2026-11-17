@@ -5,13 +5,15 @@
 // the merged tree get a worktree of it from such a directory (ADR 0203).
 
 import { lstat, mkdir, readFile, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import type { MergeTreeResult } from '../engine/base-check.ts';
 import { pathInside } from '../platform/paths.ts';
 import { realPath } from '../platform/real-path.ts';
 import { removeTree } from '../platform/remove.ts';
 import { isCommitSha } from '../schemas/store.ts';
+import { isAttemptBranch } from './attempt-commits-git.ts';
 import {
+  aborts,
   fullSha,
   gitOutput,
   inClone,
@@ -175,6 +177,111 @@ const checkedOut = async <T>(
     await removeTree(worktree);
   }
 };
+
+/**
+ * Runs `use` with a scratch worktree of the tip of `branch`, an attempt's branch in the clone, and
+ * commits the files it names on that branch, as Foedrum, with `message` (ADR 0412); the commit's
+ * sha, or none when `use` names no file.
+ */
+export type BranchCommit = <T>(
+  branch: string,
+  message: string,
+  use: (worktree: string) => Promise<{ value: T; files: readonly string[] }>,
+  signal?: AbortSignal,
+) => Promise<{ value: T; commit?: string }>;
+
+export const openBranchCommit =
+  ({ git, clone, own }: MergeTreeOptions): BranchCommit =>
+  async <T>(
+    branch: string,
+    message: string,
+    use: (worktree: string) => Promise<{ value: T; files: readonly string[] }>,
+    signal?: AbortSignal,
+  ): Promise<{ value: T; commit?: string }> => {
+    if (!isAttemptBranch(branch)) throw new Error(`${JSON.stringify(branch)} is no attempt branch`);
+    if (own === undefined) {
+      throw new Error(`The scratch tree in ${clone} names no URL to reach the remote by`);
+    }
+    const ref = `refs/heads/${branch}`;
+    const inTheClone = inClone(git);
+    const tip = fullSha(
+      (
+        await gitOutput(
+          inTheClone,
+          clone,
+          ['rev-parse', '--verify', `${ref}^{commit}`],
+          aborts(signal),
+        )
+      ).trim(),
+    );
+    return withOwnGitDir(git, clone, own, signal, (dir) =>
+      checkedOut(
+        { git, clone },
+        dir,
+        tip,
+        async (worktree) => {
+          const { value, files } = await use(worktree);
+          if (files.length === 0) return { value };
+          // The tip's tree with the files as the tree holds them, in an index of the directory's own.
+          const index = { env: { GIT_INDEX_FILE: join(dir.path, 'foedrum.index') } };
+          await dir.run(['read-tree', tip], index);
+          let changed = 0;
+          for (const file of files) {
+            // Only a regular file of the tip's tree, with its mode: a link that a checkout without
+            // symlinks wrote as a file stays a link.
+            const entry = await dir.run(['ls-files', '-s', '--', file], index);
+            const mode = /^(100644|100755) /.exec(entry)?.[1];
+            if (mode === undefined) continue;
+            // As a commit of that path stores it, through the tree's attributes and core.autocrlf:
+            // a checkout's CRLF goes back to the repository's line ends.
+            const blob = (await hashInTree(git, dir, worktree, file, signal)).trim();
+            await dir.run(
+              ['update-index', '--add', '--cacheinfo', `${mode},${blob},${file}`],
+              index,
+            );
+            changed += 1;
+          }
+          if (changed === 0) return { value };
+          const tree = (await dir.run(['write-tree'], index)).trim();
+          const made = await dir.run(['commit-tree', tree, '-p', tip, '-m', message], {
+            env: FOEDRUM,
+          });
+          const commit = fullSha(made.trim());
+          // Only from the tip the tree was made from: a branch moved meanwhile is no one's to lose.
+          await gitOutput(inTheClone, clone, ['update-ref', ref, commit, tip], aborts(signal));
+          return { value, commit };
+        },
+        signal,
+      ),
+    );
+  };
+
+/**
+ * Writes `file` of the scratch tree `worktree` into the clone's objects as a commit of it would
+ * (ADR 0412): git runs inside the tree, so the tree's `.gitattributes` take part, with the tree's
+ * git directory named by Foedrum, never read from the tree's `.git` file.
+ */
+const hashInTree = (
+  git: Git,
+  dir: OwnGitDir,
+  worktree: string,
+  file: string,
+  signal: AbortSignal | undefined,
+): Promise<string> =>
+  gitOutput(
+    git,
+    worktree,
+    [
+      `--git-dir=${join(dir.path, 'worktrees', basename(worktree))}`,
+      `--work-tree=${worktree}`,
+      'hash-object',
+      '-w',
+      `--path=${file}`,
+      '--',
+      file,
+    ],
+    { ...aborts(signal), env: { GIT_OBJECT_DIRECTORY: dir.objects } },
+  );
 
 /** A file of a scratch tree rewritten after its checkout: a mutant's (ADR 0313). */
 export interface TreeEdit {
