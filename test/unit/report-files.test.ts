@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
-import { fileReports } from '../../src/checks/check-runner.ts';
+import { fileReports } from '../../src/checks/module-reports.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 
 describe('fileReports', () => {

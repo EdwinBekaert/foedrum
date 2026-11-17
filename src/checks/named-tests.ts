@@ -1,7 +1,7 @@
 // The tests a Gauger named against what a test run's reports hold, the core (ADR 0342): a name the
 // reports hold in none of the forms runners write reads as unreported. A name says less than a
 // report's place, and a template name matches nothing, so this judges no step: it says so.
-// Pure; check-runner.ts reads the reports.
+// Pure; mapped-proof.ts and failing-names.ts read the reports.
 
 import type { TestReport } from '../formats/test-report.ts';
 import { MOST_FAILING_TESTS, type UnreportedTests } from '../schemas/events.ts';
