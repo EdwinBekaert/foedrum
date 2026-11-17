@@ -98,9 +98,15 @@ export const shellCommand = (
  * How to start a command below normal priority outside Windows (ADR 0413): through `nice -n 10`
  * at the path `nice`, so the program, and a shell's line, start niced, with no moment at normal.
  */
-export const belowNormalCommand = (_command: SpawnCommand, _nice: string): SpawnCommand => {
-  throw new Error('not implemented');
-};
+export const belowNormalCommand = (
+  { file, args, shell, env }: SpawnCommand,
+  nice: string,
+): SpawnCommand => ({
+  file: nice,
+  args: ['-n', '10', ...(shell === false ? [file, ...args] : [shell, '-c', file])],
+  shell: false,
+  env,
+});
 
 // Between SIGTERM and SIGKILL: long enough for a script such as npm run check to kill its own
 // children's groups on SIGTERM, short enough that a stop still feels immediate.
@@ -313,6 +319,7 @@ export const execProcessWith =
       signal,
       maxOutputBytes = DEFAULT_MAX_OUTPUT_BYTES,
       jobObject = false,
+      belowNormal = false,
       shell = false,
       stdin,
       pipes,
@@ -364,6 +371,7 @@ export const execProcessWith =
           cwd,
           env,
           jobObject,
+          ...(belowNormal ? { belowNormal } : {}),
           ...(shell ? { shell } : {}),
           ...(stdin === undefined ? {} : { stdin: true }),
           ...(pipes === undefined ? {} : { pipes: pipes.count }),
@@ -667,14 +675,30 @@ export const streamProcessWith =
 // Job Objects are Windows's; elsewhere the runner kills the process group.
 const jobObjectsHere = process.platform === 'win32';
 
+/**
+ * The command through nice outside Windows when it starts below normal (ADR 0413); nice is found on
+ * PATH, as bwrap is, and a run that cannot have it does not start. On Windows only the Job Object's
+ * helper starts a program below normal.
+ */
+const niced = (command: SpawnCommand, belowNormal: boolean): SpawnCommand => {
+  if (!belowNormal || jobObjectsHere) return command;
+  const nice = resolveExecutable('nice', { env: command.env });
+  if (nice === undefined) throw new Error('nice: not found on PATH (ENOENT)');
+  return belowNormalCommand(command, nice);
+};
+
 /** The real spawner. Unit tests use a fake one instead (ADR 0021). */
 export const processSpawner: Spawner = {
-  spawn: (file, args, { cwd, env, jobObject = false, stdin = false, shell = false, pipes = 0 }) => {
+  spawn: (file, args, asked) => {
+    const { cwd, env, jobObject = false, belowNormal = false } = asked;
+    const { stdin = false, shell = false, pipes = 0 } = asked;
     const command = shell
       ? shellCommand(file, process.platform, env)
       : spawnCommand(file, args, process.platform, env);
     const start =
-      jobObjectsHere && jobObject ? jobObjectCommand(command, cwd) : { ...command, cwd };
+      jobObjectsHere && jobObject
+        ? jobObjectCommand(command, cwd, { belowNormal })
+        : { ...niced(command, belowNormal), cwd };
     const options = {
       cwd: start.cwd,
       env: start.env,
