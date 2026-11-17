@@ -15,7 +15,7 @@ import { finingOf, gaugeOf, OutDocAssumptions, tastingOf } from '../schemas/out-
 import { planOf } from '../schemas/plan.ts';
 import { ChosenBy } from '../schemas/recipe.ts';
 import type { MergeBrief } from '../schemas/status-comment.ts';
-import type { SensitiveFiles } from '../schemas/store.ts';
+import { MAX_REFUSED, type SensitiveFiles } from '../schemas/store.ts';
 import {
   type BatchState,
   batchState,
@@ -377,7 +377,10 @@ const openLines = (stepId: string, { rounds, open, more }: RoundsOut, told: Told
 /** A commit as the comments show it: its first eight digits. */
 export const shortSha = (sha: string): string => sha.slice(0, 8);
 
-/** Each finding of a refused push as `<kind> in <place> line <n> of <commit>`, then how many more (ADR 0418). */
+/**
+ * Each finding of a refused push as `<kind> in <place> line <n> of <commit>`, then how many more:
+ * at least that many when the ledger's list is full, since the push keeps no more (ADR 0418).
+ */
 export const refusedLines = ({
   findings,
   more,
@@ -386,7 +389,9 @@ export const refusedLines = ({
     ({ commit, place, line, kind }) =>
       `${kind} in ${place}${line === undefined ? '' : ` line ${line}`} of ${shortSha(commit)}`,
   ),
-  ...(more > 0 ? [`and ${more} more`] : []),
+  ...(more > 0
+    ? [`and ${findings.length + more >= MAX_REFUSED ? 'at least ' : ''}${more} more`]
+    : []),
 ];
 
 /**
