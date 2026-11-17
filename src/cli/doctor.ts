@@ -198,10 +198,7 @@ const CHECKS_IN_BUBBLEWRAP =
   "Check steps run only in bubblewrap's sandbox, with no network and the home folder hidden; where it cannot start, they do not run (ADR 0076).";
 const CHECKS_ON_WINDOWS =
   "On native Windows, check steps run outside any sandbox, so they can still read gh's login (ADR 0076).";
-const permissionsOnlyAdvice = (
-  sandbox: string | undefined,
-  { windows = false }: { windows?: boolean } = {},
-) =>
+const permissionsOnlyAdvice = (sandbox: string | undefined, windows = false) =>
   [
     `${windows ? 'A brewer or a check step runs' : 'A brewer runs'} as you here, so it can still read gh's login from the OS keyring or its hosts file.`,
     ...(sandbox === undefined ? [] : [`${sandbox}, ${SANDBOX_DOCS}`]),
@@ -210,7 +207,7 @@ const permissionsOnlyAdvice = (
   ].join(' ');
 const SANDBOXED_ADVICE = `${SANDBOX_DOCS} ${WRITTEN_DOWN} ${CHECKS_SANDBOXED}`;
 const wsl2Sandbox = (windows: boolean) =>
-  permissionsOnlyAdvice('In WSL2, on the sandboxed level', { windows });
+  permissionsOnlyAdvice('In WSL2, on the sandboxed level', windows);
 
 /**
  * Ubuntu 24.04 and later keep bwrap from making the user namespaces its sandbox needs, unless an

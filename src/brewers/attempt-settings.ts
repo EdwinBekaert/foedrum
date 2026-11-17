@@ -17,21 +17,20 @@ export interface AttemptPermissions {
   toolchain?: Toolchain;
 }
 
-type Variables = Readonly<Record<string, string | undefined>>;
-
-/** The variables of `env` among `names` that are set. */
-const setOf = <Name extends string>(names: readonly Name[], env: Variables) =>
-  Object.fromEntries(
-    names.flatMap((name) => (env[name] === undefined ? [] : [[name, env[name]]])),
-  ) as Partial<Record<Name, string>>;
-
-const TOOLCHAIN = ['HOME', 'PATH'] as const;
-
 /** The variables of the driver's environment the toolchain's folders are found from (ADR 0162). */
-export type Toolchain = Partial<Record<(typeof TOOLCHAIN)[number], string>>;
+export interface Toolchain {
+  HOME?: string;
+  PATH?: string;
+}
 
-/** The variables of `env` the toolchain's folders are found from. */
-export const toolchainOf = (env: Variables): Toolchain => setOf(TOOLCHAIN, env);
+/** The variables of `env` the toolchain's folders are found from: those that are set. */
+export const toolchainOf = ({
+  HOME,
+  PATH,
+}: Readonly<Record<string, string | undefined>>): Toolchain => ({
+  ...(HOME === undefined ? {} : { HOME }),
+  ...(PATH === undefined ? {} : { PATH }),
+});
 
 /** Homebrew's prefix on Linux: under `/home`, a user root the block denies, whoever's home it is. */
 const LINUXBREW = '/home/linuxbrew/.linuxbrew';
