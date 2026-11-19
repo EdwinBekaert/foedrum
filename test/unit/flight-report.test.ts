@@ -6,6 +6,7 @@ import type { FlightRecord } from '../../scripts/flight/core.ts';
 import {
   flightLabelOf,
   flightReport,
+  flightReportArgsOf,
   flightReportRun,
   type TastedInputs,
   tastedOf,
@@ -127,7 +128,7 @@ describe('the Flight report (ADR 0411)', () => {
     );
   });
 
-  it("shows each order's passes, runs outside its paths, tokens and time, one Flight against the other", () => {
+  it("shows each order's passes, endings, runs outside its paths, tokens split by kind and time, one Flight against the other", () => {
     const report = flightReport(
       [
         record('quiz-rank', 2, { steps: [step(300, 40)] }),
@@ -144,11 +145,11 @@ describe('the Flight report (ADR 0411)', () => {
     );
     assert.equal(
       rowOf(report, 'quiz-rank'),
-      '| quiz-rank | 2 of 2 against 0 of 2 | 0 of 2 against 0 of 2 | 200 against 50 | 30 s against 10 s | baseline better |',
+      '| quiz-rank | 2 of 2 against 0 of 2 | on tap 2 of 2 against on tap 2 of 2 | 0 of 2 against 0 of 2 | 200 against 50 | 1 against 1 | 1 against 1 | 1 against 1 | 197 against 47 | 30 s against 10 s | baseline better |',
     );
     assert.equal(
       rowOf(report, 'post-slugs'),
-      '| post-slugs | 1 of 2 against 2 of 2 | 0 of 2 against 1 of 2 | 100 against 100 | 20 s against 20 s | candidate better |',
+      '| post-slugs | 1 of 2 against 2 of 2 | on tap 2 of 2 against on tap 2 of 2 | 0 of 2 against 1 of 2 | 100 against 100 | 1 against 1 | 1 against 1 | 1 against 1 | 97 against 97 | 20 s against 20 s | candidate better |',
     );
     assert.match(report, /^Baseline: nip as it ships$/m);
     assert.match(report, /^Candidate: nip with cellarman on claude-opus-5-5 at larger$/m);
@@ -165,7 +166,7 @@ describe('the Flight report (ADR 0411)', () => {
     );
     assert.equal(
       rowOf(report, 'quiz-rank'),
-      '| quiz-rank | 2 of 3 against 2 of 3 | 0 of 2 against 0 of 3 | 100 against 100 | 20 s against 20 s | the same |',
+      '| quiz-rank | 2 of 3 against 2 of 3 | on tap 2 of 2 against on tap 3 of 3 | 0 of 2 against 0 of 3 | 100 against 100 | 1 against 1 | 1 against 1 | 1 against 1 | 97 against 97 | 20 s against 20 s | the same |',
     );
   });
 
@@ -212,7 +213,7 @@ describe('the Flight report (ADR 0411)', () => {
     assert.match(report, /^Only in the candidate: post-slugs$/m);
   });
 
-  it('sums up the orders each Flight passed every run of, those too close to call, and the tokens per order', () => {
+  it('sums up the orders each Flight passed every run of, the runs that reached a pull request, those too close to call, and the tokens per order', () => {
     const swapped = { swap: SWAP, steps: [step(160, 20)] };
     const report = flightReport(
       [
@@ -230,7 +231,7 @@ describe('the Flight report (ADR 0411)', () => {
     const lines = report.split('\n');
     assert.ok(
       lines.includes(
-        'nip as it ships: 2 of 3 orders, nip with cellarman on claude-opus-5-5 at larger: 2 of 3 orders, 2 too close to call, tokens per order +60%',
+        'nip as it ships: 2 of 3 orders (9 of 9 runs reached a pull request), nip with cellarman on claude-opus-5-5 at larger: 2 of 3 orders (9 of 9 runs reached a pull request), 2 too close to call, tokens per order +60%',
       ),
       report,
     );
@@ -252,8 +253,144 @@ describe('the Flight report (ADR 0411)', () => {
     );
     assert.match(
       report,
-      /^nip as it ships: 2 of 2 orders, nip with cellarman on claude-opus-5-5 at larger: 1 of 2 orders, 1 too close to call, /m,
+      /^nip as it ships: 2 of 2 orders \(6 of 6 runs reached a pull request\), nip with cellarman on claude-opus-5-5 at larger: 1 of 2 orders \(6 of 6 runs reached a pull request\), 1 too close to call, /m,
     );
+  });
+
+  it('counts the runs that reached a pull request beside the orders passed, a stuck run that left a commit green read passing all the same', () => {
+    // Stuck with no pull request, as shelf-tags was in the first Flight: its hidden tests passed.
+    const stuck = (setup: string, run: number) => ({
+      ...record(setup, run, { headFrom: 'green' }),
+      ended: 'stuck: blocked',
+    });
+    const report = flightReport(
+      [
+        ...runsOf('quiz-rank', 3),
+        record('post-slugs', 1),
+        record('post-slugs', 2),
+        stuck('post-slugs', 3),
+      ],
+      [
+        ...runsOf('quiz-rank', 3, { swap: SWAP, steps: [step(200, 20)] }),
+        ...runsOf('post-slugs', 3, { swap: SWAP, steps: [step(200, 20)] }),
+      ],
+    );
+    assert.match(
+      report,
+      /^nip as it ships: 2 of 2 orders \(5 of 6 runs reached a pull request\), nip with cellarman on claude-opus-5-5 at larger: 2 of 2 orders \(6 of 6 runs reached a pull request\), 0 too close to call, tokens per order \+100%$/m,
+    );
+  });
+
+  it('counts a run that left no head as not reaching a pull request', () => {
+    const report = flightReport(
+      [record('quiz-rank', 1), record('quiz-rank', 2), noHead('quiz-rank', 3)],
+      [record('quiz-rank', 1), record('quiz-rank', 2), record('quiz-rank', 3)],
+    );
+    assert.match(
+      report,
+      /^nip as it ships: 0 of 1 orders \(2 of 3 runs reached a pull request\), nip as it ships: 1 of 1 orders \(3 of 3 runs reached a pull request\), /m,
+    );
+  });
+
+  it('scores a run stuck on the commit green read as it did, beside a run with a pull request (ADR 0409)', () => {
+    const stuck = { ...record('shelf-tags', 1, { headFrom: 'green' }), ended: 'stuck: blocked' };
+    const report = flightReport([stuck], [record('shelf-tags', 1, { swap: SWAP })]);
+    assert.match(rowOf(report, 'shelf-tags') ?? '', /^\| shelf-tags \| 1 of 1 against 1 of 1 \| /);
+    assert.match(report, /, 0 too close to call, /);
+  });
+
+  it('heads its columns with the endings and the tokens split into output, cache read, cache write and fresh input', () => {
+    const report = flightReport([record('quiz-rank', 1)], [record('quiz-rank', 1)]);
+    assert.ok(
+      report
+        .split('\n')
+        .includes(
+          "| Order | Hidden tests passed | Ended | Runs outside its paths | Tokens per run | Output per run | Cache read per run | Cache write per run | Fresh input per run | Brewers' time per run | Verdict |",
+        ),
+      report,
+    );
+    assert.ok(report.split('\n').includes(`|${'---|'.repeat(11)}`), report);
+  });
+
+  it("shows how each Flight's runs of an order ended, grouped, on tap first and the rest in alphabetical order", () => {
+    const ended = (run: number, how: string, flight: Partial<FlightRecord['flight']> = {}) => ({
+      ...record('quiz-rank', run, flight),
+      ended: how,
+    });
+    const report = flightReport(
+      [
+        ended(1, 'on_tap'),
+        ended(2, 'stuck: blocked', { headFrom: 'green' }),
+        ended(3, 'stuck: plan_review', { headFrom: 'green' }),
+        ended(4, 'cancelled'),
+      ],
+      [ended(1, 'on_tap'), ended(2, 'on_tap'), ended(3, 'on_tap'), ended(4, 'on_tap')],
+    );
+    assert.equal(
+      (rowOf(report, 'quiz-rank') ?? '').split(' | ')[2],
+      'on tap 1 of 4, cancelled 1 of 4, stuck 2 of 4 against on tap 4 of 4',
+    );
+  });
+
+  it('splits the tokens per run by kind, the mean of the runs that measured something, one Flight against the other', () => {
+    const used = (output: number, cacheRead: number, cacheWrite: number, input: number) => ({
+      ...step(0, 20),
+      usage: {
+        inputTokens: input,
+        outputTokens: output,
+        cacheReadTokens: cacheRead,
+        cacheWriteTokens: cacheWrite,
+      },
+    });
+    const report = flightReport(
+      [
+        record('quiz-rank', 1, { steps: [used(100, 6_000, 1_000, 10)] }),
+        record('quiz-rank', 2, { steps: [used(300, 8_000, 3_000, 30)] }),
+        noHead('quiz-rank', 3, { steps: [used(9_999, 9_999, 9_999, 9_999)] }),
+      ],
+      [
+        record('quiz-rank', 1, { steps: [used(50, 1_000, 500, 5)] }),
+        record('quiz-rank', 2, { steps: [used(50, 1_000, 500, 5)] }),
+        record('quiz-rank', 3, { steps: [used(50, 1_000, 500, 5)] }),
+      ],
+    );
+    const cells = (rowOf(report, 'quiz-rank') ?? '').split(' | ');
+    // Tokens, output, cache read, cache write, fresh input.
+    assert.deepEqual(cells.slice(4, 9), [
+      '9220 against 1555',
+      '200 against 50',
+      '7000 against 1000',
+      '2000 against 500',
+      '20 against 5',
+    ]);
+  });
+
+  describe('its command line', () => {
+    it('reads the report options it was given as parseArgs does', () => {
+      const read = flightReportArgsOf(['--baseline', 'base', '--candidate', 'next']);
+      assert.equal(read.kind, 'values');
+      assert.deepEqual(read.kind === 'values' ? { ...read.values } : undefined, {
+        baseline: 'base',
+        candidate: 'next',
+      });
+    });
+
+    for (const option of ['baseline', 'candidate']) {
+      it(`refuses --${option} with no value in one line, not a thrown error`, () => {
+        const other = option === 'baseline' ? 'candidate' : 'baseline';
+        assert.deepEqual(flightReportArgsOf([`--${other}`, 'folder', `--${option}`]), {
+          kind: 'refused',
+          message: `--${option} needs a value`,
+        });
+      });
+    }
+
+    it('refuses a lone report option missing its value', () => {
+      assert.deepEqual(flightReportArgsOf(['--baseline']), {
+        kind: 'refused',
+        message: '--baseline needs a value',
+      });
+    });
   });
 
   it('compares the tokens per measured run of each order, not its total', () => {
@@ -372,6 +509,7 @@ describe("the Flight report's tasted entry (ADR 0416)", () => {
     runs: 2,
     baseline: { passed: 1, runs: 2, model: 'claude-sonnet-5-5' },
     tokensPerOrder: 351,
+    tokensPerOrderSplit: { output: 1, cacheRead: 1, cacheWrite: 1, input: 348 },
     date: '2026-11-20',
   };
   const tasted = (
@@ -454,6 +592,12 @@ describe("the Flight report's tasted entry (ADR 0416)", () => {
           "model": "claude-sonnet-5-5"
         },
         "tokensPerOrder": 351,
+        "tokensPerOrderSplit": {
+          "output": 1,
+          "cacheRead": 1,
+          "cacheWrite": 1,
+          "input": 348
+        },
         "date": "2026-11-20"
       }
     ]
@@ -461,6 +605,35 @@ describe("the Flight report's tasted entry (ADR 0416)", () => {
 }
 `,
     );
+  });
+
+  it('keeps the tokens per order apart by kind, each the mean over the orders both Flights measured', () => {
+    const used = (output: number, cacheRead: number, cacheWrite: number, input: number) => ({
+      ...step(0, 20),
+      usage: {
+        inputTokens: input,
+        outputTokens: output,
+        cacheReadTokens: cacheRead,
+        cacheWriteTokens: cacheWrite,
+      },
+    });
+    // quiz-rank's runs use 100 + 6000 + 1000 + 10 tokens, post-slugs' 300 + 8000 + 3000 + 31.
+    const candidate = [
+      ...changed(runsOf('quiz-rank', 3, onOpus(0)), (flight) => ({
+        ...flight,
+        steps: [used(100, 6_000, 1_000, 10)],
+      })),
+      ...changed(runsOf('post-slugs', 3, onOpus(0)), (flight) => ({
+        ...flight,
+        steps: [used(300, 8_000, 3_000, 31)],
+      })),
+    ];
+    const [entry] = entriesOf(written(undefined, candidate).models);
+    assert.deepEqual(entry, {
+      ...ENTRY,
+      tokensPerOrder: 9_221,
+      tokensPerOrderSplit: { output: 200, cacheRead: 7_000, cacheWrite: 2_000, input: 21 },
+    });
   });
 
   it('keeps a header read with a BOM and CRLF line ends, written in LF without the BOM', () => {
@@ -486,7 +659,7 @@ describe("the Flight report's tasted entry (ADR 0416)", () => {
       description,
       [
         '## How it works',
-        "`defaults/models.jsonc`'s `tasted` list keeps the latest Flight of each brewer, recipe, level and effort (ADR 0416). This pull request adds the entry for cellarman in nip on strong at larger: on claude-opus-5-5 it passed every run of 2 of 2 orders, against 1 of 2 for nip as it ships on claude-sonnet-5-5, at 351 tokens per order.",
+        "`defaults/models.jsonc`'s `tasted` list keeps the latest Flight of each brewer, recipe, level and effort (ADR 0416). This pull request adds the entry for cellarman in nip on strong at larger: on claude-opus-5-5 it passed every run on 2 of 2 orders, where nip as it ships on claude-sonnet-5-5 passed every run on 1 of 2, at 351 tokens per order (1 output, 1 cache read, 1 cache write and 348 fresh input).",
         '',
         '## The Flight report',
         '',

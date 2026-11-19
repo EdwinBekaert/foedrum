@@ -16,7 +16,6 @@
 
 import { existsSync, lstatSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { parseArgs } from 'node:util';
 import { checksRunUnsandboxed } from '../src/platform/check-sandbox.ts';
 import { resolveExecutable } from '../src/platform/executables.ts';
 import { execProcess } from '../src/platform/processes.ts';
@@ -24,8 +23,8 @@ import { BREWERY, TARGET, USER } from './demo/core.ts';
 import {
   askedModels,
   dryRunScript,
-  FLIGHT_OPTIONS,
   type FlightRecord,
+  flightArgsOf,
   flightBreweryFiles,
   flightFolderOf,
   flightOptionsOf,
@@ -50,7 +49,8 @@ const recipeText = (name: string): string | undefined => {
   return existsSync(file) ? readFileSync(file, 'utf8') : undefined;
 };
 
-const chosen = flightOptionsOf(parseArgs({ options: FLIGHT_OPTIONS }).values, recipeText);
+const args = flightArgsOf(process.argv.slice(2));
+const chosen = args.kind === 'refused' ? args : flightOptionsOf(args.values, recipeText);
 if (chosen.kind === 'refused') {
   process.stderr.write(`${chosen.message}\n`);
   process.exit(2);

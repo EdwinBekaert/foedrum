@@ -4,15 +4,16 @@
 // starts a process; scripts/flight.ts brews the runs through scripts/tasting-compare/harness.ts.
 
 import { join } from 'node:path';
-import type { parseArgs } from 'node:util';
+import { parseArgs } from 'node:util';
 import { checksEnv } from '../../src/checks/setup.ts';
 import { TEST_MAP_PATH } from '../../src/checks/test-map.ts';
 import { brewerBaseEnv, brewerForcedEnv } from '../../src/engine/brewer-env.ts';
 import { effectKey } from '../../src/engine/effect-key.ts';
 import { parseJsonc } from '../../src/formats/jsonc.ts';
 import { type SandboxedChecksOptions, sandboxedChecks } from '../../src/platform/check-sandbox.ts';
+import { firstLineOf, messageOf } from '../../src/platform/errors.ts';
 import type { Killed } from '../../src/platform/processes.ts';
-import type { Event, Usage } from '../../src/schemas/events.ts';
+import type { Event } from '../../src/schemas/events.ts';
 import { type Effort, ModelLevel } from '../../src/schemas/models.ts';
 import { Recipe } from '../../src/schemas/recipe.ts';
 import { PushResult } from '../../src/schemas/store.ts';
@@ -49,6 +50,39 @@ export const FLIGHT_OPTIONS = {
 export type FlightValues = ReturnType<
   typeof parseArgs<{ options: typeof FLIGHT_OPTIONS }>
 >['values'];
+
+/** The command line a Flight script was given: its values, or the refusal that stops it with exit 2. */
+export type Args<Values> =
+  | { kind: 'values'; values: Values }
+  | { kind: 'refused'; message: string };
+
+/**
+ * The messages `parseArgs` throws for a string option given no value: at the end of the command
+ * line, or before another option, which it takes for a value that starts with a dash.
+ */
+const MISSING_VALUE =
+  /^Option '(--[^ ']+)(?: <value>' argument missing$|' argument is ambiguous\.)/;
+
+/**
+ * What `read`, a `parseArgs` of the command line, gives as values, or the refusal of one line for
+ * what it throws: an option missing its value is "--<option> needs a value".
+ */
+export const argsOf = <Values>(read: () => Values): Args<Values> => {
+  try {
+    return { kind: 'values', values: read() };
+  } catch (error) {
+    const message = firstLineOf(messageOf(error));
+    const missing = MISSING_VALUE.exec(message);
+    return { kind: 'refused', message: missing === null ? message : `${missing[1]} needs a value` };
+  }
+};
+
+/**
+ * Reads the command line `args` as `FLIGHT_OPTIONS`; an option missing its value is a refusal of one
+ * line, never a thrown error.
+ */
+export const flightArgsOf = (args: readonly string[]): Args<FlightValues> =>
+  argsOf(() => parseArgs({ args: [...args], options: FLIGHT_OPTIONS }).values);
 
 /** The brewer a Flight swaps: its steps, and only they, on this model and effort. */
 export interface Swap {
@@ -466,40 +500,73 @@ export const nextFlightRun = (
 ): { setup: string; run: number; retry: boolean } | undefined =>
   nextRunOf(orders, records, runs, flightFailure);
 
-const tokensOf = (usage: Usage | undefined): number =>
-  usage === undefined
-    ? 0
-    : usage.inputTokens + usage.outputTokens + usage.cacheReadTokens + usage.cacheWriteTokens;
+/** Tokens by kind: cache reads cost far less per token than output, so a sum alone overstates (ADR 0425). */
+export interface TokenKinds {
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+  /** Fresh input, which the cache neither read nor wrote. */
+  input: number;
+}
+
+/**
+ * How `scored` runs ended, grouped by the word before the colon of the record's ending, on tap first
+ * and the rest in alphabetical order: "on tap 1 of 3, stuck 2 of 3" (ADR 0425).
+ */
+export const endingsOf = (scored: readonly FlightRecord[]): string => {
+  const counts = new Map<string, number>();
+  for (const { ended } of scored) {
+    const way = ended.replace(/:.*$/s, '').replaceAll('_', ' ');
+    counts.set(way, (counts.get(way) ?? 0) + 1);
+  }
+  // The ways are distinct keys, so the order never ties.
+  const rank = (way: string) => (way === 'on tap' ? '' : way);
+  return [...counts]
+    .sort(([a], [b]) => (rank(a) < rank(b) ? -1 : 1))
+    .map(([way, count]) => `${way} ${count} of ${scored.length}`)
+    .join(', ');
+};
 
 /**
  * The figures of an order's measured runs: its hidden tests passed, its runs with changes outside
- * its paths, and its tokens and brewers' milliseconds summed.
+ * its paths, and its tokens, by kind and in sum, and brewers' milliseconds summed.
  */
 export const scoredFigures = (scored: readonly FlightRecord[]) => {
   const steps = scored.flatMap(({ flight }) => flight.steps);
+  const kinds: TokenKinds = { output: 0, cacheRead: 0, cacheWrite: 0, input: 0 };
+  for (const { usage } of steps) {
+    kinds.output += usage?.outputTokens ?? 0;
+    kinds.cacheRead += usage?.cacheReadTokens ?? 0;
+    kinds.cacheWrite += usage?.cacheWriteTokens ?? 0;
+    kinds.input += usage?.inputTokens ?? 0;
+  }
   return {
     passed: scored.filter(({ flight }) => flight.hidden === 'passed').length,
     outside: scored.filter(({ flight }) => flight.outside.length > 0).length,
-    tokens: steps.reduce((sum, { usage }) => sum + tokensOf(usage), 0),
+    tokens: kinds.output + kinds.cacheRead + kinds.cacheWrite + kinds.input,
+    kinds,
     ms: steps.reduce((sum, { durationMs }) => sum + durationMs, 0),
   };
 };
 
-/** One row per order: its runs, hidden tests passed, runs with outside changes, tokens and time. */
+/**
+ * One row per order: its runs, hidden tests passed, how its runs ended beside them (ADR 0425), runs
+ * with outside changes, tokens in sum and by kind, and time.
+ */
 export const flightTable = (records: readonly FlightRecord[]): string => {
   const orders = [...new Set(records.map(({ setup }) => setup))];
   const rows = orders.map((order) => {
     const { scored, failed } = runsOfSetup(records, order, flightFailure);
-    const { passed, outside, tokens, ms } = scoredFigures(scored);
-    const row = `| ${order} | ${scored.length} | ${passed} of ${scored.length} | ${outside} | ${tokens} | ${Math.round(ms / 1000)} s |`;
+    const { passed, outside, tokens, kinds, ms } = scoredFigures(scored);
+    const row = `| ${order} | ${scored.length} | ${passed} of ${scored.length} | ${endingsOf(scored)} | ${outside} | ${tokens} | ${kinds.output} | ${kinds.cacheRead} | ${kinds.cacheWrite} | ${kinds.input} | ${Math.round(ms / 1000)} s |`;
     return [
       row,
       ...failed.map(({ run, why }) => `Failed: ${order} run ${run}: ${escapeCell(why)}`),
     ];
   });
   return `${[
-    '| Order | Runs | Hidden tests passed | Outside its paths | Tokens | Brewers |',
-    '|---|---|---|---|---|---|',
+    '| Order | Runs | Hidden tests passed | Ended | Outside its paths | Tokens | Output | Cache read | Cache write | Fresh input | Brewers |',
+    `|${'---|'.repeat(11)}`,
     ...rows.map(([row]) => row),
     '',
     ...rows.flatMap(([, ...failed]) => failed),

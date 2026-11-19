@@ -158,6 +158,7 @@ A dry run keeps its records in a `dry-run/` folder of their own, inside the fold
   `--recipe` takes a default recipe that opens a pull request; `--brewer` takes `--model <level or id> --effort <effort>` with it.
   Then it runs the order's hidden tests over the head a person gets, in the check sandbox as a check step runs (unsandboxed on native Windows).
   It records whether they passed, the changes outside its allowed paths and the tokens, turns and time.
+  The table shows each order's hidden tests passed with how its runs ended beside them ("on tap 1 of 1", "stuck 1 of 1"), and its tokens in sum and by kind: output, cache read, cache write and fresh input ([ADR 0425](../adr/0425-the-flight-shows-tokens-by-kind-and-how-each-run-ended-beside-the-score.md)).
   It writes `results.jsonl` and `table.md` under `.foedrum/tmp/flight/<recipe>[-<brewer>-<model>-<effort>]/`.
   `--dry-run` scripts every brewer and skips the recipe's test-first steps.
 - **A Flight report:** did the candidate Flight do better than the baseline, order by order, or is it too close to call?
@@ -167,12 +168,12 @@ A dry run keeps its records in a `dry-run/` folder of their own, inside the fold
   ```
 
   It reads both folders' `results.jsonl`, writes the report as `report.md` in the candidate's folder, and prints it, unless it writes a tasted entry (below) ([ADR 0411](../adr/0411-a-flight-report-calls-equal-passes-the-same-and-counts-a-run-that-measured-nothing-as-not-passed.md)).
-  Each order both Flights measured gets a row: the hidden tests passed in each ("3 of 3 against 1 of 3"), and, over the runs that measured something, those with changes outside its paths and the tokens and the brewers' time per run, and a verdict.
+  Each order both Flights measured gets a row: the hidden tests passed in each ("3 of 3 against 1 of 3"), and, over the runs that measured something, how the runs ended, those with changes outside its paths and the tokens (in sum and by kind) and the brewers' time per run, and a verdict (ADR 0425).
   A difference is called only when one Flight passes every run and the other at most one ([ADR 0404](../adr/0404-the-flight-s-tasting-room-is-a-folder-of-orders-each-proved-by-its-hidden-tests.md)); equal counts of equal runs are the same, two Flights that both passed every run are never a difference, and anything else is too close to call (ADR 0411).
   A run that measured nothing counts as one that did not pass, and an order only one Flight has, or that one measured no run of, is listed under the table and left out of the counts.
-  One summary line gives each Flight's orders passed on every run, the orders too close to call and the candidate's tokens per order against the baseline's, never a cost in money.
+  One summary line gives each Flight's orders passed on every run with the runs that reached a pull request beside them (a run stuck on the commit green read still passes, ADR 0409), the orders too close to call and the candidate's tokens per order against the baseline's, never a cost in money.
   For a real Flight whose candidate swapped a brewer, the report keeps the latest result in a `tasted` list (#1141, [ADR 0416](../adr/0416-models-jsonc-keeps-a-tasted-list-the-latest-flight-of-each-brewer-recipe-level-and-effort.md)):
-  - it adds that brewer's entry to `defaults/models.jsonc`'s `tasted` list, or replaces the one of its brewer, recipe, level and effort;
+  - it adds that brewer's entry to `defaults/models.jsonc`'s `tasted` list, or replaces the one of its brewer, recipe, level and effort, with its tokens per order in sum and by kind (ADR 0425);
   - it writes `pull-request.md` beside `report.md`, and prints the pull request's title and description;
   - a person or a session opens the pull request and adds its link to the entry.
 

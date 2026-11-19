@@ -103,6 +103,38 @@ describe('the tasted list in models.jsonc (ADR 0416)', () => {
     );
   });
 
+  it("keeps an entry's tokens per order apart by kind: output, cache read, cache write and fresh input", () => {
+    const split = { output: 12000, cacheRead: 380000, cacheWrite: 19000, input: 1000 };
+    const entry = { ...ENTRY, tokensPerOrderSplit: split };
+    const parsed = ModelsConfig.safeParse(withTasted([entry]));
+    assert.equal(parsed.success, true, parsed.success ? '' : parsed.error.message);
+    assert.deepEqual(parsed.data?.claude.tasted, [entry]);
+  });
+
+  it('keeps an entry written without the split valid', () => {
+    assert.equal(failsAt(withTasted([ENTRY])), undefined);
+  });
+
+  it('refuses a split count that is not a whole number of tokens, naming the kind', () => {
+    const split = { output: 12000, cacheRead: 380000, cacheWrite: 19000, input: 1000 };
+    assert.equal(
+      failsAt(withTasted([{ ...ENTRY, tokensPerOrderSplit: { ...split, cacheRead: 0.5 } }])),
+      'claude.tasted.0.tokensPerOrderSplit.cacheRead',
+    );
+    assert.equal(
+      failsAt(withTasted([{ ...ENTRY, tokensPerOrderSplit: { ...split, output: -1 } }])),
+      'claude.tasted.0.tokensPerOrderSplit.output',
+    );
+  });
+
+  it('refuses a split that leaves a kind out, naming it', () => {
+    const split = { output: 12000, cacheRead: 380000, input: 1000 };
+    assert.equal(
+      failsAt(withTasted([{ ...ENTRY, tokensPerOrderSplit: split }])),
+      'claude.tasted.0.tokensPerOrderSplit.cacheWrite',
+    );
+  });
+
   it('refuses a field the entry does not have', () => {
     assert.equal(
       failsAt(withTasted([{ ...ENTRY, verdict: 'candidate better' }])),
