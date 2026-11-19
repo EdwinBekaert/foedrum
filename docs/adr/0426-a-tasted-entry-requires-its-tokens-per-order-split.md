@@ -14,6 +14,7 @@ The design does not make it optional: `scripts/flight-report.ts` always writes t
 ## Consequences
 - No entry is valid without its split, so a later token guess (#1143) never has to handle one that lacks it.
 - ADR 0425's sentence "An entry written before the split has none, and stays valid" no longer holds.
+- **An existing Brewery must add a split by hand** to each `tasted` entry in its own `models.jsonc` that has none: `mergedModels` reads that file through the same schema, so serve refuses such an entry with a problem line naming the file and the field. An entry the Flight report wrote already has its split, so a Brewery that only holds those need do nothing.
 
 ## Alternatives considered
 - **Keeping the field optional:** nothing in the design needs an entry without it, and the rule is that no old data is kept working before the first publish.
