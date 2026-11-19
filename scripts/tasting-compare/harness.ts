@@ -16,8 +16,9 @@ import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import type { ClaudeAttemptPlan } from '../../src/brewers/claude-runner.ts';
 import { runBrew } from '../../src/cli/brew.ts';
+import { liveTerminal, type TerminalStream } from '../../src/cli/live-terminal.ts';
 import { claudeConfigDir } from '../../src/cli/resume.ts';
-import type { ServeShell } from '../../src/cli/serve.ts';
+import type { LiveTerminal, ServeShell } from '../../src/cli/serve.ts';
 import { serveSetup } from '../../src/cli/serve-config.ts';
 import { listenWhileServing, serveShell } from '../../src/cli/serve-shell.ts';
 import type { AttemptStart, BrewerRunner } from '../../src/engine/brewer-runner.ts';
@@ -33,9 +34,32 @@ import { DEMO_GIT_CONFIG } from '../demo/brewer.ts';
 import { BREWERY, gitConfig, gitEnvOf, LOGIN, localConfig, TARGET, USER } from '../demo/core.ts';
 import { type RunRecord, readRecordsIn, scratchNameOf } from './core.ts';
 
-const say = (line: string): void => {
-  process.stdout.write(`${line}\n`);
+/** How the harness's lines reach standard output, and the live line a run draws there (ADR 0424). */
+export interface HarnessScreen {
+  /** Prints a lasting line: over the live line where there is one, else as a plain line. */
+  say: (line: string) => void;
+  /** The live terminal a run's brew draws on; none where ADR 0174's rule does not hold. */
+  terminal: LiveTerminal | undefined;
+  /** Takes the live line off the screen; nothing where there is none. */
+  clear: () => void;
+}
+
+/** The screen of the harness over `stream`, with the live line only where `liveTerminal` gives it. */
+export const harnessScreen = (
+  stream: TerminalStream,
+  env: Readonly<Record<string, string | undefined>>,
+): HarnessScreen => {
+  const terminal = liveTerminal(stream, env);
+  return {
+    say: terminal?.print ?? ((line) => void stream.write(`${line}\n`)),
+    terminal,
+    clear: () => terminal?.clear(),
+  };
 };
+
+/** `shell` with the live terminal of `screen`; unchanged where the screen has none. */
+export const liveShellOf = (shell: ServeShell, screen: HarnessScreen): ServeShell =>
+  screen.terminal === undefined ? shell : { ...shell, terminal: screen.terminal };
 
 export const write = (path: string, text: string): void => {
   mkdirSync(dirname(path), { recursive: true });
@@ -123,14 +147,23 @@ interface CompareSettings {
   dryRun: boolean;
   /** The claude serve's setup is told of. */
   claude: string;
+  /** Where the harness's lines and each run's live line go; standard output's when not given. */
+  screen?: HarnessScreen;
 }
 
 /** Brews every run of `mode` that has no record yet, and prints its one table. */
 export const compare = async <Setup extends string, Run extends RunRecord<Setup>>(
   mode: Mode<Setup, Run>,
-  { folder, runs, dryRun, claude }: CompareSettings,
+  {
+    folder,
+    runs,
+    dryRun,
+    claude,
+    screen = harnessScreen(process.stdout, process.env),
+  }: CompareSettings,
 ): Promise<void> => {
   const resultsFile = join(folder, 'results.jsonl');
+  const { say } = screen;
   const readRecords = (): Run[] => readRecordsIn<Setup, Run>(folder);
 
   /** Brews one run of `setup` in `scratch`, and reads what it measured from the store. */
@@ -252,7 +285,7 @@ export const compare = async <Setup extends string, Run extends RunRecord<Setup>
     };
     const started = Date.now();
     try {
-      await runBrew(serve, shell, {
+      await runBrew(serve, liveShellOf(shell, screen), {
         target: { issue: 1 },
         owner: USER,
         by: USER,
@@ -297,6 +330,7 @@ export const compare = async <Setup extends string, Run extends RunRecord<Setup>
       if (stop !== undefined) throw new Error(stop);
     } catch (error) {
       // A run the harness could not brew is no measurement: stop, and say why.
+      screen.clear();
       process.stderr.write(`tasting-compare: ${name} could not run: ${(error as Error).message}\n`);
       process.exit(1);
     }
@@ -309,6 +343,7 @@ export const compare = async <Setup extends string, Run extends RunRecord<Setup>
   for (const [path, text] of Object.entries(mode.files?.(records, folder) ?? {})) {
     write(join(folder, path), text);
   }
+  screen.clear();
   say('');
   process.stdout.write(table);
 };
