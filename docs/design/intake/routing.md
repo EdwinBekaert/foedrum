@@ -15,3 +15,5 @@
   Two labels or a recipe the Brewery lacks are refused as before, and a Brewery whose default cannot run (no recipe of its name, a left-out default whose `mash-in` the Brewery replaced with one that builds, or fewer than two recipes for its question) says so in one line before anything is ordered.
   The model call is the person's, who asked about that issue; `serve` would make one for every unlabelled issue anyone opened, which ADR 0232 rejected.
   A claimed batch is routed by its Brewery issue's label, never its target issue's ([target issues](target-issues.md), [ADR 0156](../../adr/0156-a-claimed-order-is-routed-by-its-brewery-issue-s-recipe-label.md)).
+
+**Code, default recipe:** `foedrum.jsonc`'s `defaultRecipe` (`mash-in` when left out), `defaultRecipeProblem` beside `loadRecipes` in `src/engine/recipe-files.ts` (read by `serveSetup` and `foedrum doctor`), and brew's `defaultRefusal` in `src/cli/brew.ts` ([ADR 0370](../../adr/0370-foedrum-brew-runs-the-brewery-s-default-recipe-on-an-issue-with-no-recipe-label.md))

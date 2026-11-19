@@ -40,3 +40,5 @@ Those are the files whose relative imports lead to a file changed since the merg
 The push gate runs `npm run check -- --no-tests`: typecheck, lint and the guards, no tests, and CI runs every test ([ADR 0249](../../adr/0249-the-push-gate-runs-no-tests.md)).
 CI runs `npm run check -- --all` on every leg: every test file with coverage and its thresholds, the full gate a merge waits for.
 CI reports how long the check took.
+
+**Code, test fakes:** `fakeBranchPush` in `test/helpers/fake-branch-push.ts`; `fakeGitHub`'s `target` runs `claimEffectTarget`, `behave.exceedBudget` takes its error from `test/fixtures/claude-stream/max-turns.jsonl`, and `fakeRecipe` counts with `deliveryRound` and `readingRound` and retries actions and its `checks` with `actionMayRetry` and `checkMayRetry`, so the fakes reuse the real code (#1108, #1121)

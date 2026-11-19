@@ -49,3 +49,7 @@ No default lens reports simplifications: a Taster after the Finer would review w
 The others follow as the engine learns what they need.
 
 Default lenses: [tasting](tasting.md).
+
+**Code, defaults:** `defaults/` (brewers, recipes, lenses) loads under every Brewery's own files, found from the install, never the working directory; a Brewery file of the same name replaces the default, except `defaults/models.jsonc`, which the Brewery's `models.jsonc` merges over entry by entry, by level and effort of its `claude` block, and its `tasted` list by brewer, recipe, level and effort ([ADR 0153](../../adr/0153-foedrum-s-defaults-map-their-own-model-aliases.md), [ADR 0397](../../adr/0397-recipe-steps-name-a-model-level-and-an-effort-of-foedrum-s-own-which-models-jsonc-translates-for-the-agent.md), [ADR 0416](../../adr/0416-models-jsonc-keeps-a-tasted-list-the-latest-flight-of-each-brewer-recipe-level-and-effort.md)) (`loadRecipes`, [ADR 0098](../../adr/0098-foedrum-s-defaults-load-under-the-brewery-s-files-and-a-brewer-input-can-name-a-lens.md))
+
+**Code, the Maltster's code map:** `defaults/brewers/maltster-map.md` on the `light` level, the `map` step before `gauge` in nip and deep-brew, read by the Gauger, Cellarman and the Finer as `step:map`; the test map's brewer is `maltster-survey.md` ([ADR 0395](../../adr/0395-the-maltster-maps-the-code-an-order-touches-before-the-gauger-on-the-explorer-alias.md))

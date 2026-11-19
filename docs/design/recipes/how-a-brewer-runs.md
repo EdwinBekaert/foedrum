@@ -86,3 +86,7 @@ A resumed session does not read the body again, and hears only the comments the 
 The brewer's base environment is an allowlist of `serve`'s own that never holds a GitHub token (`brewerBaseEnv`, [ADR 0063](../../adr/0063-foedrum-serve-its-configuration-and-wiring.md)).
 
 An interactive step's attempt runs as a person's `claude` session in `foedrum brew`'s terminal instead, and ends by the out doc it wrote through the same `settleAttempt`: [interactive steps](interactive-steps.md).
+
+**Code, checks before a brewer's end:** `sendBackLines`, `sendBackMessage` and `afterSendBack` in `src/brewers/send-back.ts`, run by `checkedBeforeEnd` in `src/brewers/claude-runner.ts`; `redTestFiles` in `src/checks/red-tests.ts`, `changedPaths` in `src/workspace/attempt-commits-git.ts` ([ADR 0381](../../adr/0381-a-brewer-that-writes-code-runs-the-quick-checks-before-its-end-and-is-sent-back-once.md))
+
+**Code, lockfile refresh:** `lockfileRefreshes`/`refreshLockfiles` in `src/checks/lockfile.ts` (npm, Cargo found above, NuGet and a `Directory.Packages.props` walked below), run by `lockfilesRefreshed` in `src/brewers/claude-runner.ts`, committed by `openBranchCommit` in `src/workspace/merge-tree-git.ts` ([ADR 0412](../../adr/0412-foedrum-refreshes-and-commits-the-npm-lockfile-a-release-bump-leaves-behind.md), [ADR 0415](../../adr/0415-a-release-bump-also-refreshes-a-cargo-lock-and-a-nuget-packages-lock-json.md))

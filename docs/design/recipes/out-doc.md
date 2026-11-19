@@ -69,3 +69,5 @@ It never fails an attempt, a line past its limit being cut with a mark: `readOut
 | `blocked` + `environment` | Stuck immediately: another round would hit the same wall |
 | `blocked` + `divergence` | Stuck: the plan does not match reality |
 | `failed` / missing / invalid | Retry per `maxAttempts`, then Stuck |
+
+**Code, handovers:** `src/engine/handover.ts` (`handoverOf`, `withoutHandover`, `handoversOf`; [ADR 0340](../../adr/0340-a-brewer-s-handover-is-kept-as-a-proposal-and-reaches-no-later-prompt.md))

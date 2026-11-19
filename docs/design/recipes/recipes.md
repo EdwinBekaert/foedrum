@@ -120,3 +120,9 @@ An input that names a check, an action or a group of the recipe is a mistake in 
 **Test-first in bug-fix recipes.** The Microbiologist's reproducing test is the failing test: its step has `"id": "triage"`, the red proof uses `"of": "triage"`, and no Gauger step is needed.
 
 **Escalation:** a brewer may set `"escalate": "<recipe>"` in its out doc; the batch re-routes (for example Nip → Deep-brew).
+
+**Code, recipe type:** `RecipeType` in `src/schemas/recipe.ts`; what each step is offered by type in `loadRecipes` (`src/engine/recipe-files.ts`); a plan's sub-orders checked by `planOutDocOf` (`src/schemas/plan.ts`); `recipeType` on `batch.recipe_chosen`, read by status through `attemptRecipeTypeOf` ([ADR 0365](../../adr/0365-a-recipe-has-a-type-mash-or-brew.md))
+
+**Code, recipe guidance:** `RecipeGuidance` in `src/schemas/recipe.ts`, required of every recipe offered as a choice, which `loadRecipes` (`src/engine/recipe-files.ts`) refuses without it; rendered by `recipesInput` in `src/brewers/attempt-plan.ts` ([ADR 0375](../../adr/0375-every-recipe-offered-as-a-choice-carries-guidance-the-models-that-choose-read.md))
+
+**Code, rack:** `rackActions`, `finishedGroups` and `withRack` in `src/engine/rack.ts`, `EventStore.forget` (`src/engine/sqlite-event-store.ts`), the archive's `shelve`, `drop` and `archivedIds` in `src/engine/state-branch-git.ts`, `defaults/recipes/rack.jsonc` ([ADR 0383](../../adr/0383-rack-archives-finished-batches-and-deletes-old-archive-folders-and-temporary-files.md))
