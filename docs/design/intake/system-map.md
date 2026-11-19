@@ -62,3 +62,5 @@ It reads the clones as they are now, which may be ahead of the entry a planner r
 ## Not found
 
 Links that no manifest declares, such as an HTTP call to another service, a message topic or a shared table, are not in the map.
+
+**Code, system map:** `src/engine/system-map.ts` (the core and `READERS`), one `ManifestReader` per ecosystem in `src/formats/` (`npm-manifest.ts`, `dotnet-manifest.ts`, `cargo-manifest.ts`, `go-manifest.ts`, with `toml.ts`), recorded as `system.mapped` when a planner's attempt is planned and a base moved, shown by `foedrum doctor` (`src/cli/doctor-map.ts`) ([ADR 0317](../../adr/0317-the-planners-read-a-system-map-computed-from-each-repository-s-manifests-with-no-model.md), [ADR 0320](../../adr/0320-the-system-map-reads-cargo-and-go-manifests.md))

@@ -23,3 +23,5 @@ A pause changes no state: the surface shows the state underneath and who paused 
 - **`foedrum stuck`**: each Stuck batch's line starts with `waiting for you:` and what for; its count line keeps the command's word.
 
 `foedrum brew`, `replay` and `resume` still name the lane, and every `Next:` line is as it was, but for a split order's, which says each pull request comes to you to merge.
+
+**Code, batch state:** `batchState` and `waitingWords` in `src/engine/batch-state.ts`, shown by the status comment (`laneText`, `src/engine/status-comment.ts`), the plan comment's Gate, `foedrum status` (`describeState`, `src/cli/status.ts`) and `foedrum stuck` ([ADR 0385](../../adr/0385-a-person-reads-a-batch-as-one-of-four-states.md))

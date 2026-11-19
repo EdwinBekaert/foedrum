@@ -36,3 +36,5 @@ With `--no-input` a question without its option ends init in 2 with one line, `n
 `foedrum handover <issue>` lists what a batch's brewers handed over, each line by its id, `<step>#<attempt>.<line>`, under a head that says a model wrote them; each is a proposal, and nothing reaches a later prompt ([ADR 0340](../../adr/0340-a-brewer-s-handover-is-kept-as-a-proposal-and-reaches-no-later-prompt.md)).
 The plugin (`/foedrum:<command>`), the terminal (`foedrum <command>`), GitHub comments (`/foedrum <command>`) and later the dashboard are thin adapters; how the plugin's skills run the terminal, and the parity test that keeps the plugin and the registry in step: [the plugin](plugin.md).
 The dashboard shows each batch's live session output next to its pending questions, which are answered in place.
+
+**Code, init's place:** `placeOf`, `chooseFolder` and `nameNew` in `src/cli/init.ts`, which find where init runs, check the folder answer and name a new Brewery ([ADR 0393](../../adr/0393-foedrum-init-finds-where-it-is-and-asks-where-the-brewery-goes.md))

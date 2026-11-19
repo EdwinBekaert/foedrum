@@ -59,3 +59,5 @@ npm adds a trusted publisher only to a package already on the registry, so the f
 A `v*` tag on a commit outside `main` runs that commit's `release.yml`, so whoever may push such a tag may publish: the maintainer, and every Claude Code session on the maintainer's machine, which pushes with the same credentials; the required reviewer is what stops such a run: a session could approve it only through a `gh api` write, which the session's permission prompts ask about.
 
 The engine runs in a terminal or as a service the user sets up (documented for systemd, launchd and Task Scheduler); it never depends on an open Claude Code session.
+
+**Code, release:** `.github/workflows/release.yml` (a tag `v*` on a green `main`; build without `id-token`, publish the tarball in the `npm` environment; a dry run on a pull request that changes it) and the reusable `.github/workflows/package.yml` that CI calls; the maintainer's steps before the first tag on this page ([ADR 0388](../adr/0388-a-tag-on-a-green-main-publishes-through-trusted-publishing-and-a-dry-run-proves-the-rest.md))

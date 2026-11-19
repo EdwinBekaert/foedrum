@@ -58,3 +58,5 @@ sequenceDiagram
   A claimed issue ordered again keeps its Brewery issue, which the new batch reopens however it was closed (`order.reopen`, found done while it is open); when a person deleted it, the new batch opens its own ([ADR 0144](../../adr/0144-a-claimed-target-issue-gets-a-brewery-issue-that-is-its-order.md)).
 - Orders made in the Brewery and their sub-orders need no claim: nobody else can see them.
   Every branch pushed to a target repository carries the Brewery ([the state branch](../engine/state-branch.md)), so two Breweries never push the same branch.
+
+**Code, order check:** `src/engine/order-changes.ts` (`approvedAt`, `changesSince`, `createOrderCheck`), read by `src/github/order-activity.ts` and run by the driver before each attempt of a claimed order that reads its issue (`changedOrder`); Stuck `order_changed`, answered by `foedrum answer <n> continue|stop` ([ADR 0368](../../adr/0368-an-issue-changed-after-its-approval-asks-the-engineer-whether-to-continue.md))

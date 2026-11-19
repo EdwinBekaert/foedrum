@@ -60,3 +60,5 @@ sequenceDiagram
   A batch goes with every batch of its issue, a split order with its sub-orders', once each has ended (its status comment showing it, or on tap with no pull request), no close or release is still due, and its issues are closed on GitHub.
   Foedrum never reads a file of the archive: a rebuild reads only `batches/`, and a new batch's id skips the archive's folder names.
   Rack deletes an `archive/<date>/` older than its `olderThan` in an ordinary commit; nothing is deleted from history ([ADR 0383](../../adr/0383-rack-archives-finished-batches-and-deletes-old-archive-folders-and-temporary-files.md)).
+
+**Code, out doc secrets on the state branch:** `withoutSecretLines` and `outDocFile` in `src/engine/state-branch.ts`, and the `secret` push outcome (`classifyPush`, `secretRefusal`) that stops the engine ([ADR 0378](../../adr/0378-out-doc-lines-that-look-like-secrets-stay-off-the-state-branch-and-a-push-refused-for-one-stops-the-engine.md))

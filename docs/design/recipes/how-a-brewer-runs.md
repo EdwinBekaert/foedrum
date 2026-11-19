@@ -52,6 +52,7 @@ claude --print --verbose --output-format stream-json
   A brewer without a shell, such as a read-only Taster, runs none: it could not use the install.
   So the brewer finds the repository's dependencies, and can run its format, lint, typecheck and tests when `tools` allows them ([ADR 0163](../../adr/0163-a-repository-s-setup-runs-before-a-brewer-attempt.md)).
 - After claude ends, the attempt of a brewer with `"checksBeforeEnd": true` (the default Cellarman and Finer), in a repository with `checks`, runs the repository's quick checks once its session ended `done` with commits counted after its start: build and typecheck whole, lint and format on the paths its commits changed when their line says `"files": true` (else whole), and the red step's test files on a test line with `"files": true` only, never the whole suite (`sendBackLines`, `src/brewers/send-back.ts`).
+  The changed files or the red step's test files are added to a line in double quotes, only when each is a safe path and the line stays within 4,000 characters (`sendBackLines`).
   They run as a check step's lines do, through the check sandbox with no network (native Windows: no sandbox, in a Job Object), in the checks' environment, killed 10 s before the attempt's deadline, and the attempt reports progress while they run.
   The first that does not pass sends the brewer back once: claude starts again with `--resume`, its message the check and how it ended, with the check's line and the end of what it printed as an untrusted input, and its stall clock starting with the resume.
   The attempt then settles on that resumed run, with both runs' tokens added; the checks do not run again, and the recipe's check step after it stays the gate.
@@ -86,3 +87,7 @@ A resumed session does not read the body again, and hears only the comments the 
 The brewer's base environment is an allowlist of `serve`'s own that never holds a GitHub token (`brewerBaseEnv`, [ADR 0063](../../adr/0063-foedrum-serve-its-configuration-and-wiring.md)).
 
 An interactive step's attempt runs as a person's `claude` session in `foedrum brew`'s terminal instead, and ends by the out doc it wrote through the same `settleAttempt`: [interactive steps](interactive-steps.md).
+
+**Code, checks before a brewer's end:** `sendBackLines`, `sendBackMessage` and `afterSendBack` in `src/brewers/send-back.ts`, run by `checkedBeforeEnd` in `src/brewers/claude-runner.ts`; `redTestFiles` in `src/checks/red-tests.ts`, `changedPaths` in `src/workspace/attempt-commits-git.ts` ([ADR 0381](../../adr/0381-a-brewer-that-writes-code-runs-the-quick-checks-before-its-end-and-is-sent-back-once.md))
+
+**Code, lockfile refresh:** `lockfileRefreshes`/`refreshLockfiles` in `src/checks/lockfile.ts` (npm, Cargo found above, NuGet and a `Directory.Packages.props` walked below), run by `lockfilesRefreshed` in `src/brewers/claude-runner.ts`, committed by `openBranchCommit` in `src/workspace/merge-tree-git.ts` ([ADR 0412](../../adr/0412-foedrum-refreshes-and-commits-the-npm-lockfile-a-release-bump-leaves-behind.md), [ADR 0415](../../adr/0415-a-release-bump-also-refreshes-a-cargo-lock-and-a-nuget-packages-lock-json.md))

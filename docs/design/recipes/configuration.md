@@ -113,3 +113,5 @@ The Flight report writes Foedrum's entries ([evaluation](../evaluation.md)); `fo
 Model ids reach the `claude` command line, so they are limited to lower-case letters, digits, `.`, `_`, `:` and `-` (plus a `[1m]` suffix), and never start with `-`.
 
 **House-yeast rules** (`src/schemas/house-yeast.ts`, `schemas/house-yeast.json`) carry the frontmatter of [ADR 0018](../../adr/0018-house-yeast-layers.md): `id`, `scope` (`globs`, `language`, `lens` by its name or as `diff/<name>` or `plan/<name>`, all optional), `kind`, `source`, `created` (a date) and `status`.
+
+**Code, levels and efforts:** every brewer step names a model level and an effort, a brewer file neither; `ModelLevel`, `Effort` and `ClaudeEffort` in `src/schemas/models.ts`, `modelOf`/`effortOf` in `src/brewers/attempt-plan.ts`, the merge in `mergedModels` (`src/cli/serve-config.ts`) ([ADR 0397](../../adr/0397-recipe-steps-name-a-model-level-and-an-effort-of-foedrum-s-own-which-models-jsonc-translates-for-the-agent.md))

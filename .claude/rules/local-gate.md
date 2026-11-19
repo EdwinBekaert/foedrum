@@ -17,7 +17,7 @@ paths:
 
 # The local gate
 
-How the push gate (CLAUDE.md, Local gate) works: its hook, how it reads commands, its deadlines and every form it blocks.
+How the push gate (`hand-sessions.md`, Local gate) works: its hook, how it reads commands, its deadlines and every form it blocks.
 
 - The hook is `scripts/precheck.ts` and runs as `node "${CLAUDE_PROJECT_DIR}/scripts/precheck.ts" || { s=$?; [ "$s" = 2 ] || echo "Foedrum gate could not run (exit $s); command blocked." >&2; exit 2; }` in bash (Git Bash on Windows), so it behaves the same in PowerShell, Git Bash, macOS and Linux sessions. Its logic is in `scripts/precheck/`, one file per part ([ADR 0252](docs/adr/0252-the-push-gate-is-a-pre-filter-a-reader-and-a-pure-core-beside-a-thin-hook.md)): `prefilter.ts` (the pre-filter, which imports nothing and is the hook's only static import), `read.ts` (the lexer and the reader, with the refusals it makes as it reads), `core.ts` (the pure policies on what the reader found, and `gate`); `precheck.ts` keeps the shell functions that start git, gh and npm, and loads `core.ts` only after the pre-filter. Put a reading rule in `read.ts`, a policy in `core.ts`, a process in `precheck.ts`.
 - node runs the script directly, without npm, which would add about 0.4 s to every call (#41). For the check, precheck runs `npm run check -- --no-tests` with npm's CLI found next to that node (`findNpmCli` in `src/platform/executables.ts`): `<node dir>/node_modules/npm/bin/npm-cli.js` on Windows; on macOS and Linux `<prefix>/lib/node_modules/npm`, then `<prefix>/libexec/lib/node_modules/npm` (Homebrew), then `<prefix>/share/nodejs/npm` (Debian's npm package), each with `bin/npm-cli.js`. When it is in none of them, the gated command is blocked with every path it tried.

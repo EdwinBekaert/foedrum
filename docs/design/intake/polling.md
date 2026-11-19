@@ -6,3 +6,5 @@
   A target repository's listing asks GitHub for its filter's labels, and the cache keeps at most 64 MiB of answers, one list at most 32 MiB ([ADR 0068](../../adr/0068-the-intake-in-foedrum-serve-brewery-orders-and-routing-by-label.md)).
   A GET that timed out is tried once more, unless its caller gave it up or a pause began; a write is not, and a dead network costs a read 60 s instead of 30 s ([ADR 0336](../../adr/0336-small-rough-edges-of-the-self-brew-trial.md)).
   On a rate limit the GitHub client pauses as GitHub's answer says and fails every request until then, never waiting inside a call, so no intake pass or effect overruns its deadline (`createGitHubReads`, `src/github/reads.ts`; `githubTargetTracker`, `githubIssueMarks`; [ADR 0052](../../adr/0052-github-reads-rate-limit-pauses-and-the-polling-interval.md)).
+
+**Code, intake labels:** `mayBeCandidate`/`unapprovedLabels` in `src/engine/issue-claims.ts`, `withLabelsAdded` in `src/engine/intake.ts`, `labelsAdded` in `src/github/tracker.ts` ([ADR 0359](../../adr/0359-the-intake-takes-an-issue-only-when-someone-in-users-added-its-labels.md))
