@@ -104,11 +104,15 @@ describe('readBreweryFiles', () => {
     assert.equal(found.path, 'defaults/models.jsonc');
     const read = readJsonc(found.text, ModelsConfig);
     assert.ok(read.valid, read.valid ? '' : read.reason);
-    assert.deepEqual(read.value.claude, {
-      models: { light: 'haiku', standard: 'sonnet', strong: 'opus', extreme: 'fable' },
-      efforts: { small: 'low', moderate: 'medium', larger: 'high', full: 'xhigh' },
-      tasted: [],
-    });
+    // The tasted list grows with each Flight's pull request (ADR 0416), so only the mapping is pinned.
+    const { models, efforts } = read.value.claude;
+    assert.deepEqual(
+      { models, efforts },
+      {
+        models: { light: 'haiku', standard: 'sonnet', strong: 'opus', extreme: 'fable' },
+        efforts: { small: 'low', moderate: 'medium', larger: 'high', full: 'xhigh' },
+      },
+    );
   });
 
   it('has default brewers that name no model level or effort: their recipe steps do (ADR 0397)', () => {
