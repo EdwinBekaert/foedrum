@@ -16,7 +16,7 @@ import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import type { ClaudeAttemptPlan } from '../../src/brewers/claude-runner.ts';
 import { runBrew } from '../../src/cli/brew.ts';
-import type { TerminalStream } from '../../src/cli/live-terminal.ts';
+import { liveTerminal, type TerminalStream } from '../../src/cli/live-terminal.ts';
 import { claudeConfigDir } from '../../src/cli/resume.ts';
 import type { LiveTerminal, ServeShell } from '../../src/cli/serve.ts';
 import { serveSetup } from '../../src/cli/serve-config.ts';
@@ -34,11 +34,7 @@ import { DEMO_GIT_CONFIG } from '../demo/brewer.ts';
 import { BREWERY, gitConfig, gitEnvOf, LOGIN, localConfig, TARGET, USER } from '../demo/core.ts';
 import { type RunRecord, readRecordsIn, scratchNameOf } from './core.ts';
 
-const say = (line: string): void => {
-  process.stdout.write(`${line}\n`);
-};
-
-/** How the harness's lines reach standard output, and the live line a run draws there (ADR 0174). */
+/** How the harness's lines reach standard output, and the live line a run draws there (ADR 0424). */
 export interface HarnessScreen {
   /** Prints a lasting line: over the live line where there is one, else as a plain line. */
   say: (line: string) => void;
@@ -50,16 +46,20 @@ export interface HarnessScreen {
 
 /** The screen of the harness over `stream`, with the live line only where `liveTerminal` gives it. */
 export const harnessScreen = (
-  _stream: TerminalStream,
-  _env: Readonly<Record<string, string | undefined>>,
+  stream: TerminalStream,
+  env: Readonly<Record<string, string | undefined>>,
 ): HarnessScreen => {
-  throw new Error('not implemented');
+  const terminal = liveTerminal(stream, env);
+  return {
+    say: terminal?.print ?? ((line) => void stream.write(`${line}\n`)),
+    terminal,
+    clear: () => terminal?.clear(),
+  };
 };
 
 /** `shell` with the live terminal of `screen`; unchanged where the screen has none. */
-export const liveShellOf = (_shell: ServeShell, _screen: HarnessScreen): ServeShell => {
-  throw new Error('not implemented');
-};
+export const liveShellOf = (shell: ServeShell, screen: HarnessScreen): ServeShell =>
+  screen.terminal === undefined ? shell : { ...shell, terminal: screen.terminal };
 
 export const write = (path: string, text: string): void => {
   mkdirSync(dirname(path), { recursive: true });
@@ -155,6 +155,8 @@ export const compare = async <Setup extends string, Run extends RunRecord<Setup>
   { folder, runs, dryRun, claude }: CompareSettings,
 ): Promise<void> => {
   const resultsFile = join(folder, 'results.jsonl');
+  const screen = harnessScreen(process.stdout, process.env);
+  const { say } = screen;
   const readRecords = (): Run[] => readRecordsIn<Setup, Run>(folder);
 
   /** Brews one run of `setup` in `scratch`, and reads what it measured from the store. */
@@ -244,36 +246,39 @@ export const compare = async <Setup extends string, Run extends RunRecord<Setup>
       listen: listening.listen,
       command: 'brew',
     });
-    const shell: ServeShell = {
-      ...machine,
-      gh: ghOver(api.fetch).exec,
-      runner: (claudePath, plan): BrewerRunner => {
-        // What the runner's command line is made of, so a run shows the effort no transcript records.
-        const shownPlan = async (start: AttemptStart): Promise<ClaudeAttemptPlan> => {
-          const made = await plan(start);
-          const { model, effort, session } = made.call;
-          if (start.ref.stepId !== mode.scriptedStep) {
-            say(`  ${start.ref.stepId}: --model ${model} --effort ${effort}`);
-          }
-          planned.set(session.id, model);
-          return made;
-        };
-        const real = machine.runner(claudePath, shownPlan);
-        const scripted = scriptedNip({
-          plan: shownPlan,
-          git: runGit,
-          config: DEMO_GIT_CONFIG,
-          write,
-          script,
-        });
-        const runnerOf = (stepId: string): BrewerRunner =>
-          stepId === mode.scriptedStep || dryRun ? scripted : real;
-        return {
-          progress: (ref) => runnerOf(ref.stepId).progress(ref),
-          start: (start) => runnerOf(start.ref.stepId).start(start),
-        };
+    const shell: ServeShell = liveShellOf(
+      {
+        ...machine,
+        gh: ghOver(api.fetch).exec,
+        runner: (claudePath, plan): BrewerRunner => {
+          // What the runner's command line is made of, so a run shows the effort no transcript records.
+          const shownPlan = async (start: AttemptStart): Promise<ClaudeAttemptPlan> => {
+            const made = await plan(start);
+            const { model, effort, session } = made.call;
+            if (start.ref.stepId !== mode.scriptedStep) {
+              say(`  ${start.ref.stepId}: --model ${model} --effort ${effort}`);
+            }
+            planned.set(session.id, model);
+            return made;
+          };
+          const real = machine.runner(claudePath, shownPlan);
+          const scripted = scriptedNip({
+            plan: shownPlan,
+            git: runGit,
+            config: DEMO_GIT_CONFIG,
+            write,
+            script,
+          });
+          const runnerOf = (stepId: string): BrewerRunner =>
+            stepId === mode.scriptedStep || dryRun ? scripted : real;
+          return {
+            progress: (ref) => runnerOf(ref.stepId).progress(ref),
+            start: (start) => runnerOf(start.ref.stepId).start(start),
+          };
+        },
       },
-    };
+      screen,
+    );
     const started = Date.now();
     try {
       await runBrew(serve, shell, {
@@ -321,6 +326,7 @@ export const compare = async <Setup extends string, Run extends RunRecord<Setup>
       if (stop !== undefined) throw new Error(stop);
     } catch (error) {
       // A run the harness could not brew is no measurement: stop, and say why.
+      screen.clear();
       process.stderr.write(`tasting-compare: ${name} could not run: ${(error as Error).message}\n`);
       process.exit(1);
     }
@@ -333,6 +339,7 @@ export const compare = async <Setup extends string, Run extends RunRecord<Setup>
   for (const [path, text] of Object.entries(mode.files?.(records, folder) ?? {})) {
     write(join(folder, path), text);
   }
+  screen.clear();
   say('');
   process.stdout.write(table);
 };
