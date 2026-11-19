@@ -42,6 +42,7 @@ const entry = (over: Partial<TastedEntry> = {}): TastedEntry => ({
   runs: 10,
   baseline: { passed: 8, runs: 10, model: 'claude-opus-5-5' },
   tokensPerOrder: 412000,
+  tokensPerOrderSplit: { output: 12000, cacheRead: 380000, cacheWrite: 19000, input: 1000 },
   date: '2026-11-20',
   ...over,
 });

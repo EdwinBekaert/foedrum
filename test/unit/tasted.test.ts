@@ -19,6 +19,7 @@ const ENTRY = {
   runs: 10,
   baseline: { passed: 8, runs: 10, model: 'claude-opus-5' },
   tokensPerOrder: 412000,
+  tokensPerOrderSplit: { output: 12000, cacheRead: 380000, cacheWrite: 19000, input: 1000 },
   date: '2026-11-20',
   report: 'https://github.com/acme/brewery/pull/12',
 };
@@ -111,8 +112,9 @@ describe('the tasted list in models.jsonc (ADR 0416)', () => {
     assert.deepEqual(parsed.data?.claude.tasted, [entry]);
   });
 
-  it('keeps an entry written without the split valid', () => {
-    assert.equal(failsAt(withTasted([ENTRY])), undefined);
+  it('refuses an entry written without the split, naming the field', () => {
+    const { tokensPerOrderSplit: _, ...unsplit } = ENTRY;
+    assert.equal(failsAt(withTasted([unsplit])), 'claude.tasted.0.tokensPerOrderSplit');
   });
 
   it('refuses a split count that is not a whole number of tokens, naming the kind', () => {
