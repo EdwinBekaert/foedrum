@@ -16,8 +16,9 @@ import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import type { ClaudeAttemptPlan } from '../../src/brewers/claude-runner.ts';
 import { runBrew } from '../../src/cli/brew.ts';
+import type { TerminalStream } from '../../src/cli/live-terminal.ts';
 import { claudeConfigDir } from '../../src/cli/resume.ts';
-import type { ServeShell } from '../../src/cli/serve.ts';
+import type { LiveTerminal, ServeShell } from '../../src/cli/serve.ts';
 import { serveSetup } from '../../src/cli/serve-config.ts';
 import { listenWhileServing, serveShell } from '../../src/cli/serve-shell.ts';
 import type { AttemptStart, BrewerRunner } from '../../src/engine/brewer-runner.ts';
@@ -35,6 +36,29 @@ import { type RunRecord, readRecordsIn, scratchNameOf } from './core.ts';
 
 const say = (line: string): void => {
   process.stdout.write(`${line}\n`);
+};
+
+/** How the harness's lines reach standard output, and the live line a run draws there (ADR 0174). */
+export interface HarnessScreen {
+  /** Prints a lasting line: over the live line where there is one, else as a plain line. */
+  say: (line: string) => void;
+  /** The live terminal a run's brew draws on; none where ADR 0174's rule does not hold. */
+  terminal: LiveTerminal | undefined;
+  /** Takes the live line off the screen; nothing where there is none. */
+  clear: () => void;
+}
+
+/** The screen of the harness over `stream`, with the live line only where `liveTerminal` gives it. */
+export const harnessScreen = (
+  _stream: TerminalStream,
+  _env: Readonly<Record<string, string | undefined>>,
+): HarnessScreen => {
+  throw new Error('not implemented');
+};
+
+/** `shell` with the live terminal of `screen`; unchanged where the screen has none. */
+export const liveShellOf = (_shell: ServeShell, _screen: HarnessScreen): ServeShell => {
+  throw new Error('not implemented');
 };
 
 export const write = (path: string, text: string): void => {
