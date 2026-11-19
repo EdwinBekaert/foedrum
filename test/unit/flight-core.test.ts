@@ -9,6 +9,7 @@ import {
   type FlightRecord,
   type FlightSettings,
   type FlightValues,
+  flightArgsOf,
   flightBreweryFiles,
   flightFailure,
   flightFolderOf,
@@ -804,14 +805,17 @@ describe('the Flight (ADR 0409)', () => {
       record('post-slugs', 1),
       { ...record('post-slugs', 2), ended: 'stuck: blocked', flight: noHead },
     ]);
-    assert.match(table, /^\| post-slugs \| 1 \| 1 of 1 \| 0 \| 19 \| 20 s \|$/m);
+    assert.match(
+      table,
+      /^\| post-slugs \| 1 \| 1 of 1 \| on tap 1 of 1 \| 0 \| 19 \| 2 \| 3 \| 4 \| 10 \| 20 s \|$/m,
+    );
     assert.match(
       table,
       /^Failed: post-slugs run 2: the batch ended stuck: blocked before it left a head$/m,
     );
   });
 
-  it("the table shows each order's hidden tests passed, runs outside its paths, tokens and time", () => {
+  it("the table shows each order's hidden tests passed, how its runs ended, runs outside its paths, tokens and time", () => {
     const table = flightTable([
       record('quiz-rank', 1, { hidden: 'failed', outside: ['package.json'] }),
       record('post-slugs', 1),
@@ -822,8 +826,105 @@ describe('the Flight (ADR 0409)', () => {
       .split('\n')
       .filter((line) => line.startsWith('| post-slugs') || line.startsWith('| quiz-rank'));
     assert.deepEqual(rows, [
-      '| quiz-rank | 2 | 1 of 2 | 1 | 38 | 40 s |',
-      '| post-slugs | 2 | 1 of 2 | 0 | 38 | 40 s |',
+      '| quiz-rank | 2 | 1 of 2 | on tap 2 of 2 | 1 | 38 | 4 | 6 | 8 | 20 | 40 s |',
+      '| post-slugs | 2 | 1 of 2 | on tap 2 of 2 | 0 | 38 | 4 | 6 | 8 | 20 | 40 s |',
     ]);
+  });
+
+  it('the table heads its columns with the ending and the tokens split into output, cache read, cache write and fresh input', () => {
+    const [header, divider] = flightTable([record('post-slugs', 1)]).split('\n');
+    assert.equal(
+      header,
+      '| Order | Runs | Hidden tests passed | Ended | Outside its paths | Tokens | Output | Cache read | Cache write | Fresh input | Brewers |',
+    );
+    assert.equal(divider, `|${'---|'.repeat(11)}`);
+  });
+
+  it("the table splits an order's tokens over its runs and steps by kind, beside their sum", () => {
+    const step = (stepId: string, inputTokens: number, factor: number) => ({
+      stepId,
+      attempts: 1,
+      usage: {
+        inputTokens,
+        outputTokens: 20 * factor,
+        cacheReadTokens: 300 * factor,
+        cacheWriteTokens: 4000 * factor,
+      },
+      turns: 4,
+      durationMs: 5_000,
+    });
+    const table = flightTable([
+      record('quiz-rank', 1, { steps: [step('implement', 1, 1), step('gauge', 2, 1)] }),
+      record('quiz-rank', 2, { steps: [step('implement', 10, 10)] }),
+    ]);
+    // Input 1 + 2 + 10, output 20 + 20 + 200, cache reads 300 + 300 + 3000, cache writes 4000 + 4000 + 40000.
+    assert.match(
+      table,
+      /^\| quiz-rank \| 2 \| 2 of 2 \| on tap 2 of 2 \| 0 \| 51853 \| 240 \| 3600 \| 48000 \| 13 \| 15 s \|$/m,
+    );
+  });
+
+  it('the table counts how many runs of an order ended each way, stuck whatever the reason', () => {
+    const table = flightTable([
+      record('quiz-rank', 1, { headFrom: 'green' }, { ended: 'stuck: blocked' }),
+      record('quiz-rank', 2, {}, { ended: 'on_tap' }),
+      record('quiz-rank', 3, { headFrom: 'green' }, { ended: 'stuck: plan_review' }),
+      record('quiz-rank', 4, {}, { ended: 'cancelled' }),
+    ]);
+    const cell = table.split('\n').find((line) => line.startsWith('| quiz-rank |'));
+    assert.equal(cell?.split(' | ')[3], 'on tap 1 of 4, cancelled 1 of 4, stuck 2 of 4');
+  });
+
+  it("the table counts a run's ending only for the runs that measured something", () => {
+    const { head: _, headFrom: __, ...noHead } = record('quiz-rank', 3).flight;
+    const table = flightTable([
+      record('quiz-rank', 1),
+      record('quiz-rank', 2, { headFrom: 'green' }, { ended: 'stuck: blocked' }),
+      { ...record('quiz-rank', 3), ended: 'stuck: blocked', flight: noHead },
+    ]);
+    assert.match(table, /^\| quiz-rank \| 2 \| 2 of 2 \| on tap 1 of 2, stuck 1 of 2 \| /m);
+  });
+
+  it("the table shows a stuck run that left a commit green read beside its hidden tests' score", () => {
+    const table = flightTable([
+      record('shelf-tags', 1, { headFrom: 'green' }, { ended: 'stuck: blocked' }),
+    ]);
+    assert.match(
+      table,
+      /^\| shelf-tags \| 1 \| 1 of 1 \| stuck 1 of 1 \| 0 \| 19 \| 2 \| 3 \| 4 \| 10 \| 20 s \|$/m,
+    );
+  });
+
+  it('the table scores a stuck run on the commit green read, as ADR 0409 says, all the same', () => {
+    const table = flightTable([
+      record('shelf-tags', 1, { headFrom: 'green' }, { ended: 'stuck: blocked' }),
+    ]);
+    assert.match(table, /^\| shelf-tags \| 1 \| 1 of 1 \| /m);
+  });
+
+  describe('its command line', () => {
+    it('reads the options it was given as parseArgs does', () => {
+      const read = flightArgsOf(['--recipe', 'nip', '--runs', '2', '--dry-run']);
+      assert.equal(read.kind, 'values');
+      assert.deepEqual(read.kind === 'values' ? { ...read.values } : undefined, {
+        recipe: 'nip',
+        runs: '2',
+        'dry-run': true,
+      });
+    });
+
+    for (const option of ['recipe', 'brewer', 'model', 'effort', 'runs']) {
+      it(`refuses --${option} with no value in one line, not a thrown error`, () => {
+        const read = flightArgsOf(['--recipe', 'nip', `--${option}`]);
+        assert.deepEqual(read, { kind: 'refused', message: `--${option} needs a value` });
+      });
+    }
+
+    it('refuses a lone option missing its value', () => {
+      assert.deepEqual(flightArgsOf(['--runs']), {
+        kind: 'refused',
+        message: '--runs needs a value',
+      });
+    });
   });
 });

@@ -29,6 +29,19 @@ export type FlightReportValues = ReturnType<
   typeof parseArgs<{ options: typeof FLIGHT_REPORT_OPTIONS }>
 >['values'];
 
+/** The command line flight-report.ts was given: its values, or the refusal that stops it with exit 2. */
+export type FlightReportArgs =
+  | { kind: 'values'; values: FlightReportValues }
+  | { kind: 'refused'; message: string };
+
+/**
+ * Reads the command line `args` as `FLIGHT_REPORT_OPTIONS`; an option missing its value is a
+ * refusal of one line, never a thrown error.
+ */
+export const flightReportArgsOf = (_args: readonly string[]): FlightReportArgs => {
+  throw new Error('not implemented');
+};
+
 /** An order's hidden tests passed in a Flight: in how many of its runs. */
 export interface Passes {
   passed: number;

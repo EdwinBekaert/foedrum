@@ -50,6 +50,19 @@ export type FlightValues = ReturnType<
   typeof parseArgs<{ options: typeof FLIGHT_OPTIONS }>
 >['values'];
 
+/** The command line flight.ts was given: its values, or the refusal that stops it with exit 2. */
+export type FlightArgs =
+  | { kind: 'values'; values: FlightValues }
+  | { kind: 'refused'; message: string };
+
+/**
+ * Reads the command line `args` as `FLIGHT_OPTIONS`; an option missing its value is a refusal of one
+ * line, never a thrown error.
+ */
+export const flightArgsOf = (_args: readonly string[]): FlightArgs => {
+  throw new Error('not implemented');
+};
+
 /** The brewer a Flight swaps: its steps, and only they, on this model and effort. */
 export interface Swap {
   brewer: string;
