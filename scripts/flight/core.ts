@@ -11,6 +11,7 @@ import { brewerBaseEnv, brewerForcedEnv } from '../../src/engine/brewer-env.ts';
 import { effectKey } from '../../src/engine/effect-key.ts';
 import { parseJsonc } from '../../src/formats/jsonc.ts';
 import { type SandboxedChecksOptions, sandboxedChecks } from '../../src/platform/check-sandbox.ts';
+import { firstLineOf, messageOf } from '../../src/platform/errors.ts';
 import type { Killed } from '../../src/platform/processes.ts';
 import type { Event } from '../../src/schemas/events.ts';
 import { type Effort, ModelLevel } from '../../src/schemas/models.ts';
@@ -70,7 +71,7 @@ export const argsOf = <Values>(read: () => Values): Args<Values> => {
   try {
     return { kind: 'values', values: read() };
   } catch (error) {
-    const message = (error as Error).message;
+    const message = firstLineOf(messageOf(error));
     const missing = MISSING_VALUE.exec(message);
     return { kind: 'refused', message: missing === null ? message : `${missing[1]} needs a value` };
   }
