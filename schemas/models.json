@@ -142,7 +142,6 @@
                 "maximum": 9007199254740991
               },
               "tokensPerOrderSplit": {
-                "description": "The candidate’s tokens per order by kind, as a later token guess needs them apart",
                 "type": "object",
                 "properties": {
                   "output": {
@@ -173,7 +172,8 @@
                   "cacheWrite",
                   "input"
                 ],
-                "additionalProperties": false
+                "additionalProperties": false,
+                "description": "The candidate’s tokens per order by kind, as a later token guess needs them apart"
               },
               "date": {
                 "type": "string",
@@ -195,6 +195,7 @@
               "runs",
               "baseline",
               "tokensPerOrder",
+              "tokensPerOrderSplit",
               "date"
             ],
             "additionalProperties": false

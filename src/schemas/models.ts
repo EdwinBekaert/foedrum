@@ -55,7 +55,6 @@ export const TastedEntry = z.strictObject({
       cacheWrite: TokenCount,
       input: TokenCount.describe('Fresh input, which the cache neither read nor wrote'),
     })
-    .optional()
     .describe('The candidate’s tokens per order by kind, as a later token guess needs them apart'),
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Must be a date such as "2026-11-20"'),
   report: z
