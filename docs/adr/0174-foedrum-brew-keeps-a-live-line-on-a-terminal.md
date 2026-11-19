@@ -1,6 +1,6 @@
 # 0174. `foedrum brew` keeps a live line on a terminal
 
-Date: 2026-10-24 · Status: Accepted · Amends [0123](0123-foedrum-brew-drives-one-batch-under-an-owner-of-its-own.md) (what `brew` prints when its standard output is a terminal) and [0047](0047-the-claude-brewer-runner-its-stream-endings-and-progress.md) (the runner's progress of a running attempt also says what it did last, for display) · Amended by [0179](0179-the-live-line-redraws-in-place-and-leads-with-the-batch-s-time.md), [0188](0188-foedrum-status-watch-redraws-a-board-of-the-live-batches.md) and [0346](0346-the-live-line-runs-from-a-brew-s-first-second-to-its-last-with-gh-s-moving-mark.md) and [0424](0424-the-tasting-compare-harness-shows-the-live-line-of-the-runs-it-brews.md)
+Date: 2026-10-24 · Status: Accepted · Amends [0123](0123-foedrum-brew-drives-one-batch-under-an-owner-of-its-own.md) (what `brew` prints when its standard output is a terminal) and [0047](0047-the-claude-brewer-runner-its-stream-endings-and-progress.md) (the runner's progress of a running attempt also says what it did last, for display) · Amended by [0179](0179-the-live-line-redraws-in-place-and-leads-with-the-batch-s-time.md), [0188](0188-foedrum-status-watch-redraws-a-board-of-the-live-batches.md) and [0346](0346-the-live-line-runs-from-a-brew-s-first-second-to-its-last-with-gh-s-moving-mark.md)
 
 ## Context
 `foedrum brew` prints a line when the batch's lane or step changes and, while a step runs, `batch <id> brewing: <step> #<n> running for <time>` every 30 s (`PROGRESS_MS`, #406). Its loop ticks every 5 s (`INTERVAL_MS`). In a terminal the screen stands still for those 30 s, so a brew looks stuck while the brewer works (the third brew, Brewery issue #8).
@@ -43,7 +43,7 @@ An ASCII spinner, `| / - \`, then the attempts. The line is ASCII only: in every
 - **The terminal** comes through the shell: `ServeShell` gains an optional `terminal`, present only when the rule under *When* holds, with its `columns`, a resize subscription, and a way to clear and rewrite the current line. `runBrew` draws the live line when `terminal` is present and prints the plain lines when it is not; tests give a fake terminal, clock and `wait`.
 
 ### Scope
-- **`brew` only** (and the tasting-compare harness, ADR 0424). `foedrum serve` keeps its plain lines: it runs many batches as a service, and a board of batches belongs to `foedrum status --watch` (#463) and the Brewhouse.
+- **`brew` only.** `foedrum serve` keeps its plain lines: it runs many batches as a service, and a board of batches belongs to `foedrum status --watch` (#463) and the Brewhouse.
 - **Built-in only** (ADR 0004): `isTTY`, `columns`, the `resize` event, `cursorTo` and `clearLine`. No spinner or terminal package.
 
 ```
