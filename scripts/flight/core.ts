@@ -50,9 +50,9 @@ export type FlightValues = ReturnType<
   typeof parseArgs<{ options: typeof FLIGHT_OPTIONS }>
 >['values'];
 
-/** The command line flight.ts was given: its values, or the refusal that stops it with exit 2. */
-export type FlightArgs =
-  | { kind: 'values'; values: FlightValues }
+/** The command line a Flight script was given: its values, or the refusal that stops it with exit 2. */
+export type Args<Values> =
+  | { kind: 'values'; values: Values }
   | { kind: 'refused'; message: string };
 
 /**
@@ -66,9 +66,7 @@ const MISSING_VALUE =
  * What `read`, a `parseArgs` of the command line, gives as values, or the refusal of one line for
  * what it throws: an option missing its value is "--<option> needs a value".
  */
-export const argsOf = <Values>(
-  read: () => Values,
-): { kind: 'values'; values: Values } | { kind: 'refused'; message: string } => {
+export const argsOf = <Values>(read: () => Values): Args<Values> => {
   try {
     return { kind: 'values', values: read() };
   } catch (error) {
@@ -82,7 +80,7 @@ export const argsOf = <Values>(
  * Reads the command line `args` as `FLIGHT_OPTIONS`; an option missing its value is a refusal of one
  * line, never a thrown error.
  */
-export const flightArgsOf = (args: readonly string[]): FlightArgs =>
+export const flightArgsOf = (args: readonly string[]): Args<FlightValues> =>
   argsOf(() => parseArgs({ args: [...args], options: FLIGHT_OPTIONS }).values);
 
 /** The brewer a Flight swaps: its steps, and only they, on this model and effort. */

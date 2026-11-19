@@ -10,6 +10,7 @@ import { checkedInput, parseJsonc } from '../../src/formats/jsonc.ts';
 import { ModelId, ModelsConfig, type TastedEntry, tastedKey } from '../../src/schemas/models.ts';
 import { escapeCell, runsOfSetup } from '../tasting-compare/core.ts';
 import {
+  type Args,
   argsOf,
   brewerSteps,
   endingsOf,
@@ -32,16 +33,11 @@ export type FlightReportValues = ReturnType<
   typeof parseArgs<{ options: typeof FLIGHT_REPORT_OPTIONS }>
 >['values'];
 
-/** The command line flight-report.ts was given: its values, or the refusal that stops it with exit 2. */
-export type FlightReportArgs =
-  | { kind: 'values'; values: FlightReportValues }
-  | { kind: 'refused'; message: string };
-
 /**
  * Reads the command line `args` as `FLIGHT_REPORT_OPTIONS`; an option missing its value is a
  * refusal of one line, never a thrown error.
  */
-export const flightReportArgsOf = (args: readonly string[]): FlightReportArgs =>
+export const flightReportArgsOf = (args: readonly string[]): Args<FlightReportValues> =>
   argsOf(() => parseArgs({ args: [...args], options: FLIGHT_REPORT_OPTIONS }).values);
 
 /** An order's hidden tests passed in a Flight: in how many of its runs. */
