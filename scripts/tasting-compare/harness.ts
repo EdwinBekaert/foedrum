@@ -147,15 +147,22 @@ interface CompareSettings {
   dryRun: boolean;
   /** The claude serve's setup is told of. */
   claude: string;
+  /** Where the harness's lines and each run's live line go; standard output's when not given. */
+  screen?: HarnessScreen;
 }
 
 /** Brews every run of `mode` that has no record yet, and prints its one table. */
 export const compare = async <Setup extends string, Run extends RunRecord<Setup>>(
   mode: Mode<Setup, Run>,
-  { folder, runs, dryRun, claude }: CompareSettings,
+  {
+    folder,
+    runs,
+    dryRun,
+    claude,
+    screen = harnessScreen(process.stdout, process.env),
+  }: CompareSettings,
 ): Promise<void> => {
   const resultsFile = join(folder, 'results.jsonl');
-  const screen = harnessScreen(process.stdout, process.env);
   const { say } = screen;
   const readRecords = (): Run[] => readRecordsIn<Setup, Run>(folder);
 
@@ -246,42 +253,39 @@ export const compare = async <Setup extends string, Run extends RunRecord<Setup>
       listen: listening.listen,
       command: 'brew',
     });
-    const shell: ServeShell = liveShellOf(
-      {
-        ...machine,
-        gh: ghOver(api.fetch).exec,
-        runner: (claudePath, plan): BrewerRunner => {
-          // What the runner's command line is made of, so a run shows the effort no transcript records.
-          const shownPlan = async (start: AttemptStart): Promise<ClaudeAttemptPlan> => {
-            const made = await plan(start);
-            const { model, effort, session } = made.call;
-            if (start.ref.stepId !== mode.scriptedStep) {
-              say(`  ${start.ref.stepId}: --model ${model} --effort ${effort}`);
-            }
-            planned.set(session.id, model);
-            return made;
-          };
-          const real = machine.runner(claudePath, shownPlan);
-          const scripted = scriptedNip({
-            plan: shownPlan,
-            git: runGit,
-            config: DEMO_GIT_CONFIG,
-            write,
-            script,
-          });
-          const runnerOf = (stepId: string): BrewerRunner =>
-            stepId === mode.scriptedStep || dryRun ? scripted : real;
-          return {
-            progress: (ref) => runnerOf(ref.stepId).progress(ref),
-            start: (start) => runnerOf(start.ref.stepId).start(start),
-          };
-        },
+    const shell: ServeShell = {
+      ...machine,
+      gh: ghOver(api.fetch).exec,
+      runner: (claudePath, plan): BrewerRunner => {
+        // What the runner's command line is made of, so a run shows the effort no transcript records.
+        const shownPlan = async (start: AttemptStart): Promise<ClaudeAttemptPlan> => {
+          const made = await plan(start);
+          const { model, effort, session } = made.call;
+          if (start.ref.stepId !== mode.scriptedStep) {
+            say(`  ${start.ref.stepId}: --model ${model} --effort ${effort}`);
+          }
+          planned.set(session.id, model);
+          return made;
+        };
+        const real = machine.runner(claudePath, shownPlan);
+        const scripted = scriptedNip({
+          plan: shownPlan,
+          git: runGit,
+          config: DEMO_GIT_CONFIG,
+          write,
+          script,
+        });
+        const runnerOf = (stepId: string): BrewerRunner =>
+          stepId === mode.scriptedStep || dryRun ? scripted : real;
+        return {
+          progress: (ref) => runnerOf(ref.stepId).progress(ref),
+          start: (start) => runnerOf(start.ref.stepId).start(start),
+        };
       },
-      screen,
-    );
+    };
     const started = Date.now();
     try {
-      await runBrew(serve, shell, {
+      await runBrew(serve, liveShellOf(shell, screen), {
         target: { issue: 1 },
         owner: USER,
         by: USER,
