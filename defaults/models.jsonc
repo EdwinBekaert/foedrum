@@ -34,7 +34,8 @@
           "cacheWrite": 105069,
           "input": 98
         },
-        "date": "2026-11-19"
+        "date": "2026-11-19",
+        "report": "https://github.com/EdwinBekaert/foedrum/pull/1186"
       }
     ]
   }
