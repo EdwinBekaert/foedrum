@@ -366,7 +366,7 @@ describe('the Flight report (ADR 0411)', () => {
   });
 
   describe('its command line', () => {
-    it('reads the options it was given as parseArgs does', () => {
+    it('reads the report options it was given as parseArgs does', () => {
       const read = flightReportArgsOf(['--baseline', 'base', '--candidate', 'next']);
       assert.equal(read.kind, 'values');
       assert.deepEqual(read.kind === 'values' ? { ...read.values } : undefined, {
@@ -385,7 +385,7 @@ describe('the Flight report (ADR 0411)', () => {
       });
     }
 
-    it('refuses a lone option missing its value', () => {
+    it('refuses a lone report option missing its value', () => {
       assert.deepEqual(flightReportArgsOf(['--baseline']), {
         kind: 'refused',
         message: '--baseline needs a value',
