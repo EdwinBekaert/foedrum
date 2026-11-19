@@ -70,7 +70,7 @@ A change to the design gets a new record in [`docs/adr/`](docs/adr/) in the same
 Read the existing ADR before changing what it decided: a change of mind is a new ADR.
 
 Commit messages have an imperative subject line and, when it helps, a short body that says why.
-Branches, descriptions and the rest are in [`CLAUDE.md`, Git and pull requests](CLAUDE.md#git-and-pull-requests).
+Branches, descriptions and the rest are in [`.claude/rules/hand-sessions.md`, Git and pull requests](.claude/rules/hand-sessions.md#git-and-pull-requests).
 
 ## Review
 
