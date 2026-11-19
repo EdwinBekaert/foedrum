@@ -9,9 +9,9 @@ paths:
 
 Rules learned from reviews of Foedrum's own pull requests (ADR 0122), for the files this session reads or changes (ADR 0271). Follow them where your change meets them: /brew-review looks for what they describe.
 
-## comment-cites-the-adr-that-owns-the-decision (structural)
+## comment-cites-the-adr-that-decides (semantic)
 
-A code comment that gives the reason for a design decision cites the ADR that records it, not the issue that asked for it.
+A code comment that gives the reason for a design decision or a rule cites the ADR that decides it for this code: not the issue that asked for it, and not a record whose rule it only borrows.
 
 ## comments-count-what-the-change-runs (semantic)
 
