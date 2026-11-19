@@ -1,7 +1,41 @@
 // What Foedrum's model levels and efforts are for each agent (ADR 0153, ADR 0397).
 {
   "claude": {
-    "models": { "light": "haiku", "standard": "sonnet", "strong": "opus", "extreme": "fable" },
-    "efforts": { "small": "low", "moderate": "medium", "larger": "high", "full": "xhigh" }
+    "models": {
+      "light": "haiku",
+      "standard": "sonnet",
+      "strong": "opus",
+      "extreme": "fable"
+    },
+    "efforts": {
+      "small": "low",
+      "moderate": "medium",
+      "larger": "high",
+      "full": "xhigh"
+    },
+    "tasted": [
+      {
+        "brewer": "cellarman",
+        "recipe": "nip",
+        "level": "strong",
+        "effort": "larger",
+        "model": "claude-opus-5-5",
+        "passed": 10,
+        "runs": 10,
+        "baseline": {
+          "passed": 10,
+          "runs": 10,
+          "model": "claude-sonnet-5-5"
+        },
+        "tokensPerOrder": 703784,
+        "tokensPerOrderSplit": {
+          "output": 24233,
+          "cacheRead": 574384,
+          "cacheWrite": 105069,
+          "input": 98
+        },
+        "date": "2026-11-19"
+      }
+    ]
   }
 }
