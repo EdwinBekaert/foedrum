@@ -28,6 +28,9 @@ export const ModelId = z
 /** How many orders a Flight passed every run of, out of the orders both Flights measured. */
 const OrderCount = z.number().int().nonnegative();
 
+/** A mean count of tokens of one kind per order, rounded to a whole token. */
+const TokenCount = z.number().int().nonnegative();
+
 /** The latest Flight of a brewer, recipe, level and effort, won or lost (ADR 0416). */
 export const TastedEntry = z.strictObject({
   brewer: PathSafeId,
@@ -45,6 +48,15 @@ export const TastedEntry = z.strictObject({
     })
     .describe('The Flight the candidate was compared with'),
   tokensPerOrder: z.number().int().nonnegative(),
+  tokensPerOrderSplit: z
+    .strictObject({
+      output: TokenCount,
+      cacheRead: TokenCount,
+      cacheWrite: TokenCount,
+      input: TokenCount.describe('Fresh input, which the cache neither read nor wrote'),
+    })
+    .optional()
+    .describe('The candidate’s tokens per order by kind, as a later token guess needs them apart'),
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Must be a date such as "2026-11-20"'),
   report: z
     .url({ protocol: /^https$/ })

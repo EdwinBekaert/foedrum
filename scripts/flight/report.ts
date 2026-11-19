@@ -5,17 +5,20 @@
 // writes what this decides.
 
 import { join } from 'node:path';
-import type { parseArgs } from 'node:util';
+import { parseArgs } from 'node:util';
 import { checkedInput, parseJsonc } from '../../src/formats/jsonc.ts';
 import { ModelId, ModelsConfig, type TastedEntry, tastedKey } from '../../src/schemas/models.ts';
 import { escapeCell, runsOfSetup } from '../tasting-compare/core.ts';
 import {
+  argsOf,
   brewerSteps,
+  endingsOf,
   type FlightRecord,
   flightFailure,
   recipeOf,
   scoredFigures,
   swapLevelOf,
+  type TokenKinds,
 } from './core.ts';
 
 /** The options flight-report.ts reads, as `parseArgs` takes them. */
@@ -38,9 +41,8 @@ export type FlightReportArgs =
  * Reads the command line `args` as `FLIGHT_REPORT_OPTIONS`; an option missing its value is a
  * refusal of one line, never a thrown error.
  */
-export const flightReportArgsOf = (_args: readonly string[]): FlightReportArgs => {
-  throw new Error('not implemented');
-};
+export const flightReportArgsOf = (args: readonly string[]): FlightReportArgs =>
+  argsOf(() => parseArgs({ args: [...args], options: FLIGHT_REPORT_OPTIONS }).values);
 
 /** An order's hidden tests passed in a Flight: in how many of its runs. */
 export interface Passes {
@@ -83,8 +85,12 @@ interface Measured extends Passes {
   /** The runs that measured something, and of those, the runs with changes outside its paths. */
   scored: number;
   outside: number;
-  /** Mean tokens and brewers' milliseconds per measured run. */
+  /** The measured runs that reached a pull request, and how they all ended (ADR 0425). */
+  reached: number;
+  ended: string;
+  /** Mean tokens, in sum and by kind, and brewers' milliseconds per measured run. */
   tokens: number;
+  kinds: TokenKinds;
   ms: number;
 }
 
@@ -99,14 +105,23 @@ const measuredOf = (
 ): Measured | undefined => {
   const { scored } = runsOfSetup(records, order, flightFailure);
   if (scored.length === 0) return undefined;
-  const { passed, outside, tokens, ms } = scoredFigures(scored);
+  const { passed, outside, tokens, kinds, ms } = scoredFigures(scored);
+  const mean = (sum: number) => sum / scored.length;
   return {
     passed,
     runs,
     scored: scored.length,
     outside,
-    tokens: tokens / scored.length,
-    ms: ms / scored.length,
+    reached: scored.filter(({ flight }) => flight.headFrom === 'pull request').length,
+    ended: endingsOf(scored),
+    tokens: mean(tokens),
+    kinds: {
+      output: mean(kinds.output),
+      cacheRead: mean(kinds.cacheRead),
+      cacheWrite: mean(kinds.cacheWrite),
+      input: mean(kinds.input),
+    },
+    ms: mean(ms),
   };
 };
 
@@ -142,7 +157,9 @@ const comparisonOf = (baseline: readonly FlightRecord[], candidate: readonly Fli
   const unmeasured = { baseline: [] as string[], candidate: [] as string[] };
   const rows: string[] = [];
   const totals = { baseline: 0, candidate: 0 };
+  const candidateKinds: TokenKinds = { output: 0, cacheRead: 0, cacheWrite: 0, input: 0 };
   const every = { baseline: 0, candidate: 0 };
+  const reached = { baseline: 0, candidate: 0 };
   let tooClose = 0;
   for (const order of ordersOf(baseline).filter((each) => inCandidate.has(each))) {
     const b = measuredOf(baseline, order, runs.baseline);
@@ -154,17 +171,33 @@ const comparisonOf = (baseline: readonly FlightRecord[], candidate: readonly Fli
     if (verdict === 'too close to call') tooClose += 1;
     if (passedEvery(b)) every.baseline += 1;
     if (passedEvery(c)) every.candidate += 1;
+    reached.baseline += b.reached;
+    reached.candidate += c.reached;
     totals.baseline += b.tokens;
     totals.candidate += c.tokens;
+    for (const kind of Object.keys(candidateKinds) as (keyof TokenKinds)[]) {
+      candidateKinds[kind] += c.kinds[kind];
+    }
     const against = (of: (m: Measured) => string) => `${of(b)} against ${of(c)}`;
+    const tokens = (of: (m: Measured) => number) => against((m) => String(Math.round(of(m))));
     rows.push(
-      `| ${escapeCell(order)} | ${against(({ passed, runs }) => `${passed} of ${runs}`)} | ${against(({ outside, scored }) => `${outside} of ${scored}`)} | ${against(({ tokens }) => String(Math.round(tokens)))} | ${against(({ ms }) => `${Math.round(ms / 1000)} s`)} | ${verdict} |`,
+      `| ${escapeCell(order)} | ${against(({ passed, runs }) => `${passed} of ${runs}`)} | ${against(({ ended }) => ended)} | ${against(({ outside, scored }) => `${outside} of ${scored}`)} | ${tokens((m) => m.tokens)} | ${tokens((m) => m.kinds.output)} | ${tokens((m) => m.kinds.cacheRead)} | ${tokens((m) => m.kinds.cacheWrite)} | ${tokens((m) => m.kinds.input)} | ${against(({ ms }) => `${Math.round(ms / 1000)} s`)} | ${verdict} |`,
     );
   }
   for (const side of ['baseline', 'candidate'] as const) {
     note(`No run measured in the ${side}`, unmeasured[side]);
   }
-  return { rows, notes, totals, every, tooClose, compared: rows.length };
+  return {
+    rows,
+    notes,
+    totals,
+    candidateKinds,
+    every,
+    reached,
+    runs,
+    tooClose,
+    compared: rows.length,
+  };
 };
 
 /**
@@ -176,20 +209,27 @@ export const flightReport = (
   candidate: readonly FlightRecord[],
 ): string => {
   const names = { baseline: flightLabelOf(baseline), candidate: flightLabelOf(candidate) };
-  const { rows, notes, totals, every, tooClose, compared } = comparisonOf(baseline, candidate);
+  const { rows, notes, totals, every, reached, runs, tooClose, compared } = comparisonOf(
+    baseline,
+    candidate,
+  );
   const tokens =
     totals.baseline === 0
       ? 'tokens per order not compared: the baseline counted none'
       : `tokens per order ${signed(Math.round(((totals.candidate - totals.baseline) / totals.baseline) * 100))}`;
-  const summary = `${names.baseline}: ${every.baseline} of ${compared} orders, ${names.candidate}: ${every.candidate} of ${compared} orders, ${tooClose} too close to call, ${tokens}`;
+  // A run stuck on the commit green read still passes (ADR 0409), so the runs that reached a pull
+  // request are counted beside the orders passed (ADR 0425).
+  const side = (of: 'baseline' | 'candidate') =>
+    `${names[of]}: ${every[of]} of ${compared} orders (${reached[of]} of ${runs[of] * compared} runs reached a pull request)`;
+  const summary = `${side('baseline')}, ${side('candidate')}, ${tooClose} too close to call, ${tokens}`;
   return `${[
     `Baseline: ${names.baseline}`,
     `Candidate: ${names.candidate}`,
     '',
     summary,
     '',
-    "| Order | Hidden tests passed | Runs outside its paths | Tokens per run | Brewers' time per run | Verdict |",
-    '|---|---|---|---|---|---|',
+    "| Order | Hidden tests passed | Ended | Runs outside its paths | Tokens per run | Output per run | Cache read per run | Cache write per run | Fresh input per run | Brewers' time per run | Verdict |",
+    `|${'---|'.repeat(11)}`,
     ...rows,
     ...(notes.length === 0 ? [] : ['', ...notes]),
   ].join('\n')}\n`;
@@ -299,7 +339,7 @@ export const tastedOf = (
   }
   const text = recipeText(recipe);
   if (text === undefined) return notWritten(`${recipe} is no default recipe`);
-  const { every, totals, compared } = comparisonOf(baseline, candidate);
+  const { every, totals, candidateKinds, compared } = comparisonOf(baseline, candidate);
   if (compared === 0) return notWritten('no order was measured by both Flights');
   const read = recipeOf(text);
   const steps = new Set(
@@ -314,6 +354,13 @@ export const tastedOf = (
   const level = swapLevelOf(swap, read);
   // flight.ts refuses a swap with no level free (ADR 0409), so its records never hold one.
   if (level === undefined) throw new Error(`no level of ${recipe} is free for ${swap.model}`);
+  const perOrder = (tokens: number) => Math.round(tokens / compared);
+  const split = {
+    output: perOrder(candidateKinds.output),
+    cacheRead: perOrder(candidateKinds.cacheRead),
+    cacheWrite: perOrder(candidateKinds.cacheWrite),
+    input: perOrder(candidateKinds.input),
+  };
   const entry: TastedEntry = {
     brewer: swap.brewer,
     recipe,
@@ -323,7 +370,8 @@ export const tastedOf = (
     passed: every.candidate,
     runs: compared,
     baseline: { passed: every.baseline, runs: compared, model: ranBefore.model },
-    tokensPerOrder: Math.round(totals.candidate / compared),
+    tokensPerOrder: perOrder(totals.candidate),
+    tokensPerOrderSplit: split,
     date: today.toISOString().slice(0, 10),
   };
   const { text: models, replaced } = withTasted(modelsText, entry);
@@ -335,7 +383,7 @@ export const tastedOf = (
     title: `Taste ${key}: ${entry.model}`,
     description: [
       '## How it works',
-      `\`defaults/models.jsonc\`'s \`tasted\` list keeps the latest Flight of each brewer, recipe, level and effort (ADR 0416). This pull request ${what} for ${key}: on ${entry.model} it passed every run of ${entry.passed} of ${compared} orders, against ${entry.baseline.passed} of ${compared} for ${flightLabelOf(baseline)} on ${entry.baseline.model}, at ${entry.tokensPerOrder} tokens per order.`,
+      `\`defaults/models.jsonc\`'s \`tasted\` list keeps the latest Flight of each brewer, recipe, level and effort (ADR 0416). This pull request ${what} for ${key}: on ${entry.model} it passed every run on ${entry.passed} of ${compared} orders, where ${flightLabelOf(baseline)} on ${entry.baseline.model} passed every run on ${entry.baseline.passed} of ${compared}, at ${entry.tokensPerOrder} tokens per order (${split.output} output, ${split.cacheRead} cache read, ${split.cacheWrite} cache write and ${split.input} fresh input).`,
       '',
       '## The Flight report',
       '',
