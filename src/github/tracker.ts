@@ -30,7 +30,8 @@ const targetIssue = (body: unknown, what: string): TargetIssue => {
     // A deleted account is nobody, so it never opened a Brewery order (ADR 0068).
     author: issue.user?.login ?? '',
     created: new Date(issue.created_at).toISOString(),
-    blockedBy: issue.issue_dependencies_summary.blocked_by,
+    // A pull request carries no summary, and the intake never claims one (ADR 0433).
+    blockedBy: issue.issue_dependencies_summary?.blocked_by ?? 0,
   };
 };
 

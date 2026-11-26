@@ -262,9 +262,11 @@ export const fakeGitHubApi = (options: FakeGitHubApiOptions): FakeGitHubApi => {
     body: found.body ?? null,
     created_at: found.created ?? createdOf(found.number),
     repository_url: `https://api.github.com/repos/${repo}`,
-    issue_dependencies_summary: summaryOf(repo, found),
     ...(found.title === undefined ? {} : { title: found.title }),
-    ...(found.pullRequest === true ? { pull_request: { url: `pulls/${found.number}` } } : {}),
+    // GitHub gives a pull request in the issue list no dependencies summary, an issue one.
+    ...(found.pullRequest === true
+      ? { pull_request: { url: `pulls/${found.number}` } }
+      : { issue_dependencies_summary: summaryOf(repo, found) }),
   });
   const labelsOf = (found: FakeApiIssue) => found.labels.map((name) => ({ name }));
   const clock = options.clock ?? (() => new Date(createdOf(1001 + events)));
@@ -486,13 +488,7 @@ export const fakeGitHubApi = (options: FakeGitHubApiOptions): FakeGitHubApi => {
     title: pull.title,
     created_at: createdOf(pull.number),
     repository_url: `https://api.github.com/repos/${pull.repo}`,
-    // A pull request is blocked by nothing the fake links.
-    issue_dependencies_summary: {
-      blocked_by: 0,
-      total_blocked_by: 0,
-      blocking: 0,
-      total_blocking: 0,
-    },
+    // GitHub gives a pull request in the issue list no dependencies summary.
     pull_request: {},
   });
   const asPull = (pull: FakeApiPull) => ({
