@@ -90,6 +90,16 @@ const KEEP_AWAKE_LINE =
     : `Keep awake: none (no ${process.platform === 'darwin' ? 'caffeinate' : 'systemd-inhibit'} on PATH); the machine may sleep while an attempt runs (ADR 0195)`;
 // The stubs' Brewery has no event log yet (ADR 0419).
 const TASTING_LINE = 'Tasting: no brewer attempt in the last 30 days to read.';
+// The stubs' foedrum.jsonc lists one repository, which has no clone on this machine (ADR 0317)
+// and no test check (ADR 0242).
+const SYSTEM_MAP_LINES = [
+  "System map (the planners' repositories input, ADR 0317):",
+  '- made-up/web, base origin/main: not read, it has no clone here yet',
+  '',
+  'Tests (the check step and the full gate, ADR 0242):',
+  '- made-up/web: no test check',
+  '',
+];
 // What each tool prints for its version, in its own format, with the versions of the captures in
 // test/unit (doctor.test.ts, doctor-facts.test.ts and cli.test.ts's report); gh's come from
 // test/helpers/canned-gh.ts. The real tools' output is no longer read here (ADR 0075).
@@ -248,6 +258,7 @@ describe('foedrum doctor with stub tools', () => {
         TASTING_LINE,
         '',
         ...PROMPT_LINES,
+        ...SYSTEM_MAP_LINES,
         ...optional(platform.problems),
         '',
       ].join('\n'),
@@ -288,6 +299,7 @@ describe('foedrum doctor with stub tools', () => {
         TASTING_LINE,
         '',
         ...PROMPT_LINES,
+        ...SYSTEM_MAP_LINES,
         'Problems:',
         '  npm not found: Foedrum is installed and updated with npm, which comes with Node',
         `  gh is not logged in to ${host} (required): run gh auth login --hostname ${host}`,

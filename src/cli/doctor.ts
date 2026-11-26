@@ -105,6 +105,11 @@ export interface TastingFact {
   at: Date;
   /** Why the event log could not be read, when it is there and could not be. */
   unreadable?: string;
+  /**
+   * The schema version of an event log older than this Foedrum reads, which the next brew or
+   * serve upgrades by itself (#1163).
+   */
+  olderSchema?: number;
 }
 
 /** The denylist's state as doctor reports it: its path, never its words or their count. */

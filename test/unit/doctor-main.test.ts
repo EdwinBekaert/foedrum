@@ -5,6 +5,7 @@
 import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import { after, describe, it } from 'node:test';
 import { doctorFromCheckout } from '../../src/cli/doctor-main.ts';
 import { storePath } from '../../src/cli/serve-config.ts';
@@ -175,6 +176,63 @@ describe('doctorFromCheckout: the models brewer attempts reported (ADR 0419)', (
       const facts = await doctorFromCheckout(brewery.path, options);
       assert.deepEqual(facts.tasting?.used, []);
       assert.equal(existsSync(storePath(brewery.path)), false);
+    } finally {
+      brewery.remove();
+    }
+  });
+
+  // A store at another schema version: made by this Foedrum, then its version set by hand.
+  const storeAtVersion = (brewery: string, version: number) => {
+    mkdirSync(join(brewery, '.foedrum'));
+    openSqliteEventStore(storePath(brewery)).close();
+    const db = new DatabaseSync(storePath(brewery));
+    try {
+      db.exec(`PRAGMA user_version = ${version}`);
+    } finally {
+      db.close();
+    }
+  };
+  const versionOf = (brewery: string): unknown => {
+    const db = new DatabaseSync(storePath(brewery));
+    try {
+      return db.prepare('PRAGMA user_version').get()?.user_version;
+    } finally {
+      db.close();
+    }
+  };
+
+  it('reads an event log older than this Foedrum as older, by its version, not as unreadable (#1163)', async () => {
+    const brewery = makeTempDir('doctor-main-older-store');
+    try {
+      storeAtVersion(brewery.path, 4);
+      const facts = await doctorFromCheckout(brewery.path, options);
+      assert.equal(facts.tasting?.olderSchema, 4);
+      assert.equal(facts.tasting?.unreadable, undefined);
+      assert.deepEqual(facts.tasting?.used, []);
+    } finally {
+      brewery.remove();
+    }
+  });
+
+  it('leaves an event log older than this Foedrum as it was: regression test (#1163)', async () => {
+    const brewery = makeTempDir('doctor-main-older-store-kept');
+    try {
+      storeAtVersion(brewery.path, 4);
+      await doctorFromCheckout(brewery.path, options);
+      assert.equal(versionOf(brewery.path), 4);
+    } finally {
+      brewery.remove();
+    }
+  });
+
+  it('still says an event log newer than this Foedrum cannot be read: regression test (#1163)', async () => {
+    const brewery = makeTempDir('doctor-main-newer-store');
+    try {
+      storeAtVersion(brewery.path, 99);
+      const facts = await doctorFromCheckout(brewery.path, options);
+      assert.match(facts.tasting?.unreadable ?? '', /schema version 99/);
+      assert.equal(facts.tasting?.olderSchema, undefined);
+      assert.deepEqual(facts.tasting?.used, []);
     } finally {
       brewery.remove();
     }
