@@ -52,9 +52,25 @@ export const GitHubIssue = z.object({
 /** An issue with its REST id, which a sub-issue or "blocked by" link names it by (#723). */
 export const GitHubIssueWithId = GitHubIssue.extend({ id: z.number().int().positive() });
 
-/** One item of the intake's listing: with its creation time, its arrival in the queue (ADR 0208). */
+/**
+ * One item of the intake's listing: with its creation time, its arrival in the queue (ADR 0208),
+ * and how many open issues it is "blocked by", which decides whether its links are read (ADR 0433).
+ * GitHub gives an issue the summary and a pull request, which the listing holds too, none.
+ */
 export const GitHubListedIssue = GitHubIssue.extend({
   created_at: z.iso.datetime({ offset: true }),
+  issue_dependencies_summary: z.object({ blocked_by: z.number().int().nonnegative() }).optional(),
+}).refine(
+  (item) => item.pull_request !== undefined || item.issue_dependencies_summary !== undefined,
+  { message: 'An issue carries its dependencies summary', path: ['issue_dependencies_summary'] },
+);
+
+/**
+ * One item of `GET /repos/{owner}/{repo}/issues/{n}/dependencies/blocked_by`: an issue of any
+ * repository, which `repository_url` names (ADR 0433).
+ */
+export const GitHubBlocker = GitHubIssue.pick({ number: true, state: true }).extend({
+  repository_url: z.string(),
 });
 
 /**

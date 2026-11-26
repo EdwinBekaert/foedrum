@@ -84,6 +84,12 @@ const brewerysIssue = (body: string, pulls: Pull[]): Route => {
       labels: ['recipe:stout'],
       body,
       created_at: at,
+      issue_dependencies_summary: {
+        blocked_by: 0,
+        total_blocked_by: 0,
+        blocking: 0,
+        total_blocking: 0,
+      },
     };
     const bare = path.split('?')[0] ?? '';
     // The order check's read of the issue's edits (ADR 0368): none since its approval.

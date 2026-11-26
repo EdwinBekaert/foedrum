@@ -13,7 +13,9 @@
 //   someone in `users` added last, read from the events of each issue that passes every other
 //   check (ADR 0359), which it claims and orders as `<alias>-<issue>`, each Ordered until it is
 //   routed by its deadline (ADR 0032),
-//   skipping what a recipe's `concurrency` or the open-order limit holds (ADR 0217);
+//   skipping what a recipe's `concurrency` or the open-order limit holds (ADR 0217), and an issue
+//   that an open issue blocks on GitHub, whose links it reads only when its listing counts some
+//   (ADR 0433);
 // - routes every Ordered batch whose Brewery issue it read by that issue's one `recipe:<name>`
 //   label, whoever ordered it: this pass, a pass killed before it routed, or a retry. A claimed
 //   batch's Brewery issue is its order (ADR 0144, ADR 0156), never the target issue. A batch
@@ -30,6 +32,7 @@ import type { CommandLog } from './command-log.ts';
 import type { EngineCommand } from './decide.ts';
 import { type Batch, emptyState, orderKey, type State } from './fold.ts';
 import {
+  type Blocker,
   type Claimant,
   type ClaimHost,
   type ClaimOutcome,
@@ -73,6 +76,8 @@ export interface TargetTracker {
   pullRequest(url: string, signal?: AbortSignal): Promise<PullRequestState>;
   /** Each adding of a label to `repo#issue`, oldest first, from every page of its events. */
   labelsAdded(repo: string, issue: number, signal?: AbortSignal): Promise<readonly LabelAdded[]>;
+  /** Each issue `repo#issue` is "blocked by", open or closed, from every page of its links. */
+  blockers(repo: string, issue: number, signal?: AbortSignal): Promise<readonly Blocker[]>;
 }
 
 /** A repository whose issues the intake polls: its alias starts the batch ids of its issues. */
@@ -225,6 +230,8 @@ export interface Listing {
 /** An order of the pass's queue: a Brewery issue, or a target issue of `repository`. */
 export interface QueuedIssue extends QueuedOrder {
   repository?: IntakeRepository;
+  /** How many open issues its listing says it is "blocked by": none for a sub-order (ADR 0433). */
+  blockedBy: number;
 }
 
 /**
@@ -245,7 +252,8 @@ const subOrdersQueued = (state: State, listed: readonly TargetIssue[]): QueuedIs
     // A sub-order waits for a person while it is marked, recipe label or not (ADR 0285).
     if (listed.labels.some((label) => same(label, NEEDS_REFINEMENT))) return [];
     const subOrder = { issue, parentBatchId, ...(plan === undefined ? {} : { plan }) };
-    return [{ order: { issue: order }, created, source: 0, subOrder }];
+    // Left to the ledger, which holds it until its blockers merged (ADR 0211, ADR 0433).
+    return [{ order: { issue: order }, created, source: 0, subOrder, blockedBy: 0 }];
   });
 };
 
@@ -318,13 +326,19 @@ export const intakeQueue = (
   const { authors, claimant } = who;
   const orders: QueuedIssue[] = listed.brewery
     .filter((found) => isBreweryOrder(found, state, authors))
-    .map((found) => ({ order: { issue: found.number }, created: found.created, source: 0 }));
+    .map((found) => ({
+      order: { issue: found.number },
+      created: found.created,
+      source: 0,
+      blockedBy: found.blockedBy,
+    }));
   orders.push(...subOrdersQueued(state, listed.brewery));
   if (placed !== undefined && hasSubOrdersLeft(state, placed)) {
     const found = listed.brewery.find((each) => each.number === placed.issue);
     const queued = orders.some(({ order }) => orderKey(order) === orderKey(placed));
     if (found?.state === 'open' && !queued) {
-      orders.push({ order: { issue: placed.issue }, created: found.created, source: 0 });
+      const { created, blockedBy } = found;
+      orders.push({ order: { issue: placed.issue }, created, source: 0, blockedBy });
     }
   }
   listed.repositories.forEach(({ repository, issues }, index) => {
@@ -333,7 +347,8 @@ export const intakeQueue = (
     for (const found of issues) {
       if (!isCandidate(found, { filter, claimant, brewed, authors })) continue;
       const order = { issue: found.number, repo };
-      orders.push({ order, created: found.created, source: index + 1, repository });
+      const { created, blockedBy } = found;
+      orders.push({ order, created, source: index + 1, repository, blockedBy });
     }
   });
   // Once each: a listing whose pages shift while it is read can return an issue twice.
@@ -474,15 +489,30 @@ export const createIntake = (options: IntakeOptions): Intake => {
     const tally = startTally(log.state(), breweryIssues, limits);
     let ordered = 0;
     for (const entry of queue) {
-      const { order, repository, subOrder } = entry;
+      const { order, repository, subOrder, blockedBy } = entry;
+      const home = repository?.repo ?? brewery ?? '';
       // A pass given up at its deadline orders nothing: the next pass finds its claims as ours.
       if (ordered === free || signal.aborted) break;
       if (repository !== undefined && failed.has(repository)) continue;
-      const hold = tally.hold(entry);
+      let hold = tally.hold(entry);
+      // An issue "blocked by" an open issue waits and keeps its place, nothing written (ADR 0433).
+      if (hold === undefined && blockedBy > 0) {
+        try {
+          const blockers = await tracker.blockers(home, order.issue, signal);
+          blockersUnread.delete(`${home}#${order.issue}`);
+          const by = blockers
+            .filter(({ state }) => state === 'open')
+            .map(({ repo, number }) => `${same(repo, home) ? '' : repo}#${number}`);
+          if (by.length > 0) hold = { kind: 'blocked', by };
+        } catch (error) {
+          blockersUnreadOnce(`${home}#${order.issue}`, error);
+          continue;
+        }
+      }
       if (hold !== undefined) {
         sayOnce({
           kind: 'held',
-          repo: repository?.repo ?? brewery ?? '',
+          repo: home,
           issue: subOrder?.issue ?? order.issue,
           reason: holdText(hold),
         });
@@ -560,6 +590,14 @@ export const createIntake = (options: IntakeOptions): Intake => {
     if (unread.has(issue)) return;
     unread.add(issue);
     report({ kind: 'failed', what: `reading who labelled ${issue}`, error });
+  };
+
+  // The issues whose blockers a read failed on, until one reads them: each said once (ADR 0433).
+  const blockersUnread = new Set<string>();
+  const blockersUnreadOnce = (issue: string, error: unknown): void => {
+    if (blockersUnread.has(issue)) return;
+    blockersUnread.add(issue);
+    report({ kind: 'failed', what: `reading the blockers of ${issue}`, error });
   };
 
   // The batches reported as not routable, with the reason: each once, not at every poll.

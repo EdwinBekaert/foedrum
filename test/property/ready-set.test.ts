@@ -13,6 +13,7 @@ import type { TargetIssue } from '../../src/engine/issue-claims.ts';
 import type { LatestRelease, ReleaseReader } from '../../src/engine/releases.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import type { Dependency, Event } from '../../src/schemas/events.ts';
+import { blockersNotRead } from '../helpers/blockers.ts';
 import { seededRandom } from '../helpers/event-sequences.ts';
 import { fakeGitHub } from '../helpers/fake-github.ts';
 import { fakeRecipe, fakeRecipes } from '../helpers/fake-recipes.ts';
@@ -73,6 +74,7 @@ const generate = (seed: number): Plan => {
     assignees: [],
     author: 'alice',
     created: new Date(Date.UTC(2026, 9, 26, 10, random.int(5))).toISOString(),
+    blockedBy: 0,
   });
   for (let o = 1 + random.int(3); o > 0; o--) {
     const order = number++;
@@ -232,6 +234,7 @@ it('one pass orders only ready sub-orders, within the free capacity, and all of 
         issues: async (repo) => (repo === brewery ? plan.listed : []),
         pullRequest: async () => 'open',
         labelsAdded: addedByAuthor(() => []),
+        blockers: blockersNotRead,
       };
       const read: string[] = [];
       const releases: ReleaseReader = {

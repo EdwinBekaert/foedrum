@@ -16,6 +16,7 @@ import { placeAt, type QueuedOrder, rankQueue } from '../../src/engine/ranks.ts'
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import { BreweryConfig } from '../../src/schemas/brewery-config.ts';
 import type { Event, OrderRef, RankPlace } from '../../src/schemas/events.ts';
+import { blockersNotRead } from '../helpers/blockers.ts';
 import { linux } from '../helpers/doctor-facts.ts';
 import { type FakeGitHub, fakeGitHub } from '../helpers/fake-github.ts';
 import { fakeRecipe, fakeRecipes } from '../helpers/fake-recipes.ts';
@@ -44,6 +45,7 @@ const issue = (
   assignees: [],
   author: 'alice',
   created,
+  blockedBy: 0,
   ...fields,
 });
 const labelled = (number: number, created: string): TargetIssue =>
@@ -71,6 +73,7 @@ const fakeTracker = (
     if (given instanceof Error) throw given;
     return given ?? addedByAuthor((each) => issues[each])(repo, number);
   },
+  blockers: blockersNotRead,
 });
 
 const ranked = (order: OrderRef, place: RankPlace, why?: string): Event => ({

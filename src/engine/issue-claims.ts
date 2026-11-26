@@ -38,10 +38,24 @@ export interface TargetIssue {
   /** When it was created on GitHub: its arrival in the intake's queue (ADR 0208). */
   created: string;
   /**
+   * How many open issues it is "blocked by" on GitHub, as its listing counts them
+   * (`issue_dependencies_summary.blocked_by`): only an issue with some has its blockers read.
+   */
+  blockedBy: number;
+  /**
    * Each adding of a label, oldest first, from the issue's events (ADR 0359): read only for an
    * issue that passes every other check, and absent until then.
    */
   labelsAdded?: readonly LabelAdded[];
+}
+
+/** An issue another issue is "blocked by" on GitHub, in any repository. */
+export interface Blocker {
+  /** `owner/name` of the repository the blocker is in. */
+  repo: string;
+  number: number;
+  /** `closed` whether it was completed or closed as not planned. */
+  state: 'open' | 'closed';
 }
 
 /** A label added to an issue: who added it, undefined when that can't be told (a deleted account). */

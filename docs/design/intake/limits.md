@@ -1,6 +1,6 @@
 # Limits
 
-Besides the Brewery's `concurrency`, three limits hold what the intake starts: a recipe's `concurrency`, the Brewery's open-order limit ([ADR 0217](../../adr/0217-a-recipe-s-concurrency-and-the-open-order-limit-hold-what-the-intake-starts.md)) and the touches limit.
+Besides the Brewery's `concurrency`, three limits hold what the intake starts: a recipe's `concurrency`, the Brewery's open-order limit ([ADR 0217](../../adr/0217-a-recipe-s-concurrency-and-the-open-order-limit-hold-what-the-intake-starts.md)) and the touches limit; an issue blocked on GitHub is held the same way.
 
 ```mermaid
 flowchart LR
@@ -29,3 +29,8 @@ flowchart LR
   An Ordered batch holds because its route can be held over passes, as a recipe's concurrency counts it.
   An overlap is a shared path or a path under a folder the other touches, in one repository, compared without case as a checkout on Windows or macOS reads them; a sub-order without `touches` is never held.
   `foedrum status` prints `sub-order #11 waits for sub-order #10 (10-1): their touches overlap` after the other limits' lines.
+- **An issue blocked on GitHub** ([ADR 0433](../../adr/0433-the-intake-holds-an-issue-while-an-issue-it-is-blocked-by-on-github-is-open.md)): a target issue is not claimed, and a Brewery issue with a recipe label not ordered, while an issue it is "blocked by" on GitHub is open, in any repository; the pass takes it at the first pass after the last blocker closed, and a blocker closed as not planned counts as closed.
+  It is a hold like the others: the issue keeps its place, holds no other issue, and `serve` says it once, `<repo>#<n> waits: blocked by #3 (open)`, a blocker of another repository as `owner/name#3`.
+  The listing's `issue_dependencies_summary.blocked_by` says whether an issue has open blockers (`TargetIssue.blockedBy`); only then the walk reads its links (`blockers`, `src/github/tracker.ts`), once it reaches the issue with a free slot and no limit holding it, and a read that fails holds the issue for that pass and is reported.
+  The issue is not claimed, nothing is written on it and nothing is recorded in the store, so `foedrum status` shows no line for it.
+  A sub-order (`foedrum:sub-order`) is left to the ledger, which holds it until its blockers merged ([ADR 0211](../../adr/0211-the-intake-starts-ready-sub-orders-at-their-order-s-rank-once-their-blockers-merged.md)): a sub-order waits for a merge, an issue for a close, since an issue's pull request closes it when it merges.

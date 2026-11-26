@@ -16,6 +16,7 @@ import {
 import type { Claimant, TargetIssue } from '../../src/engine/issue-claims.ts';
 import { type Limits, limitLines, limitsOf, mayHold, openOrders } from '../../src/engine/limits.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
+import { blockersNotRead } from '../helpers/blockers.ts';
 import { type FakeGitHub, fakeGitHub } from '../helpers/fake-github.ts';
 import { createdOf } from '../helpers/fake-github-api.ts';
 import { fakeRecipe, fakeRecipes } from '../helpers/fake-recipes.ts';
@@ -44,12 +45,14 @@ const issue = (number: number, labels: readonly string[]): TargetIssue => ({
   assignees: [],
   author: 'alice',
   created: createdOf(number),
+  blockedBy: 0,
 });
 
 const fakeTracker = (issues: Record<string, TargetIssue[]>): TargetTracker => ({
   issues: async (repo) => issues[repo] ?? [],
   pullRequest: async () => 'open',
   labelsAdded: addedByAuthor((repo) => issues[repo]),
+  blockers: blockersNotRead,
 });
 
 describe('the limits of a pass (ADR 0217)', () => {

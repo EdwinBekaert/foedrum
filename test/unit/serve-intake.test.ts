@@ -782,6 +782,55 @@ describe('runServe', () => {
       ]);
     });
 
+    it('claims no target issue while an issue it is blocked by is open, says so once, and claims it after the blocker closed (ADR 0433)', async () => {
+      f.store = empty();
+      f.setup = intakeSetup({}, target);
+      const github = fakeGitHubApi({
+        login: 'ann',
+        issues: {
+          'acme/brewery': [],
+          'acme/web': [
+            // The blocker is no intake candidate: it has no label.
+            { number: 3, labels: [], author: 'ann' },
+            {
+              number: 7,
+              labels: ['foedrum'],
+              author: 'ann',
+              created: '2026-10-02T00:00:00.000Z',
+              blockedBy: [3],
+            },
+          ],
+        },
+      });
+      // How the issue stands at each of the first two waits, with the claim refs there are.
+      const standing: [string | undefined, number][] = [];
+      const done = () => {
+        const waits = f.calls.filter((call) => call === 'wait').length;
+        if (waits < 3) {
+          standing.push([lane('web-7'), github.refs.size]);
+          return false;
+        }
+        // A person closes the blocker.
+        const blocker = github.issue('acme/web', 3);
+        if (blocker !== undefined) blocker.state = 'closed';
+        return lane('web-7') !== undefined;
+      };
+      // One tick is one default pollEvery (60 s), so each wait is followed by a pass.
+      await runServe(f.setup, shell({ fetch: github.fetch, ...ticking(done, 60_000) }));
+      assert.deepStrictEqual(standing, [
+        [undefined, 0],
+        [undefined, 0],
+      ]);
+      assert.deepStrictEqual(
+        f.lines.filter((line) => line.includes('acme/web#7 waits')),
+        ['foedrum serve: acme/web#7 waits: blocked by #3 (open)'],
+      );
+      assert.ok(
+        github.refs.has('acme/web refs/foedrum/claims/issues/7'),
+        [...github.refs.keys()].join(),
+      );
+    });
+
     it('releases the claim of a claimed batch the store has, though no repository has an intake any more', async () => {
       f.store = empty();
       f.setup = intakeSetup();

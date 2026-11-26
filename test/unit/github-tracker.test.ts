@@ -26,6 +26,7 @@ const perPage = (url: string | undefined): number =>
   Number(new URL(url ?? 'https://x').searchParams.get('per_page'));
 
 const pullRequest = 'https://github.com/acme/web/pull/12';
+const noDependencies = { blocked_by: 0, total_blocked_by: 0, blocking: 0, total_blocking: 0 };
 
 const trackerWith = (answers: Answer[]) => {
   const fake = fakeFetch(answers);
@@ -53,6 +54,8 @@ describe('githubTargetTracker', () => {
           assignees: ['alice'],
           author: 'alice',
           created: '2026-10-14T08:00:00.000Z',
+          // Two of its three blockers are open: `blocked_by` counts only those.
+          blockedBy: 2,
         },
         {
           number: 8,
@@ -63,6 +66,7 @@ describe('githubTargetTracker', () => {
           assignees: [],
           author: 'bob',
           created: '2026-10-15T08:00:00.000Z',
+          blockedBy: 0,
         },
         // A deleted account is nobody, so never an allow-listed author.
         {
@@ -74,6 +78,8 @@ describe('githubTargetTracker', () => {
           assignees: [],
           author: '',
           created: '2026-10-15T09:00:00.000Z',
+          // Its one blocker is closed, whether completed or not planned: none blocks it.
+          blockedBy: 0,
         },
       ]);
       assert.deepStrictEqual(
@@ -89,6 +95,7 @@ describe('githubTargetTracker', () => {
         user: { login: 'alice' },
         labels: ['foedrum'],
         created_at: '2026-10-14T08:00:00Z',
+        issue_dependencies_summary: noDependencies,
       };
       const { tracker } = trackerWith([
         { status: 200, body: [{ ...item, assignees: null, milestone: null }] },
@@ -96,6 +103,44 @@ describe('githubTargetTracker', () => {
       const [issue] = await tracker.issues('acme/web');
       assert.deepStrictEqual(issue?.labels, ['foedrum']);
       assert.deepStrictEqual(issue?.assignees, []);
+    });
+
+    it('reads how many open blockers the listing counts, not how many it ever had', async () => {
+      const [item] = fixture('issues') as Record<string, unknown>[];
+      const summary = { ...noDependencies, blocked_by: 1, total_blocked_by: 4 };
+      const { tracker } = trackerWith([
+        { status: 200, body: [{ ...item, issue_dependencies_summary: summary }] },
+      ]);
+      const [issue] = await tracker.issues('acme/web');
+      assert.equal(issue?.blockedBy, 1);
+    });
+
+    it('fails on a listed issue with no dependencies summary, naming the repository', async () => {
+      const [item] = fixture('issues') as Record<string, unknown>[];
+      const { issue_dependencies_summary: _, ...unsummarised } = item ?? {};
+      const { tracker } = trackerWith([{ status: 200, body: [unsummarised] }]);
+      await assert.rejects(tracker.issues('acme/web'), /the open issues of acme\/web/);
+    });
+
+    it('lists a pull request, which GitHub gives no dependencies summary, beside the issues', async () => {
+      const items = fixture('issues') as Record<string, unknown>[];
+      // GitHub's issue listing holds pull requests too, and a pull request item carries no summary.
+      const listed = items.map((item) => {
+        if (item.pull_request === undefined) return item;
+        const { issue_dependencies_summary: _, ...pull } = item;
+        return pull;
+      });
+      const { tracker } = trackerWith([{ status: 200, body: listed }]);
+      const issues = await tracker.issues('acme/web');
+      // A pull request is never claimed, so it counts no blockers.
+      assert.deepStrictEqual(
+        issues.map(({ number, pullRequest, blockedBy }) => ({ number, pullRequest, blockedBy })),
+        [
+          { number: 7, pullRequest: false, blockedBy: 2 },
+          { number: 8, pullRequest: true, blockedBy: 0 },
+          { number: 9, pullRequest: false, blockedBy: 0 },
+        ],
+      );
     });
 
     it('asks again with the ETag, and an unchanged listing answers the same issues', async () => {
@@ -273,6 +318,90 @@ describe('githubTargetTracker', () => {
         tracker.labelsAdded('acme/web', 7),
         /the events of acme\/web#7 has a labeled event without its label/,
       );
+    });
+  });
+
+  describe('blockers', () => {
+    const links = `${api}/repos/acme/web/issues/7/dependencies/blocked_by`;
+
+    it('reads each issue it is blocked by with its repository and state: one in another repository, and one closed as not planned as closed', async () => {
+      const { tracker, requests } = trackerWith([
+        { status: 200, body: fixture('issue-blocked-by') },
+      ]);
+      assert.deepStrictEqual(await tracker.blockers('acme/web', 7), [
+        { repo: 'acme/web', number: 3, state: 'open' },
+        { repo: 'acme/api', number: 12, state: 'open' },
+        { repo: 'acme/web', number: 5, state: 'closed' },
+      ]);
+      assert.deepStrictEqual(
+        requests.map(({ method, url }) => [method, url.split('?')[0]]),
+        [['GET', links]],
+      );
+    });
+
+    it('reads no blockers of an issue with none', async () => {
+      const { tracker } = trackerWith([{ status: 200, body: [] }]);
+      assert.deepStrictEqual(await tracker.blockers('acme/web', 7), []);
+    });
+
+    it('asks for the links in pages small enough that a page of the longest issues stays under the answer limit', async () => {
+      const { tracker, requests } = trackerWith([{ status: 200, body: [] }]);
+      await tracker.blockers('acme/web', 7);
+      assert.ok(perPage(requests[0]?.url) >= 1);
+      assert.ok(perPage(requests[0]?.url) <= longestFit, `per_page ${perPage(requests[0]?.url)}`);
+    });
+
+    it('reads every page of the links', async () => {
+      const [first, ...rest] = fixture('issue-blocked-by') as unknown[];
+      const { tracker } = trackerWith([
+        {
+          status: 200,
+          body: [first],
+          headers: {
+            link: `<${api}/repositories/42/issues/7/dependencies/blocked_by?page=2>; rel="next"`,
+          },
+        },
+        { status: 200, body: rest },
+      ]);
+      assert.deepStrictEqual(
+        (await tracker.blockers('acme/web', 7)).map(({ number }) => number),
+        [3, 12, 5],
+      );
+    });
+
+    it('asks again with the ETag, and unchanged links answer the same blockers', async () => {
+      const { tracker, requests } = trackerWith([
+        { status: 200, body: fixture('issue-blocked-by'), headers: { etag: 'W/"links"' } },
+        { status: 304 },
+      ]);
+      const first = await tracker.blockers('acme/web', 7);
+      assert.deepStrictEqual(await tracker.blockers('acme/web', 7), first);
+      assert.equal(first.length, 3);
+      assert.equal(requests[1]?.headers['if-none-match'], 'W/"links"');
+    });
+
+    it('fails on a blocker it cannot read, or a refusal, naming the issue', async () => {
+      const [item] = fixture('issue-blocked-by') as Record<string, unknown>[];
+      const { repository_url: _, ...homeless } = item ?? {};
+      const broken = trackerWith([{ status: 200, body: [homeless] }]);
+      await assert.rejects(broken.tracker.blockers('acme/web', 7), /acme\/web#7/);
+      const missing = trackerWith([{ status: 404, body: { message: 'Not Found' } }]);
+      await assert.rejects(missing.tracker.blockers('acme/web', 7), /404 .*acme\/web#7: Not Found/);
+    });
+
+    it('refuses to read the blockers in a repository that is no owner/name before asking GitHub', async () => {
+      const { tracker, requests } = trackerWith([]);
+      await assert.rejects(tracker.blockers('acme/../x', 7), /owner\/name/);
+      assert.equal(requests.length, 0);
+    });
+
+    it('stops reading the blockers when its signal aborts', async () => {
+      const { tracker, requests } = trackerWith(['hang']);
+      const controller = new AbortController();
+      const reading = tracker.blockers('acme/web', 7, controller.signal);
+      controller.abort(new Error('the pass is past its deadline'));
+      await assert.rejects(reading, /past its deadline/);
+      assert.equal(requests[0]?.signal?.aborted, true);
     });
   });
 

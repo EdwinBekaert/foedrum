@@ -1,7 +1,8 @@
 // The limits on what the intake starts (ADR 0217), beside the Brewery's `concurrency` (ADR 0068):
 // a recipe's `concurrency`, the Brewery's open-order limit, and the touches limit: a sub-order
 // whose `touches` overlap those of one that is Ordered or Brewing waits (ADR 0257). Pure: a function of the folded
-// state, the pass's listing of the Brewery's issues and the limits, so a restart holds the same.
+// state, the pass's listing of the Brewery's issues and the limits, so a restart holds the same. An
+// issue "blocked by" an open issue on GitHub is a hold too, but the intake reads its links (ADR 0433).
 
 import { breweryIssueOf, orderName } from './claim-orders.ts';
 import { type Batch, orderKey, type State, type SubOrder } from './fold.ts';
@@ -29,7 +30,9 @@ export type Hold =
   | { kind: 'recipe'; recipe: string; limit: number }
   | { kind: 'open_orders'; limit: number }
   /** The sub-order `holder` is Ordered or Brewing, and its touches overlap the held sub-order's. */
-  | { kind: 'touches'; holder: number };
+  | { kind: 'touches'; holder: number }
+  /** The open issues it is "blocked by" on GitHub: `#3` in its own repository, `owner/name#3` else (ADR 0433). */
+  | { kind: 'blocked'; by: readonly string[] };
 
 /** The limits of `openOrders` and the recipes' own `concurrency`. */
 export const limitsOf = (openOrders: number, recipes: Recipes): Limits => ({
@@ -195,6 +198,8 @@ export const holdText = (hold: Hold): string => {
       return `${hold.limit} ${hold.limit === 1 ? 'order is' : 'orders are'} open, the Brewery's openOrders`;
     case 'touches':
       return `its touches overlap sub-order #${hold.holder}'s, whose batch is ordered or brewing (touches)`;
+    case 'blocked':
+      return `blocked by ${hold.by.map((issue) => `${issue} (open)`).join(', ')}`;
     default: {
       const unhandled: never = hold;
       throw new Error(`Unhandled hold ${JSON.stringify(unhandled)}`);

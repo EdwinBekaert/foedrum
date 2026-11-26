@@ -19,6 +19,7 @@ import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import { BreweryConfig } from '../../src/schemas/brewery-config.ts';
 import type { Event } from '../../src/schemas/events.ts';
 import type { Question } from '../../src/schemas/step-outcome.ts';
+import { blockersNotRead } from '../helpers/blockers.ts';
 import { linux } from '../helpers/doctor-facts.ts';
 import { type FakeGitHub, fakeGitHub } from '../helpers/fake-github.ts';
 import { fakeRecipe, fakeRecipes } from '../helpers/fake-recipes.ts';
@@ -305,10 +306,12 @@ describe('foedrum: commands that change state', () => {
               assignees: [],
               author: 'ada',
               created: iso(-60),
+              blockedBy: 0,
             },
           ],
           pullRequest: async () => 'open',
           labelsAdded: async () => [],
+          blockers: blockersNotRead,
         },
         login: async () => 'ada',
       }),

@@ -18,6 +18,7 @@ import type { TargetIssue } from '../../src/engine/issue-claims.ts';
 import type { LatestRelease, ReleaseReader } from '../../src/engine/releases.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import { type Event, MAX_RELEASE_NOTES_LENGTH } from '../../src/schemas/events.ts';
+import { blockersNotRead } from '../helpers/blockers.ts';
 import { fakeGitHub } from '../helpers/fake-github.ts';
 import { fakeRecipe, fakeRecipes } from '../helpers/fake-recipes.ts';
 import { addedByAuthor } from '../helpers/labels-added.ts';
@@ -90,11 +91,13 @@ const issue = (number: number): TargetIssue => ({
   assignees: [],
   author: 'alice',
   created: new Date(Date.UTC(2026, 9, 26, 10, number)).toISOString(),
+  blockedBy: 0,
 });
 const tracker: TargetTracker = {
   issues: async (repo) => (repo === brewery ? [1, 2, 3, 4, 5].map(issue) : []),
   pullRequest: async () => 'open',
   labelsAdded: addedByAuthor(() => []),
+  blockers: blockersNotRead,
 };
 
 /**
