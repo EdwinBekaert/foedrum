@@ -1108,7 +1108,7 @@ describe("createCheckRunner: a second test line's coverage joins the uncovered-l
   const integration = 'npm run integration';
   // The module's coverage by its second line is a place the test map names, as its coverage is.
   const withSecond = (module: TestMapModule, path: string): TestMapModule => {
-    const second = { coverageSecond: { format: 'lcov', path } };
+    const second = { coverageSecond: { format: 'lcov' as const, path } };
     return { ...module, ...second };
   };
   const calcSecond = withSecond(calc, 'second.info');
