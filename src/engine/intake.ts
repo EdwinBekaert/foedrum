@@ -494,7 +494,20 @@ export const createIntake = (options: IntakeOptions): Intake => {
       // A pass given up at its deadline orders nothing: the next pass finds its claims as ours.
       if (ordered === free || signal.aborted) break;
       if (repository !== undefined && failed.has(repository)) continue;
-      const hold = tally.hold(entry);
+      let hold = tally.hold(entry);
+      // An issue "blocked by" an open issue waits and keeps its place, nothing written (ADR 0433).
+      if (hold === undefined && blockedBy > 0) {
+        try {
+          const blockers = await tracker.blockers(home, order.issue, signal);
+          const by = blockers
+            .filter(({ state }) => state === 'open')
+            .map(({ repo, number }) => `${same(repo, home) ? '' : repo}#${number}`);
+          if (by.length > 0) hold = { kind: 'blocked', by };
+        } catch (error) {
+          report({ kind: 'failed', what: `reading the blockers of ${home}#${order.issue}`, error });
+          continue;
+        }
+      }
       if (hold !== undefined) {
         sayOnce({
           kind: 'held',
@@ -503,28 +516,6 @@ export const createIntake = (options: IntakeOptions): Intake => {
           reason: holdText(hold),
         });
         continue;
-      }
-      // An issue "blocked by" an open issue waits and keeps its place, nothing written (ADR 0433).
-      if (blockedBy > 0) {
-        let by: string[];
-        try {
-          const blockers = await tracker.blockers(home, order.issue, signal);
-          by = blockers
-            .filter(({ state }) => state === 'open')
-            .map(({ repo, number }) => `${same(repo, home) ? '' : repo}#${number}`);
-        } catch (error) {
-          report({ kind: 'failed', what: `reading the blockers of ${home}#${order.issue}`, error });
-          continue;
-        }
-        if (by.length > 0) {
-          sayOnce({
-            kind: 'held',
-            repo: home,
-            issue: order.issue,
-            reason: holdText({ kind: 'blocked', by }),
-          });
-          continue;
-        }
       }
       if (repository === undefined) {
         // A ready sub-order is ordered under its order's batch (ADR 0211).
