@@ -122,6 +122,27 @@ describe('githubTargetTracker', () => {
       await assert.rejects(tracker.issues('acme/web'), /the open issues of acme\/web/);
     });
 
+    it('lists a pull request, which GitHub gives no dependencies summary, beside the issues', async () => {
+      const items = fixture('issues') as Record<string, unknown>[];
+      // GitHub's issue listing holds pull requests too, and a pull request item carries no summary.
+      const listed = items.map((item) => {
+        if (item.pull_request === undefined) return item;
+        const { issue_dependencies_summary: _, ...pull } = item;
+        return pull;
+      });
+      const { tracker } = trackerWith([{ status: 200, body: listed }]);
+      const issues = await tracker.issues('acme/web');
+      // A pull request is never claimed, so it counts no blockers.
+      assert.deepStrictEqual(
+        issues.map(({ number, pullRequest, blockedBy }) => ({ number, pullRequest, blockedBy })),
+        [
+          { number: 7, pullRequest: false, blockedBy: 2 },
+          { number: 8, pullRequest: true, blockedBy: 0 },
+          { number: 9, pullRequest: false, blockedBy: 0 },
+        ],
+      );
+    });
+
     it('asks again with the ETag, and an unchanged listing answers the same issues', async () => {
       const { tracker, requests } = trackerWith([
         { status: 200, body: fixture('issues'), headers: { etag: 'W/"issues"' } },
