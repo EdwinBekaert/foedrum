@@ -815,7 +815,8 @@ describe('runServe', () => {
         if (blocker !== undefined) blocker.state = 'closed';
         return lane('web-7') !== undefined;
       };
-      await runServe(f.setup, shell({ fetch: github.fetch, ...ticking(done, 0) }));
+      // One tick is one default pollEvery (60 s), so each wait is followed by a pass.
+      await runServe(f.setup, shell({ fetch: github.fetch, ...ticking(done, 60_000) }));
       assert.deepStrictEqual(standing, [
         [undefined, 0],
         [undefined, 0],
