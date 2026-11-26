@@ -9,7 +9,6 @@ import {
   type BreweryFile,
   type BreweryFiles,
   type Catalog,
-  defaultRecipeProblem,
   INVALID_RECIPES,
   loadRecipes,
   replacedDefaults,
@@ -31,7 +30,7 @@ import { oneLine } from './brew.ts';
 import { columns } from './columns.ts';
 import type { DoctorMapRepository } from './doctor-map.ts';
 import { printable } from './run.ts';
-import { githubHostname, mergedModels } from './serve-config.ts';
+import { breweryFileProblems, githubHostname, mergedModels } from './serve-config.ts';
 
 /** The tools doctor looks for on PATH. */
 export type ToolName =
@@ -681,11 +680,13 @@ const testLinesOf = (
 
 // The recipe and brewer files, when doctor read them: files that do not load stop every command
 // that needs recipes, with this same line (ADR 0053).
-// The defaults in use, when they load (ADR 0098); prompt sizes and notices (ADR 0141). A default
-// recipe foedrum.jsonc names that is not of type mash stops the Brewery, with serve's line (ADR 0370).
+// The defaults in use, when they load (ADR 0098); prompt sizes and notices (ADR 0141). With a
+// foedrum.jsonc to read the Brewery by, every file the brew setup refuses is a problem, with the
+// setup's line: a default recipe that is not of type mash (ADR 0370), models.jsonc (ADR 0438).
 const recipesOf = ({
   brewery,
   config,
+  models,
   platform,
 }: DoctorFacts): {
   problems: Problem[];
@@ -699,20 +700,23 @@ const recipesOf = ({
   const replacements = replacedDefaults(brewery).map(({ own, replaced }) =>
     replacementNotice(own, replaced),
   );
+  const read = config === undefined ? undefined : readJsonc(config, BreweryConfig);
+  const refused: string[] = [];
+  if (config !== undefined) {
+    breweryFileProblems(read?.valid ? read.value : undefined, { models, brewery }, loaded, refused);
+  }
+  // The setup's lines are `<what>: <fix>`, which the report prints as one problem.
+  const files = refused.map((line) => {
+    const colon = line.indexOf(': ');
+    return { required: true, what: line.slice(0, colon), fix: line.slice(colon + 2) };
+  });
   if (loaded.valid) {
     const prompts = promptSizes(loaded.catalog);
-    const read = config === undefined ? undefined : readJsonc(config, BreweryConfig);
-    const defaulted = read?.valid
-      ? defaultRecipeProblem(read.value.defaultRecipe, loaded.recipes)
-      : undefined;
     const lines = read?.valid
       ? testLinesOf(read.value, loaded.testFirst, platform)
       : { problems: [], notices: [] };
     return {
-      problems: [
-        ...(defaulted === undefined ? [] : [{ required: true, ...defaulted }]),
-        ...lines.problems,
-      ],
+      problems: [...files, ...lines.problems],
       defaults: [...loaded.defaults],
       prompts,
       notices: [
@@ -729,7 +733,10 @@ const recipesOf = ({
     };
   }
   return {
-    problems: [{ required: true, what: INVALID_RECIPES, fix: loaded.problems.join('; ') }],
+    problems: [
+      ...files,
+      { required: true, what: INVALID_RECIPES, fix: loaded.problems.join('; ') },
+    ],
     notices: replacements,
   };
 };
@@ -907,6 +914,9 @@ const tastingLine = (
   if (tasting.unreadable !== undefined) {
     return `Tasting: the event log cannot be read (${oneLine(printable(tasting.unreadable))}).`;
   }
+  if (tasting.olderSchema !== undefined) {
+    return `Tasting: the event log is in an older format (schema version ${tasting.olderSchema}); the next \`foedrum brew\` or \`foedrum serve\` upgrades it.`;
+  }
   if (facts.modelsUnreadable !== undefined) {
     return `Tasting: models.jsonc cannot be read (${oneLine(printable(facts.modelsUnreadable))}).`;
   }
@@ -929,7 +939,7 @@ const tastingLine = (
       ? `Tasting: every model in use in the last ${TASTING_DAYS} days was tasted, and no step has a cheaper level to taste.`
       : `Tasting: no brewer attempt in the last ${TASTING_DAYS} days to read.`;
   }
-  return `Tasting: ${suggestionWords({ untasted, cheaper })}; \`foedrum taste\` will list ${
+  return `Tasting: ${suggestionWords({ untasted, cheaper })}; docs/design/evaluation.md says how a Flight tastes ${
     untasted.length + cheaper.length === 1 ? 'it' : 'them'
   }.`;
 };

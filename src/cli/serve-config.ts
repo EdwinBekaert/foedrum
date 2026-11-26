@@ -306,6 +306,57 @@ export const stateWorktreeOf = (
   return join(workRootOf(local, home, config.brewery), 'state');
 };
 
+/**
+ * The Brewery-file checks serve, brew and resume refuse by and `foedrum doctor` reports, with the
+ * same line (ADR 0438), added to `problems` all at once: models.jsonc, what foedrum.jsonc must
+ * name, the default recipe and each step's level and effort. `config` is foedrum.jsonc as it was
+ * read, undefined when it did not pass, which is its reader's problem to say. Returns the merged
+ * models, undefined when a models file did not pass.
+ */
+export const breweryFileProblems = (
+  config: BreweryConfig | undefined,
+  files: Pick<ServeInputs['files'], 'models' | 'brewery'>,
+  loaded: ReturnType<typeof loadRecipes>,
+  problems: string[],
+): ModelsConfig | undefined => {
+  const models = mergedModels(files.models, files.brewery.defaults?.models, problems);
+  if (config !== undefined && Object.keys(config.repositories).length === 0) {
+    problems.push(
+      'foedrum.jsonc: list at least one repository under "repositories" for foedrum serve',
+    );
+  }
+  if (config !== undefined && config.brewery === undefined) {
+    problems.push(NAME_THE_BREWERY);
+  }
+  if (config !== undefined && (config.users ?? []).length === 0) {
+    problems.push(
+      'foedrum.jsonc: list the GitHub users who may order work under "users" (ADR 0068)',
+    );
+  }
+  // A default that would build an issue nobody chose a recipe for stops the Brewery (ADR 0370).
+  const defaulted = loaded.valid
+    ? defaultRecipeProblem(config?.defaultRecipe, loaded.recipes)
+    : undefined;
+  if (defaulted !== undefined) problems.push(`${defaulted.what}: ${defaulted.fix}`);
+  // Every step's level and effort has a translation, so no attempt finds out only when it starts.
+  if (models !== undefined) {
+    for (const step of loaded.valid ? loaded.catalog.stepLevels : []) {
+      const named = `${step.path}: step "${step.stepId}" of the brewer "${step.brewer}" names`;
+      if (!Object.hasOwn(models.claude.models, step.model)) {
+        problems.push(
+          `${named} the level "${step.model}", which models.jsonc has no claude model for`,
+        );
+      }
+      if (!Object.hasOwn(models.claude.efforts, step.effort)) {
+        problems.push(
+          `${named} the effort "${step.effort}", which models.jsonc has no claude effort for`,
+        );
+      }
+    }
+  }
+  return models;
+};
+
 /** Everything serve sets up, or one line per problem, all of them at once. */
 export const serveSetup = (inputs: ServeInputs): ServeSetupResult => {
   const { root, home, platform, env, files, diagnosis } = inputs;
@@ -320,21 +371,10 @@ export const serveSetup = (inputs: ServeInputs): ServeSetupResult => {
   );
   // Without the file, every default applies.
   const local = read('.foedrum/local.jsonc', files.local ?? '{}', LocalConfig, undefined, problems);
-  const models = mergedModels(files.models, files.brewery.defaults?.models, problems);
+  const loaded = loadRecipes(files.brewery);
+  const models = breweryFileProblems(config, files, loaded, problems);
+  if (!loaded.valid) problems.push(invalidRecipes(loaded.problems));
 
-  if (config !== undefined && Object.keys(config.repositories).length === 0) {
-    problems.push(
-      'foedrum.jsonc: list at least one repository under "repositories" for foedrum serve',
-    );
-  }
-  if (config !== undefined && config.brewery === undefined) {
-    problems.push(NAME_THE_BREWERY);
-  }
-  if (config !== undefined && (config.users ?? []).length === 0) {
-    problems.push(
-      'foedrum.jsonc: list the GitHub users who may order work under "users" (ADR 0068)',
-    );
-  }
   const repositories = Object.entries(config?.repositories ?? {}).map(
     ([repo, repository]): ServeRepository => {
       const source = repository.source ?? 'local';
@@ -365,30 +405,6 @@ export const serveSetup = (inputs: ServeInputs): ServeSetupResult => {
       };
     },
   );
-
-  const loaded = loadRecipes(files.brewery);
-  if (!loaded.valid) problems.push(invalidRecipes(loaded.problems));
-  // A default that would build an issue nobody chose a recipe for stops the Brewery (ADR 0370).
-  const defaulted = loaded.valid
-    ? defaultRecipeProblem(config?.defaultRecipe, loaded.recipes)
-    : undefined;
-  if (defaulted !== undefined) problems.push(`${defaulted.what}: ${defaulted.fix}`);
-  // Every step's level and effort has a translation, so no attempt finds out only when it starts.
-  if (models !== undefined) {
-    for (const step of loaded.valid ? loaded.catalog.stepLevels : []) {
-      const named = `${step.path}: step "${step.stepId}" of the brewer "${step.brewer}" names`;
-      if (!Object.hasOwn(models.claude.models, step.model)) {
-        problems.push(
-          `${named} the level "${step.model}", which models.jsonc has no claude model for`,
-        );
-      }
-      if (!Object.hasOwn(models.claude.efforts, step.effort)) {
-        problems.push(
-          `${named} the effort "${step.effort}", which models.jsonc has no claude effort for`,
-        );
-      }
-    }
-  }
 
   for (const { required, what, fix } of diagnosis.problems) {
     if (required) problems.push(`${what}: ${fix}`);

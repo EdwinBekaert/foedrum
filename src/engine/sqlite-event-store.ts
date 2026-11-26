@@ -170,6 +170,19 @@ const migrate = (db: DatabaseSync): void => {
   }
 };
 
+/** The schema version this Foedrum reads and writes; a write open upgrades an older store to it. */
+export const EVENT_STORE_VERSION = migrations.length;
+
+/** The schema version of the store at `path`, read without changing it; throws where it is no store. */
+export const eventStoreVersion = (path: string): number => {
+  const db = new DatabaseSync(path, { readOnly: true });
+  try {
+    return (db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version;
+  } finally {
+    db.close();
+  }
+};
+
 /** Opens (and creates or migrates) the store at `path`; `':memory:'` for a private in-memory one. */
 export const openSqliteEventStore = (
   path: string,

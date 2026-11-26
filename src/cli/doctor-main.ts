@@ -3,7 +3,11 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { homedir, release } from 'node:os';
 import { readBreweryFiles } from '../engine/brewery-files.ts';
-import { openSqliteEventStore } from '../engine/sqlite-event-store.ts';
+import {
+  EVENT_STORE_VERSION,
+  eventStoreVersion,
+  openSqliteEventStore,
+} from '../engine/sqlite-event-store.ts';
 import { modelsUsed } from '../engine/tasting-suggestions.ts';
 import { readDenylist } from '../platform/denylist.ts';
 import { messageOf } from '../platform/errors.ts';
@@ -18,13 +22,16 @@ import { storePath } from './serve-config.ts';
 /**
  * The models the Brewery's brewer attempts reported, read from its event log without creating or
  * changing one (ADR 0030, ADR 0419); none where it has no log yet, and why where it cannot be read,
- * so a log this Foedrum cannot read never stops the rest of doctor's report.
+ * so a log this Foedrum cannot read never stops the rest of doctor's report. A log in an older
+ * format is told by its version, not its refusal: the next brew or serve upgrades it (ADR 0438).
  */
 const readTasting = (cwd: string): TastingFact => {
   const at = new Date();
   const path = storePath(cwd);
   if (!existsSync(path)) return { used: [], at };
   try {
+    const version = eventStoreVersion(path);
+    if (version < EVENT_STORE_VERSION) return { used: [], at, olderSchema: version };
     const store = openSqliteEventStore(path, { readOnly: true });
     try {
       return { used: modelsUsed(store.eventsAfter(0).map(({ event }) => event)), at };
