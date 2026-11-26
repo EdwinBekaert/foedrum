@@ -828,7 +828,8 @@ export const runBrew = async (
         // A step can run for many minutes in silence: say it still runs (#406).
         saidAt = at;
         const runs = running.map(
-          ({ label }) => `${label} running for ${elapsed(at - drawing.firstSeen(label, at))}`,
+          (attempt) =>
+            `${attempt.label} running for ${elapsed(at - drawing.firstSeen(attempt, at))}`,
         );
         say(`${said} ${lane}: ${runs.join(', ')}`);
       }

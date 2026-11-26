@@ -2,7 +2,7 @@
 // batches' attempts do, fitted to the terminal and redrawn each second, with a mark that turns on a
 // timer of its own. `foedrum brew` and `foedrum serve` draw it alike (ADR 0427).
 
-import type { AttemptRef } from '../engine/attempt-key.ts';
+import { type AttemptRef, attemptKey } from '../engine/attempt-key.ts';
 import type { Batch } from '../engine/fold.ts';
 import type { AttemptProgress } from '../engine/supervisor.ts';
 import type { LiveTerminal, ServeShell } from './serve.ts';
@@ -140,15 +140,19 @@ export const createLiveLine = ({ terminal, signal, clock, wait, batches }: LiveL
     terminal?.clear();
     onScreen = false;
   };
-  /** When this driver first saw the attempt `label` run: `at` when it sees it now for the first time. */
-  const firstSeen = (label: string, at: number): number => {
-    const first = seenAt.get(label);
+  /**
+   * When this driver first saw the attempt run: `at` when it sees it now for the first time. Kept by
+   * the attempt's ref, not its label, which two batches of a serve can share (ADR 0427).
+   */
+  const firstSeen = ({ ref }: Running, at: number): number => {
+    const key = attemptKey.encode(ref);
+    const first = seenAt.get(key);
     if (first !== undefined) return first;
-    seenAt.set(label, at);
+    seenAt.set(key, at);
     return at;
   };
   const noticed = (attempts: readonly Running[], at: number): void => {
-    for (const { label } of attempts) firstSeen(label, at);
+    for (const attempt of attempts) firstSeen(attempt, at);
   };
   /** The line last fitted, with the mark's frame now in its first column, if it has one. */
   const show = (): void => {
@@ -165,7 +169,14 @@ export const createLiveLine = ({ terminal, signal, clock, wait, batches }: LiveL
   const drawn = (): void => {
     if (terminal === undefined) return;
     const at = clock().getTime();
-    const shown = batches().map(({ since, running, progressOf }) => {
+    const held = batches();
+    // An attempt that no longer runs is forgotten, so a serve that runs for days keeps no more
+    // than the attempts that run now (ADR 0427).
+    const running = new Set(
+      held.flatMap((batch) => batch.running.map(({ ref }) => attemptKey.encode(ref))),
+    );
+    for (const key of seenAt.keys()) if (!running.has(key)) seenAt.delete(key);
+    const shown = held.map(({ since, running, progressOf }) => {
       noticed(running, at);
       // What it does now, else the attempts that run now, else that nothing runs between two steps.
       const attempts =
@@ -173,8 +184,8 @@ export const createLiveLine = ({ terminal, signal, clock, wait, batches }: LiveL
           ? [[doing]]
           : running.length === 0
             ? [['between steps']]
-            : running.map(({ label, ref }) =>
-                attemptParts(label, at - firstSeen(label, at), progressOf(ref)),
+            : running.map((attempt) =>
+                attemptParts(attempt.label, at - firstSeen(attempt, at), progressOf(attempt.ref)),
               );
       return { time: `${since.words} ${elapsed(Math.max(0, at - since.from))} ago`, attempts };
     });
