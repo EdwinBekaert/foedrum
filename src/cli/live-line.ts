@@ -208,7 +208,6 @@ export const createLiveLine = ({ terminal, signal, clock, wait, batches }: LiveL
   return {
     firstSeen,
     noticed,
-    draw,
     /** Says what the command does while a call takes time, and draws it. */
     doing: (words: string): void => {
       doing = words;
