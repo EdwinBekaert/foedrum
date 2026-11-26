@@ -145,9 +145,11 @@ const parseStored = (id: number, body: string): Event => {
   return parsed.data;
 };
 
+const schemaVersionOf = (db: DatabaseSync): number =>
+  (db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version;
+
 const migrate = (db: DatabaseSync): void => {
-  const version = (): number =>
-    (db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version;
+  const version = (): number => schemaVersionOf(db);
   if (version() > migrations.length) {
     throw new Error(
       `The event store has schema version ${version()}; this Foedrum knows up to ${migrations.length}`,
@@ -177,7 +179,7 @@ export const EVENT_STORE_VERSION = migrations.length;
 export const eventStoreVersion = (path: string): number => {
   const db = new DatabaseSync(path, { readOnly: true });
   try {
-    return (db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version;
+    return schemaVersionOf(db);
   } finally {
     db.close();
   }
@@ -197,9 +199,7 @@ export const openSqliteEventStore = (
   try {
     if (readOnly) {
       // A reader changes nothing: a store at another version is for a Foedrum that knows it.
-      const { user_version: version } = db.prepare('PRAGMA user_version').get() as {
-        user_version: number;
-      };
+      const version = schemaVersionOf(db);
       if (version !== migrations.length) {
         throw new Error(
           `The event store has schema version ${version}; this Foedrum reads version ${migrations.length} only`,
