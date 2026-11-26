@@ -118,7 +118,7 @@ export interface LiveBatch {
 export interface LiveLineOptions extends Pick<ServeShell, 'clock' | 'wait' | 'signal'> {
   /** The terminal it is drawn on; none, and nothing is drawn. */
   terminal: LiveTerminal | undefined;
-  /** The batches the line shows now, none while nothing is driven. */
+  /** The batches the line shows now: one part each, and none while nothing is driven (ADR 0427). */
   batches: () => LiveBatch[];
 }
 
@@ -178,7 +178,11 @@ export const createLiveLine = ({ terminal, signal, clock, wait, batches }: LiveL
               );
       return { time: `${since.words} ${elapsed(Math.max(0, at - since.from))} ago`, attempts };
     });
-    fitted = liveLine(shown, terminal.columns());
+    // With no batch to drive, it says that it waits for one (ADR 0427).
+    fitted =
+      shown.length === 0
+        ? fit(`${MARK_ROOM} waiting for work`, terminal.columns())
+        : liveLine(shown, terminal.columns());
     show();
   };
   const draw = (): void => {

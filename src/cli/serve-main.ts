@@ -14,6 +14,7 @@ import { execProcess } from '../platform/processes.ts';
 import { runGit } from '../workspace/git.ts';
 import { diagnose, githubHostOfConfig } from './doctor.ts';
 import { type DoctorShell, gatherDoctorFacts } from './doctor-facts.ts';
+import { liveTerminal } from './live-terminal.ts';
 import type { CliResult } from './run.ts';
 import { runServe } from './serve.ts';
 import { type ServeSetup, type ServeSetupResult, serveSetup } from './serve-config.ts';
@@ -112,14 +113,21 @@ export const serveFromCheckout = async (
   // The stop signals are listened for while serve runs, and no longer once it returns.
   const listening = listenWhileServing(process);
   try {
+    // A live line only where standard output is a terminal that takes it (ADR 0174, ADR 0427); on
+    // one, every lasting line, the state branch's too, goes over it.
+    const terminal = liveTerminal(process.stdout, process.env);
     const shell = serveShell(setup, {
       root: cwd,
       git: runGit,
-      out: (line) => process.stdout.write(`${line}\n`),
+      out: terminal?.print ?? ((line) => process.stdout.write(`${line}\n`)),
       listen: listening.listen,
       keepAwake: thisMachineAwake(options),
     });
-    return { exitCode: await runServe(setup, shell), stdout: '', stderr: '' };
+    return {
+      exitCode: await runServe(setup, terminal === undefined ? shell : { ...shell, terminal }),
+      stdout: '',
+      stderr: '',
+    };
   } finally {
     listening.stop();
   }
