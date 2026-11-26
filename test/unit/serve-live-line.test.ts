@@ -103,7 +103,8 @@ describe('runServe', () => {
     });
 
     it('draws one part for each batch it drives, side by side on the one line', async () => {
-      const { code, screen, started } = await served({ batches: 2 });
+      // Wide enough for both whole parts: each is about 70 characters, and the line fits to the width less one.
+      const { code, screen, started } = await served({ batches: 2, columns: 160 });
       assert.equal(code, 0, f.lines.join('\n'));
       // Both batches are driven at once: the line has two parts to draw.
       assert.deepStrictEqual(started.map(({ ref }) => ref.batchId).sort(), ['12-1', '13-1']);
