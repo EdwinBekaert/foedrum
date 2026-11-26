@@ -114,6 +114,44 @@ describe('readTestMap (ADR 0274)', () => {
     ]);
   });
 
+  it("reads a module's second coverage report beside its coverage (ADR 0430)", () => {
+    const second = '"coverageSecond": { "format": "cobertura", "path": "web/it/*" }';
+    const read = readTestMap(
+      example.replace(
+        '"coverage": { "format": "lcov", "path": "web/coverage/lcov.info" }',
+        `"coverage": { "format": "lcov", "path": "web/coverage/lcov.info" }, ${second}`,
+      ),
+    );
+    assert.equal(read.kind, 'map', read.kind === 'unreadable' ? read.reason : '');
+    if (read.kind !== 'map') return;
+    const [first] = read.map.modules;
+    assert.deepEqual(first?.coverage, { format: 'lcov', path: 'web/coverage/lcov.info' });
+    assert.deepEqual((first as { coverageSecond?: unknown } | undefined)?.coverageSecond, {
+      format: 'cobertura',
+      path: 'web/it/*',
+    });
+  });
+
+  it('refuses a second coverage report path a reader could not match at once (ADR 0430)', () => {
+    const at = (path: string) =>
+      readTestMap(
+        example.replace(
+          '"coverage": { "format": "lcov", "path": "web/coverage/lcov.info" }',
+          `"coverage": { "format": "lcov", "path": "web/coverage/lcov.info" }, "coverageSecond": { "format": "lcov", "path": ${JSON.stringify(path)} }`,
+        ),
+      );
+    assert.equal(at('web/it/lcov.info').kind, 'map');
+    for (const path of ['web/**/lcov.info', '../lcov.info', 'web/{a,b}/lcov.info']) {
+      const read = at(path);
+      assert.equal(read.kind, 'unreadable', path);
+      assert.match(
+        read.kind === 'unreadable' ? read.reason : '',
+        /file or a folder pattern|path glob relative/,
+        path,
+      );
+    }
+  });
+
   it('refuses a test map that holds a command', () => {
     const withCommand = example.replace('"name": "web",', '"name": "web", "command": "npm test",');
     const read = readTestMap(withCommand);

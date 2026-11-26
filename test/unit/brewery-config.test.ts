@@ -127,6 +127,23 @@ describe('BreweryConfig', () => {
     ]);
   });
 
+  it('accepts a testSecond command beside test, with or without a testChanged (ADR 0430)', () => {
+    const second = { ...checks, testSecond: 'npm run integration' };
+    assert.equal(accepted(config({ checks: second })), true);
+    const platforms = { ...checks, testSecond: { run: 'npm run it', windows: 'npm run it:win' } };
+    assert.equal(accepted(config({ checks: platforms })), true);
+    const changed = { ...second, testChanged: 'npx vitest run --changed {base}' };
+    assert.equal(accepted(config({ checks: changed })), true);
+  });
+
+  it('refuses a testSecond beside a test of null, pointing at it (ADR 0430)', () => {
+    const issues = issuesOf({ ...checks, test: null, testSecond: 'npm run integration' });
+    assert.deepEqual(
+      issues?.map(({ path }) => path),
+      [['repositories', 'acme/web', 'checks', 'testSecond']],
+    );
+  });
+
   it('refuses an alias two repositories share, pointing at the second', () => {
     const result = BreweryConfig.safeParse({
       repositories: {

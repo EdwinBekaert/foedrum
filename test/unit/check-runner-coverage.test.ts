@@ -131,13 +131,24 @@ const setup = ({
   folders = [] as string[],
   /** The repository's testChanged line, when it names one (ADR 0242). */
   testChanged = undefined as string | undefined,
+  /** The repository's second test line, when it names one (ADR 0430). */
+  testSecond = undefined as string | undefined,
+  /** The exit code of the second test line. */
+  secondExit = 0,
 } = {}) => {
   const asked: string[] = [];
   const exec: ExecProcess = (line) => {
     // testChanged's line runs as the test check's does (ADR 0242).
     const file = line.startsWith('npm test') ? 'npm test' : line;
     asked.push(`run ${file}`);
-    const exitCode = file === 'npm test' ? testExit : file === 'npm run lint' ? 1 : 0;
+    const exitCode =
+      file === 'npm test'
+        ? testExit
+        : file === 'npm run integration'
+          ? secondExit
+          : file === 'npm run lint'
+            ? 1
+            : 0;
     return Promise.resolve({ exitCode, stdout: '', stderr: '', output: '' });
   };
   const git: Git = async (cwd, args) => {
@@ -172,6 +183,7 @@ const setup = ({
       format: null,
       test: 'npm test',
       ...(testChanged === undefined ? {} : { testChanged }),
+      ...(testSecond === undefined ? {} : { testSecond }),
     }),
     testReport: () => undefined,
     exec,
@@ -1089,5 +1101,171 @@ describe('createCheckRunner: a skip the batch added fails the green check (ADR 0
     assert.ok(diffAt >= 0, asked.join('|'));
     const green = asked.slice(diffAt);
     assert.ok(!green.includes(`read ${junitFile}`), asked.join('|'));
+  });
+});
+
+describe("createCheckRunner: a second test line's coverage joins the uncovered-line check (#1175, ADR 0430)", () => {
+  const integration = 'npm run integration';
+  // The module's coverage by its second line is a place the test map names, as its coverage is.
+  const withSecond = (module: TestMapModule, path: string): TestMapModule => {
+    const second = { coverageSecond: { format: 'lcov', path } };
+    return { ...module, ...second };
+  };
+  const calcSecond = withSecond(calc, 'second.info');
+  const secondMaps = { [base]: mapOf(calcSecond), [tip]: mapOf(calcSecond) };
+  const web: TestMapModule = {
+    ...calc,
+    name: 'web',
+    code: ['web/**'],
+    tests: { paths: ['web-test/**'] },
+    coverage: { format: 'lcov', path: 'web/lcov.info' },
+  };
+
+  it("counts a changed line that only the second line's tests run as tested, in the union of both reports", async () => {
+    const { run } = setup({
+      maps: secondMaps,
+      diff: adding('src/calc.ts', 3, 2),
+      coverage: {
+        // The test line runs line 3, the second line line 4, and neither both.
+        'lcov.info': lcov(record('src/calc.ts', { 3: 1, 4: 0 })),
+        'second.info': lcov(record('src/calc.ts', { 3: 0, 4: 2 })),
+      },
+      testSecond: integration,
+    });
+    const end = await run();
+    assert.deepEqual(end.ending, { kind: 'succeeded', output: null });
+  });
+
+  it('runs the second line after the test check and reads its coverage only once it ran', async () => {
+    const { run, asked } = setup({
+      maps: secondMaps,
+      diff: adding('src/calc.ts', 3, 1),
+      coverage: {
+        'lcov.info': lcov(record('src/calc.ts', { 3: 1 })),
+        'second.info': lcov(record('src/calc.ts', { 3: 0 })),
+      },
+      testSecond: integration,
+    });
+    await run();
+    const test = asked.indexOf('run npm test');
+    const second = asked.indexOf(`run ${integration}`);
+    const read = asked.indexOf('coverage lcov second.info');
+    assert.ok(test >= 0 && second > test, asked.join('\n'));
+    assert.ok(read > second, asked.join('\n'));
+  });
+
+  it('removes a second coverage report left from an earlier run before the second line runs', async () => {
+    const { run, asked } = setup({
+      maps: secondMaps,
+      diff: adding('src/calc.ts', 3, 1),
+      coverage: {
+        'lcov.info': lcov(record('src/calc.ts', { 3: 1 })),
+        'second.info': lcov(record('src/calc.ts', { 3: 1 })),
+      },
+      testSecond: integration,
+    });
+    await run();
+    const cleared = asked.indexOf(`clear ${join(worktree, 'second.info')}`);
+    assert.ok(cleared >= 0, asked.join('\n'));
+    assert.ok(cleared < asked.indexOf(`run ${integration}`), asked.join('\n'));
+  });
+
+  it('blocks the check step on its environment when a second coverage report cannot be cleared', async () => {
+    const { run, asked } = setup({
+      maps: secondMaps,
+      diff: adding('src/calc.ts', 3, 1),
+      refused: { 'second.info': 'second.info leads out of the worktree' },
+      testSecond: integration,
+    });
+    const { ending } = await run();
+    assert.deepEqual(ending, {
+      kind: 'blocked',
+      blockerKind: 'environment',
+      summary:
+        'a coverage report of the test map cannot be cleared: second.info leads out of the worktree',
+    });
+    assert.ok(!asked.includes('run npm test'), asked.join('\n'));
+    assert.ok(!asked.includes(`run ${integration}`), asked.join('\n'));
+  });
+
+  it('fails the check step along its onFail route when the second line fails, naming its command', async () => {
+    const { run } = setup({
+      maps: secondMaps,
+      diff: adding('src/calc.ts', 3, 1),
+      coverage: {
+        'lcov.info': lcov(record('src/calc.ts', { 3: 1 })),
+        'second.info': lcov(record('src/calc.ts', { 3: 1 })),
+      },
+      testSecond: integration,
+      secondExit: 1,
+    });
+    const end = await run();
+    assert.equal(end.ending.kind, 'failed');
+    assert.match(reasonOf(end), /npm run integration/);
+    assert.match(reasonOf(end), /exit code 1/);
+  });
+
+  it("fails the check step when a touched module's second coverage report cannot be read", async () => {
+    const { run } = setup({
+      maps: secondMaps,
+      diff: adding('src/calc.ts', 3, 1),
+      // The second line wrote no report: the fake finds none at second.info.
+      coverage: { 'lcov.info': lcov(record('src/calc.ts', { 3: 1 })) },
+      testSecond: integration,
+    });
+    const end = await run();
+    assert.match(reasonOf(end), /module "calc" cannot be read: no report at second\.info/);
+  });
+
+  it("reads the second coverage report of a module the change touches, and no other's", async () => {
+    const webSecond = withSecond(web, 'web/second.info');
+    const { run, asked } = setup({
+      maps: {
+        [base]: mapOf(calcSecond, webSecond),
+        [tip]: mapOf(calcSecond, webSecond),
+      },
+      diff: adding('src/calc.ts', 3, 1),
+      coverage: {
+        'lcov.info': lcov(record('src/calc.ts', { 3: 0 })),
+        'second.info': lcov(record('src/calc.ts', { 3: 1 })),
+        // web's code is untouched: its own report is read, its second report, unreadable here, is not.
+        'web/lcov.info': lcov(record('web/index.ts', { 1: 1 })),
+      },
+      testSecond: integration,
+    });
+    const end = await run();
+    assert.deepEqual(end.ending, { kind: 'succeeded', output: null });
+    assert.ok(asked.includes('coverage lcov second.info'), asked.join('\n'));
+    assert.ok(!asked.includes('coverage lcov web/second.info'), asked.join('\n'));
+  });
+
+  it('runs the second line in full after a run of testChanged, and counts its coverage of the touched module (ADR 0242)', async () => {
+    const { run, asked } = setup({
+      maps: secondMaps,
+      diff: adding('src/calc.ts', 3, 1),
+      coverage: {
+        'lcov.info': lcov(record('src/calc.ts', { 3: 0 })),
+        'second.info': lcov(record('src/calc.ts', { 3: 1 })),
+      },
+      testChanged: 'npm test -- --changed {base}',
+      testSecond: integration,
+    });
+    const end = await run();
+    assert.deepEqual(end.ending, { kind: 'succeeded', output: null });
+    assert.ok(asked.includes(`run ${integration}`), asked.join('\n'));
+  });
+
+  it('still fails a changed line that neither the test line nor the second line runs: regression test', async () => {
+    const { run } = setup({
+      maps: secondMaps,
+      diff: adding('src/calc.ts', 3, 1),
+      coverage: {
+        'lcov.info': lcov(record('src/calc.ts', { 3: 0 })),
+        'second.info': lcov(record('src/calc.ts', { 3: 0 })),
+      },
+      testSecond: integration,
+    });
+    const end = await run();
+    assert.equal(reasonOf(end), '1 changed line no test runs: src/calc.ts:3');
   });
 });
