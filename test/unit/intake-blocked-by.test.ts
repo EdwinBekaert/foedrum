@@ -198,6 +198,24 @@ describe('an issue blocked by an open issue on GitHub (ADR 0433)', () => {
       assert.ok(failures.length > 0, JSON.stringify(notices));
     });
 
+    it('says a failing read of its blockers once, and again only after a read succeeded', async () => {
+      listed[web] = [issue(7, { blockedBy: 1 })];
+      links[`${web}#7`] = new Error('502 reading the blockers');
+      const failed = () =>
+        notices.filter((notice) => notice.kind === 'failed' && notice.what.includes(`${web}#7`))
+          .length;
+      const pass = intake();
+      await pass.poll();
+      await pass.poll();
+      await pass.poll();
+      assert.equal(failed(), 1);
+      links[`${web}#7`] = [open(web, 3)];
+      await pass.poll();
+      links[`${web}#7`] = new Error('502 reading the blockers');
+      await pass.poll();
+      assert.equal(failed(), 2);
+    });
+
     it('has its blockers read only when the walk reaches it with a free slot', async () => {
       listed[web] = [issue(6), issue(7, { blockedBy: 1 })];
       links[`${web}#7`] = [open(web, 3)];
