@@ -296,3 +296,61 @@ describe('pickRules: the rules one attempt gets (ADR 0169)', () => {
     assert.deepEqual(record.cut, []);
   });
 });
+
+describe('pickRules: the rules of a step that writes the change (#1162)', () => {
+  // Each rule costs about 960 tokens: two fit the 2,000 of a lens step, twelve are about 11,500.
+  const big = (lens?: string) =>
+    Array.from({ length: 12 }, (_, i) =>
+      file(
+        `house-yeast/big-${String(i + 1).padStart(2, '0')}.md`,
+        { globs: ['src/**'], ...(lens === undefined ? {} : { lens }) },
+        'x'.repeat(3800),
+      ),
+    );
+  const bigIds = Array.from({ length: 12 }, (_, i) => `big-${String(i + 1).padStart(2, '0')}`);
+  const change = { files: ['src/pay.ts'] };
+
+  it('selects every rule that matches the change, however many tokens they come to, and cuts none', () => {
+    const { inputs, record } = pickRules(
+      { repository: [], brewery: big('diff/test-design') },
+      { ...change, everyLens: true },
+    );
+    assert.deepEqual(record.selected, bigIds);
+    assert.deepEqual(record.cut, []);
+    assert.equal(inputs.length, 12);
+  });
+
+  it('does not cut a rule that names only a lens behind rules that name files and a lens', () => {
+    const lensOnly = file(
+      'house-yeast/script-option.md',
+      { lens: 'design-conformance' },
+      'A script reads its command line through a tested function.',
+    );
+    const { record } = pickRules(
+      { repository: [], brewery: [...big('diff/test-design'), lensOnly] },
+      { ...change, everyLens: true },
+    );
+    assert.ok(record.selected.includes('script-option'), record.selected.join(', '));
+    assert.deepEqual(record.cut, []);
+  });
+
+  it('still leaves out a rule whose files the change does not touch, as cut or selected (regression test, #1162)', () => {
+    const elsewhere = file('house-yeast/docs-only.md', { globs: ['docs/**'] });
+    const { record } = pickRules(
+      { repository: [], brewery: [...big('diff/test-design'), elsewhere] },
+      { ...change, everyLens: true },
+    );
+    assert.ok(record.selected.includes('big-01'), record.selected.join(', '));
+    assert.ok(!record.selected.includes('docs-only'), record.selected.join(', '));
+    assert.ok(!record.cut.includes('docs-only'), record.cut.join(', '));
+  });
+
+  it("keeps a lens step's budget of about 2,000 tokens, which cuts the rules that no longer fit (regression test, #1162)", () => {
+    const { record } = pickRules(
+      { repository: [], brewery: big('diff/test-design') },
+      { ...change, lens: 'diff/test-design' },
+    );
+    assert.deepEqual(record.selected, ['big-01', 'big-02']);
+    assert.deepEqual(record.cut, bigIds.slice(2));
+  });
+});
