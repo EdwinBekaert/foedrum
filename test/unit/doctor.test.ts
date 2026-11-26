@@ -1203,13 +1203,13 @@ describe("diagnose: notices about the Brewery's files (ADR 0141)", () => {
     });
     assert.deepEqual(diagnosis.notices, [
       'brewers/spare.md: no recipe names the brewer "spare" (ADR 0141)',
-      'lenses/diff/old.md: no brewer\'s input names the lens "diff/old" (ADR 0141)',
+      'lenses/diff/old.md: no recipe step or brewer names the lens "diff/old" (ADR 0141)',
     ]);
     assert.equal(diagnosis.ok, true);
     const report = formatDiagnosis(diagnosis);
     assert.match(
       report,
-      /\nNotices:\n {2}brewers\/spare\.md: no recipe names the brewer "spare" \(ADR 0141\)\n {2}lenses\/diff\/old\.md: no brewer's input names the lens "diff\/old" \(ADR 0141\)\n\nFoedrum has everything it needs\.\n$/,
+      /\nNotices:\n {2}brewers\/spare\.md: no recipe names the brewer "spare" \(ADR 0141\)\n {2}lenses\/diff\/old\.md: no recipe step or brewer names the lens "diff\/old" \(ADR 0141\)\n\nFoedrum has everything it needs\.\n$/,
     );
   });
 
@@ -1452,7 +1452,7 @@ describe('diagnose: what keeps a file in use and a mark of a default (ADR 0141)'
     });
     assert.deepEqual(diagnosis.notices, [
       'brewers/spare.md: no recipe names the brewer "spare" (ADR 0141)',
-      'lenses/diff/old.md: no brewer\'s input names the lens "diff/old" (ADR 0141)',
+      'lenses/diff/old.md: no recipe step or brewer names the lens "diff/old" (ADR 0141)',
     ]);
   });
 
