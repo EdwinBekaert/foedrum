@@ -15,6 +15,7 @@ import {
 } from '../schemas/github.ts';
 import { assigneeLogins, checked, labelNames, refused, repoPath } from './answers.ts';
 import { type GitHubReads, pageSize } from './reads.ts';
+import { SUB_ISSUES_API_VERSION } from './sub-issues.ts';
 
 /** What the intake reads of an issue GitHub listed. */
 const targetIssue = (body: unknown, what: string): TargetIssue => {
@@ -82,7 +83,9 @@ export const githubTargetTracker = (reads: GitHubReads): TargetTracker => ({
     const what = `the blockers of ${repo}#${issue}`;
     // Each link is an issue as long as any: pages of the listing's size stay under the answer limit.
     const path = `/repos/${repoPath(repo)}/issues/${issue}/dependencies/blocked_by?per_page=${pageSize}`;
-    return (await reads.pages(path, what, signal)).map((item) => {
+    // A dependency call, so under the version these were tried under, as the Brewery's (ADR 0287).
+    const version = { 'x-github-api-version': SUB_ISSUES_API_VERSION };
+    return (await reads.pages(path, what, signal, undefined, version)).map((item) => {
       const { number, state, repository_url } = checked(GitHubBlocker, item, what);
       // A blocker may be in another repository, which only its `repository_url` names.
       const named = Repo.safeParse(/\/repos\/([^/]+\/[^/]+)$/.exec(repository_url)?.[1]);

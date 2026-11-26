@@ -34,7 +34,13 @@ export interface GitHubReads {
    * Every item of the list at `path`, page after page; `what` names it in an error. With `field`,
    * each page is an object that holds its items under that name, as GitHub's check runs.
    */
-  pages(path: string, what: string, signal?: AbortSignal, field?: string): Promise<unknown[]>;
+  pages(
+    path: string,
+    what: string,
+    signal?: AbortSignal,
+    field?: string,
+    headers?: Readonly<Record<string, string>>,
+  ): Promise<unknown[]>;
 }
 
 /** The URL of the `next` relation in a `Link` header, or undefined when there is none. */
@@ -84,9 +90,13 @@ export const createGitHubReads = (
   };
 
   /** The answer to `path`, and whether GitHub said it is unchanged. */
-  const read = async (path: string, signal?: AbortSignal) => {
+  const read = async (
+    path: string,
+    signal?: AbortSignal,
+    extra: Readonly<Record<string, string>> = {},
+  ) => {
     const before = cache.get(path);
-    const headers = before === undefined ? {} : { 'if-none-match': before.etag };
+    const headers = before === undefined ? extra : { ...extra, 'if-none-match': before.etag };
     const answer = await client.rest('GET', path, undefined, signal, headers);
     forget(path);
     if (answer.status === 304 && before === undefined) {
@@ -113,12 +123,12 @@ export const createGitHubReads = (
 
   return {
     get: async (path, signal) => (await read(path, signal)).answer,
-    pages: async (path, what, signal, field) => {
+    pages: async (path, what, signal, field, headers) => {
       const items: unknown[] = [];
       let bytes = 0;
       for (let next: string | undefined = path, page = 1; next !== undefined; page++) {
         if (page > maxPages) throw new Error(`${what} has more than ${maxPages} pages`);
-        const { answer, unchanged } = await read(next, signal);
+        const { answer, unchanged } = await read(next, signal, headers);
         if (answer.status !== 200) throw refused(answer.status, answer.body, what);
         bytes += answer.bytes;
         if (bytes > maxListBytes) throw new Error(`${what} is longer than ${maxListBytes} bytes`);

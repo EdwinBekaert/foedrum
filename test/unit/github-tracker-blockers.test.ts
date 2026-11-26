@@ -29,6 +29,30 @@ describe('githubTargetTracker.blockers: the repository of a blocker (ADR 0433)',
     ]);
   });
 
+  it('sends API version 2026-03-10 on each read of the links, the ETag too, and none on the listing (ADR 0287)', async () => {
+    const fake = fakeFetch([
+      { status: 200, body: [blocker], headers: { etag: 'W/"links"' } },
+      { status: 304 },
+      { status: 200, body: [] },
+    ]);
+    const client = createGitHubClient({ exec: ghOver(fake.fetch).exec });
+    const tracker = githubTargetTracker(createGitHubReads(client));
+    await tracker.blockers('acme/web', 7);
+    await tracker.blockers('acme/web', 7);
+    await tracker.issues('acme/web');
+    assert.deepStrictEqual(
+      fake.requests.map(({ headers }) => [
+        headers['x-github-api-version'],
+        headers['if-none-match'],
+      ]),
+      [
+        ['2026-03-10', undefined],
+        ['2026-03-10', 'W/"links"'],
+        ['2022-11-28', undefined],
+      ],
+    );
+  });
+
   for (const url of [
     'https://api.github.com/repos/acme',
     'https://api.github.com/repos/acme/api/extra',

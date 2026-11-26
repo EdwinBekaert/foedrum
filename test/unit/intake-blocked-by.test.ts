@@ -198,6 +198,26 @@ describe('an issue blocked by an open issue on GitHub (ADR 0433)', () => {
       assert.ok(failures.length > 0, JSON.stringify(notices));
     });
 
+    it('has its blockers read only when the walk reaches it with a free slot', async () => {
+      listed[web] = [issue(6), issue(7, { blockedBy: 1 })];
+      links[`${web}#7`] = [open(web, 3)];
+      await intake({ capacity: 1 }).poll();
+      assert.deepStrictEqual(lanes(), ['web-6 ordered']);
+      assert.deepStrictEqual(reads, []);
+      assert.deepStrictEqual(held(), []);
+    });
+
+    it('has its blockers read only when no limit holds it', async () => {
+      listed[web] = [issue(6), issue(7, { blockedBy: 1 })];
+      links[`${web}#7`] = [open(web, 3)];
+      await intake({ limits: { openOrders: 1, recipe: () => undefined } }).poll();
+      assert.deepStrictEqual(lanes(), ['web-6 ordered']);
+      assert.deepStrictEqual(reads, []);
+      assert.deepStrictEqual(held(), [
+        { kind: 'held', repo: web, issue: 7, reason: "1 order is open, the Brewery's openOrders" },
+      ]);
+    });
+
     it('is claimed at once, with no read of its blockers, when its listing counts none (regression test)', async () => {
       listed[web] = [issue(7)];
       await intake().poll();
