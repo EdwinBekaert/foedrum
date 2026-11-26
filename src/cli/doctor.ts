@@ -106,7 +106,7 @@ export interface TastingFact {
   unreadable?: string;
   /**
    * The schema version of an event log older than this Foedrum reads, which the next brew or
-   * serve upgrades by itself (#1163).
+   * serve upgrades by itself (ADR 0438).
    */
   olderSchema?: number;
 }
