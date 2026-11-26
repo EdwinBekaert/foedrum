@@ -499,12 +499,13 @@ export const createIntake = (options: IntakeOptions): Intake => {
       if (hold === undefined && blockedBy > 0) {
         try {
           const blockers = await tracker.blockers(home, order.issue, signal);
+          blockersUnread.delete(`${home}#${order.issue}`);
           const by = blockers
             .filter(({ state }) => state === 'open')
             .map(({ repo, number }) => `${same(repo, home) ? '' : repo}#${number}`);
           if (by.length > 0) hold = { kind: 'blocked', by };
         } catch (error) {
-          report({ kind: 'failed', what: `reading the blockers of ${home}#${order.issue}`, error });
+          blockersUnreadOnce(`${home}#${order.issue}`, error);
           continue;
         }
       }
@@ -589,6 +590,14 @@ export const createIntake = (options: IntakeOptions): Intake => {
     if (unread.has(issue)) return;
     unread.add(issue);
     report({ kind: 'failed', what: `reading who labelled ${issue}`, error });
+  };
+
+  // The issues whose blockers a read failed on, until one reads them: each said once (ADR 0433).
+  const blockersUnread = new Set<string>();
+  const blockersUnreadOnce = (issue: string, error: unknown): void => {
+    if (blockersUnread.has(issue)) return;
+    blockersUnread.add(issue);
+    report({ kind: 'failed', what: `reading the blockers of ${issue}`, error });
   };
 
   // The batches reported as not routable, with the reason: each once, not at every poll.
