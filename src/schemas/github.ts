@@ -65,10 +65,7 @@ export const GitHubListedIssue = GitHubIssue.extend({
  * One item of `GET /repos/{owner}/{repo}/issues/{n}/dependencies/blocked_by`: an issue of any
  * repository, which `repository_url` names (ADR 0433).
  */
-export const GitHubBlocker = z.object({
-  number: z.number().int().positive(),
-  /** `closed` whether it was completed or closed as not planned. */
-  state: z.enum(['open', 'closed']),
+export const GitHubBlocker = GitHubIssue.pick({ number: true, state: true }).extend({
   repository_url: z.string(),
 });
 
