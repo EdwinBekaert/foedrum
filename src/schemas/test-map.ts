@@ -49,6 +49,12 @@ export const TestMapModule = z.strictObject({
       z.literal('none'),
     ])
     .describe('Where the coverage report is written, or "none" for a module with no coverage tool'),
+  coverageSecond: z
+    .strictObject({ format: z.enum(['lcov', 'cobertura']), path: ReportPath })
+    .optional()
+    .describe(
+      "Where the repository's second test line writes the module's coverage report, read beside coverage (ADR 0430)",
+    ),
 });
 export type TestMapModule = z.infer<typeof TestMapModule>;
 

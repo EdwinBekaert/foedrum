@@ -162,6 +162,27 @@
               }
             ],
             "description": "Where the coverage report is written, or \"none\" for a module with no coverage tool"
+          },
+          "coverageSecond": {
+            "description": "Where the repository's second test line writes the module's coverage report, read beside coverage (ADR 0430)",
+            "type": "object",
+            "properties": {
+              "format": {
+                "type": "string",
+                "enum": [
+                  "lcov",
+                  "cobertura"
+                ]
+              },
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "format",
+              "path"
+            ],
+            "additionalProperties": false
           }
         },
         "required": [

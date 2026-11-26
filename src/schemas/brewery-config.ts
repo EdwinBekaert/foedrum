@@ -25,7 +25,8 @@ const holdsBase = (command: Command): boolean =>
 
 /**
  * Every check is required, so a missing one is always an explicit null (ADR 0023); `testChanged`,
- * the test of the changed code a check step runs in place of `test`, is not (ADR 0242).
+ * the test of the changed code a check step runs in place of `test`, is not (ADR 0242), nor is
+ * `testSecond`, a second test line whose coverage the uncovered-line check reads too (ADR 0430).
  */
 const Checks = z
   .strictObject({
@@ -42,10 +43,17 @@ const Checks = z
       .describe(
         "The test of the changed code a check step runs in place of test, from {base}; setting it says the pull request's checks run the full test (ADR 0242)",
       ),
+    testSecond: Command.optional().describe(
+      "A second test line a check step runs in full after the test check, whose coverage the test map's coverageSecond names and the uncovered-line check reads beside the test check's (ADR 0430)",
+    ),
   })
   .refine((checks) => checks.testChanged === undefined || checks.test !== null, {
     message: 'A testChanged needs a test check, which the pull request runs in full',
     path: ['testChanged'],
+  })
+  .refine((checks) => checks.testSecond === undefined || checks.test !== null, {
+    message: 'A testSecond needs a test check, after which a check step runs it',
+    path: ['testSecond'],
   })
   .describe('The command behind each check recipes name, or null when the repository has none');
 

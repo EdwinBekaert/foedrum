@@ -556,6 +556,79 @@
                     "additionalProperties": false
                   }
                 ]
+              },
+              "testSecond": {
+                "description": "A second test line a check step runs in full after the test check, whose coverage the test map's coverageSecond names and the uncovered-line check reads beside the test check's (ADR 0430)",
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "allOf": [
+                      {
+                        "pattern": "\\S"
+                      },
+                      {
+                        "pattern": "^[^\\r\\n]*$"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "run": {
+                        "type": "string",
+                        "allOf": [
+                          {
+                            "pattern": "\\S"
+                          },
+                          {
+                            "pattern": "^[^\\r\\n]*$"
+                          }
+                        ]
+                      },
+                      "windows": {
+                        "type": "string",
+                        "allOf": [
+                          {
+                            "pattern": "\\S"
+                          },
+                          {
+                            "pattern": "^[^\\r\\n]*$"
+                          }
+                        ]
+                      },
+                      "macos": {
+                        "type": "string",
+                        "allOf": [
+                          {
+                            "pattern": "\\S"
+                          },
+                          {
+                            "pattern": "^[^\\r\\n]*$"
+                          }
+                        ]
+                      },
+                      "linux": {
+                        "type": "string",
+                        "allOf": [
+                          {
+                            "pattern": "\\S"
+                          },
+                          {
+                            "pattern": "^[^\\r\\n]*$"
+                          }
+                        ]
+                      },
+                      "files": {
+                        "type": "boolean",
+                        "const": true
+                      }
+                    },
+                    "required": [
+                      "run"
+                    ],
+                    "additionalProperties": false
+                  }
+                ]
               }
             },
             "required": [

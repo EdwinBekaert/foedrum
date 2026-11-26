@@ -40,7 +40,7 @@ import {
 } from './map-agreement.ts';
 import { createMappedProof } from './mapped-proof.ts';
 import {
-  coveragePath,
+  coveragePaths,
   fileReports,
   folderAt,
   moduleReports,
@@ -248,7 +248,8 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
   /**
    * The checks `refs` of the tree in `worktree`, as `checkTree` runs them, before any naming: with
    * the batch's `base`, a plain check step's, the repository's testChanged in place of its test
-   * (ADR 0242); `belowNormal` for a scratch tree's test run, below normal priority (ADR 0413).
+   * (ADR 0242), and with `second` its second test line after the test (ADR 0430); `belowNormal`
+   * for a scratch tree's test run, below normal priority (ADR 0413).
    */
   const checksOf = async (
     refs: readonly CheckRef[],
@@ -258,7 +259,12 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
     {
       base,
       belowNormal = false,
-    }: { readonly base?: string | undefined; readonly belowNormal?: boolean } = {},
+      second = false,
+    }: {
+      readonly base?: string | undefined;
+      readonly belowNormal?: boolean;
+      readonly second?: boolean;
+    } = {},
   ): Promise<AttemptEnd> => {
     let repository = NO_CHECKS;
     const named = refs.find((check) => typeof check === 'string');
@@ -272,7 +278,7 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
       }
       repository = found;
     }
-    const planned = planChecks(refs, repository, platform, base);
+    const planned = planChecks(refs, repository, platform, base, second);
     // The repository's setup once nothing else blocks the step and a check will run, so the
     // checks find what it installed (ADR 0140).
     const preparing = planned.some((check) => check.kind === 'run')
@@ -370,7 +376,7 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
         : undefined;
     if (maps !== undefined) {
       for (const [report, path] of [
-        ['a coverage report', coveragePath],
+        ['a coverage report', coveragePaths],
         ['a test report', testReportPath],
       ] as const) {
         const paths = pathsOf(maps, path);
@@ -395,8 +401,9 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
             worktree,
             current.deadlineAt,
             signal,
-            // A survey's check reads every module's report: the full test (ADR 0242).
-            survey === undefined ? { base: baseOf(batch, worktree.repo) } : {},
+            // A survey's check reads every module's report: the full test (ADR 0242), and no
+            // second line, which only the uncovered-line check reads (ADR 0430).
+            survey === undefined ? { base: baseOf(batch, worktree.repo), second: true } : {},
           );
     const judged = await afterRun(batch, worktree, end, fresh, maps, signal, survey !== undefined);
     if (survey !== undefined) return agreed(batch, ref, worktree, survey, judged);

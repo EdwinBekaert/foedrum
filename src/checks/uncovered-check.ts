@@ -178,23 +178,30 @@ export function createUncoveredCheck(options: UncoveredCheckOptions): UncoveredC
     for (const { module } of measured ? modules : []) {
       if (module.coverage === 'none') continue;
       if (changedOnly && !touched.has(module.name)) continue;
-      const { format, path } = module.coverage;
-      const cannot = `the coverage report of module "${module.name}" cannot`;
-      // Refused out of the worktree, or past the paths a pattern may match (ADR 0274).
-      const found = find(path, worktree.path);
-      if ('refused' in found) return stuck(`${cannot} be looked for: ${found.refused}`);
-      for (const root of roots) {
-        const report = read(format, path, root);
-        if (!report.readable) {
-          if (report.environment === true) return stuck(`${cannot} be read: ${report.reason}`);
-          if (!touched.has(module.name)) {
-            return stuck(
-              `the coverage report of module "${module.name}" at ${path} cannot be read, though the change touches none of its code: ${report.reason}`,
-            );
+      // The second line's report of a module the change touches, read beside its coverage (ADR 0430).
+      const { coverageSecond } = module;
+      const places =
+        coverageSecond === undefined || !touched.has(module.name)
+          ? [module.coverage]
+          : [module.coverage, coverageSecond];
+      for (const { format, path } of places) {
+        const cannot = `the coverage report of module "${module.name}" cannot`;
+        // Refused out of the worktree, or past the paths a pattern may match (ADR 0274).
+        const found = find(path, worktree.path);
+        if ('refused' in found) return stuck(`${cannot} be looked for: ${found.refused}`);
+        for (const root of roots) {
+          const report = read(format, path, root);
+          if (!report.readable) {
+            if (report.environment === true) return stuck(`${cannot} be read: ${report.reason}`);
+            if (!touched.has(module.name)) {
+              return stuck(
+                `the coverage report of module "${module.name}" at ${path} cannot be read, though the change touches none of its code: ${report.reason}`,
+              );
+            }
+            return failed(`${cannot} be read: ${report.reason}`);
           }
-          return failed(`${cannot} be read: ${report.reason}`);
+          reportsRead.push(report.report);
         }
-        reportsRead.push(report.report);
       }
     }
     const verdict = judgeCoverage({

@@ -18,10 +18,12 @@ import type { CheckRef } from '../schemas/recipe.ts';
 
 /**
  * The command behind each check of a repository, or null where it has none (ADR 0023), and the test
- * of the changed code a check step runs in place of `test` (ADR 0242).
+ * of the changed code a check step runs in place of `test` (ADR 0242), and the second test line it
+ * runs in full after `test`, whose coverage joins the uncovered-line check's (ADR 0430).
  */
 export type RepositoryChecks = Readonly<Record<CheckName, Command | null>> & {
   readonly testChanged?: Command | undefined;
+  readonly testSecond?: Command | undefined;
 };
 
 // None of a repository's checks: what a step of literal commands plans against.
@@ -84,24 +86,32 @@ export const testChangedLine = (
 
 /**
  * The checks of a step, in order, as `repository` maps the named ones: with the change's `base`,
- * its `testChanged` in place of `test`, `{base}` replaced (ADR 0242).
+ * its `testChanged` in place of `test`, `{base}` replaced (ADR 0242). With `second`, the
+ * repository's second test line runs, in full, after `test` (ADR 0430).
  */
 export function planChecks(
   checks: readonly CheckRef[],
   repository: RepositoryChecks,
   platform: NodeJS.Platform,
   base?: string,
+  second = false,
 ): PlannedCheck[] {
-  return checks.map((check): PlannedCheck => {
-    if (typeof check !== 'string') return { kind: 'run', command: commandLine(check, platform) };
+  return checks.flatMap((check): PlannedCheck[] => {
+    if (typeof check !== 'string') return [{ kind: 'run', command: commandLine(check, platform) }];
     const command = repository[check];
-    if (command === null) return { kind: 'skip', check };
-    const { testChanged } = repository;
-    if (check === 'test' && testChanged !== undefined && base !== undefined) {
-      const line = testChangedLine(testChanged, platform, base);
-      return { kind: 'run', check, changed: true, command: line };
-    }
-    return { kind: 'run', check, command: commandLine(command, platform) };
+    if (command === null) return [{ kind: 'skip', check }];
+    const { testChanged, testSecond } = repository;
+    const test: PlannedCheck =
+      check === 'test' && testChanged !== undefined && base !== undefined
+        ? {
+            kind: 'run',
+            check,
+            changed: true,
+            command: testChangedLine(testChanged, platform, base),
+          }
+        : { kind: 'run', check, command: commandLine(command, platform) };
+    if (check !== 'test' || !second || testSecond === undefined) return [test];
+    return [test, { kind: 'run', command: commandLine(testSecond, platform) }];
   });
 }
 
@@ -111,12 +121,16 @@ export function testGateOf(
   repository: RepositoryChecks,
   platform: NodeJS.Platform,
 ): string {
-  const { test, testChanged } = repository;
+  const { test, testChanged, testSecond } = repository;
   if (test === null) return `${repo}: no test check`;
   const full = commandLine(test, platform);
-  return testChanged === undefined
-    ? `${repo}: the check step runs the full test (${full})`
-    : `${repo}: the check step runs only testChanged (${commandLine(testChanged, platform)}); your pull request's CI must run the full test (${full})`;
+  const gate =
+    testChanged === undefined
+      ? `${repo}: the check step runs the full test (${full})`
+      : `${repo}: the check step runs only testChanged (${commandLine(testChanged, platform)}); your pull request's CI must run the full test (${full})`;
+  return testSecond === undefined
+    ? gate
+    : `${gate}; then its second test line, in full (${commandLine(testSecond, platform)})`;
 }
 
 /** The end of `output` that a reading keeps (`MAX_TAIL_LENGTH`), never half a character. */

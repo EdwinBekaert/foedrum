@@ -79,6 +79,12 @@ export const pathsOf = (
 export const coveragePath = ({ coverage }: TestMapModule): string[] =>
   coverage === 'none' ? [] : [coverage.path];
 
+/** A module's coverage report paths a check step clears: its coverage's and its second line's (ADR 0430). */
+export const coveragePaths = (module: TestMapModule): string[] => [
+  ...coveragePath(module),
+  ...(module.coverageSecond === undefined ? [] : [module.coverageSecond.path]),
+];
+
 /** A module's test report path, when Foedrum reads its format: it reads no TRX yet. */
 export const testReportPath = ({ testReport }: TestMapModule): string[] =>
   testReport.format === 'trx' ? [] : [testReport.path];
