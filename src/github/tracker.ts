@@ -1,12 +1,18 @@
 // The intake's reads of GitHub (ADR 0050, ADR 0052): the open issues of a target repository, how a
-// pull request of a batch stands and who added an issue's labels (ADR 0359), all through
+// pull request of a batch stands, who added an issue's labels (ADR 0359) and which issues an issue
+// is blocked by (ADR 0433), all through
 // conditional reads, so a poll that finds nothing new costs no rate limit. Everything it reads is
 // untrusted input, checked field by field.
 
 import type { TargetTracker } from '../engine/intake.ts';
 import type { PullRequestState, TargetIssue } from '../engine/issue-claims.ts';
-import { pullRequestOf } from '../schemas/events.ts';
-import { GitHubIssueEvent, GitHubListedIssue, GitHubPullRequest } from '../schemas/github.ts';
+import { pullRequestOf, Repo } from '../schemas/events.ts';
+import {
+  GitHubBlocker,
+  GitHubIssueEvent,
+  GitHubListedIssue,
+  GitHubPullRequest,
+} from '../schemas/github.ts';
 import { assigneeLogins, checked, labelNames, refused, repoPath } from './answers.ts';
 import { type GitHubReads, pageSize } from './reads.ts';
 
@@ -23,8 +29,7 @@ const targetIssue = (body: unknown, what: string): TargetIssue => {
     // A deleted account is nobody, so it never opened a Brewery order (ADR 0068).
     author: issue.user?.login ?? '',
     created: new Date(issue.created_at).toISOString(),
-    // Not read yet: the listing's dependencies summary is not checked.
-    blockedBy: 0,
+    blockedBy: issue.issue_dependencies_summary.blocked_by,
   };
 };
 
@@ -73,7 +78,16 @@ export const githubTargetTracker = (reads: GitHubReads): TargetTracker => ({
         return [{ label: label.name, by: actor?.login }];
       });
   },
-  blockers: async () => {
-    throw new Error('not implemented');
+  blockers: async (repo, issue, signal) => {
+    const what = `the blockers of ${repo}#${issue}`;
+    // Each link is an issue as long as any: pages of the listing's size stay under the answer limit.
+    const path = `/repos/${repoPath(repo)}/issues/${issue}/dependencies/blocked_by?per_page=${pageSize}`;
+    return (await reads.pages(path, what, signal)).map((item) => {
+      const { number, state, repository_url } = checked(GitHubBlocker, item, what);
+      // A blocker may be in another repository, which only its `repository_url` names.
+      const named = Repo.safeParse(/\/repos\/([^/]+\/[^/]+)$/.exec(repository_url)?.[1]);
+      if (!named.success) throw new Error(`GitHub's answer to ${what} is not what it should be`);
+      return { repo: named.data, number, state };
+    });
   },
 });
