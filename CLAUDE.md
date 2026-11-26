@@ -108,6 +108,7 @@ Foedrum runs on Windows, macOS and Linux; CI tests all three.
 - Before citing an ADR as how Foedrum works now, open it and follow its "Amended by" and "Superseded by" links, or cite the design page that owns the rule. A search hit on a word is not a reading: a later record may reverse it in other words, and between milestones the links lag, so also run `git grep -lE "(Amends|Supersedes).*NNNN" docs/adr/`.
 - Before the first publish (M7) nothing old has to keep working: a changed format, field, file or name changes everywhere in the same change, with no optional field, alias, fallback, migration code or second reading kept for data written before it. A new field is required unless the design itself makes it optional (#977, #931, #1168).
 - A change that alters what a Brewery must hold, or how a working Brewery behaves, says in its ADR and its body what an existing Brewery must change by hand, or why it need do nothing, and `foedrum doctor` names what is missing where it can. A valid `foedrum.jsonc` can stop being enough with no error (#857).
+- Leave CLAUDE.md alone unless your change makes one of its lines untrue: then change that line in the same pull request, as #1194 added the blocked-by hold to "Every wait has a deadline". Every other CLAUDE.md change comes in a docs pull request of its own.
 
 ## Security
 
