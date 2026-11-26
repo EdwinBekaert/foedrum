@@ -463,17 +463,27 @@ describe('createAttemptPlans: house yeast of the brewers that write the change (
     assert.deepEqual((await implement(git)).houseYeast, { selected: ['near-miss'], cut: [] });
   });
 
-  it('gives a writer the rules of every lens within one budget, not one per lens', async () => {
+  it('gives a writer the rules of every lens that match the change, none cut for a token budget (#1162)', async () => {
     const long = (id: string, lens: string) =>
       rule(id, { globs: ['src/**'], lens }, 'x'.repeat(4800));
     const git = repository('M\tsrc/wait.ts\n', {
       'a-first': long('a-first', 'diff/security'),
       'b-second': long('b-second', 'diff/test-design'),
     });
-    assert.deepEqual((await implement(git)).houseYeast, {
-      selected: ['a-first'],
-      cut: ['b-second'],
+    const { prompt, houseYeast } = await implement(git);
+    assert.deepEqual(houseYeast, { selected: ['a-first', 'b-second'], cut: [] });
+    assert.equal(prompt.split('name="houseYeast"').length, 3, 'both rules are in the prompt');
+  });
+
+  it("keeps a Taster's budget of about 2,000 tokens beside the writers' (regression test, #1162)", async () => {
+    const long = (id: string) =>
+      rule(id, { globs: ['src/**'], lens: 'diff/correctness' }, 'x'.repeat(4800));
+    const git = repository('M\tsrc/wait.ts\n', {
+      'a-first': long('a-first'),
+      'b-second': long('b-second'),
     });
+    const { plan } = planOf(git, 'correctness', tasting, undefined, 1, brewers);
+    assert.deepEqual((await plan).houseYeast, { selected: ['a-first'], cut: ['b-second'] });
   });
 
   it("gives the Gauger's first attempt, which changed nothing, the rules that name no file, of every lens (regression test, review of #682)", async () => {

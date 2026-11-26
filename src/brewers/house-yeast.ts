@@ -300,9 +300,10 @@ const readLayer = (files: readonly RuleSource[]): Rules => {
 };
 
 /**
- * The rules of both layers whose scope matches `change`, within `budget`: a repository rule over a
- * Brewery rule of its id (ADR 0018), each selected one as an input named `houseYeast`, and the ids
- * selected and cut and the files left out as invalid, which the attempt records (ADR 0169).
+ * The rules of both layers whose scope matches `change`, within `budget` (none for `everyLens`,
+ * ADR 0437): a repository rule over a Brewery rule of its id (ADR 0018), each selected one as an
+ * input named `houseYeast`, and the ids selected and cut and the files left out as invalid, which
+ * the attempt records (ADR 0169).
  */
 export const pickRules = (
   layers: { repository: readonly RuleSource[]; brewery: readonly RuleSource[] },
@@ -319,10 +320,10 @@ export const pickRules = (
   const own = new Set(repository.rules.map(({ rule }) => rule.id));
   const rules = [...repository.rules, ...brewery.rules.filter(({ rule }) => !own.has(rule.id))];
   // A step's lenses together get the rules each would get apart, each once, in their order, and
-  // a rule one lens cut and another selected counts as selected (ADR 0220). Every lens's rules
-  // share one budget (ADR 0268).
+  // a rule one lens cut and another selected counts as selected (ADR 0220). A step that writes
+  // gets every rule that matches the change, none cut for a budget (ADR 0268, ADR 0437).
   const each = change.everyLens
-    ? [selectRules(rules, change, budget)]
+    ? [selectRules(rules, change, Infinity)]
     : (change.lenses ?? [change.lens]).map((lens) =>
         selectRules(
           rules,
