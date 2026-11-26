@@ -22,6 +22,13 @@ import type { Ending } from './decide.ts';
 import { APPROVES_WITH_FINDINGS, ASKS_CHANGES } from './fold.ts';
 import type { ProgressSource } from './supervisor.ts';
 
+/** A finding of a findings route's input at its place, and the step that found it when not the routing one. */
+export interface RouteFinding {
+  step?: string;
+  file?: string;
+  line?: number;
+}
+
 /** What the runner enforces for one attempt and where the brewer reports its outcome. */
 export interface AttemptLimits {
   /** The out doc the brewer must write (`output.doc`), and the schema of its frontmatter. */
@@ -35,6 +42,13 @@ export interface AttemptLimits {
    * needs a commit after it (ADR 0074).
    */
   commitsSince?: string;
+  /**
+   * For a brewer a findings route brought back: the step whose route it was and the findings of its
+   * route input, each at its place and, when another step of the group found it, that step
+   * (ADR 0191, ADR 0349). A `done` with no commit then succeeds when its out doc dismisses or marks
+   * pre-existing every one of them (#1181).
+   */
+  findingsRoute?: { from: string; findings: readonly RouteFinding[] };
   /**
    * For a plan: a `done` out doc's body must hold its summary and assumptions, so the out doc the
    * comments link reads on GitHub (ADR 0275).

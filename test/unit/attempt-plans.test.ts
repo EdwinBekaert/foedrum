@@ -2324,6 +2324,140 @@ describe('createAttemptPlans: limits', () => {
     });
   });
 
+  describe('an attempt a findings route brought back (#1181, ADR 0191, ADR 0349)', () => {
+    const cellarman = {
+      path: 'brewers/cellarman.md',
+      text: brewerText('cellarman', {
+        produces: 'commits',
+        access: 'write',
+        git: { commit: true },
+        tools: { allow: ['Read', 'Write'] },
+      }),
+    };
+    const deadlineAt = '2026-10-17T13:00:00.000Z';
+    const second = { ...ref, attempt: 2 };
+    const found = (file: string | undefined, line: number | undefined, why = 'Too bitter') => ({
+      ...(file === undefined ? {} : { file }),
+      ...(line === undefined ? {} : { line }),
+      severity: 'minor' as const,
+      why,
+      introduced: true,
+    });
+    /** A taster's attempt 1 of `stepId`, which ran in its own worktree and ended `outcome`. */
+    const tasted = (stepId: string, outcome: StepOutcome, more: Partial<Event> = {}): Event[] => {
+      const at = { batchId: '12-1', stepId, attempt: 1 };
+      return [
+        { type: 'step.scheduled', ...at, deadlineAt },
+        {
+          type: 'step.started',
+          ...at,
+          worktree: {
+            repo: 'acme/api',
+            path: join('/work', `${stepId}-1`),
+            branch: `foedrum/12-1/${stepId}/1`,
+            commit: 'c'.repeat(40),
+          },
+        },
+        { type: 'step.finished', ...at, outcome, ...more } as Event,
+      ];
+    };
+    const blockedBy = (reason: string): StepOutcome => ({
+      kind: 'failed',
+      retryable: false,
+      reason: `blocked (findings): ${reason}`,
+    });
+    const limitsOf = (steps: Parameters<typeof recipeText>[1], events: Event[]) => {
+      const loadedRecipes = loadRecipes({
+        ...readBreweryFiles(join(FOEDRUM_DEFAULTS, 'no-such-brewery')),
+        recipes: [
+          { path: 'recipes/pale.jsonc', text: recipeText('pale', steps, { testFirst: false }) },
+        ],
+        brewers: [cellarman],
+      });
+      assert.ok(loadedRecipes.valid, loadedRecipes.valid ? '' : loadedRecipes.problems.join('\n'));
+      return setup(events, {}, undefined, loadedRecipes.brewers).plans.limits(second);
+    };
+    const routed = (from: string): Event[] => [
+      { type: 'step.scheduled', ...second, deadlineAt, route: { from, why: 'findings' } },
+      { ...started, attempt: 2 },
+    ];
+
+    it('names the step that sent it back and the findings that step recorded, each at its place', () => {
+      const steps = [
+        { id: 'brew', brewer: 'cellarman' },
+        {
+          id: 'taste',
+          brewer: 'taster',
+          lens: 'diff/correctness',
+          onFindings: { goto: 'brew', maxRounds: 1 },
+        },
+        { action: 'openPullRequest' },
+      ];
+      const events: Event[] = [
+        ...ordered,
+        started,
+        { type: 'step.finished', ...ref, outcome: { kind: 'succeeded', output: null } },
+        ...tasted('taste', blockedBy('the Taster asks for changes: Too bitter'), {
+          findings: {
+            kept: [found('src/a.ts', 3), found(undefined, undefined, 'No tests')],
+            more: 0,
+          },
+        }),
+        ...routed('taste'),
+      ];
+      assert.deepEqual(limitsOf(steps, events).findingsRoute, {
+        from: 'taste',
+        findings: [{ file: 'src/a.ts', line: 3 }, {}],
+      });
+    });
+
+    it("adds the findings of the group's other children in the round, each with its step", () => {
+      const steps = [
+        { id: 'brew', brewer: 'cellarman' },
+        {
+          id: 'taste',
+          parallel: [
+            { id: 'correctness', brewer: 'taster', lens: 'diff/correctness' },
+            { id: 'acceptance', brewer: 'taster', lens: 'diff/acceptance' },
+          ],
+          onFindings: { goto: 'brew', maxRounds: 1 },
+        },
+        { action: 'openPullRequest' },
+      ];
+      const events: Event[] = [
+        ...ordered,
+        started,
+        { type: 'step.finished', ...ref, outcome: { kind: 'succeeded', output: null } },
+        ...tasted('correctness', blockedBy('the Taster asks for changes: No deadline'), {
+          findings: { kept: [found('src/a.ts', 3)], more: 0 },
+        }),
+        ...tasted('acceptance', {
+          kind: 'succeeded',
+          output: {
+            status: 'done',
+            summary: 'Tasted',
+            assumptions: [],
+            verdict: 'approve',
+            findings: [found('src/status.ts', 40, 'The help text does not name --json')],
+          },
+        }),
+        ...routed('correctness'),
+      ];
+      assert.deepEqual(limitsOf(steps, events).findingsRoute, {
+        from: 'correctness',
+        findings: [
+          { file: 'src/a.ts', line: 3 },
+          { step: 'acceptance', file: 'src/status.ts', line: 40 },
+        ],
+      });
+    });
+
+    it('regression test: names no findings route for an attempt no findings route scheduled', () => {
+      const { plans } = setup();
+      assert.equal(plans.limits(ref).findingsRoute, undefined);
+    });
+  });
+
   it('gives an attempt of a batch without a recipe the out doc of the contract alone', () => {
     const { plans } = setup([ordered[0] as Event]);
     assert.deepEqual(plans.limits(ref), { outDoc: { file: 'out.md', schema: OutDocFrontmatter } });
