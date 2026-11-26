@@ -11,6 +11,7 @@ import type { Ending } from '../../src/engine/decide.ts';
 import { createIntake, intakeQueue, type TargetTracker } from '../../src/engine/intake.ts';
 import type { Claimant, TargetIssue } from '../../src/engine/issue-claims.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
+import { blockersNotRead } from '../helpers/blockers.ts';
 import { seededRandom } from '../helpers/event-sequences.ts';
 import { fakeGitHub } from '../helpers/fake-github.ts';
 import { fakeRecipe, fakeRecipes } from '../helpers/fake-recipes.ts';
@@ -77,6 +78,7 @@ it('a pass never brews two sub-orders whose touches overlap, and starts every on
         assignees: [],
         author: 'alice',
         created: new Date(Date.UTC(2026, 9, 30, 8, number)).toISOString(),
+        blockedBy: 0,
       });
 
       // The breakdown of order #1: what each sub-order touches, none for some.
@@ -117,6 +119,7 @@ it('a pass never brews two sub-orders whose touches overlap, and starts every on
         issues: async (repo) => (repo === brewery ? listed : []),
         pullRequest: async () => 'open',
         labelsAdded: addedByAuthor(() => []),
+        blockers: blockersNotRead,
       };
       const busyIn = (state: ReturnType<typeof log.state>): number =>
         [...state.batches.values()].filter(

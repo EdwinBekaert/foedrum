@@ -23,6 +23,8 @@ const targetIssue = (body: unknown, what: string): TargetIssue => {
     // A deleted account is nobody, so it never opened a Brewery order (ADR 0068).
     author: issue.user?.login ?? '',
     created: new Date(issue.created_at).toISOString(),
+    // Not read yet: the listing's dependencies summary is not checked.
+    blockedBy: 0,
   };
 };
 
@@ -70,5 +72,8 @@ export const githubTargetTracker = (reads: GitHubReads): TargetTracker => ({
         if (label === undefined) throw new Error(`${what} has a labeled event without its label`);
         return [{ label: label.name, by: actor?.login }];
       });
+  },
+  blockers: async () => {
+    throw new Error('not implemented');
   },
 });

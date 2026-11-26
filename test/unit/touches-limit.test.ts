@@ -17,6 +17,7 @@ import type { Claimant, TargetIssue } from '../../src/engine/issue-claims.ts';
 import { type Limits, limitLines } from '../../src/engine/limits.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import { SubOrderRef } from '../../src/schemas/events.ts';
+import { blockersNotRead } from '../helpers/blockers.ts';
 import { fakeGitHub } from '../helpers/fake-github.ts';
 import { createdOf } from '../helpers/fake-github-api.ts';
 import { fakeRecipe, fakeRecipes } from '../helpers/fake-recipes.ts';
@@ -43,6 +44,7 @@ const issue = (number: number, labels: readonly string[] = ['recipe:half']): Tar
   assignees: [],
   author: 'alice',
   created: createdOf(number),
+  blockedBy: 0,
 });
 
 /** A sub-order of order #1's breakdown: its issue, its repository and the paths it touches. */
@@ -80,6 +82,7 @@ describe('two ready sub-orders whose touches overlap (#566)', () => {
         : [],
     pullRequest: async () => 'open',
     labelsAdded: addedByAuthor(() => []),
+    blockers: blockersNotRead,
   });
   const intake = (
     numbers: readonly number[],

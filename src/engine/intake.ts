@@ -30,6 +30,7 @@ import type { CommandLog } from './command-log.ts';
 import type { EngineCommand } from './decide.ts';
 import { type Batch, emptyState, orderKey, type State } from './fold.ts';
 import {
+  type Blocker,
   type Claimant,
   type ClaimHost,
   type ClaimOutcome,
@@ -73,6 +74,8 @@ export interface TargetTracker {
   pullRequest(url: string, signal?: AbortSignal): Promise<PullRequestState>;
   /** Each adding of a label to `repo#issue`, oldest first, from every page of its events. */
   labelsAdded(repo: string, issue: number, signal?: AbortSignal): Promise<readonly LabelAdded[]>;
+  /** Each issue `repo#issue` is "blocked by", open or closed, from every page of its links. */
+  blockers(repo: string, issue: number, signal?: AbortSignal): Promise<readonly Blocker[]>;
 }
 
 /** A repository whose issues the intake polls: its alias starts the batch ids of its issues. */

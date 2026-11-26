@@ -12,6 +12,7 @@ import { createIntake, intakeQueue, type TargetTracker } from '../../src/engine/
 import type { Claimant, TargetIssue } from '../../src/engine/issue-claims.ts';
 import type { Limits } from '../../src/engine/limits.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
+import { blockersNotRead } from '../helpers/blockers.ts';
 import { seededRandom } from '../helpers/event-sequences.ts';
 import { fakeGitHub } from '../helpers/fake-github.ts';
 import { fakeRecipe, fakeRecipes } from '../helpers/fake-recipes.ts';
@@ -59,6 +60,7 @@ it('a pass orders and routes within every limit, and every entry within them whi
         assignees: [],
         author: 'alice',
         created: new Date(Date.UTC(2026, 9, 26, 8, random.int(60))).toISOString(),
+        blockedBy: 0,
       });
       const listed: TargetIssue[] = [];
       const targets: TargetIssue[] = [];
@@ -145,6 +147,7 @@ it('a pass orders and routes within every limit, and every entry within them whi
         issues: async (repo) => (repo === brewery ? listed : targets),
         pullRequest: async () => 'open',
         labelsAdded: addedByAuthor(() => targets),
+        blockers: blockersNotRead,
       };
       const github = fakeGitHub();
       const intake = createIntake({

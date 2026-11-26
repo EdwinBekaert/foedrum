@@ -26,6 +26,7 @@ import type {
 import { pullRequestKey, pushKey } from '../../src/engine/pull-request.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import { BreweryConfig } from '../../src/schemas/brewery-config.ts';
+import { blockersNotRead } from '../helpers/blockers.ts';
 import { type FakeGitHub, fakeGitHub } from '../helpers/fake-github.ts';
 import { createdOf } from '../helpers/fake-github-api.ts';
 import { fakeRecipe, fakeRecipes } from '../helpers/fake-recipes.ts';
@@ -68,6 +69,7 @@ const issue = (number: number, fields: Partial<TargetIssue> = {}): TargetIssue =
   author: 'alice',
   // A minute apart by number, so the lower number arrived first (ADR 0208).
   created: createdOf(number),
+  blockedBy: 0,
   ...fields,
 });
 const record = (brewery: string, number: number): string =>
@@ -104,6 +106,7 @@ const fakeTracker = (
       if (given instanceof Error) throw given;
       return given ?? byAuthor(repo, number);
     },
+    blockers: blockersNotRead,
   };
   return { tracker, asked, pullRequests };
 };
@@ -255,6 +258,7 @@ describe('createIntake', () => {
         },
         pullRequest: async () => 'open',
         labelsAdded: addedByAuthor((repo) => (repo === web ? [issue(7)] : [])),
+        blockers: blockersNotRead,
       };
       return { tracker, signals };
     };
@@ -1194,6 +1198,7 @@ describe('createIntake', () => {
         },
         pullRequest: async () => 'open',
         labelsAdded: addedByAuthor(() => []),
+        blockers: blockersNotRead,
       };
       await breweryIntake(tracker, { deadlineMs: 1 }).poll();
       release();
@@ -1227,6 +1232,7 @@ describe('createIntake', () => {
         },
         pullRequest: async () => 'open',
         labelsAdded: addedByAuthor(() => []),
+        blockers: blockersNotRead,
       };
       await breweryIntake(tracker).poll();
       assert.deepStrictEqual(calls[0], [brewery, undefined, true]);

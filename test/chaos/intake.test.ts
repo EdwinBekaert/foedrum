@@ -15,6 +15,7 @@ import { createIntake, type TargetTracker } from '../../src/engine/intake.ts';
 import { orderEffects, type TargetIssue } from '../../src/engine/issue-claims.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import { createSupervisor } from '../../src/engine/supervisor-loop.ts';
+import { blockersNotRead } from '../helpers/blockers.ts';
 import { type Random, seededRandom } from '../helpers/event-sequences.ts';
 import { fakeGitHub } from '../helpers/fake-github.ts';
 import { createdOf } from '../helpers/fake-github-api.ts';
@@ -109,6 +110,7 @@ const tracker = (planned: readonly Planned[], opened: ReadonlySet<number>): Targ
     assignees: [],
     author: 'ann',
     created: createdOf(number),
+    blockedBy: 0,
   });
   return {
     issues: async (repo) =>
@@ -126,6 +128,7 @@ const tracker = (planned: readonly Planned[], opened: ReadonlySet<number>): Targ
       { label: 'foedrum', by: 'ann' },
       { label: 'recipe:half', by: 'ann' },
     ],
+    blockers: blockersNotRead,
   };
 };
 

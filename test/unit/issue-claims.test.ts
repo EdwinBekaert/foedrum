@@ -37,6 +37,7 @@ const issue = (number: number, fields: Partial<TargetIssue> = {}): TargetIssue =
   author: 'alice',
   // A minute apart by number, so the lower number arrived first (ADR 0208).
   created: createdOf(number),
+  blockedBy: 0,
   labelsAdded: [{ label: 'foedrum', by: 'alice' }],
   ...fields,
 });

@@ -240,7 +240,19 @@ export const fakeGitHubApi = (options: FakeGitHubApiOptions): FakeGitHubApi => {
   };
   const issue = (repo: string, number: number) =>
     repoIssues(repo).find((each) => each.number === number);
-  const asIssue = (found: FakeApiIssue) => ({
+  // What GitHub's issue objects carry of the "blocked by" links: how many blockers there are and
+  // how many are open, which `blocked_by` counts alone (trackers.md).
+  const summaryOf = (repo: string, found: FakeApiIssue) => {
+    const linked = found.blockedBy ?? [];
+    const open = linked.filter((number) => (issue(repo, number)?.state ?? 'open') === 'open');
+    return {
+      blocked_by: open.length,
+      total_blocked_by: linked.length,
+      blocking: 0,
+      total_blocking: 0,
+    };
+  };
+  const asIssue = (repo: string, found: FakeApiIssue) => ({
     id: found.id ?? idOf(found.number),
     number: found.number,
     state: found.state ?? 'open',
@@ -249,6 +261,8 @@ export const fakeGitHubApi = (options: FakeGitHubApiOptions): FakeGitHubApi => {
     assignees: (found.assignees ?? []).map((assignee) => ({ login: assignee })),
     body: found.body ?? null,
     created_at: found.created ?? createdOf(found.number),
+    repository_url: `https://api.github.com/repos/${repo}`,
+    issue_dependencies_summary: summaryOf(repo, found),
     ...(found.title === undefined ? {} : { title: found.title }),
     ...(found.pullRequest === true ? { pull_request: { url: `pulls/${found.number}` } } : {}),
   });
@@ -350,7 +364,7 @@ export const fakeGitHubApi = (options: FakeGitHubApiOptions): FakeGitHubApi => {
     if (method === 'GET') {
       const listed = linked.flatMap((number) => {
         const each = issue(repo, number);
-        return each === undefined ? [] : [asIssue(each)];
+        return each === undefined ? [] : [asIssue(repo, each)];
       });
       return paged(url, listed);
     }
@@ -374,7 +388,7 @@ export const fakeGitHubApi = (options: FakeGitHubApiOptions): FakeGitHubApi => {
       });
     }
     linked.push(other.number);
-    return json(201, asIssue(found));
+    return json(201, asIssue(repo, found));
   };
 
   const onIssue = (
@@ -424,15 +438,15 @@ export const fakeGitHubApi = (options: FakeGitHubApiOptions): FakeGitHubApi => {
       body?: string;
       state?: 'open' | 'closed';
     };
-    if (method === 'GET' && what === '') return json(200, asIssue(found));
+    if (method === 'GET' && what === '') return json(200, asIssue(repo, found));
     if (method === 'GET' && what === 'events') return paged(url, historyOf(repo, found));
     if (method === 'PATCH' && what === '') {
       if (fields.state !== undefined) found.state = fields.state;
-      return json(200, asIssue(found));
+      return json(200, asIssue(repo, found));
     }
     if (method === 'POST' && what === 'assignees') {
       found.assignees = [...(found.assignees ?? []), ...(fields.assignees ?? [])];
-      return json(201, asIssue(found));
+      return json(201, asIssue(repo, found));
     }
     if (method === 'POST' && what === 'labels') {
       addLabels(repo, found, fields.labels ?? [], login);
@@ -471,6 +485,14 @@ export const fakeGitHubApi = (options: FakeGitHubApiOptions): FakeGitHubApi => {
     labels: [],
     title: pull.title,
     created_at: createdOf(pull.number),
+    repository_url: `https://api.github.com/repos/${pull.repo}`,
+    // A pull request is blocked by nothing the fake links.
+    issue_dependencies_summary: {
+      blocked_by: 0,
+      total_blocked_by: 0,
+      blocking: 0,
+      total_blocking: 0,
+    },
     pull_request: {},
   });
   const asPull = (pull: FakeApiPull) => ({
@@ -637,7 +659,7 @@ export const fakeGitHubApi = (options: FakeGitHubApiOptions): FakeGitHubApi => {
       const all = url.searchParams.get('state') === 'all';
       const creator = url.searchParams.get('creator');
       const listed = [
-        ...repoIssues(repo).map(asIssue),
+        ...repoIssues(repo).map((each) => asIssue(repo, each)),
         ...pulls.filter((pull) => pull.repo === repo.toLowerCase()).map(asPullIssue),
       ].filter(
         (each) =>
@@ -649,7 +671,7 @@ export const fakeGitHubApi = (options: FakeGitHubApiOptions): FakeGitHubApi => {
     }
     if (method === 'POST' && rest === 'issues') {
       const fields = body as { title?: string; body?: string; labels?: string[] };
-      return json(201, asIssue(openIssue(repo, fields)));
+      return json(201, asIssue(repo, openIssue(repo, fields)));
     }
     const [, id] = /^issues\/comments\/(\d+)$/.exec(rest) ?? [];
     if (id !== undefined) return onComment(method, repo, Number(id), body);
