@@ -115,7 +115,7 @@ export interface LiveBatch {
 }
 
 /** What the live line needs: the shell's, and the batches it shows each time it is drawn. */
-export interface LiveLineOptions extends Pick<ServeShell, 'clock' | 'wait' | 'signal'> {
+interface LiveLineOptions extends Pick<ServeShell, 'clock' | 'wait' | 'signal'> {
   /** The terminal it is drawn on; none, and nothing is drawn. */
   terminal: LiveTerminal | undefined;
   /** The batches the line shows now: one part each, and none while nothing is driven (ADR 0427). */
