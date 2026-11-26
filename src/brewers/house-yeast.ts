@@ -301,9 +301,9 @@ const readLayer = (files: readonly RuleSource[]): Rules => {
 
 /**
  * The rules of both layers whose scope matches `change`, within `budget` (none for `everyLens`,
- * ADR 0437): a repository rule over a
- * Brewery rule of its id (ADR 0018), each selected one as an input named `houseYeast`, and the ids
- * selected and cut and the files left out as invalid, which the attempt records (ADR 0169).
+ * ADR 0437): a repository rule over a Brewery rule of its id (ADR 0018), each selected one as an
+ * input named `houseYeast`, and the ids selected and cut and the files left out as invalid, which
+ * the attempt records (ADR 0169).
  */
 export const pickRules = (
   layers: { repository: readonly RuleSource[]; brewery: readonly RuleSource[] },
