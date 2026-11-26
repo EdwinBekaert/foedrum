@@ -149,17 +149,17 @@ const schemaVersionOf = (db: DatabaseSync): number =>
   (db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version;
 
 const migrate = (db: DatabaseSync): void => {
-  const version = (): number => schemaVersionOf(db);
-  if (version() > migrations.length) {
+  const found = schemaVersionOf(db);
+  if (found > migrations.length) {
     throw new Error(
-      `The event store has schema version ${version()}; this Foedrum knows up to ${migrations.length}`,
+      `The event store has schema version ${found}; this Foedrum knows up to ${migrations.length}`,
     );
   }
-  while (version() < migrations.length) {
+  while (schemaVersionOf(db) < migrations.length) {
     db.exec('BEGIN IMMEDIATE');
     try {
       // Read again under the write lock: another connection may have migrated meanwhile.
-      const from = version();
+      const from = schemaVersionOf(db);
       if (from < migrations.length) {
         db.exec(migrations[from] as string);
         db.exec(`PRAGMA user_version = ${from + 1}`);
