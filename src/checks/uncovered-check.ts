@@ -184,8 +184,8 @@ export function createUncoveredCheck(options: UncoveredCheckOptions): UncoveredC
         coverageSecond === undefined || !touched.has(module.name)
           ? [module.coverage]
           : [module.coverage, coverageSecond];
+      const cannot = `the coverage report of module "${module.name}" cannot`;
       for (const { format, path } of places) {
-        const cannot = `the coverage report of module "${module.name}" cannot`;
         // Refused out of the worktree, or past the paths a pattern may match (ADR 0274).
         const found = find(path, worktree.path);
         if ('refused' in found) return stuck(`${cannot} be looked for: ${found.refused}`);
