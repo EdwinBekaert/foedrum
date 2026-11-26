@@ -11,6 +11,7 @@ import {
   formatDiagnosis,
   githubHostOfConfig,
 } from '../../src/cli/doctor.ts';
+import { NAME_THE_BREWERY, serveSetup } from '../../src/cli/serve-config.ts';
 import {
   type BreweryFile,
   type BreweryFiles,
@@ -22,6 +23,7 @@ import { BrewerFrontmatter } from '../../src/schemas/brewer.ts';
 import { readDoc } from '../../src/schemas/read.ts';
 import { brewerText, recipeText } from '../helpers/brewery-files.ts';
 import { linux, loggedIn, macos, ran, windows } from '../helpers/doctor-facts.ts';
+import { config, models, serveInputs } from '../helpers/serve-brewery.ts';
 
 const required = (facts: DoctorFacts) =>
   diagnose(facts)
@@ -706,7 +708,7 @@ describe("diagnose: AppArmor's limit on user namespaces (ADR 0076)", () => {
 describe('diagnose: the Brewery config (ADR 0043)', () => {
   const checks = '{ "build": null, "typecheck": null, "lint": null, "format": null, "test": null }';
   const config = (web: string, api: string): string =>
-    `// foedrum.jsonc\n{ "repositories": { "acme/web": { "checks": ${checks}, "alias": "${web}" }, "acme/api": { "checks": ${checks}, "alias": "${api}" } } }\n`;
+    `// foedrum.jsonc\n{ "brewery": "acme/brewery", "users": ["ann"], "repositories": { "acme/web": { "checks": ${checks}, "alias": "${web}" }, "acme/api": { "checks": ${checks}, "alias": "${api}" } } }\n`;
 
   it('is not ok when foedrum.jsonc gives two repositories one alias, and names both', () => {
     const diagnosis = diagnose({ ...linux(), config: config('app', 'app') });
@@ -742,6 +744,163 @@ describe('diagnose: the Brewery config (ADR 0043)', () => {
       diagnosis.problems.find(({ what }) => /foedrum.jsonc/.test(what)),
       { required: true, what: 'foedrum.jsonc cannot be read', fix: 'EACCES: permission denied' },
     );
+  });
+});
+
+// The Brewery-file checks the setup of serve, brew and resume makes are doctor's too (#1163): each
+// problem it refuses with is a required problem of doctor's, in the same words, where doctor has
+// a foedrum.jsonc to read the Brewery by.
+describe('diagnose: the Brewery files the brew setup refuses (#1163)', () => {
+  const served = serveInputs().files;
+  type Files = typeof served;
+  const brewery = (changes: Partial<Files> = {}): Files => ({ ...served, ...changes });
+  const factsOf = (files: Files, more: Partial<DoctorFacts> = {}): DoctorFacts => ({
+    ...linux(),
+    config: files.config,
+    models: files.models,
+    brewery: files.brewery,
+    ...more,
+  });
+  // Each required problem as `what: fix`, the line a refused command prints for it.
+  const doctorLines = (facts: DoctorFacts): string[] =>
+    diagnose(facts)
+      .problems.filter(({ required }) => required)
+      .map(({ what, fix }) => `${what}: ${fix}`)
+      .sort();
+  // What the setup refuses the same files with.
+  const setupLines = (files: Files): string[] => {
+    const result = serveSetup(serveInputs({ files }));
+    assert.equal(result.kind, 'refused', 'the setup refuses these files');
+    return result.kind === 'refused' ? [...result.problems].sort() : [];
+  };
+  const unrecognized = '{ "models": { "builder": "claude-sonnet-5-5" } }';
+  const at = new Date('2026-11-30T12:00:00.000Z');
+
+  it('is ok with a Brewery the setup accepts', () => {
+    const diagnosis = diagnose(factsOf(brewery()));
+    assert.equal(diagnosis.ok, true);
+    assert.deepEqual(doctorLines(factsOf(brewery())), []);
+    assert.match(formatDiagnosis(diagnosis), /Foedrum has everything it needs\./);
+  });
+
+  it('reports a models.jsonc of the old form with the setup’s line, and does not end well', () => {
+    const files = brewery({ models: unrecognized });
+    const [line = ''] = setupLines(files);
+    assert.match(line, /^models\.jsonc: .*Unrecognized key: "models"/);
+    assert.deepEqual(doctorLines(factsOf(files)), [line]);
+    const diagnosis = diagnose(factsOf(files));
+    assert.equal(diagnosis.ok, false);
+    const report = formatDiagnosis(diagnosis);
+    assert.match(report, /Unrecognized key: "models"/);
+    assert.doesNotMatch(report, /Foedrum has everything it needs\./);
+    assert.match(report, /Foedrum cannot run brewers until the required problems are fixed\./);
+  });
+
+  it('reports a Foedrum default models.jsonc that does not load, by its defaults/ path', () => {
+    const defaults = { models: { path: 'defaults/models.jsonc', text: '{' } };
+    const files = brewery({ brewery: { ...served.brewery, defaults } });
+    const lines = setupLines(files);
+    assert.ok(
+      lines.some((line) => line.startsWith('defaults/models.jsonc: ')),
+      lines.join('\n'),
+    );
+    assert.deepEqual(doctorLines(factsOf(files)), lines);
+  });
+
+  it('reports a step whose level models.jsonc does not map, as the setup does', () => {
+    const files = brewery({ models: models('strong') });
+    const lines = setupLines(files);
+    assert.equal(lines.length, 2, lines.join('\n'));
+    assert.match(
+      lines.join('\n'),
+      /names the level "light", which models\.jsonc has no claude model for/,
+    );
+    assert.deepEqual(doctorLines(factsOf(files)), lines);
+  });
+
+  it('reports a foedrum.jsonc that lists no repository', () => {
+    const files = brewery({ config: config({ repositories: {} }) });
+    const lines = setupLines(files);
+    assert.match(lines.join('\n'), /list at least one repository/);
+    assert.deepEqual(doctorLines(factsOf(files)), lines);
+  });
+
+  it('reports a foedrum.jsonc that does not name the Brewery', () => {
+    const files = brewery({ config: config({ brewery: undefined }) });
+    const lines = setupLines(files);
+    assert.deepEqual(lines, [NAME_THE_BREWERY]);
+    assert.deepEqual(doctorLines(factsOf(files)), lines);
+  });
+
+  it('reports a foedrum.jsonc that lists no user who may order work', () => {
+    const files = brewery({ config: config({ users: [] }) });
+    const lines = setupLines(files);
+    assert.match(lines.join('\n'), /list the GitHub users who may order work/);
+    assert.deepEqual(doctorLines(factsOf(files)), lines);
+  });
+
+  it('reports every problem at once, each once, as the setup does', () => {
+    const files = brewery({
+      config: config({ users: [] }),
+      models: unrecognized,
+      brewery: { recipes: [{ path: 'recipes/stout.jsonc', text: '{' }], brewers: [] },
+    });
+    const lines = setupLines(files);
+    assert.equal(lines.length, 3, lines.join('\n'));
+    assert.deepEqual(doctorLines(factsOf(files)), lines);
+  });
+
+  it('reports a models.jsonc the setup refuses beside an event log in an older format', () => {
+    const files = brewery({ models: unrecognized });
+    const tasting = { used: [], at, olderSchema: 4 };
+    assert.deepEqual(doctorLines(factsOf(files, { tasting })), setupLines(files));
+    assert.equal(diagnose(factsOf(files, { tasting })).ok, false);
+  });
+
+  it('reports a models.jsonc the setup refuses beside an event log that cannot be read', () => {
+    const files = brewery({ models: unrecognized });
+    const tasting = { used: [], at, unreadable: 'file is not a database' };
+    assert.deepEqual(doctorLines(factsOf(files, { tasting })), setupLines(files));
+    assert.equal(diagnose(factsOf(files, { tasting })).ok, false);
+  });
+
+  it('reports recipe files that do not load with the setup’s line, as before: regression test', () => {
+    const files = brewery({
+      brewery: { recipes: [{ path: 'recipes/stout.jsonc', text: '{' }], brewers: [] },
+    });
+    const lines = setupLines(files);
+    assert.equal(lines.length, 1);
+    assert.match(lines[0] ?? '', /^the Brewery's recipes are not valid: recipes\/stout\.jsonc: /);
+    assert.deepEqual(doctorLines(factsOf(files)), lines);
+  });
+
+  it('reports a defaultRecipe that is not of type mash with the setup’s line, as before: regression test', () => {
+    const files = brewery({ config: config({ defaultRecipe: 'stout' }) });
+    const lines = setupLines(files);
+    assert.match(lines.join('\n'), /defaultRecipe names stout, of type brew/);
+    assert.deepEqual(doctorLines(factsOf(files)), lines);
+  });
+
+  it('reports a foedrum.jsonc that does not pass its schema once, not by both checks: regression test', () => {
+    const files = brewery({ config: config({ repositories: 1 }) });
+    const named = diagnose(factsOf(files)).problems.filter(({ what }) =>
+      what.startsWith('foedrum.jsonc'),
+    );
+    assert.equal(named.length, 1, JSON.stringify(named));
+    assert.equal(named[0]?.required, true);
+  });
+
+  it('says nothing of the Brewery files without a foedrum.jsonc to read them by: regression test', () => {
+    // A models.jsonc of the old form and levels it does not map, in a folder with no foedrum.jsonc.
+    const facts: DoctorFacts = {
+      ...linux(),
+      models: unrecognized,
+      brewery: served.brewery,
+    };
+    const diagnosis = diagnose(facts);
+    assert.deepEqual(diagnosis.problems, []);
+    assert.equal(diagnosis.ok, true);
+    assert.match(formatDiagnosis(diagnosis), /Foedrum has everything it needs\./);
   });
 });
 
@@ -1382,10 +1541,15 @@ describe("diagnose: whether a test-first recipe's test line saves a report (ADR 
     ),
   });
   const config = (test: unknown) =>
-    `{ "repositories": { "acme/web": { "alias": "web", "checks": { "build": null, "typecheck": null, "lint": null, "format": null, "test": ${JSON.stringify(test)} } } } }`;
+    `{ "brewery": "acme/brewery", "users": ["ann"], "repositories": { "acme/web": { "alias": "web", "checks": { "build": null, "typecheck": null, "lint": null, "format": null, "test": ${JSON.stringify(test)} } } } }`;
+  // The recipes' steps are on standard at moderate, which the Brewery's models.jsonc maps.
+  const models = JSON.stringify({
+    claude: { models: { standard: 'sonnet' }, efforts: { moderate: 'medium' } },
+  });
   const facts = (test: unknown, recipes = [recipe('nip')]) => ({
     ...linux(),
     config: config(test),
+    models,
     brewery: { recipes, brewers: [gauger] },
   });
   const about = (diagnosis: ReturnType<typeof diagnose>) => ({
@@ -1647,7 +1811,7 @@ describe('diagnose: what could be tasted next (ADR 0419)', () => {
     const tasting = { used: [used('cellarman', 'claude-opus-5-6')], at };
     assert.equal(
       lineOf({ tasting }),
-      'Tasting: 1 model in use was never tasted (claude-opus-5-6 for cellarman); `foedrum taste` will list it.',
+      'Tasting: 1 model in use was never tasted (claude-opus-5-6 for cellarman); docs/design/evaluation.md says how a Flight tastes it.',
     );
   });
 
@@ -1663,7 +1827,7 @@ describe('diagnose: what could be tasted next (ADR 0419)', () => {
     };
     assert.equal(
       lineOf({ tasting, models: models(tasted('gauger', 'claude-opus-5-7', 'strong', 'larger')) }),
-      'Tasting: 2 models in use were never tasted (claude-opus-5-6 for cellarman and gauger, claude-sonnet-5-6 for maltster) and 1 step may do on a cheaper level (gauger in nip on standard); `foedrum taste` will list them.',
+      'Tasting: 2 models in use were never tasted (claude-opus-5-6 for cellarman and gauger, claude-sonnet-5-6 for maltster) and 1 step may do on a cheaper level (gauger in nip on standard); docs/design/evaluation.md says how a Flight tastes them.',
     );
   });
 
@@ -1671,7 +1835,7 @@ describe('diagnose: what could be tasted next (ADR 0419)', () => {
     const tasting = { used: [used('gauger', 'claude-opus-5-7')], at };
     assert.equal(
       lineOf({ tasting, models: models(tasted('gauger', 'claude-opus-5-7', 'strong', 'larger')) }),
-      'Tasting: 1 step may do on a cheaper level (gauger in nip on standard); `foedrum taste` will list it.',
+      'Tasting: 1 step may do on a cheaper level (gauger in nip on standard); docs/design/evaluation.md says how a Flight tastes it.',
     );
   });
 
@@ -1679,7 +1843,7 @@ describe('diagnose: what could be tasted next (ADR 0419)', () => {
     const tasting = { used: [used('cellarman', 'claude-sonnet-5-6')], at };
     assert.equal(
       lineOf({ tasting }),
-      'Tasting: 1 model in use was never tasted (claude-sonnet-5-6 for cellarman); `foedrum taste` will list it.',
+      'Tasting: 1 model in use was never tasted (claude-sonnet-5-6 for cellarman); docs/design/evaluation.md says how a Flight tastes it.',
     );
     assert.equal(
       // Tasted at another effort than its step's: it covers the model and offers no cheaper level.
@@ -1702,7 +1866,7 @@ describe('diagnose: what could be tasted next (ADR 0419)', () => {
     const tasting = { used: [used('cellarman', 'claude\nFoedrum has everything it needs.')], at };
     assert.equal(
       lineOf({ tasting }),
-      String.raw`Tasting: 1 model in use was never tasted (claude\u000aFoedrum has everything it needs. for cellarman); ${'`foedrum taste`'} will list it.`,
+      String.raw`Tasting: 1 model in use was never tasted (claude\u000aFoedrum has everything it needs. for cellarman); docs/design/evaluation.md says how a Flight tastes it.`,
     );
   });
 
@@ -1734,6 +1898,26 @@ describe('diagnose: what could be tasted next (ADR 0419)', () => {
     assert.equal(
       lineOf({ tasting }),
       'Tasting: the event log cannot be read (file is not a database).',
+    );
+  });
+
+  it('says an event log in an older format is upgraded by the next brew or serve, and is no problem (#1163)', () => {
+    const tasting = { used: [], at, olderSchema: 4 };
+    assert.equal(
+      lineOf({ tasting }),
+      'Tasting: the event log is in an older format (schema version 4); the next `foedrum brew` or `foedrum serve` upgrades it.',
+    );
+    const diagnosis = diagnose({ ...linux(), brewery, tasting });
+    assert.equal(diagnosis.ok, true);
+    assert.deepEqual(diagnosis.problems, diagnose({ ...linux(), brewery }).problems);
+    assert.match(formatDiagnosis(diagnosis), /Foedrum has everything it needs\./);
+  });
+
+  it('keeps an event log whose read failed with the same words as unreadable, whatever its message says: regression test (#1163)', () => {
+    const unreadable = 'The event store has schema version 4; this Foedrum reads version 5 only';
+    assert.equal(
+      lineOf({ tasting: { used: [], at, unreadable } }),
+      `Tasting: the event log cannot be read (${unreadable}).`,
     );
   });
 

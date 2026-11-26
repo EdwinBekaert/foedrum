@@ -16,4 +16,4 @@
   The model call is the person's, who asked about that issue; `serve` would make one for every unlabelled issue anyone opened, which ADR 0232 rejected.
   A claimed batch is routed by its Brewery issue's label, never its target issue's ([target issues](target-issues.md), [ADR 0156](../../adr/0156-a-claimed-order-is-routed-by-its-brewery-issue-s-recipe-label.md)).
 
-**Code, default recipe:** `foedrum.jsonc`'s `defaultRecipe` (`mash-in` when left out), `defaultRecipeProblem` beside `loadRecipes` in `src/engine/recipe-files.ts` (read by `serveSetup` and `foedrum doctor`), and brew's `defaultRefusal` in `src/cli/brew.ts` ([ADR 0370](../../adr/0370-foedrum-brew-runs-the-brewery-s-default-recipe-on-an-issue-with-no-recipe-label.md))
+**Code, default recipe:** `foedrum.jsonc`'s `defaultRecipe` (`mash-in` when left out), `defaultRecipeProblem` beside `loadRecipes` in `src/engine/recipe-files.ts` (read by `breweryFileProblems` in `src/cli/serve-config.ts`, which `serveSetup` and `foedrum doctor` both call), and brew's `defaultRefusal` in `src/cli/brew.ts` ([ADR 0370](../../adr/0370-foedrum-brew-runs-the-brewery-s-default-recipe-on-an-issue-with-no-recipe-label.md))

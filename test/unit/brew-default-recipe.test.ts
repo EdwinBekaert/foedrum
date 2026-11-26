@@ -263,11 +263,12 @@ describe('the default recipe in foedrum.jsonc (ADR 0370)', () => {
 
   for (const [name, line] of refusals) {
     it(`foedrum doctor gives the same line for a default recipe ${name}`, () => {
-      const brewery = serveInputs().files.brewery;
+      const { brewery, models } = serveInputs().files;
       const diagnosis = diagnose({
         ...linux(),
         config: config({ defaultRecipe: name }),
         brewery,
+        models,
       });
       assert.equal(diagnosis.ok, false);
       assert.deepStrictEqual(

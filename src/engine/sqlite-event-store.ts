@@ -145,19 +145,21 @@ const parseStored = (id: number, body: string): Event => {
   return parsed.data;
 };
 
+const schemaVersionOf = (db: DatabaseSync): number =>
+  (db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version;
+
 const migrate = (db: DatabaseSync): void => {
-  const version = (): number =>
-    (db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version;
-  if (version() > migrations.length) {
+  const found = schemaVersionOf(db);
+  if (found > migrations.length) {
     throw new Error(
-      `The event store has schema version ${version()}; this Foedrum knows up to ${migrations.length}`,
+      `The event store has schema version ${found}; this Foedrum knows up to ${migrations.length}`,
     );
   }
-  while (version() < migrations.length) {
+  while (schemaVersionOf(db) < migrations.length) {
     db.exec('BEGIN IMMEDIATE');
     try {
       // Read again under the write lock: another connection may have migrated meanwhile.
-      const from = version();
+      const from = schemaVersionOf(db);
       if (from < migrations.length) {
         db.exec(migrations[from] as string);
         db.exec(`PRAGMA user_version = ${from + 1}`);
@@ -167,6 +169,19 @@ const migrate = (db: DatabaseSync): void => {
       if (db.isTransaction) db.exec('ROLLBACK');
       throw error;
     }
+  }
+};
+
+/** The schema version this Foedrum reads and writes; a write open upgrades an older store to it. */
+export const EVENT_STORE_VERSION = migrations.length;
+
+/** The schema version of the store at `path`, read without changing it; throws where it is no store. */
+export const eventStoreVersion = (path: string): number => {
+  const db = new DatabaseSync(path, { readOnly: true });
+  try {
+    return schemaVersionOf(db);
+  } finally {
+    db.close();
   }
 };
 
@@ -184,9 +199,7 @@ export const openSqliteEventStore = (
   try {
     if (readOnly) {
       // A reader changes nothing: a store at another version is for a Foedrum that knows it.
-      const { user_version: version } = db.prepare('PRAGMA user_version').get() as {
-        user_version: number;
-      };
+      const version = schemaVersionOf(db);
       if (version !== migrations.length) {
         throw new Error(
           `The event store has schema version ${version}; this Foedrum reads version ${migrations.length} only`,

@@ -15,9 +15,19 @@ import type { ExecProcess } from '../../src/platform/processes.ts';
 /** A host no real account logs in to: the only one the canned answer is logged in to. */
 export const MADE_UP_HOST = 'ghe.example';
 
-/** A foedrum.jsonc whose GitHub is `MADE_UP_HOST`. */
+/**
+ * A foedrum.jsonc whose GitHub is `MADE_UP_HOST`, which names the Brewery, one user and one
+ * repository with no clone on this machine, so doctor finds nothing in it to refuse (#1163).
+ */
 export const MADE_UP_CONFIG = JSON.stringify({
-  repositories: {},
+  brewery: 'made-up/brewery',
+  users: ['ann'],
+  repositories: {
+    'made-up/web': {
+      source: 'managed',
+      checks: { build: null, typecheck: null, lint: null, format: null, test: null },
+    },
+  },
   githubApi: `https://${MADE_UP_HOST}/api/v3`,
 });
 
