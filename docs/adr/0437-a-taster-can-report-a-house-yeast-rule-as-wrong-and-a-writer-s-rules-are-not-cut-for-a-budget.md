@@ -1,6 +1,6 @@
 # 0437. A Taster can report a house-yeast rule as wrong, and a writer's rules are not cut for a budget
 
-Date: 2026-11-26 · Status: Accepted · Amends [0122](0122-house-yeast-for-foedrum-s-own-reviews-candidates-in-the-main-checkout-rules-per-lens.md) and [0169](0169-house-yeast-rules-reach-a-batch-s-brewers-by-scope-and-lens.md) (a rule is the yardstick of a review, and a reviewer may report the rule itself as wrong) and [0268](0268-the-brewers-that-write-a-change-get-the-house-yeast-rules-of-every-lens.md) (a step that writes the change gets every rule that matches it, with no token budget)
+Date: 2026-11-26 · Status: Accepted · Amends [0015](0015-house-yeast.md) and [0018](0018-house-yeast-layers.md) (a step that writes the change selects its rules within no token budget), [0122](0122-house-yeast-for-foedrum-s-own-reviews-candidates-in-the-main-checkout-rules-per-lens.md) and [0169](0169-house-yeast-rules-reach-a-batch-s-brewers-by-scope-and-lens.md) (a rule is the yardstick of a review, and a reviewer may report the rule itself as wrong) and [0268](0268-the-brewers-that-write-a-change-get-the-house-yeast-rules-of-every-lens.md) (a step that writes the change gets every rule that matches it, with no token budget)
 
 ## Context
 A rule is proposed from earlier reviews and merged with the pull request it came from, and from then on every brewer and every review whose scope matches follows it or holds the change to it.
@@ -21,6 +21,7 @@ A writer's rules were cut by date. On the 13 files of #1168, `selectRules` gave 
 - A writer's prompt grows with the rules that match: on #1168's files it holds all 47 that matched, not the 28 it was given before. I did not measure the tokens.
 - The rule that ranks last, a rule that names only a lens, is no longer the one a writer loses first.
 - A Brewery or repository with a very large rule set gives its writers a large prompt: the rule set is curated by its owners ([ADR 0015](0015-house-yeast.md)), and a rule that costs more than it saves is retired.
+- An existing Brewery has nothing to change for the writers: its Gauger and Cellarman get every matching rule with no budget as soon as it runs this version, and a Brewery that finds the prompts too large retires or narrows rules. A Brewery that keeps its own `brewers/taster.md` does not get the new instruction: it adds the instruction to its prompt by hand, or does without it.
 - The maintainer tries the changed default prompt on the next real brew after the merge.
 
 ## Alternatives considered
