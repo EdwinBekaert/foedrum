@@ -2,7 +2,7 @@
 {
   "name": "cellarman",
   "description": "Makes the Gauger's failing tests pass in one repository, without changing them.",
-  "version": 19,
+  "version": 20,
   "inputs": [
     { "name": "order", "from": "order" },
     { "name": "tests", "from": "step:gauge" },
@@ -21,7 +21,7 @@
   "access": "write",
   "tree": "task",
   "git": { "commit": true },
-  "deadline": "30m",
+  "deadline": "60m",
   "maxTurns": 120,
   "stall": { "turns": 60, "minutes": 20 },
   "maxAttempts": 2,
