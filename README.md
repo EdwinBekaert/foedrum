@@ -74,9 +74,9 @@ Foedrum lists everything it writes on your machine, in the Brewery and on GitHub
 
 ## How it fits together
 
-[![The brewing line: how one issue is brewed into pull requests, step by step](docs/images/foedrum-brewing-line.png)](docs/images/foedrum-brewing-line.png)
+[![The recipes: every recipe is its own brewing line, and these six ship with Foedrum](docs/images/foedrum-recipes.png)](docs/images/foedrum-recipes.png)
 
-The full line as designed. Each recipe picks its own steps: Nip, which builds a change whose effect stays inside the code it changes and works today, starts at the Maltster's survey and is tasted through four lenses, correctness, acceptance, security and design conformance.
+Nip, which builds a change whose effect stays inside the code it changes and works today, starts at the Maltster's survey and is tasted through four lenses, correctness, acceptance, security and design conformance.
 
 ## Documentation
 

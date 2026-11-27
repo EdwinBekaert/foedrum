@@ -169,9 +169,10 @@ export const serveFixture = (): ServeFixture => {
     exec: () => Promise.reject(new Error('no check step runs here')),
     setup: () => Promise.reject(new Error('no repository setup runs here')),
     gh: ghOver(fetch).exec,
-    // A check step looks for the test map (ADR 0274): the clone has none.
+    // A check step looks for the test map (ADR 0274): the clone has none. It asks whether a
+    // recorded merge is on the line to its tip (ADR 0452): it is.
     git: (_cwd, args) =>
-      args[0] === 'ls-tree'
+      args[0] === 'ls-tree' || args[0] === 'merge-base'
         ? Promise.resolve({ code: 0, stdout: '', stderr: '' })
         : Promise.reject(new Error('no red proof or guarded step runs here')),
     ...overrides,

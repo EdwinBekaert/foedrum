@@ -232,15 +232,42 @@ const concludedIn = (step: Step | undefined, number: number): boolean => {
  * the base added while the batch brewed (ADR 0164). `undefined` when nothing was merged.
  */
 export const mergedBase = (state: State, batchId: string): string | undefined =>
-  mergeResults(state, batchId)
-    .filter(
-      ({ stepId, attempt, merge }) =>
-        merge.merged !== undefined ||
-        // A kept merge counts once a success in its worktree concluded it (ADR 0244).
-        (merge.kept !== undefined &&
-          concludedIn(state.batches.get(batchId)?.steps.get(stepId), attempt)),
-    )
-    .at(-1)?.merge.base;
+  countedMerges(state, batchId).at(-1)?.base;
+
+/** The merges of `batchId` that made a commit, in the order they were recorded, each with its commit. */
+const countedMerges = (state: State, batchId: string): { base: string; commit: string }[] =>
+  mergeResults(state, batchId).flatMap(({ stepId, attempt, merge }) =>
+    merge.merged !== undefined
+      ? [{ base: merge.base, commit: merge.merged }]
+      : // A kept merge counts once a success in its worktree concluded it (ADR 0244): the head
+        // holds the base through its merge commit, which the record does not name.
+        merge.kept !== undefined &&
+          concludedIn(state.batches.get(batchId)?.steps.get(stepId), attempt)
+        ? [{ base: merge.base, commit: merge.base }]
+        : [],
+  );
+
+/** The head a change is read up to, and git's answer whether a commit is on the line to it (ADR 0452). */
+export interface MergeLine {
+  head: string;
+  isAncestor(commit: string, of: string): Promise<boolean>;
+}
+
+/**
+ * The base the latest merge of `batchId` on the line to `line.head` brought in: as `mergedBase`,
+ * passing over a merge whose commit is no ancestor of the head, as a failed or abandoned
+ * attempt's is (ADR 0452).
+ */
+export const mergedBaseOnLine = async (
+  state: State,
+  batchId: string,
+  line: MergeLine,
+): Promise<string | undefined> => {
+  for (const { base, commit } of countedMerges(state, batchId).reverse()) {
+    if (await line.isAncestor(commit, line.head)) return base;
+  }
+  return undefined;
+};
 
 /**
  * The merges the ledger recorded before the attempts of `batchId`, in the order it recorded them,

@@ -11,7 +11,6 @@ import type { ClaudeAttemptPlan } from '../../src/brewers/claude-runner.ts';
 import {
   formatIntakeNotice,
   formatNotice,
-  type LiveTerminal,
   runServe,
   type ServeShell,
 } from '../../src/cli/serve.ts';
@@ -32,9 +31,11 @@ import {
   type Instead,
   pullNode,
 } from '../helpers/fake-github-api.ts';
+import { fakeScreen } from '../helpers/fake-screen.ts';
 import { FAKE_COMMIT, type FakeWorktrees, fakeWorktrees } from '../helpers/fake-worktrees.ts';
 import { brewer, clone, config, local, recipe, serveInputs } from '../helpers/serve-brewery.ts';
 import { serveFixture, t0 } from '../helpers/serve-fixture.ts';
+import { virtualTimeline } from '../helpers/virtual-timeline.ts';
 
 describe('runServe', () => {
   const f = serveFixture();
@@ -795,28 +796,24 @@ describe('runServe', () => {
     });
   });
 
-  it('keeps its plain lines and never touches a terminal its shell holds (ADR 0174)', async () => {
-    const touched: string[] = [];
-    const terminal: LiveTerminal = {
-      marks: [],
-      columns: () => {
-        touched.push('columns');
-        return 80;
+  it('draws a live line on the terminal its shell holds, and prints its lasting lines over it (ADR 0427)', async () => {
+    const screen = fakeScreen(120);
+    const timeline = virtualTimeline(t0, 30_000);
+    const live = shell({
+      terminal: screen.terminal,
+      out: (line) => {
+        f.lines.push(line);
+        screen.print(line);
       },
-      onResize: () => {
-        touched.push('onResize');
-        return () => {};
-      },
-      clear: () => {
-        touched.push('clear');
-      },
-      rewrite: () => {
-        touched.push('rewrite');
-      },
-    };
-    assert.equal(await runServe(f.setup, shell({ terminal })), 0);
-    assert.deepStrictEqual(touched, []);
+      clock: timeline.clock,
+      wait: timeline.wait,
+      signal: timeline.controller.signal,
+    });
+    assert.equal(await runServe(f.setup, live), 0);
+    assert.ok(screen.rewrites().length > 0, 'a live line is drawn');
+    assert.deepStrictEqual(screen.printedOver, []);
     assert.ok(f.lines.length > 0, 'serve printed its lines');
+    assert.equal(screen.drawn(), undefined);
   });
 
   it('sets the Cellar up in order, brews the order with its text, and stops on Ctrl+C', async () => {

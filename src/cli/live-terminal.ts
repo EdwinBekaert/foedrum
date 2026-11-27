@@ -1,5 +1,6 @@
-// The terminal `foedrum brew` keeps a live line on (ADR 0174): Node's `tty.WriteStream` behind
-// `LiveTerminal`, given only when standard output is a TTY, `TERM` is not `dumb` and `CI` is not set.
+// The terminal `foedrum brew` and `foedrum serve` keep a live line on (ADR 0174, ADR 0427): Node's
+// `tty.WriteStream` behind `LiveTerminal`, given only when standard output is a TTY, `TERM` is not
+// `dumb` and `CI` is not set.
 
 import type { LiveTerminal } from './serve.ts';
 

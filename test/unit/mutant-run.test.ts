@@ -789,19 +789,42 @@ describe('mutated, round two', () => {
       key: effectKey.encode(baseMergeKey(ref)),
       result: { base: moved, merged: 'e'.repeat(40) },
     };
-    // Only the merged base's diff is the change: one from the start would be refused.
-    const fromMoved: Git = async (cwd, args, options) =>
-      args.includes('diff') && !args.includes(moved)
+    // Only the merged base's diff is the change: one from the start would be refused. The merge is
+    // on the line to the head (ADR 0452).
+    const fromMoved: Git = async (cwd, args, options) => {
+      if (args.includes('merge-base')) return ok('');
+      return args.includes('diff') && !args.includes(moved)
         ? { code: 128, stdout: '', stderr: 'fatal: the start\n' }
         : git(
             cwd,
             args.map((arg) => (arg === moved ? base : arg)),
             options,
           );
+    };
     const { end } = setup({
       runner: brett([boundary]),
       events: [...eventsOf(), merged],
       clonedGit: fromMoved,
+    });
+    assert.deepStrictEqual(
+      (await end()).mutants?.map(({ verdict }) => verdict),
+      [{ kind: 'survived' }],
+    );
+  });
+
+  it('reads the change from where the batch started when the merge is not on the line to the head (ADR 0452)', async () => {
+    const merged: Event = {
+      type: 'effect.applied',
+      key: effectKey.encode(baseMergeKey(ref)),
+      result: { base: 'd'.repeat(40), merged: 'e'.repeat(40) },
+    };
+    // Only the diff from the start is the change: one from the merged base would be refused.
+    const offLine: Git = async (cwd, args, options) =>
+      args.includes('merge-base') ? { code: 1, stdout: '', stderr: '' } : git(cwd, args, options);
+    const { end } = setup({
+      runner: brett([boundary]),
+      events: [...eventsOf(), merged],
+      clonedGit: offLine,
     });
     assert.deepStrictEqual(
       (await end()).mutants?.map(({ verdict }) => verdict),
