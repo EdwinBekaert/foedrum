@@ -2,7 +2,7 @@
 {
   "name": "gauger",
   "description": "Writes failing tests, and stubs that throw, from the order; no implementation.",
-  "version": 16,
+  "version": 17,
   "inputs": [
     { "name": "order", "from": "order" },
     { "name": "map", "from": "step:map" },
@@ -21,7 +21,7 @@
   "tree": "task",
   "git": { "commit": true },
   "deadline": "30m",
-  "maxTurns": 80,
+  "maxTurns": 200,
   "stall": { "turns": 40, "minutes": 15 },
   "maxAttempts": 2,
   "houseYeast": true,

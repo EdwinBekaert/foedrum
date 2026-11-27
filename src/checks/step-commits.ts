@@ -10,6 +10,13 @@ import { attemptBranch } from '../workspace/attempt-worktrees.ts';
 import type { Git } from '../workspace/git.ts';
 
 /**
+ * Where a check step reads the tree it checked: the attempt's branch, which holds the base merge
+ * made after the commit the attempt started at, so a read of that commit misses the base's change
+ * and reads it back to front against the merged base (ADR 0452).
+ */
+export const checkedTip = (worktree: { branch: string }): string => `refs/heads/${worktree.branch}`;
+
+/**
  * The commits of step `stepId`: from where its first attempt started to the branch of its latest
  * attempt that succeeded, or of the worktree that attempt resumed in, so a step a route sent back
  * counts its earlier attempts' commits too; undefined when none succeeded, as for a step the batch

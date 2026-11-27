@@ -6,7 +6,7 @@
 // survivor blocks it by findings (ADR 0319).
 
 import { type AttemptRef, attemptKey } from '../engine/attempt-key.ts';
-import { mergedBase } from '../engine/base-merge.ts';
+import { mergedBaseOnLine } from '../engine/base-merge.ts';
 import type { AttemptEnd, AttemptStart, BrewerRunner } from '../engine/brewer-runner.ts';
 import type { State } from '../engine/fold.ts';
 import type { AttemptProgress } from '../engine/supervisor.ts';
@@ -16,6 +16,7 @@ import { lastLine, messageOf } from '../platform/errors.ts';
 import { foldsCase } from '../platform/paths.ts';
 import { MAX_MUTANT_TEXT, type MutantRecord, type MutantVerdict } from '../schemas/events.ts';
 import { type MutantEdit, mutantsOf } from '../schemas/out-doc.ts';
+import { isAncestorIn } from '../workspace/clone-git.ts';
 import type { Git } from '../workspace/git.ts';
 import type { CommitTree, TreeEdit } from '../workspace/merge-tree-git.ts';
 import type { TestRun, TestRunEnd, TreeIn } from './check-runner.ts';
@@ -122,8 +123,13 @@ export function mutated(options: MutantRunOptions): BrewerRunner {
     signal: AbortSignal,
   ): Promise<Change | { why: string }> => {
     const batch = state().batches.get(batchId);
-    // Where the batch's change starts: the base it merged, else its start (ADR 0164).
-    const base = mergedBase(state(), batchId) ?? batch?.starts?.[repo.toLowerCase()]?.commit;
+    // Where the batch's change starts: the base it merged on the line to the commit, else its start
+    // (ADR 0164, ADR 0452).
+    const base =
+      (await mergedBaseOnLine(state(), batchId, {
+        head: commit,
+        isAncestor: isAncestorIn(git, clone(repo), signal),
+      })) ?? batch?.starts?.[repo.toLowerCase()]?.commit;
     if (base === undefined) return { why: `the batch has no start in ${repo}` };
     const cwd = clone(repo);
     const diff = await readDiff(git, cwd, { from: base, to: commit }, { signal });

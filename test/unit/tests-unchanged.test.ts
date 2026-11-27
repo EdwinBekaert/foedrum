@@ -129,6 +129,23 @@ describe('changedTestLines (ADR 0274)', () => {
     ]);
   });
 
+  it('allows a later step that leaves a line the red step moved (ADR 0458)', () => {
+    // The Gauger took an older line out at one place and wrote it again at another.
+    const line = '  assert.equal(add(0, 0), 0);';
+    const moved = [{ newPath: test, oldPath: test, added: [line], removed: [line] }];
+    const tip = tipOf({ [test]: [...gaugedTest, line] }, { [test]: [line, ...gaugedTest] });
+    assert.deepEqual(changedTestLines(moved, tip, modules, mapped), []);
+  });
+
+  it('refuses a later step that removes a line the red step moved (ADR 0458): regression test', () => {
+    const line = '  assert.equal(add(0, 0), 0);';
+    const moved = [{ newPath: test, oldPath: test, added: [line], removed: [line] }];
+    const tip = tipOf({ [test]: gaugedTest }, { [test]: [line, ...gaugedTest] });
+    assert.deepEqual(changedTestLines(moved, tip, modules, mapped), [
+      { path: test, line: 'assert.equal(add(0, 0), 0);' },
+    ]);
+  });
+
   it('counts a line the red step added twice as often as it added it', () => {
     const twice = [added(test, ['  assert.equal(add(1, 2), 3);', '  assert.equal(add(1, 2), 3);'])];
     const tip = tipOf({ [test]: ['  assert.equal(add(1, 2), 3);'] });

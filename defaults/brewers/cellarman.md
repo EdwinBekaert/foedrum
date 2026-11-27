@@ -21,7 +21,7 @@
   "access": "write",
   "tree": "task",
   "git": { "commit": true },
-  "deadline": "30m",
+  "deadline": "60m",
   "maxTurns": 120,
   "stall": { "turns": 60, "minutes": 20 },
   "maxAttempts": 2,

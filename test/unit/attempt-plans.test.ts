@@ -948,7 +948,9 @@ describe('createAttemptPlans: plan', () => {
         [...green(1, before, passing).slice(0, 2), merged],
         green(1, before, passing).slice(2),
       );
-      const { plans } = setup(events, {}, undefined, tasting.brewers);
+      // The merge is on the line to the head, which git says (ADR 0452).
+      const onLine = async () => ({ code: 0, stdout: '', stderr: '' });
+      const { plans } = setup(events, {}, undefined, tasting.brewers, { git: onLine });
       const { prompt } = await plans.plan(start);
       assert.match(
         prompt,
@@ -3365,12 +3367,40 @@ describe("the repository's testChanged line for the Gauger and the Cellarman (AD
     const merged = [...ordered, ...mapStarted, merge, started];
     const { plans } = setup(merged, {}, undefined, brewedBy('gauger'), {
       repoChecks: () => checks,
+      // The merge is on the line to the attempt's start, which git says (ADR 0452).
+      git: async () => ({ code: 0, stdout: '', stderr: '' }),
     });
     const { prompt } = await plans.plan(start);
     assert.match(
       prompt,
       /source="the Brewery's testChanged line for acme\/api, from commit b{40}" name="testChanged">\nvitest run --changed b{40}\n<\//,
     );
+  });
+
+  it("after a merge that is not on the line to the attempt's start, the testChanged line starts from the batch's start (ADR 0452)", async () => {
+    const merge: Event = {
+      type: 'effect.applied',
+      key: effectKey.encode(baseMergeKey({ batchId: '12-1', stepId: 'map', attempt: 1 })),
+      result: { base: 'b'.repeat(40), merged: 'd'.repeat(40) },
+    };
+    const offLine = async (_cwd: string, args: readonly string[]) =>
+      args[0] === 'merge-base'
+        ? { code: 1, stdout: '', stderr: '' }
+        : { code: 0, stdout: '', stderr: '' };
+    const { plans } = setup(
+      [...ordered, ...mapStarted, merge, started],
+      {},
+      undefined,
+      brewedBy('gauger'),
+      { repoChecks: () => checks, git: offLine },
+    );
+    const { prompt } = await plans.plan(start);
+    // The line alone is compared, so a failure shows it and not the whole prompt around it.
+    const line =
+      /source="the Brewery's testChanged line for acme\/api, from commit ([0-9a-f]+)" name="testChanged">\n([^\n]*)\n<\//.exec(
+        prompt,
+      );
+    assert.deepEqual(line?.slice(1), [batchStart, `vitest run --changed ${batchStart}`]);
   });
 
   it("names only this platform's line of a testChanged given per platform", async () => {

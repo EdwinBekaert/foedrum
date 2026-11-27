@@ -36,6 +36,19 @@ export const inClone =
   (cwd, args, options = {}) =>
     git(cwd, args, { ...options, config: { ...options.config, ...IN_CLONE } });
 
+/**
+ * git's answer in the clone `cwd` whether a commit is on the line to `of` (ADR 0452): exit 0 says
+ * it is, 1 that it is not, and any other end is git failing.
+ */
+export const isAncestorIn =
+  (git: Git, cwd: string, signal?: AbortSignal) =>
+  async (commit: string, of: string): Promise<boolean> => {
+    const args = ['merge-base', '--is-ancestor', commit, of];
+    const result = await inClone(git)(cwd, args, aborts(signal));
+    if (result.code === 0 || result.code === 1) return result.code === 0;
+    throw new Error(`git merge-base failed: ${gitFailure(result)}`);
+  };
+
 /** No hook, gc or maintenance in Foedrum's own git directory: a gc would prune the clone's objects. */
 const OWN_CONFIG = { 'core.hooksPath': devNull, 'gc.auto': '0', 'maintenance.auto': 'false' };
 

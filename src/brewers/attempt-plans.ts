@@ -11,7 +11,7 @@ import { checksEnv, setupRunOf } from '../checks/setup.ts';
 import { stepTests } from '../checks/step-commits.ts';
 import type { ReadTestMapAt } from '../checks/test-map.ts';
 import type { AttemptRef } from '../engine/attempt-key.ts';
-import { mergedBase, mergeRouteOf, startMergeOf } from '../engine/base-merge.ts';
+import { mergedBaseOnLine, mergeRouteOf, startMergeOf } from '../engine/base-merge.ts';
 import type { Env } from '../engine/brewer-env.ts';
 import type { AttemptLimits, AttemptStart } from '../engine/brewer-runner.ts';
 import { checksInput } from '../engine/check-readings.ts';
@@ -45,7 +45,7 @@ import { FINING, MUTANTS, OutDocFrontmatter, TASTING } from '../schemas/out-doc.
 import { PLAN } from '../schemas/plan.ts';
 import { type Command, parseRule } from '../schemas/primitives.ts';
 import { attemptBranch, ownRemote } from '../workspace/attempt-worktrees.ts';
-import { inClone } from '../workspace/clone-git.ts';
+import { inClone, isAncestorIn } from '../workspace/clone-git.ts';
 import type { Git, GitOptions } from '../workspace/git.ts';
 import {
   answersOf,
@@ -681,8 +681,20 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
       own === undefined || command === undefined || command === null
         ? undefined
         : { repo: own.repo, command };
-    // After a merge of the base, the batch's own change starts at the base it merged (ADR 0164).
-    const merged = mergedBase(state(), batch.id);
+    // After a merge of the base on the line to the attempt's head, the batch's own change starts
+    // at the base it merged (ADR 0164, ADR 0452). An attempt that commits has its branch for head,
+    // since it merges the base at its start, after the commit it starts at; any other reads that commit.
+    const merged =
+      own === undefined
+        ? undefined
+        : await mergedBaseOnLine(state(), batch.id, {
+            head:
+              found.brewer.produces === 'commits' ? `refs/heads/${attemptBranch(ref)}` : own.commit,
+            isAncestor: async (commit, of) => {
+              if (options.git === undefined) throw new Error('the base the batch merged: no git');
+              return isAncestorIn(options.git, options.clone(own.repo))(commit, of);
+            },
+          });
     const start = own === undefined ? undefined : (merged ?? changeStart(batch, own.repo));
     // The testChanged line from where the change starts, as a check step runs it (ADR 0417).
     const asksChanged = found.brewer.inputs.some(({ from }) => from === 'test-changed');
@@ -968,6 +980,7 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
           : await redTestFiles({
               git: options.git,
               clone: commits.clone,
+              head: `refs/heads/${commits.branch}`,
               testMap: options.testMapAt,
               state: state(),
               batch,

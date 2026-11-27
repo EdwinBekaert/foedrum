@@ -14,10 +14,16 @@ import { execProcess } from '../platform/processes.ts';
 import { runGit } from '../workspace/git.ts';
 import { diagnose, githubHostOfConfig } from './doctor.ts';
 import { type DoctorShell, gatherDoctorFacts } from './doctor-facts.ts';
+import { liveTerminal, type TerminalStream } from './live-terminal.ts';
 import type { CliResult } from './run.ts';
 import { runServe } from './serve.ts';
 import { type ServeSetup, type ServeSetupResult, serveSetup } from './serve-config.ts';
-import { listenWhileServing, type ServeShellOptions, serveShell } from './serve-shell.ts';
+import {
+  listenWhileServing,
+  type ServeShellOptions,
+  type SignalSource,
+  serveShell,
+} from './serve-shell.ts';
 
 const readIfThere = (path: string): string | undefined =>
   existsSync(path) ? readFileSync(path, 'utf8') : undefined;
@@ -107,19 +113,43 @@ export const serveFromCheckout = async (
 ): Promise<CliResult> => {
   const ready = await readServeSetup(cwd, 'serve', options);
   if (ready.kind === 'refused') return ready.result;
-  const { setup } = ready;
+  return serveReady(ready.setup, cwd, options, process, runServe);
+};
 
-  // The stop signals are listened for while serve runs, and no longer once it returns.
-  const listening = listenWhileServing(process);
+/** The process serve runs in: its standard output and environment, and the signals it hears. */
+export interface ServeHost extends SignalSource {
+  stdout: TerminalStream;
+  env: Readonly<Record<string, string | undefined>>;
+}
+
+/**
+ * Runs the Cellar of `setup` with `run` over `host` until a stop signal. The stop signals are
+ * listened for while serve runs, and no longer once it returns.
+ */
+export const serveReady = async (
+  setup: ServeSetup,
+  cwd: string,
+  options: StartOptions | undefined,
+  host: ServeHost,
+  run: typeof runServe,
+): Promise<CliResult> => {
+  const listening = listenWhileServing(host);
   try {
+    // A live line only where standard output is a terminal that takes it (ADR 0174, ADR 0427); on
+    // one, every lasting line, the state branch's too, goes over it.
+    const terminal = liveTerminal(host.stdout, host.env);
     const shell = serveShell(setup, {
       root: cwd,
       git: runGit,
-      out: (line) => process.stdout.write(`${line}\n`),
+      out: terminal?.print ?? ((line) => host.stdout.write(`${line}\n`)),
       listen: listening.listen,
       keepAwake: thisMachineAwake(options),
     });
-    return { exitCode: await runServe(setup, shell), stdout: '', stderr: '' };
+    return {
+      exitCode: await run(setup, terminal === undefined ? shell : { ...shell, terminal }),
+      stdout: '',
+      stderr: '',
+    };
   } finally {
     listening.stop();
   }

@@ -4,8 +4,8 @@
 import type { State } from '../engine/fold.ts';
 import { laneStatus } from '../engine/worktree-claims.ts';
 import { messageOf } from '../platform/errors.ts';
-import { elapsed, fit, runningAttempts } from './brew.ts';
 import { columns } from './columns.ts';
+import { elapsed, fit, runningAttempts } from './live-line.ts';
 import type { BoardTerminal } from './live-terminal.ts';
 import type { CliResult } from './run.ts';
 import { statusRow } from './status.ts';

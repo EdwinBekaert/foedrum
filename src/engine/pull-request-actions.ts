@@ -14,7 +14,7 @@ import { PullRequestUrl } from '../schemas/events.ts';
 import type { BatchEffectKey, BodyResult, ScanFinding } from '../schemas/store.ts';
 import { MAX_REFUSED, MAX_SENSITIVE, PushResult } from '../schemas/store.ts';
 import { remoteBranch } from '../workspace/attempt-worktrees.ts';
-import { mergedBase } from './base-merge.ts';
+import { mergedBaseOnLine } from './base-merge.ts';
 import type { Ending } from './decide.ts';
 import { type DriverActions, repositoryOf } from './driver.ts';
 import { effectKey } from './effect-key.ts';
@@ -167,7 +167,10 @@ type ActionEffect =
        * the merge brief's read-first line (ADR 0422).
        */
       change?: {
-        since: string;
+        /** Where the batch started: the change starts here when no merge of the base is on the line. */
+        start: string;
+        /** The base the latest merge on the line to `commit` brought in (ADR 0164, ADR 0452). */
+        merged: (commit: string, signal?: AbortSignal) => Promise<string | undefined>;
         paths: readonly string[];
         unmeasured?: PullRequestRepository['unmeasured'];
       };
@@ -358,7 +361,8 @@ export const pullRequestActions = (options: PullRequestActionsOptions): DriverAc
         // (ADR 0384) and how large the change is (ADR 0422), read once for commits that go.
         const touched = async (commit: string, signal?: AbortSignal) => {
           if (change === undefined) return {};
-          const { since, paths, unmeasured } = change;
+          const { paths, unmeasured } = change;
+          const since = (await change.merged(commit, signal)) ?? change.start;
           const changed = await push.touchedFiles(since, commit, signal);
           // How large the change is, for the merge brief's read-first line (ADR 0422).
           const size = sizeOf(await push.changedLines(since, commit, signal));
@@ -493,7 +497,7 @@ export const pullRequestActions = (options: PullRequestActionsOptions): DriverAc
           ? { issue: batch.issue }
           : { issue: batch.issue, repo: batch.repo };
       // The change starts where a diff Taster's does (ADR 0161, ADR 0164); none before a start.
-      const since = mergedBase(state, batchId) ?? batch.starts?.[repo.toLowerCase()]?.commit;
+      const start = batch.starts?.[repo.toLowerCase()]?.commit;
       const paths = repository.sensitivePaths ?? [];
       effects.set(effectKey.encode(pushed), {
         kind: 'push',
@@ -501,11 +505,17 @@ export const pullRequestActions = (options: PullRequestActionsOptions): DriverAc
         revision,
         base: repository.base,
         branch,
-        ...(since === undefined
+        ...(start === undefined
           ? {}
           : {
               change: {
-                since,
+                start,
+                // The base merged on the line to the pushed commit, which is only known then (ADR 0452).
+                merged: (commit: string, signal?: AbortSignal) =>
+                  mergedBaseOnLine(state, batchId, {
+                    head: commit,
+                    isAncestor: (ancestor, of) => repository.push.isAncestor(ancestor, of, signal),
+                  }),
                 paths,
                 ...(repository.unmeasured === undefined
                   ? {}

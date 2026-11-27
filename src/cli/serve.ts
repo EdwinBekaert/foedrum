@@ -1,7 +1,8 @@
 // `foedrum serve`, the Cellar (ADR 0063): takes the driver lock `cellar`, opens the driver on the
 // wiring it shares with `foedrum brew` (driver-wiring.ts), ticks it until Ctrl+C with the intake
 // polling beside the ticks (ADR 0068), and closes it all again. The machine comes in through
-// `ServeShell`; serve-main.ts gives it the real one.
+// `ServeShell`; serve-main.ts gives it the real one. On a terminal (the shell gives one) it keeps a
+// live line of the batches it drives, as `foedrum brew` does of its batch (ADR 0427).
 
 import type { ClaudeAttemptPlan } from '../brewers/claude-runner.ts';
 import type { BaseCheckRepository } from '../engine/base-check.ts';
@@ -13,7 +14,7 @@ import type { DriverNotice } from '../engine/driver.ts';
 import type { DriverLock } from '../engine/driver-lock.ts';
 import { effectKey } from '../engine/effect-key.ts';
 import type { EventStore } from '../engine/event-store.ts';
-import type { Batch } from '../engine/fold.ts';
+import { type Batch, foldedBatch } from '../engine/fold.ts';
 import { createIntake, type IntakeNotice } from '../engine/intake.ts';
 import { limitsOf } from '../engine/limits.ts';
 import { createMergedChecks, type MergedChecks, mergedCheckStep } from '../engine/merged-checks.ts';
@@ -34,13 +35,14 @@ import type { AttemptWorktrees } from '../workspace/attempt-worktrees-git.ts';
 import type { Git } from '../workspace/git.ts';
 import type { CommitTree, MergedTree } from '../workspace/merge-tree-git.ts';
 import { closeOpened, type Opened, tick, wireDriver } from './driver-wiring.ts';
+import { createLiveLine, type LiveBatch, runningAttempts } from './live-line.ts';
 import { mergedCheckRun } from './merged-check-run.ts';
 import { printable } from './run.ts';
 import type { ServeRepository, ServeSetup } from './serve-config.ts';
 
-/** The terminal `foedrum brew` keeps a live line on (ADR 0174). */
+/** The terminal `foedrum brew` and `foedrum serve` keep a live line on (ADR 0174, ADR 0427). */
 export interface LiveTerminal {
-  /** The frames of the moving mark this terminal shows properly, each one column wide (ADR 0346). */
+  /** The frames of the moving mark this terminal shows properly; a braille one may take two columns (ADR 0453). */
   marks: readonly string[];
   /** The terminal's width in characters, when it is known. */
   columns: () => number | undefined;
@@ -122,7 +124,7 @@ export interface ServeShell {
   intervalMs?: number;
   /** Holds the machine awake while an attempt runs (ADR 0195); absent, nothing does. */
   awake?: AwakeHold;
-  /** Present only where `brew` keeps a live line (ADR 0174); `serve` never reads it. */
+  /** Present only where `brew` and `serve` keep a live line (ADR 0174, ADR 0427). */
   terminal?: LiveTerminal;
 }
 
@@ -277,12 +279,17 @@ const baseChecks = (
 
 /** Runs the Cellar until `shell.signal` aborts; the exit code: 0 stopped, 1 failed. */
 export const runServe = async (setup: ServeSetup, shell: ServeShell): Promise<number> => {
-  const { out, signal, clock, wait, intervalMs = INTERVAL_MS } = shell;
-  // Notices may carry text a model wrote: never a control character on the terminal.
-  let saidAt = clock().getTime();
+  const { out, signal, clock, wait, intervalMs = INTERVAL_MS, terminal } = shell;
+  const startedAt = clock().getTime();
+  // The live line, on a terminal: one part for each batch the driver drives (ADR 0427).
+  let driving: () => LiveBatch[] = () => [];
+  const drawing = createLiveLine({ terminal, signal, clock, wait, batches: () => driving() });
+  // Notices may carry text a model wrote: never a control character on the terminal. A lasting
+  // line goes over the live line (ADR 0427).
+  let saidAt = startedAt;
   const say = (line: string): void => {
     saidAt = clock().getTime();
-    out(printable(`foedrum serve: ${line}`));
+    drawing.over(() => out(printable(`foedrum serve: ${line}`)));
   };
   const report = (notice: DriverNotice): void => say(formatNotice(notice));
   // The lock first: a second Cellar is refused before it touches the store or the state branch.
@@ -311,6 +318,7 @@ export const runServe = async (setup: ServeSetup, shell: ServeShell): Promise<nu
   let stopRuns: AbortController | undefined;
   let merged: MergedChecks | undefined;
   try {
+    drawing.start();
     const { store, driver, reads, client, claims, claimant, pushes, checkTree } = await wireDriver(
       setup,
       shell,
@@ -322,6 +330,20 @@ export const runServe = async (setup: ServeSetup, shell: ServeShell): Promise<nu
         report,
       },
     );
+    // The batches it drives are those it holds that brew; each counts from its order, or from
+    // serve's start for one that records none (ADR 0179, ADR 0427).
+    driving = () =>
+      driver.held().flatMap((id) => {
+        const batch = foldedBatch(driver.state(), id);
+        if (batch.lane.kind !== 'brewing') return [];
+        const since =
+          batch.orderedAt === undefined
+            ? { words: 'serve started', from: startedAt }
+            : { words: 'ordered', from: Date.parse(batch.orderedAt) };
+        return [
+          { since, running: runningAttempts(batch), progressOf: (ref) => driver.progress(ref) },
+        ];
+      });
     // A second writer on the store, as a terminal command is (ADR 0044).
     const log = createCommandLog({ store, recipes: setup.recipes });
     // One run at a time in the Cellar, beside the ticks and the pass (ADR 0203), stopped on every
@@ -431,15 +453,20 @@ export const runServe = async (setup: ServeSetup, shell: ServeShell): Promise<nu
       // Only a pass that waited before the tick began: its effects run after this tick's drive.
       const waited = waitingForTick.splice(0);
       try {
-        await tick(driver, report);
+        await drawing.lively(undefined, () => tick(driver, report));
       } finally {
         settle(waited);
       }
       if (signal.aborted) break;
-      // A quiet Cellar says it is alive now and then, never at each tick (ADR 0346).
-      if (clock().getTime() - saidAt >= ALIVE_MS) say(`still running for ${setup.brewery}`);
-      await wait(intervalMs, signal);
+      // A quiet Cellar says it is alive now and then, never at each tick (ADR 0346); where a live
+      // line moves, it needs no such line (ADR 0427).
+      if (terminal === undefined && clock().getTime() - saidAt >= ALIVE_MS) {
+        say(`still running for ${setup.brewery}`);
+      }
+      await drawing.pause(intervalMs);
     }
+    // The live line goes before the last line, so the last lines on screen are the lasting ones.
+    await drawing.stop();
     // Its deadline bounds the wait; a pass that waits for a tick gets none.
     ticksStopped();
     await polling;
@@ -454,6 +481,7 @@ export const runServe = async (setup: ServeSetup, shell: ServeShell): Promise<nu
     say(messageOf(error));
     return 1;
   } finally {
+    await drawing.stop();
     // The run on a merged tree is stopped first; it and the pass underway write to the store until
     // they settle.
     stopRuns?.abort();
