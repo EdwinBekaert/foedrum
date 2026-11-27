@@ -7,7 +7,7 @@
 // in one without, the test report against the tests the proven step committed (ADR 0078).
 
 import { type AttemptRef, attemptKey } from '../engine/attempt-key.ts';
-import { mergedBaseOnLine } from '../engine/base-merge.ts';
+import { mergedBase, mergedBaseOnLine } from '../engine/base-merge.ts';
 import type { Env } from '../engine/brewer-env.ts';
 import type { AttemptEnd, BrewerRunner } from '../engine/brewer-runner.ts';
 import type { Batch, State } from '../engine/fold.ts';
@@ -233,7 +233,11 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
       // The clone is looked up when a merge needs git's answer, never before.
       isAncestor: (commit, of) =>
         isAncestorIn(options.git, options.clone(worktree.repo))(commit, of),
-    })) ?? batch.starts?.[worktree.repo.toLowerCase()]?.commit;
+    })) ?? startOf(batch, worktree);
+
+  /** Where the batch started in the worktree's repository. */
+  const startOf = (batch: Batch, worktree: WorktreeRef): string | undefined =>
+    batch.starts?.[worktree.repo.toLowerCase()]?.commit;
 
   const { proveRed } = createMappedProof({
     ...options,
@@ -364,8 +368,8 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
       return { ending: { kind: 'succeeded', output: null } };
     }
     // The test map matters to a step that runs the tests: a red proof, or a step with a test check.
-    // Without maps nothing is awaited, so the first check starts at once, before the engine could
-    // stop the attempt.
+    // Without maps and without a merge nothing is awaited (ADR 0452), so the first check starts at
+    // once, before the engine could stop the attempt.
     const reads = options.testMap !== undefined && (of !== undefined || refs.includes('test'));
     const fresh = reads ? await manifests(batch, worktree, signal) : {};
     if ('end' in fresh) {
@@ -398,10 +402,13 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
       }
     }
     // A survey's check reads every module's report: the full test (ADR 0242).
+    // Git is asked only where a merge was recorded, so a batch that merged nothing awaits nothing.
     const base =
-      of === undefined && survey === undefined ? await baseOf(batch, worktree) : undefined;
-    // The engine may have stopped the attempt while git answered, before any check ran.
-    if (signal.aborted) return { ending: { kind: 'cancelled' } };
+      of !== undefined || survey !== undefined
+        ? undefined
+        : mergedBase(state(), batch.id) === undefined
+          ? startOf(batch, worktree)
+          : await baseOf(batch, worktree);
     const end =
       of !== undefined
         ? await proveRed(batch, ref, worktree, current.deadlineAt, of, signal)
