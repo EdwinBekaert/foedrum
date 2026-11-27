@@ -28,7 +28,7 @@ import { APPROVES_WITH_FINDINGS, ASKS_CHANGES } from './fold.ts';
 import type { ProgressSource } from './supervisor.ts';
 
 /** A finding of a findings route's input at its place, and the step that found it when not the routing one. */
-export interface RouteFinding {
+interface RouteFinding {
   step?: string;
   file?: string;
   line?: number;
