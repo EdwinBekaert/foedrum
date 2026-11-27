@@ -833,6 +833,9 @@ describe('runServe', () => {
       'batch.ordered',
       'batch.recipe_chosen',
       'step.scheduled',
+      // The driver first takes the new batch with its first attempt not started: it moves that
+      // attempt's deadline on (#1181).
+      'step.rescheduled',
       'step.started',
       'step.finished',
       // The openPullRequest action (ADR 0071, ADR 0084).
