@@ -184,9 +184,10 @@ const setup = ({
     repositoryChecks: () => checksOf,
     testReport: () => testReport,
     exec,
-    // The batch's change is empty: the uncovered-line check has no line to judge.
+    // The batch's change is empty: the uncovered-line check has no line to judge. Every commit is
+    // on the line to the tip (ADR 0452).
     git: async (_cwd, args) =>
-      args.includes('diff')
+      args.includes('diff') || args.includes('merge-base')
         ? { code: 0, stdout: '', stderr: '' }
         : Promise.reject(new Error('the maps come from testMap')),
     reports: {

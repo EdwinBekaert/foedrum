@@ -131,6 +131,10 @@ const setup = ({
   folders = [] as string[],
   /** The repository's testChanged line, when it names one (ADR 0242). */
   testChanged = undefined as string | undefined,
+  /** The commits that are no ancestor of the step's tip: every other commit is one (ADR 0452). */
+  offLine = [] as string[],
+  /** The diff that starts at a commit, when it is not the same for every start. */
+  diffFrom = undefined as Record<string, string> | undefined,
 } = {}) => {
   const asked: string[] = [];
   const exec: ExecProcess = (line) => {
@@ -145,8 +149,11 @@ const setup = ({
     if (args.includes('diff')) {
       asked.push(`diff ${args.slice(-3, -1).join('..')}`);
       return diffFails === undefined
-        ? { code: 0, stdout: diff, stderr: '' }
+        ? { code: 0, stdout: diffFrom?.[args.at(-3) ?? ''] ?? diff, stderr: '' }
         : { code: 128, stdout: '', stderr: `fatal: ${diffFails}\n` };
+    }
+    if (args[0] === 'merge-base' && args[1] === '--is-ancestor') {
+      return { code: offLine.includes(args[2] ?? '') ? 1 : 0, stdout: '', stderr: '' };
     }
     if (args[0] === 'ls-tree' && args.includes(base)) {
       asked.push('files at the base');
@@ -534,6 +541,73 @@ describe('createCheckRunner: the uncovered-line check (ADR 0274)', () => {
       asked.filter((line) => line.startsWith('diff')),
       [`diff ${merged}..${tip}`],
     );
+  });
+
+  describe('after a merge of the base that gained code of its own (ADR 0452)', () => {
+    const merged = 'e'.repeat(40);
+    const mergeKey = effectKey.encode(
+      baseMergeKey({ batchId: '12-1', stepId: 'implement', attempt: 1 }),
+    );
+    const merge = { base: merged, merged: 'f'.repeat(40) };
+    const maps = { [base]: mapOf(calc), [merged]: mapOf(calc), [tip]: mapOf(calc) };
+    // Line 1 is what the base gained, no test runs it; line 2 is the batch's own.
+    const fromStart = [adding('src/base.ts', 1, 1), adding('src/calc.ts', 2, 1)].join('');
+    const fromMerged = adding('src/calc.ts', 2, 1);
+    const diffFrom = { [base]: fromStart, [merged]: fromMerged };
+
+    it('passes the batch on its own covered change when the base gained a line no test runs: regression test', async () => {
+      const { run, asked } = setup({
+        started: [...events, { type: 'effect.applied', key: mergeKey, result: merge }],
+        maps,
+        diffFrom,
+        coverage: {
+          'lcov.info': lcov(
+            [record('src/base.ts', { 1: 0 }), record('src/calc.ts', { 2: 3 })].join('\n'),
+          ),
+        },
+      });
+      const end = await run();
+      assert.deepEqual(end.ending, { kind: 'succeeded', output: null });
+      assert.deepEqual(
+        asked.filter((line) => line.startsWith('diff')),
+        [`diff ${merged}..${tip}`],
+      );
+    });
+
+    it('still fails the batch on a line of its own that no test runs: regression test', async () => {
+      const { run } = setup({
+        started: [...events, { type: 'effect.applied', key: mergeKey, result: merge }],
+        maps,
+        diffFrom,
+        coverage: {
+          'lcov.info': lcov(
+            [record('src/base.ts', { 1: 0 }), record('src/calc.ts', { 2: 0 })].join('\n'),
+          ),
+        },
+      });
+      const end = await run();
+      assert.equal(reasonOf(end), '1 changed line no test runs: src/calc.ts:2');
+    });
+
+    it("judges from where the batch started when the merge is of a failed attempt's branch, not on the line to the tip", async () => {
+      const { run, asked } = setup({
+        started: [...events, { type: 'effect.applied', key: mergeKey, result: merge }],
+        offLine: [merge.merged],
+        maps,
+        diffFrom,
+        coverage: {
+          'lcov.info': lcov(
+            [record('src/base.ts', { 1: 1 }), record('src/calc.ts', { 2: 3 })].join('\n'),
+          ),
+        },
+      });
+      const end = await run();
+      assert.deepEqual(end.ending, { kind: 'succeeded', output: null });
+      assert.deepEqual(
+        asked.filter((line) => line.startsWith('diff')),
+        [`diff ${base}..${tip}`],
+      );
+    });
   });
 
   it('lists ten files not loaded by any test and counts the rest: regression test', async () => {

@@ -676,11 +676,50 @@ describe('the default Taster (defaults/brewers/taster.md)', () => {
       prompt.includes(`source="the change since commit ${merged}" name="change">`),
       'the change does not start at the merged base',
     );
+    // The merge is on the line to the head, which git is asked (ADR 0452): not the change's own reads.
     assert.deepEqual(
-      calls.map(({ args }) =>
-        args.filter((arg) => arg.includes('..') || /^[0-9a-f]{40}$/.test(arg)),
-      ),
+      calls
+        .filter(({ args }) => args.includes('log') || args.includes('diff'))
+        .map(({ args }) => args.filter((arg) => arg.includes('..') || /^[0-9a-f]{40}$/.test(arg))),
       [[`${merged}..${head}`], [merged, head]],
+    );
+  });
+
+  it("reviews the change from where the batch started when the merge of a failed attempt is not on the line to the Taster's head (ADR 0452)", async () => {
+    const merged = 'c'.repeat(40);
+    const mergeCommit = 'd'.repeat(40);
+    const head = 'b'.repeat(40);
+    // A green attempt merged the base and failed; the Taster's task tree never held its merge.
+    const green = { batchId: '12-1', stepId: 'green', attempt: 1 };
+    const failed: Event[] = [
+      { type: 'step.scheduled', ...green, deadlineAt: '2026-10-23T13:00:00.000Z' },
+      { type: 'step.started', ...green, worktree: worktree('green-1', base) },
+      {
+        type: 'effect.applied',
+        key: '["12-1","green",1,"merge_base"]',
+        result: { base: merged, merged: mergeCommit },
+      },
+      {
+        type: 'step.finished',
+        ...green,
+        outcome: { kind: 'failed', retryable: true, reason: 'the check "test" failed' },
+      },
+    ];
+    const offLine: Git = async (cwd, args, options) =>
+      args.includes('merge-base')
+        ? { code: 1, stdout: '', stderr: '' }
+        : answers(cwd, args, options);
+    const { plan, calls } = await planTaster(offLine, room, failed);
+    const { prompt } = await plan;
+    assert.ok(
+      prompt.includes(`source="the change since commit ${base}" name="change">`),
+      'the change does not start at the batch start',
+    );
+    assert.deepEqual(
+      calls
+        .filter(({ args }) => args.includes('log') || args.includes('diff'))
+        .map(({ args }) => args.filter((arg) => arg.includes('..') || /^[0-9a-f]{40}$/.test(arg))),
+      [[`${base}..${head}`], [base, head]],
     );
   });
 

@@ -158,7 +158,12 @@ describe('runServe', () => {
           return clean.merge(path, commit, message);
         },
       };
-      const { batch } = await brewWithChecks(0, { merge, steps });
+      // The clone has no test map, and the merge is on the line to the check's tip (ADR 0452).
+      const git: Git = async (_cwd, args) =>
+        args[0] === 'ls-tree' || args[0] === 'merge-base'
+          ? { code: 0, stdout: '', stderr: '' }
+          : Promise.reject(new Error('no red proof or guarded step runs here'));
+      const { batch } = await brewWithChecks(0, { merge, steps, git });
       assert.equal(batch?.lane.kind, 'on_tap');
       assert.deepStrictEqual(steps, [
         `${worktreeOf(1)} ${'b'.repeat(40)}: Merge main before green`,

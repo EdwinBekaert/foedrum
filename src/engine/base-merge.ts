@@ -242,6 +242,25 @@ export const mergedBase = (state: State, batchId: string): string | undefined =>
     )
     .at(-1)?.merge.base;
 
+/** The head a change is read up to, and git's answer whether a commit is on the line to it (ADR 0452). */
+export interface MergeLine {
+  head: string;
+  isAncestor(commit: string, of: string): Promise<boolean>;
+}
+
+/**
+ * The base the latest merge of `batchId` on the line to `line.head` brought in: as `mergedBase`,
+ * passing over a merge whose commit is no ancestor of the head, as a failed or abandoned
+ * attempt's is (ADR 0452).
+ */
+export const mergedBaseOnLine = (
+  _state: State,
+  _batchId: string,
+  _line: MergeLine,
+): Promise<string | undefined> => {
+  throw new Error('not implemented');
+};
+
 /**
  * The merges the ledger recorded before the attempts of `batchId`, in the order it recorded them,
  * each with its attempt; a result that is no merge is passed over.
