@@ -82,6 +82,7 @@ Nip, which builds a change whose effect stays inside the code it changes and wor
 
 - [Architecture](docs/architecture.md), the map of the [design pages](docs/design/)
 - [Brewers and recipes](docs/design/recipes/README.md)
+- [Writing a lens](docs/design/recipes/writing-a-lens.md), a tasting lens of your own
 - [Testing](docs/design/testing/README.md)
 - [Evaluation: the tasting room and the Flight](docs/design/evaluation.md)
 - [Glossary](docs/glossary.md)
