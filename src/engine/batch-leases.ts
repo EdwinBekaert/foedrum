@@ -72,10 +72,8 @@ export const takeOver = (log: CommandLog, request: TakeoverRequest): Decision =>
       const current = tx.batchLease(batchId);
       const said = saidAs(state, batch);
       if (current === undefined || current.expiresAt <= now) {
-        // Brew takes no batch id, so an older batch's line offers it nothing (ADR 0334).
         const called = calledAs(state, batch);
-        const brew = called === batch.id ? '' : `; foedrum brew ${called} drives it`;
-        return { refused: `no driver holds ${said}${brew}` };
+        return { refused: `no driver holds ${said}; foedrum brew ${called} drives it` };
       }
       if (current.owner === owner) return { refused: `${owner} holds ${said} already` };
       const until = current.expiresAt.toISOString();

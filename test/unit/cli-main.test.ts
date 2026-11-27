@@ -94,7 +94,7 @@ describe('foedrum status and replay on store files', () => {
   const foedrum = (...args: string[]) => foedrumIn(brewery.path, args);
 
   it('says there is no store, and creates none, in a folder without one', async () => {
-    const { exitCode, stdout, stderr } = await foedrum('replay', '12-1');
+    const { exitCode, stdout, stderr } = await foedrum('replay', '12');
     assert.equal(exitCode, 1);
     assert.equal(stdout, '');
     assert.equal(stderr, `foedrum replay: no event store at ${store}\n`);
@@ -153,7 +153,7 @@ describe('foedrum status and replay on store files', () => {
       }),
     );
     writer.close();
-    const { exitCode, stdout, stderr } = await foedrum('cancel', '12-1');
+    const { exitCode, stdout, stderr } = await foedrum('cancel', '12');
     assert.equal(stderr, '');
     assert.equal(exitCode, 0);
     assert.equal(stdout, `#12 cancelled: by ${userInfo().username} via terminal\n`);
@@ -181,7 +181,7 @@ describe('foedrum status and replay on store files', () => {
     writer.close();
     // A name no machine's account has, as npm run demo gives its own user (#663).
     const user = 'demo-user-663';
-    const { exitCode, stdout, stderr } = await cliFromCheckout(['cancel', '12-1'], brewery.path, {
+    const { exitCode, stdout, stderr } = await cliFromCheckout(['cancel', '12'], brewery.path, {
       ...startingNothing,
       user: () => user,
     });
@@ -199,7 +199,7 @@ describe('foedrum status and replay on store files', () => {
   });
 
   it('creates no store for a command that changes state, in a folder without one', async () => {
-    const { exitCode, stderr } = await foedrum('cancel', '12-1');
+    const { exitCode, stderr } = await foedrum('cancel', '12');
     assert.equal(exitCode, 1);
     assert.equal(stderr, `foedrum cancel: no event store at ${store}\n`);
     assert.equal(existsSync(store), false);
@@ -356,7 +356,7 @@ describe("foedrum with the Brewery's recipe files (ADR 0053)", () => {
   it("schedules a step with the deadline of the Brewery's brewer", async () => {
     writeRecipe([{ brewer: 'roaster' }]);
     const before = Date.now();
-    const { exitCode, stdout, stderr } = await foedrum('retry', '12-1');
+    const { exitCode, stdout, stderr } = await foedrum('retry', '12');
     assert.equal(stderr, '');
     assert.equal(exitCode, 0);
     assert.match(stdout, /^#12 brewing: roaster #1 scheduled/);
@@ -390,7 +390,7 @@ describe("foedrum with the Brewery's recipe files (ADR 0053)", () => {
   it("is refused with doctor's line when a recipe file is not valid, and changes nothing", async () => {
     writeRecipe([{ brewer: 'roaster' }, { id: 'split', fanOut: {} }]);
     const line = `${INVALID_RECIPES}: recipes/pale.jsonc: step "split" is a fanOut step, which the engine does not brew yet (ADR 0053)`;
-    const retry = await foedrum('retry', '12-1');
+    const retry = await foedrum('retry', '12');
     assert.deepEqual(
       { exitCode: retry.exitCode, stdout: retry.stdout, stderr: retry.stderr },
       { exitCode: 1, stdout: '', stderr: `foedrum retry: ${line}\n` },

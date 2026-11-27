@@ -3,7 +3,14 @@
 
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { claimOfOrder, claimOrderOf, orderName } from '../../src/engine/claim-orders.ts';
+import {
+  calledAs,
+  claimOfOrder,
+  claimOrderOf,
+  namedBatchId,
+  orderName,
+  saidAs,
+} from '../../src/engine/claim-orders.ts';
 import { effectKey } from '../../src/engine/effect-key.ts';
 import { fold, type State } from '../../src/engine/fold.ts';
 import type { Event } from '../../src/schemas/events.ts';
@@ -169,5 +176,119 @@ describe('orderName', () => {
 
   it('names a claimed issue owner/name#<n> when its batch id has no alias', () => {
     assert.equal(name('claimed'), 'acme/app#4');
+  });
+});
+
+// A batch id names no work (ADR 0450): a line offers the number of its issue's batches, the latest
+// or not, and `<alias>#<n>` until the Brewery issue is open.
+describe('how a line names a batch', () => {
+  const state = stateOf(
+    ordered('12-1', 12),
+    ordered('12-2', 12),
+    ordered('web-7', 7, 'acme/web'),
+    applied('web-7', 'order.issue', 200),
+    ordered('web-7-2', 7, 'acme/web'),
+    ordered('api-9', 9, 'acme/api'),
+    ordered('api-9-2', 9, 'acme/api'),
+  );
+  const batch = (batchId: string) => {
+    const found = state.batches.get(batchId);
+    return found === undefined ? assert.fail(batchId) : found;
+  };
+
+  describe('calledAs', () => {
+    it("gives the number of a Brewery issue's latest batch: regression test", () => {
+      assert.equal(calledAs(state, batch('12-2')), '12');
+    });
+
+    it("gives the number of a Brewery issue's older batch, not its id", () => {
+      assert.equal(calledAs(state, batch('12-1')), '12');
+    });
+
+    it("gives the Brewery issue's number to an older batch of a claimed issue, not its id", () => {
+      assert.equal(calledAs(state, batch('web-7')), '200');
+    });
+
+    it("gives the Brewery issue's number to the latest batch of a claimed issue: regression test", () => {
+      assert.equal(calledAs(state, batch('web-7-2')), '200');
+    });
+
+    it('gives <alias>#<n> to an older batch before the Brewery issue is open, not its id', () => {
+      assert.equal(calledAs(state, batch('api-9')), 'api#9');
+    });
+
+    it('gives <alias>#<n> to the latest batch before the Brewery issue is open: regression test', () => {
+      assert.equal(calledAs(state, batch('api-9-2')), 'api#9');
+    });
+  });
+
+  describe('saidAs', () => {
+    it("says #<n> of an older batch of a Brewery issue, never 'batch <id>'", () => {
+      assert.equal(saidAs(state, batch('12-1')), '#12');
+    });
+
+    it("says the Brewery issue's #<n> of an older batch of a claimed issue", () => {
+      assert.equal(saidAs(state, batch('web-7')), '#200');
+    });
+
+    it('says <alias>#<n> of an older batch before the Brewery issue is open', () => {
+      assert.equal(saidAs(state, batch('api-9')), 'api#9');
+    });
+
+    it('says #<n> of the latest batch: regression test', () => {
+      assert.equal(saidAs(state, batch('12-2')), '#12');
+      assert.equal(saidAs(state, batch('web-7-2')), '#200');
+    });
+  });
+});
+
+describe('namedBatchId', () => {
+  const state = stateOf(
+    ordered('12-1', 12),
+    ordered('12-2', 12),
+    ordered('web-7', 7, 'acme/web'),
+    applied('web-7', 'order.issue', 200),
+    ordered('web-7-2', 7, 'acme/web'),
+    ordered('api-9', 9, 'acme/api'),
+  );
+
+  it("refuses a Brewery issue's batch id with the number of its issue", () => {
+    assert.deepStrictEqual(namedBatchId(state, '12-2', 'retry'), {
+      refused: '12-2 is Brewery issue #12; foedrum retry 12',
+    });
+  });
+
+  it("refuses a claimed batch's id with the number of its Brewery issue, as <alias>#<n> is refused", () => {
+    assert.deepStrictEqual(namedBatchId(state, 'web-7-2', 'recipe'), {
+      refused: 'web-7-2 is Brewery issue #200; foedrum recipe 200',
+    });
+  });
+
+  it('refuses the id of an older batch with the same number, which means its latest', () => {
+    assert.deepStrictEqual(namedBatchId(state, '12-1', 'cancel'), {
+      refused: '12-1 is Brewery issue #12; foedrum cancel 12',
+    });
+    assert.deepStrictEqual(namedBatchId(state, 'web-7', 'cancel'), {
+      refused: 'web-7 is Brewery issue #200; foedrum cancel 200',
+    });
+  });
+
+  it('names the command it was given in its refusal and in the line it offers', () => {
+    for (const command of ['approve', 'rewind', 'takeover']) {
+      assert.deepStrictEqual(namedBatchId(state, 'web-7-2', command), {
+        refused: `web-7-2 is Brewery issue #200; foedrum ${command} 200`,
+      });
+    }
+  });
+
+  it('offers <alias>#<n> for a claimed batch whose Brewery issue is not open yet', () => {
+    const { refused } = namedBatchId(state, 'api-9', 'skip');
+    assert.match(refused, /^api-9 is [^;]+; foedrum skip api#9$/);
+  });
+
+  it('refuses a batch id the log has not, naming it', () => {
+    const { refused } = namedBatchId(state, '99-1', 'retry');
+    assert.match(refused, /99-1/);
+    assert.doesNotMatch(refused, /foedrum retry \d/);
   });
 });

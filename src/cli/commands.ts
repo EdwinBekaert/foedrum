@@ -11,6 +11,7 @@ import {
   calledAs,
   latestBatch,
   type NamedWork,
+  namedBatchId,
   namedWork,
   saidAs,
 } from '../engine/claim-orders.ts';
@@ -381,8 +382,8 @@ const orderingOf = (
 };
 
 /**
- * The batch a command names by `target` (ADR 0329): a batch id as it is, which decide refuses when
- * it is none, and an issue's latest batch.
+ * The batch a command names by `target` (ADR 0329): an issue's latest batch. A batch id is refused
+ * with the number to use (ADR 0450).
  */
 const batchNamed = (
   state: State,
@@ -390,7 +391,7 @@ const batchNamed = (
   command: string,
   context: CliContext,
 ): string | { refused: string } => {
-  if (typeof target === 'string') return target;
+  if (typeof target === 'string') return namedBatchId(state, target, command);
   const work = namedWork(state, target, repoOfAlias(context), command);
   if ('refused' in work) return work;
   return work.batch?.id ?? { refused: `${work.name} has no batch` };
@@ -640,7 +641,7 @@ export const orderIssue = async (
 
 /** Why a decision on a Stuck batch is the terminal's (ADR 0125). */
 const STUCK_DECISION =
-  "A person's decision among the options /foedrum:stuck lists, run as foedrum <option> <issue>, or by the id its run as: line gives";
+  "A person's decision among the options /foedrum:stuck lists, run as foedrum <option> <issue>";
 
 export const commands: readonly RegisteredCommand[] = [
   define({
@@ -864,7 +865,6 @@ export const commands: readonly RegisteredCommand[] = [
     schema: ResumeCommand,
     handler: async ({ issue, step }, context) => {
       const issued = { by: context.user(), via: context.surface };
-      if (typeof issue === 'string') return context.resume({ batch: issue, step }, issued);
       // The store is read and closed first: the session may run for hours.
       const read = await readBrewery('resume', context, (_events, state) => {
         const batch = batchNamed(state, issue, 'resume', context);
@@ -961,7 +961,7 @@ export const commands: readonly RegisteredCommand[] = [
   define({
     name: 'recipe',
     summary:
-      "Brew a batch, or an issue's latest, with another recipe from its first step; an ended issue is ordered again",
+      "Brew an issue's latest batch with another recipe from its first step; an ended issue is ordered again",
     changesState: true,
     positionals: ['target', 'recipe', 'reason'],
     schema: RecipeCommand,
@@ -971,14 +971,9 @@ export const commands: readonly RegisteredCommand[] = [
       let chosen: string | undefined;
       const choose = async (): Promise<CliResult> => {
         if (typeof target === 'string') {
-          const result = await changeBrewery('recipe', context, (_state, issued) => ({
-            kind: 'recipe',
-            ...issued(target),
-            recipe,
-            reason,
-          }));
-          if (result.exitCode === 0) chosen = target;
-          return result;
+          return changeBrewery('recipe', context, (state) =>
+            namedBatchId(state(), target, 'recipe'),
+          );
         }
         const aliased = aliasedTarget(target, context);
         if (aliased !== undefined && 'refused' in aliased) return failed('recipe', aliased.refused);

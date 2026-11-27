@@ -1,6 +1,7 @@
 // One number per piece of work (ADR 0329): every command on a claimed order takes its Brewery issue's
 // number, through runCli with an in-memory event store. Its target issue's `<alias>#<n>` is refused
-// once that issue is alive, read from the fold alone; a batch id still works.
+// once that issue is alive, read from the fold alone. A batch id is refused the same way, with the
+// number to use, and no line Foedrum prints offers one (ADR 0450).
 
 import assert from 'node:assert/strict';
 import { join, sep } from 'node:path';
@@ -253,18 +254,12 @@ describe('one number per piece of work (ADR 0329)', () => {
     assert.equal(called('web-7-2'), '40');
   });
 
-  it("an older batch's line names its id, since the number means the latest", () => {
+  it("an older batch's line names the number too, since no command names a batch id", () => {
     orderedAgain();
-    assert.equal(called('web-7'), 'web-7');
+    assert.equal(called('web-7'), '40');
   });
 
-  it('foedrum takeover of an older batch names its id and offers no brew, which takes none', async () => {
-    orderedAgain();
-    const result = await run(['takeover', 'web-7', '--as', 'ann']);
-    assert.equal(result.stderr, 'foedrum takeover: no driver holds batch web-7\n');
-  });
-
-  it("foedrum stuck offers an older batch's options by its id", async () => {
+  it("foedrum stuck offers an older batch's options by no id", async () => {
     // A batch on tap can come back Stuck past a later batch of its issue (ADR 0334).
     store.withTransaction((tx) =>
       tx.append({
@@ -275,8 +270,15 @@ describe('one number per piece of work (ADR 0329)', () => {
       }),
     );
     const { stdout } = await run(['stuck']);
-    const runAs = stdout.split('\n').filter((line) => line.includes('run as:'));
-    assert.deepStrictEqual(runAs, ['  run as: foedrum <option> web-8']);
+    const lines = stdout.split('\n');
+    assert.deepStrictEqual(
+      lines.filter((line) => line.includes('run as:')),
+      [],
+    );
+    // Its options still show, under its own line.
+    const head = lines.findIndex((line) => line.startsWith('web-8 '));
+    assert.notEqual(head, -1, stdout);
+    assert.match(lines[head + 1] ?? '', /^ {2}options: /);
   });
 
   it("a command's line on a claimed order leads with the number", async () => {
@@ -524,9 +526,76 @@ describe('one number per piece of work (ADR 0329)', () => {
     assert.ok(log().state().batches.has('site-7'));
   });
 
-  it('a batch id still works: regression test', async () => {
-    await accepted(['retry', 'web-7']);
-    assert.equal(laneOf('web-7'), 'brewing');
+  describe('a batch id', () => {
+    const refusals: Record<string, string[]> = {
+      retry: ['retry', 'web-7'],
+      answer: ['answer', 'web-8', 'sqlite'],
+      approve: ['approve', 'web-9'],
+      cancel: ['cancel', 'web-10'],
+      skip: ['skip', 'web-7'],
+      rewind: ['rewind', 'web-7', 'plan', `${WEB}=${SHA}`],
+      replay: ['replay', 'web-7'],
+      handover: ['handover', 'web-7'],
+      resume: ['resume', 'web-7'],
+      takeover: ['takeover', 'web-7', '--as', 'ann'],
+      recipe: ['recipe', 'web-7', 'pint', 'why not'],
+    };
+    const numbers: Record<string, number> = { 'web-7': 40, 'web-8': 41, 'web-9': 42, 'web-10': 43 };
+
+    for (const [command, argv] of Object.entries(refusals)) {
+      it(`foedrum ${command} refuses it and names the number to use`, async () => {
+        const before = store.lastEventId();
+        const named = argv[1] ?? '';
+        const result = await run(argv);
+        assert.equal(result.exitCode, 1, result.stdout);
+        assert.equal(
+          result.stderr,
+          `foedrum ${command}: ${named} is Brewery issue #${numbers[named]}; foedrum ${command} ${numbers[named]}\n`,
+        );
+        assert.equal(result.stdout, '');
+        assert.equal(store.lastEventId(), before);
+      });
+    }
+
+    it("refuses a Brewery issue's own batch id with the issue's number, and changes nothing", async () => {
+      issue({ kind: 'order', batchId: '30-1', order: { issue: 30 } });
+      const before = store.lastEventId();
+      const result = await run(['cancel', '30-1']);
+      assert.deepStrictEqual(result, {
+        exitCode: 1,
+        stdout: '',
+        stderr: 'foedrum cancel: 30-1 is Brewery issue #30; foedrum cancel 30\n',
+      });
+      assert.equal(store.lastEventId(), before);
+      assert.equal(laneOf('30-1'), 'ordered');
+    });
+
+    it("refuses an older batch's id with the number, which means its latest, and changes nothing", async () => {
+      orderedAgain();
+      const before = store.lastEventId();
+      const result = await run(['retry', 'web-7']);
+      assert.equal(result.stderr, 'foedrum retry: web-7 is Brewery issue #40; foedrum retry 40\n');
+      assert.equal(result.exitCode, 1);
+      assert.equal(store.lastEventId(), before);
+    });
+
+    it('refuses the id of a batch whose Brewery issue is not open yet with its target issue', async () => {
+      issue({ kind: 'order', batchId: 'web-11', order: { issue: 11, repo: WEB } });
+      const before = store.lastEventId();
+      const result = await run(['cancel', 'web-11']);
+      assert.equal(result.exitCode, 1);
+      assert.match(result.stderr, /^foedrum cancel: web-11 is [^;\n]+; foedrum cancel web#11\n$/);
+      assert.equal(store.lastEventId(), before);
+      assert.equal(laneOf('web-11'), 'ordered');
+    });
+
+    it('refuses a batch id the log has not, appending nothing: regression test', async () => {
+      const before = store.lastEventId();
+      const result = await run(['cancel', '99-1']);
+      assert.equal(result.exitCode, 1);
+      assert.match(result.stderr, /^foedrum cancel: .*99-1/);
+      assert.equal(store.lastEventId(), before);
+    });
   });
 
   it("a Brewery issue's own batch goes by its number too", async () => {

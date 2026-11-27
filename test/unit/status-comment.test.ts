@@ -2070,7 +2070,7 @@ describe('statusEffects', () => {
     assert.deepEqual(notices, []);
   });
 
-  it("offers an older batch's question by its id, which the number would not reach (ADR 0334)", async () => {
+  it("offers an older batch's question by the number, never its id (ADR 0450)", async () => {
     order();
     brew();
     const which = { q: 'Which?', options: ['a', 'b'], recommended: 'a', whyBlocking: 'x' };
@@ -2085,12 +2085,12 @@ describe('statusEffects', () => {
     await driver.tick();
     const bodies = comments.comments.map(({ body }) => body);
     assert.ok(
-      bodies.some((body) => body.includes('`foedrum answer 7-1 <answer 1>`')),
+      bodies.some((body) => body.includes('`foedrum answer 7 <answer 1>`')),
       bodies.join('\n---\n'),
     );
   });
 
-  it("names an older batch's options with its id, under a comment that says the number (ADR 0334)", async () => {
+  it("names an older batch's options alone, as a latest batch's, under a comment that says the number (ADR 0450)", async () => {
     order();
     brew();
     const ending = { kind: 'failed', retryable: false, reason: 'tests fail' } as const;
@@ -2102,7 +2102,11 @@ describe('statusEffects', () => {
     await driver.tick();
     const bodies = comments.comments.map(({ body }) => body);
     assert.ok(
-      bodies.some((body) => /Next: get it moving with `foedrum [a-z]+ 7-1`/.test(body)),
+      bodies.some((body) => /Next: get it moving with `[a-z]+`/.test(body)),
+      bodies.join('\n---\n'),
+    );
+    assert.ok(
+      bodies.every((body) => !/foedrum [a-z]+ 7-1/.test(body)),
       bodies.join('\n---\n'),
     );
   });
@@ -2153,11 +2157,7 @@ describe('statusEffects', () => {
     );
   });
 
-  it("offers a plan's other option by the whole command only for an older batch: regression test (ADR 0334)", () => {
-    assert.match(
-      planNextLine('7-1', ['recipe'], '7-1'),
-      /Its other option: `foedrum recipe 7-1`\.$/,
-    );
+  it("offers a plan's other option alone, since the comment says the number: regression test (ADR 0334)", () => {
     assert.match(planNextLine('7', ['recipe'], '7-1'), /Its other option: `recipe`\.$/);
   });
 
