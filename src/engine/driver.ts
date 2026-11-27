@@ -1503,17 +1503,24 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
    * The first time it takes a batch with an attempt scheduled and not started, moves that attempt's
    * deadline on, as if just scheduled: it was set when the attempt was scheduled, and may have run
    * out while no driver ran, so the supervisor would make the batch Stuck for a step that never had
-   * the chance to start (ADR 0435). A batch it does not take, and another driver's, keep theirs.
+   * the chance to start (ADR 0435). A batch it does not take, and another driver's, keep theirs. A
+   * throw for one batch is reported as the supervisor's pass reports it, and the other batches go
+   * on (ADR 0328); that batch is tried again at the next take, as it is taken only once its command
+   * is recorded.
    */
   const takeBatches = (): void => {
     for (const batch of log.state().batches.values()) {
       if (taken.has(batch.id) || batch.lane.kind !== 'brewing') continue;
-      const waits = [...batch.steps.values()].some(
-        (step) => runningAttempt(step)?.phase === 'scheduled',
-      );
-      if (!waits || !claim(batch.id)) continue;
-      taken.add(batch.id);
-      issue({ kind: 'take', batchId: batch.id });
+      try {
+        const waits = [...batch.steps.values()].some(
+          (step) => runningAttempt(step)?.phase === 'scheduled',
+        );
+        if (!waits || !claim(batch.id)) continue;
+        issue({ kind: 'take', batchId: batch.id });
+        taken.add(batch.id);
+      } catch (error) {
+        sayFailure({ kind: 'batch_failed', batchId: batch.id, pass: 'supervisor', error });
+      }
     }
   };
 

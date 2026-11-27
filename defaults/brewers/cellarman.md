@@ -2,7 +2,7 @@
 {
   "name": "cellarman",
   "description": "Makes the Gauger's failing tests pass in one repository, without changing them.",
-  "version": 20,
+  "version": 21,
   "inputs": [
     { "name": "order", "from": "order" },
     { "name": "tests", "from": "step:gauge" },

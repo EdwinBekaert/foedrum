@@ -980,8 +980,9 @@ const routingAttempt = (batch: Batch, from: string) =>
 /**
  * The step whose findings route brought attempt `ref` back and the findings of its route input,
  * each at its place and, for another child of the routing step's group, that step (ADR 0349); none
- * for an attempt no findings route scheduled. What the runner reads to settle a `done` with no
- * commit (ADR 0435).
+ * for an attempt no findings route scheduled, and none when its event did not record every finding
+ * (ADR 0423), since the brewer cannot be shown to have answered each. What the runner reads to
+ * settle a `done` with no commit (ADR 0435).
  */
 export function findingsRouteOf(
   batch: Batch,
@@ -999,8 +1000,11 @@ export function findingsRouteOf(
     ...(line === undefined ? {} : { line }),
   });
   const own = roundFindings(routing).map(place);
-  const others = (groupRoundOf(batch, from, routing.attempt, groupOf) ?? []).flatMap(
-    ({ step: found, findings }) => findings.map((finding) => ({ step: found, ...place(finding) })),
+  const group = groupRoundOf(batch, from, routing.attempt, groupOf) ?? [];
+  const unrecorded = (routing.findings?.more ?? 0) + group.reduce((sum, { more }) => sum + more, 0);
+  if (unrecorded > 0) return undefined;
+  const others = group.flatMap(({ step: found, findings }) =>
+    findings.map((finding) => ({ step: found, ...place(finding) })),
   );
   return { from, findings: [...own, ...others] };
 }
