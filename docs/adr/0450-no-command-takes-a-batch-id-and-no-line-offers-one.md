@@ -1,6 +1,6 @@
 # 0450. No command takes a batch id, and no line offers one
 
-Date: 2026-11-27 · Status: Accepted · Amends [0329](0329-one-number-per-piece-of-work.md) (a batch id is no longer taken) and [0334](0334-every-line-names-the-number-and-the-innkeeper-reads-it-from-its-input-s-source.md) (an older batch is no longer offered by its id)
+Date: 2026-11-27 · Status: Accepted · Amends [0329](0329-one-number-per-piece-of-work.md) (a batch id is no longer taken), [0334](0334-every-line-names-the-number-and-the-innkeeper-reads-it-from-its-input-s-source.md) (an older batch is no longer offered by its id), [0240](0240-order-and-recipe-work-by-the-brewery-issue-on-both-surfaces.md) (`recipe` takes no batch id) and [0286](0286-foedrum-lauter-corrects-a-plan-at-gate-1-in-an-interactive-session.md) (`lauter` takes no batch id)
 
 ## Context
 [ADR 0329](0329-one-number-per-piece-of-work.md) decided that while a Brewery issue is alive, a person names its work by that number, and refused `<alias>#<n>` then, with the number to use.
