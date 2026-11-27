@@ -6,7 +6,8 @@
 import assert from 'node:assert/strict';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
-import type { TestRun, TestRunEnd } from '../../src/checks/check-runner.ts';
+import type { TestRun, TestRunEnd, TestScope } from '../../src/checks/check-runner.ts';
+import type { Range, TestCoverage } from '../../src/checks/mutant-reach.ts';
 import { mutated } from '../../src/checks/mutant-run.ts';
 import { mutantCheck } from '../../src/checks/mutants.ts';
 import type { MappedReport } from '../../src/checks/red-proof.ts';
@@ -212,7 +213,11 @@ const setup = ({
   runner: BrewerRunner;
   mutates?: boolean;
   events?: Event[];
-  runs?: (edit: Edited | undefined, deadlineAt: string) => TestRunEnd | Promise<TestRunEnd>;
+  runs?: (
+    edit: Edited | undefined,
+    deadlineAt: string,
+    scope: TestScope | undefined,
+  ) => TestRunEnd | Promise<TestRunEnd>;
   clock?: () => Date;
   /** The mutant's file as git checks it out in a scratch tree. */
   checkedOut?: string;
@@ -243,14 +248,17 @@ const setup = ({
     }
   };
   const runDeadlines: string[] = [];
-  const testRun: TestRun = async (at, modules, runDeadline) => {
+  /** What each run was asked for besides the whole test check (ADR 0431), in order. */
+  const scopes: (TestScope | undefined)[] = [];
+  const testRun: TestRun = async (at, modules, runDeadline, _signal, scope) => {
     assert.equal(at.repo, 'acme/api');
     assert.deepStrictEqual(
       modules.map(({ module }) => module.name),
       ['api'],
     );
     runDeadlines.push(runDeadline);
-    return runs(edits.get(at.path), runDeadline);
+    scopes.push(scope);
+    return runs(edits.get(at.path), runDeadline, scope);
   };
   const state = fold(events);
   const wrapped = mutated({
@@ -268,7 +276,7 @@ const setup = ({
   const limits = { outDoc: { file: 'mutants.md', schema: MutantsOutDoc }, blocking };
   const start = () => wrapped.start({ ref, limits });
   const end = () => start().ended;
-  return { end, start, wrapped, opened, removed, runDeadlines };
+  return { end, start, wrapped, opened, removed, runDeadlines, scopes };
 };
 
 /** Each run's outcome by the mutant its tree holds. */
@@ -588,6 +596,219 @@ describe('mutated, on a blocking step (ADR 0319)', () => {
     });
     // The verdicts stay on the attempt's end beside the blocked ending.
     assert.equal(ended.mutants?.length, 2);
+  });
+});
+
+/** The test files of the repository and the tests each holds. */
+const testsOf: Readonly<Record<string, readonly string[]>> = {
+  'test/unit/add.test.ts': ['adds two numbers', 'adds negatives'],
+  'test/unit/clamp.test.ts': ['clamps big numbers'],
+  'test/unit/shared.test.ts': ['shared case'],
+};
+
+/** The ranges of src/add.mjs in a process that ran only `lines` (from 1) of it. */
+const ranOnly = (...lines: number[]): Range[] => {
+  const starts = [0];
+  for (let at = code.indexOf('\n'); at !== -1; at = code.indexOf('\n', at + 1)) starts.push(at + 1);
+  return [
+    { startOffset: 0, endOffset: code.length, count: 0 },
+    ...lines.map((line) => ({
+      startOffset: starts[line - 1] ?? 0,
+      endOffset: (starts[line] ?? code.length + 1) - 1,
+      count: 1,
+    })),
+  ];
+};
+
+/** The baseline's coverage: the add test ran line 1, the clamp test line 2, the shared test both. */
+const covering = (entries: Record<string, number[]>): TestCoverage =>
+  new Map(
+    Object.entries(entries).map(([file, lines]) => [
+      file,
+      new Map([['src/add.mjs', ranOnly(...lines)]]),
+    ]),
+  );
+
+const coverage = covering({
+  'test/unit/add.test.ts': [1],
+  'test/unit/clamp.test.ts': [2],
+  'test/unit/shared.test.ts': [1, 2],
+  'test/unit/unrelated.test.ts': [],
+});
+
+/** A report of the tests of `files` (all when absent), each placed at its file as a run writes it. */
+const placedReport = (files: readonly string[] | undefined, failing: readonly string[]) => ({
+  module: 'api',
+  other: '',
+  tests: Object.entries(testsOf)
+    .filter(([file]) => files === undefined || files.includes(file))
+    .flatMap(([file, names]) =>
+      names.map((name) => ({
+        name,
+        result: failing.includes(name) ? ('failed' as const) : ('passed' as const),
+        leaf: true,
+        detail: '',
+        location: { file: `/scratch/run/${file}` },
+      })),
+    ),
+});
+
+/**
+ * Runs that answer as the engine's would for `baselineCoverage`: the baseline reads every test and
+ * the coverage; a scoped run reads the tests of its files; a mutant that subtracts fails the add tests.
+ */
+const scopedRuns =
+  (baselineCoverage: TestCoverage | undefined = coverage) =>
+  (edit: Edited | undefined, _until: string, scope: TestScope | undefined): TestRunEnd => {
+    const files = scope?.files;
+    const failing = edit?.content.includes('a - b') ? ['adds two numbers'] : [];
+    return {
+      kind: 'ran',
+      reading: exited(failing.length > 0 ? 1 : 0),
+      reports: [placedReport(files, failing)],
+      ...(files === undefined ? {} : { files }),
+      ...(edit === undefined && baselineCoverage !== undefined
+        ? { coverage: baselineCoverage }
+        : {}),
+    };
+  };
+
+describe('mutated, a mutant runs the test files that reach its line (ADR 0431)', () => {
+  it('the baseline runs the whole check in a tree of its own and asks for coverage; the mutants do not', async () => {
+    const { end, opened, scopes } = setup({
+      runner: brett([subtracts, boundary]),
+      runs: scopedRuns(),
+    });
+    await end();
+    assert.equal(opened[0]?.edit, undefined);
+    assert.equal(scopes[0]?.coverage, true);
+    assert.equal(scopes[0]?.files, undefined);
+    for (const scope of scopes.slice(1)) assert.notEqual(scope?.coverage, true);
+  });
+
+  it('each mutant runs only the test files that reached its line, sorted', async () => {
+    const { end, scopes } = setup({
+      runner: brett([subtracts, boundary]),
+      runs: scopedRuns(),
+    });
+    const ended = await end();
+    assert.equal(ended.ending.kind, 'succeeded');
+    assert.deepStrictEqual(
+      scopes.slice(1).map((scope) => scope?.files),
+      [
+        ['test/unit/add.test.ts', 'test/unit/shared.test.ts'],
+        ['test/unit/clamp.test.ts', 'test/unit/shared.test.ts'],
+      ],
+    );
+  });
+
+  it('judges a mutant by the test files its run says it ran: a test of a file left out is no kill', async () => {
+    // Whatever it was asked for, each run reads the tests of the files it names.
+    const runs = (edit: Edited | undefined, until: string, scope: TestScope | undefined) => {
+      if (edit === undefined) return scopedRuns()(edit, until, scope);
+      const adds = edit.content.includes('a - b');
+      const files = adds
+        ? ['test/unit/add.test.ts', 'test/unit/shared.test.ts']
+        : ['test/unit/clamp.test.ts', 'test/unit/shared.test.ts'];
+      return {
+        kind: 'ran',
+        reading: exited(adds ? 1 : 0),
+        reports: [placedReport(files, adds ? ['adds two numbers'] : [])],
+        files,
+      } as const;
+    };
+    const { end } = setup({ runner: brett([subtracts, boundary]), runs });
+    const ended = await end();
+    assert.deepStrictEqual(
+      ended.mutants?.map(({ line, verdict }) => [line, verdict]),
+      [
+        [1, { kind: 'killed', by: 'adds two numbers' }],
+        [2, { kind: 'survived' }],
+      ],
+    );
+  });
+
+  it('a mutant no test file reached survives without a run', async () => {
+    const lonely = covering({ 'test/unit/add.test.ts': [1], 'test/unit/unrelated.test.ts': [] });
+    const { end, opened, scopes } = setup({
+      runner: brett([boundary]),
+      runs: scopedRuns(lonely),
+    });
+    const ended = await end();
+    assert.equal(ended.ending.kind, 'succeeded');
+    assert.deepStrictEqual(ended.mutants, [
+      {
+        file: 'src/add.mjs',
+        line: 2,
+        description: 'clamp at ten',
+        original: 'export const clamp = (n) => (n > 10 ? 10 : n);',
+        replacement: 'export const clamp = (n) => (n >= 10 ? 10 : n);',
+        verdict: { kind: 'survived' },
+      },
+    ]);
+    // Only the baseline's tree was opened and run.
+    assert.equal(opened.length, 1);
+    assert.equal(scopes.length, 1);
+  });
+
+  it('a survivor no test file reached still blocks a blocking step', async () => {
+    const lonely = covering({ 'test/unit/add.test.ts': [1] });
+    const { end, scopes } = setup({
+      runner: brett([boundary]),
+      runs: scopedRuns(lonely),
+      blocking: true,
+    });
+    const ended = await end();
+    assert.equal(scopes.length, 1);
+    assert.equal(ended.ending.kind, 'blocked');
+    assert.deepStrictEqual(
+      ended.mutants?.map(({ verdict }) => verdict),
+      [{ kind: 'survived' }],
+    );
+  });
+
+  it('a mutant whose baseline recorded no coverage runs the whole check, as today (regression test)', async () => {
+    const { end, scopes } = setup({
+      runner: brett([subtracts, boundary]),
+      runs: scopedRuns(undefined),
+    });
+    const ended = await end();
+    assert.equal(scopes.length, 3);
+    for (const scope of scopes.slice(1)) assert.equal(scope?.files, undefined);
+    assert.deepStrictEqual(
+      ended.mutants?.map(({ verdict }) => verdict),
+      [{ kind: 'killed', by: 'adds two numbers' }, { kind: 'survived' }],
+    );
+  });
+
+  it('a test file name a command line cannot carry sends every mutant to the whole check', async () => {
+    const odd = covering({
+      'test/unit/add test.ts': [1],
+      'test/unit/clamp.test.ts': [2],
+    });
+    const { end, scopes } = setup({
+      runner: brett([subtracts, boundary]),
+      runs: scopedRuns(odd),
+    });
+    await end();
+    // It asked for the coverage, and ran each mutant on all the tests.
+    assert.equal(scopes[0]?.coverage, true);
+    assert.equal(scopes.length, 3);
+    for (const scope of scopes.slice(1)) assert.equal(scope?.files, undefined);
+  });
+
+  it('a baseline that did not pass leaves every mutant not judged, whatever the coverage (regression test)', async () => {
+    const runs = (): TestRunEnd => ({ kind: 'unrun', why: 'no shell' });
+    const { end, opened } = setup({ runner: brett([subtracts, boundary]), runs });
+    const ended = await end();
+    assert.deepStrictEqual(
+      ended.mutants?.map(({ verdict }) => verdict),
+      [
+        { kind: 'notJudged', why: 'the baseline did not run: no shell' },
+        { kind: 'notJudged', why: 'the baseline did not run: no shell' },
+      ],
+    );
+    assert.equal(opened.length, 1);
   });
 });
 

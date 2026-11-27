@@ -66,3 +66,70 @@ describe('judgeRun', () => {
     assert.deepStrictEqual(judgeRun(baseline, run, 'api', true), { kind: 'killed', by: 'new' });
   });
 });
+
+/** A report of `module` whose tests each sit in a file as the report writes it: `[name, result, file?]`. */
+const placed = (
+  module: string,
+  ...tests: [name: string, result: TestResult, file?: string][]
+): MappedReport => ({
+  module,
+  other: '',
+  tests: tests.map(([name, result, file]) => ({
+    name,
+    result,
+    leaf: true,
+    detail: '',
+    ...(file === undefined ? {} : { location: { file } }),
+  })),
+});
+
+const A = 'test/unit/add.test.ts';
+const B = 'test/unit/clamp.test.ts';
+
+describe('judgeRun, over the test files a scoped run ran (ADR 0431)', () => {
+  const wide = [
+    placed('api', ['adds', 'passed', A], ['clamps', 'passed', B], ['rounds', 'passed', B]),
+  ];
+
+  it('a test of a file that did not run is no kill, though the run does not report it', () => {
+    const run = [placed('api', ['adds', 'passed', A])];
+    assert.deepStrictEqual(judgeRun(wide, run, 'api', false, [A]), { kind: 'survived' });
+  });
+
+  it('a test of a file that ran and no longer reports still kills the mutant (regression test)', () => {
+    const baseline = [placed('api', ['clamps', 'passed', B], ['rounds', 'passed', B])];
+    const run = [placed('api', ['clamps', 'passed', B])];
+    assert.deepStrictEqual(judgeRun(baseline, run, 'api', true, [B]), {
+      kind: 'killed',
+      by: 'rounds',
+    });
+  });
+
+  it('matches a report that writes the absolute path of the scratch tree, not a longer name', () => {
+    const baseline = [
+      placed('api', ['adds', 'passed', `/scratch/1/${A}`], ['other', 'passed', `/scratch/1/x${A}`]),
+    ];
+    const run = [placed('api', ['adds', 'passed', `/scratch/2/${A}`])];
+    assert.deepStrictEqual(judgeRun(baseline, run, 'api', false, [A]), { kind: 'survived' });
+  });
+
+  it('a baseline test the report places in no file is left out of a scoped run', () => {
+    const baseline = [placed('api', ['adds', 'passed', A], ['floating', 'passed'])];
+    const run = [placed('api', ['adds', 'passed', A])];
+    assert.deepStrictEqual(judgeRun(baseline, run, 'api', false, [A]), { kind: 'survived' });
+  });
+
+  it('a module that passed no test in the files that ran is not judged', () => {
+    const baseline = [placed('api', ['adds', 'failed', A], ['clamps', 'passed', B])];
+    const run = [placed('api', ['adds', 'failed', A])];
+    assert.deepStrictEqual(judgeRun(baseline, run, 'api', true, [A]), {
+      kind: 'notJudged',
+      why: 'no test of module "api" passed at the baseline',
+    });
+  });
+
+  it('a run of the whole check compares every test of the baseline, a located one too (regression test)', () => {
+    const run = [placed('api', ['adds', 'passed', A])];
+    assert.deepStrictEqual(judgeRun(wide, run, 'api', true), { kind: 'killed', by: 'clamps' });
+  });
+});

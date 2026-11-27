@@ -51,6 +51,7 @@ import {
   stepModules,
   testReportPath,
 } from './module-reports.ts';
+import type { TestCoverage } from './mutant-reach.ts';
 import type { MappedReport } from './red-proof.ts';
 import { checksEnv, readingOn, runLine, runSetup, setupRunOf } from './setup.ts';
 import { checkedTip } from './step-commits.ts';
@@ -100,6 +101,8 @@ export interface CheckRunnerOptions {
   clock: () => Date;
   /** Default this process's. */
   platform?: NodeJS.Platform;
+  /** The V8 coverage a baseline run recorded, by its folder (ADR 0431). */
+  readNodeCoverage?: ReadNodeCoverage;
   /**
    * The test maps of a repository by commit, and the files a report path names in a worktree
    * (ADR 0274): after a test check ran, a module only the batch's map lists that wrote no report
@@ -158,12 +161,40 @@ export type TestRun = (
   modules: readonly EffectiveModule[],
   deadlineAt: string,
   signal: AbortSignal,
+  scope?: TestScope,
 ) => Promise<TestRunEnd>;
 
-/** What a test run read: the test check's reading and each module's reports, or why none. */
+/**
+ * What a test run is asked for besides the whole test check (ADR 0431): a repository that names no
+ * `testFiles` command runs the whole check whatever the scope.
+ */
+export interface TestScope {
+  /** Run only these test files, by their paths in the tree, through the `testFiles` command. */
+  files?: readonly string[];
+  /** Record which test files reach which lines: Node's V8 coverage, read after the run. */
+  coverage?: boolean;
+}
+
+/**
+ * What a test run read: the test check's reading and each module's reports, or why none. `files` is
+ * the test files a scoped run ran, absent for a run of the whole check; `coverage` is what a scoped
+ * run recorded, absent when it recorded none (ADR 0431).
+ */
 export type TestRunEnd =
-  | { kind: 'ran'; reading: GravityReading; reports: readonly MappedReport[] }
+  | {
+      kind: 'ran';
+      reading: GravityReading;
+      reports: readonly MappedReport[];
+      files?: readonly string[];
+      coverage?: TestCoverage;
+    }
   | { kind: 'unrun'; why: string };
+
+/**
+ * The coverage Node's processes wrote in `folder` for the tree at `root`, or why it cannot be read
+ * (ADR 0431). Default the file system's.
+ */
+export type ReadNodeCoverage = (folder: string, root: string) => TestCoverage | string;
 
 /** The check runner, the checks of a tree it runs a check step's through, and a tree's tests. */
 export type CheckRunner = BrewerRunner & { checkTree: CheckTree; testRun: TestRun };

@@ -5,8 +5,9 @@
 import assert from 'node:assert/strict';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
-import { createCheckRunner } from '../../src/checks/check-runner.ts';
+import { createCheckRunner, type ReadNodeCoverage } from '../../src/checks/check-runner.ts';
 import type { RepositoryChecks } from '../../src/checks/gravity.ts';
+import type { TestCoverage } from '../../src/checks/mutant-reach.ts';
 import type { ManifestFreshness, MapRead } from '../../src/checks/test-map.ts';
 import { baseMergeKey } from '../../src/engine/base-merge.ts';
 import { effectKey } from '../../src/engine/effect-key.ts';
@@ -160,11 +161,16 @@ const setup = ({
   heads = {} as Record<string, string>,
   /** The repository's checks in foedrum.jsonc. */
   checksOf = repository,
+  /** The V8 coverage a folder holds (ADR 0431), or why it cannot be read. */
+  readNodeCoverage = undefined as ReadNodeCoverage | undefined,
 } = {}) => {
   const asked: string[] = [];
+  /** Each command line the runner started, with the environment it started it in. */
+  const spawned: { line: string; env: NodeJS.ProcessEnv | undefined }[] = [];
   // A branch is read at the commit its head is at, as git reads it.
   const commitOf = (rev: string) => (rev.startsWith('refs/heads/') ? (heads[rev] ?? tip) : rev);
-  const exec: ExecProcess = (line) => {
+  const exec: ExecProcess = (line, _args, options) => {
+    spawned.push({ line, env: options.env });
     // testChanged's line runs as the test check's does (ADR 0242).
     const file = line.startsWith('npm test') ? 'npm test' : line;
     const output = file === 'npm test' ? `Build FAILED.\n${compileError}\n` : '';
@@ -207,6 +213,7 @@ const setup = ({
     env: { base: {}, forced: {} },
     clock: () => now,
     platform,
+    ...(readNodeCoverage === undefined ? {} : { readNodeCoverage }),
     testMap: {
       at: async (repo, rev) => {
         const commit = commitOf(rev);
@@ -233,7 +240,7 @@ const setup = ({
   });
   const run = () =>
     runner.start({ ref, limits: { outDoc: { file: 'out.md', schema: undefined as never } } }).ended;
-  return { run, asked, runner };
+  return { run, asked, runner, spawned };
 };
 
 describe('createCheckRunner: a module no confirmed line reaches (ADR 0274)', () => {
@@ -1357,5 +1364,125 @@ describe("createCheckRunner's testRun: a scratch tree's tests (ADR 0313)", () =>
     const end = await runner.testRun(scratch, modules, deadlineAt, new AbortController().signal);
     const { reading } = end.kind === 'ran' ? end : assert.fail();
     assert.equal('command' in reading ? reading.command : undefined, 'npm test');
+  });
+});
+
+describe("createCheckRunner's testRun: a scope of test files and coverage (ADR 0431)", () => {
+  const scratch = { repo: 'acme/api', path: worktree };
+  const modules = [{ module: web, added: false }];
+  const named = { ...repository, testFiles: 'npm test -- {files}' };
+  const found = { 'web/test-results.xml': [webReport] };
+  const texts = { [webReport]: junitOf({ name: 'renders' }) };
+  const coverage: TestCoverage = new Map([
+    ['test/unit/a.test.ts', new Map([['src/a.ts', [{ startOffset: 0, endOffset: 9, count: 1 }]]])],
+  ]);
+  const tests = ['test/unit/a.test.ts', 'test/chaos/b.test.ts'];
+  const testLines = (spawned: { line: string; env: NodeJS.ProcessEnv | undefined }[]) =>
+    spawned.filter(({ line }) => line.startsWith('npm test'));
+
+  it('a run asked for coverage runs the tests with NODE_V8_COVERAGE set and reads the coverage from there', async () => {
+    const read: [folder: string, root: string][] = [];
+    const readNodeCoverage: ReadNodeCoverage = (folder, root) => {
+      read.push([folder, root]);
+      return coverage;
+    };
+    const { runner, spawned } = setup({ found, texts, checksOf: named, readNodeCoverage });
+    const end = await runner.testRun(scratch, modules, deadlineAt, new AbortController().signal, {
+      coverage: true,
+    });
+    const ran = end.kind === 'ran' ? end : assert.fail();
+    const [tested, ...others] = testLines(spawned);
+    assert.deepStrictEqual(others, []);
+    assert.equal(tested?.line, 'npm test');
+    const folder = tested?.env?.NODE_V8_COVERAGE;
+    assert.ok(typeof folder === 'string' && folder !== '', String(folder));
+    assert.deepStrictEqual(read, [[folder, worktree]]);
+    assert.deepStrictEqual(ran.coverage, coverage);
+    assert.equal(ran.files, undefined);
+    assert.deepStrictEqual(
+      ran.reports.map(({ module }) => module),
+      ['web'],
+    );
+  });
+
+  it('a run whose coverage cannot be read still ran, with none', async () => {
+    const asked: string[] = [];
+    const readNodeCoverage: ReadNodeCoverage = (folder) => {
+      asked.push(folder);
+      return 'not V8 coverage';
+    };
+    const { runner } = setup({ found, texts, checksOf: named, readNodeCoverage });
+    const end = await runner.testRun(scratch, modules, deadlineAt, new AbortController().signal, {
+      coverage: true,
+    });
+    const ran = end.kind === 'ran' ? end : assert.fail();
+    assert.equal(asked.length, 1);
+    assert.equal(ran.coverage, undefined);
+    assert.equal(ran.reading.result === 'exited' ? ran.reading.exitCode : undefined, 0);
+  });
+
+  it('a repository that names no testFiles records no coverage, and runs the whole check (regression test)', async () => {
+    const asked: string[] = [];
+    const readNodeCoverage: ReadNodeCoverage = (folder) => {
+      asked.push(folder);
+      return coverage;
+    };
+    const { runner, spawned } = setup({ found, texts, readNodeCoverage });
+    const end = await runner.testRun(scratch, modules, deadlineAt, new AbortController().signal, {
+      coverage: true,
+      files: tests,
+    });
+    const ran = end.kind === 'ran' ? end : assert.fail();
+    const [tested] = testLines(spawned);
+    assert.equal(tested?.line, 'npm test');
+    assert.equal(tested?.env?.NODE_V8_COVERAGE, undefined);
+    assert.deepStrictEqual(asked, []);
+    assert.equal(ran.coverage, undefined);
+    assert.equal(ran.files, undefined);
+  });
+
+  it("a run of test files runs the repository's testFiles line with them, and says which files it ran", async () => {
+    const { runner, spawned } = setup({ found, texts, checksOf: named });
+    const end = await runner.testRun(scratch, modules, deadlineAt, new AbortController().signal, {
+      files: tests,
+    });
+    const ran = end.kind === 'ran' ? end : assert.fail();
+    const line = 'npm test -- test/unit/a.test.ts test/chaos/b.test.ts';
+    assert.deepStrictEqual(
+      testLines(spawned).map((each) => each.line),
+      [line],
+    );
+    assert.equal('command' in ran.reading ? ran.reading.command : undefined, line);
+    assert.deepStrictEqual(ran.files, tests);
+    assert.equal(testLines(spawned)[0]?.env?.NODE_V8_COVERAGE, undefined);
+    // Its reports are read as a whole run's are.
+    assert.deepStrictEqual(
+      ran.reports.map(({ module }) => module),
+      ['web'],
+    );
+  });
+
+  it('a run of test files in a repository that names no testFiles runs the whole check (regression test)', async () => {
+    const { runner, spawned } = setup({ found, texts });
+    const end = await runner.testRun(scratch, modules, deadlineAt, new AbortController().signal, {
+      files: tests,
+    });
+    const ran = end.kind === 'ran' ? end : assert.fail();
+    assert.deepStrictEqual(
+      testLines(spawned).map((each) => each.line),
+      ['npm test'],
+    );
+    assert.equal(ran.files, undefined);
+  });
+
+  it('a run with no scope runs the whole check, though the repository names testFiles (regression test)', async () => {
+    const { runner, spawned } = setup({ found, texts, checksOf: named });
+    const end = await runner.testRun(scratch, modules, deadlineAt, new AbortController().signal);
+    const ran = end.kind === 'ran' ? end : assert.fail();
+    const [tested] = testLines(spawned);
+    assert.equal(tested?.line, 'npm test');
+    assert.equal(tested?.env?.NODE_V8_COVERAGE, undefined);
+    assert.equal(ran.files, undefined);
+    assert.equal(ran.coverage, undefined);
   });
 });

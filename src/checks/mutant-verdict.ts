@@ -44,6 +44,12 @@ export const judgeRun = (
   module: string,
   /** Whether the run's test check failed: with no report, the mutant broke the build. */
   failed: boolean,
+  /**
+   * The test files a scoped run ran, by their paths in the tree: only the baseline's tests of
+   * these files are compared, and one a report places in no file is left out (ADR 0431). Absent
+   * for a run of the whole test check.
+   */
+  _ran?: readonly string[],
 ): RunVerdict => {
   const before = tally(baseline, module);
   if (![...before.values()].some(({ passed }) => passed > 0)) {
