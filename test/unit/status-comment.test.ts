@@ -2153,7 +2153,7 @@ describe('statusEffects', () => {
       .find((line) => line.startsWith('Next:'));
     assert.equal(
       next,
-      'Next: get it moving with `foedrum retry 7-1` (give the step another attempt), `foedrum skip 7-1` (go on after the step), `foedrum recipe 7-1 <recipe> "<reason>"` (brew with another recipe, from the first step), `foedrum rewind 7-1 <step>` (take the batch back to a step), `foedrum cancel 7-1` (end the batch).',
+      'Next: get it moving with `foedrum retry 7-1` (give the step another attempt), `foedrum skip 7-1` (go on after the step), `foedrum recipe 7-1 <recipe> "<reason>"` (brew with another recipe, from the first step), `foedrum rewind 7-1 <step> <owner/name>=<commit>` (take the batch back to a step), `foedrum cancel 7-1` (end the batch).',
     );
   });
 
@@ -4166,6 +4166,34 @@ describe('renderStatus: what follows a failed check, and a Stuck batch, in plain
     assert.doesNotMatch(text, /next:/);
   });
 
+  it("reads the route after the failed attempt itself, not after the step's first failed attempt", () => {
+    // green failed twice: the engine took a route after attempt 1 only, and attempt 2 ends the path.
+    const text = renderStatus(
+      batch({
+        steps: new Map([
+          step('implement', done(1), { ...done(2), route: { from: 'green', why: 'failed' } }),
+          step(
+            'green',
+            checked(1, 'the check "lint" failed with exit code 1'),
+            checked(2, testFailed),
+          ),
+        ]),
+        path: [
+          { stepId: 'implement', attempt: 1 },
+          { stepId: 'green', attempt: 1 },
+          { stepId: 'implement', attempt: 2 },
+          { stepId: 'green', attempt: 2 },
+        ],
+      }),
+      recipeSteps,
+    );
+    assert.equal(
+      from(text, '- ❌ `green`', 1)[0],
+      `- ❌ \`green\`: attempt 2 failed: ${testFailed}`,
+    );
+    assert.doesNotMatch(text, /next:/);
+  });
+
   describe('a batch Stuck because a step used its attempts', () => {
     const lastReason = testFailed;
     const stuckOn = (green: Attempt[]): Batch =>
@@ -4247,7 +4275,7 @@ describe('renderStatus: what follows a failed check, and a Stuck batch, in plain
       );
       assert.equal(
         nextLine(text),
-        'Next: get it moving with `foedrum retry 7` (give the step another attempt), `foedrum skip 7` (go on after the step), `foedrum recipe 7 <recipe> "<reason>"` (brew with another recipe, from the first step), `foedrum rewind 7 <step>` (take the batch back to a step), `foedrum cancel 7` (end the batch).',
+        'Next: get it moving with `foedrum retry 7` (give the step another attempt), `foedrum skip 7` (go on after the step), `foedrum recipe 7 <recipe> "<reason>"` (brew with another recipe, from the first step), `foedrum rewind 7 <step> <owner/name>=<commit>` (take the batch back to a step), `foedrum cancel 7` (end the batch).',
       );
     });
 
