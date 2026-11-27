@@ -104,6 +104,17 @@ const liveLine = (batches: readonly BatchParts[], columns: number | undefined) =
   return fit(joined(keep), columns);
 };
 
+/**
+ * The columns a line is fitted to on `terminal`: its width, less one where a mark is not ASCII. A
+ * braille frame can take two columns, as in Windows Terminal drawing it from a fallback font, and a
+ * line that filled the width would wrap, so each redraw would land on a new row (ADR 0453).
+ */
+const room = (terminal: LiveTerminal): number | undefined => {
+  const columns = terminal.columns();
+  if (!terminal.marks.some((mark) => /[^ -~]/.test(mark))) return columns;
+  return (columns ?? UNKNOWN_COLUMNS) - 1;
+};
+
 /** What the live line shows of one batch it reads. */
 export interface LiveBatch {
   /** What the batch's time counts from and says (ADR 0179, ADR 0326). */
@@ -192,8 +203,8 @@ export const createLiveLine = ({ terminal, signal, clock, wait, batches }: LiveL
     // With no batch to drive, it says that it waits for one (ADR 0427).
     fitted =
       shown.length === 0
-        ? fit(`${MARK_ROOM} waiting for work`, terminal.columns())
-        : liveLine(shown, terminal.columns());
+        ? fit(`${MARK_ROOM} waiting for work`, room(terminal))
+        : liveLine(shown, room(terminal));
     show();
   };
   const draw = (): void => {
