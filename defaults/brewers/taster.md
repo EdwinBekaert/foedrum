@@ -2,7 +2,7 @@
 {
   "name": "taster",
   "description": "Reviews the batch's change, or its plan, through the one lens its step names, and answers with findings and a verdict; read-only.",
-  "version": 14,
+  "version": 15,
   "inputs": [
     { "name": "order", "from": "order" },
     { "name": "planEntry", "from": "plan-entry" },
@@ -18,8 +18,8 @@
   "access": "read",
   "tree": "task",
   "deadline": "20m",
-  "maxTurns": 60,
-  "stall": { "turns": 30, "minutes": 10 },
+  "maxTurns": 150,
+  "stall": { "turns": 150, "minutes": 10 },
   "maxAttempts": 2,
   "houseYeast": true
 }
