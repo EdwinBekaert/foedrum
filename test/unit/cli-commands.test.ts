@@ -779,8 +779,8 @@ describe('foedrum: commands that change state', () => {
     });
 
     it('reads neither foedrum.jsonc nor the recipes while no batch is Ordered, Brewing, Conditioning or Stuck', async () => {
-      for (const id of ['21-1', '22-1', '23-1', '24-1', '25-1', '26-1']) {
-        assert.equal((await run(['cancel', id])).exitCode, 0, id);
+      for (const issue of ['21', '22', '23', '24', '25', '26']) {
+        assert.equal((await run(['cancel', issue])).exitCode, 0, issue);
       }
       const recipes = () => {
         throw new Error('the recipes were loaded');
@@ -1124,7 +1124,19 @@ describe('foedrum: commands that change state', () => {
       ] satisfies Parameters<typeof log.issue>[0][]) {
         assert.equal(log.issue(command, t0).kind, 'accepted', JSON.stringify(command));
       }
-      assert.equal((await run(['answer', batchId, 'continue'])).exitCode, 0);
+      // Its Brewery issue is not open, so the order goes by its target issue.
+      const config = () =>
+        BreweryConfig.parse({
+          brewery: 'acme/brewery',
+          users: ['ada'],
+          repositories: {
+            'acme/app': {
+              checks: { build: null, typecheck: null, lint: null, format: null, test: null },
+              alias: 'app',
+            },
+          },
+        });
+      assert.equal((await run(['answer', 'app#31', 'continue'], { config })).exitCode, 0);
       assert.deepStrictEqual(appended(3)[0], {
         type: 'order.approved',
         batchId,
@@ -1164,11 +1176,11 @@ describe('foedrum: commands that change state', () => {
       }
       const before = lastId();
       assert.deepStrictEqual(
-        await run(['answer', batchId, 'stop', 'now']),
+        await run(['answer', '27', 'stop', 'now']),
         refused('answer', '#27 asked 1 question; give one answer to each, in order'),
       );
       assert.equal(lastId(), before);
-      assert.equal((await run(['answer', batchId, 'stop'])).exitCode, 0);
+      assert.equal((await run(['answer', '27', 'stop'])).exitCode, 0);
       assert.deepStrictEqual(appended(1)[0], {
         type: 'batch.cancelled',
         batchId,
