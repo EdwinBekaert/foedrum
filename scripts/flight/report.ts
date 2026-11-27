@@ -235,11 +235,11 @@ const comparisonOf = (baseline: readonly FlightRecord[], candidate: readonly Fli
       candidateKinds[kind] += c.kinds[kind];
     }
     const against = (of: (m: Measured) => string) => `${of(b)} against ${of(c)}`;
-    const tokens = (of: (m: Measured) => number) => against((m) => String(Math.round(of(m))));
+    const count = (n: number) => String(Math.round(n));
+    const tokens = (of: (m: Measured) => number) => against((m) => count(of(m)));
     // The mean with the lowest and highest run beside it, for tokens in sum and for time (ADR 0445).
     const spread = (mean: number, { low, high }: Range, show: (n: number) => string, unit = '') =>
       `${show(mean)}${unit} (${show(low)}–${show(high)}${unit})`;
-    const count = (n: number) => String(Math.round(n));
     rows.push(
       `| ${escapeCell(order)} | ${against(({ passed, runs }) => `${passed} of ${runs}`)} | ${against(({ ended }) => ended)} | ${against(({ outside, scored }) => `${outside} of ${scored}`)} | ${against((m) => spread(m.tokens, m.tokensRange, count))} | ${tokens((m) => m.kinds.output)} | ${tokens((m) => m.kinds.cacheRead)} | ${tokens((m) => m.kinds.cacheWrite)} | ${tokens((m) => m.kinds.input)} | ${against((m) => spread(m.ms, m.msRange, seconds, ' s'))} | ${verdict} |`,
     );
