@@ -42,7 +42,7 @@ const waitingFor = (on: WaitCondition): string => {
   }
 };
 
-const stuckOn = (reason: StuckReason, called: string, batch: Batch): string => {
+export const stuckOn = (reason: StuckReason, called: string, batch: Batch): string => {
   const { repo, issue } = batch;
   switch (reason.kind) {
     case 'needs_input':
