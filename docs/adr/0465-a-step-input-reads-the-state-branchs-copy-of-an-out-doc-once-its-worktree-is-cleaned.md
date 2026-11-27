@@ -11,11 +11,12 @@ The same out docs are on the state branch, at `batches/<batch>/<step>-<attempt>.
 - **A step input reads the worktree first, then the state branch.** The read of `step:<id>` is the one it was: the file the attempt's brewer names, in the worktree the attempt ran in, inside that worktree. When that read says the file is *missing*, the input reads the state branch's copy of the same attempt, `outDocPath` of the batch, the step and the attempt, inside the state worktree (`<work root>/state`), and nowhere outside it.
 - **Only a missing file falls back.** A file the worktree has but that cannot be read (too large, not a file) fails the input as before: the state branch's copy is never taken for a file that is there. When neither copy exists the input fails as before, with the same message.
 - **The latest succeeded attempt, as before.** The copy is the one of the attempt the input already chose, never an earlier one.
-- **The copy is read as the worktree's.** It goes through the same limit and the same removal of the doc's handover as a worktree's read ([ADR 0340](0340-a-brewer-s-handover-is-kept-as-a-proposal-and-reaches-no-later-prompt.md)), and it reaches the prompt as untrusted input like any other.
+- **The copy is read as the worktree's.** It goes through the same limit and the same removal of the doc's handover as a worktree's read ([ADR 0340](0340-a-brewer-s-handover-is-kept-as-a-proposal-and-reaches-no-later-prompt.md)), and it reaches the prompt as untrusted input like any other. The copy is not always the worktree's text: the state branch stores a doc with each line that looks like a secret replaced by a fixed line ([ADR 0378](0378-out-doc-lines-that-look-like-secrets-stay-off-the-state-branch-and-a-push-refused-for-one-stops-the-engine.md)), so an input that falls back reads that replacement.
 - **What stays.** The `plan` input and a route's out doc are read in the worktree as before; a route out doc's fallback is for another decision.
 
 ## Consequences
 - A batch sent back from tap by a pull request's fix route reads the Gauger's tests and the Maltster's map after its worktrees were cleaned, in every recipe that has such a route.
+- An existing Brewery changes nothing by hand: its state worktree is already at `<work root>/state`, where serve makes it, and a fix route that went Stuck on a cleaned worktree goes on after the upgrade.
 - An out doc over 256 KiB is on the state branch as a fixed line, not its text ([ADR 0103](0103-out-docs-reach-the-state-branch-through-the-store.md)): an input that falls back to it reads that line.
 - The state branch holds a doc only after the flush that pushes the event of its `step.finished`. An ended batch's docs have been flushed; a read while the batch lives finds the worktree.
 

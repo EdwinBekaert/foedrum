@@ -44,7 +44,7 @@ import type { ModelsConfig } from '../schemas/models.ts';
 import { FINING, MUTANTS, OutDocFrontmatter, TASTING } from '../schemas/out-doc.ts';
 import { PLAN } from '../schemas/plan.ts';
 import { type Command, parseRule } from '../schemas/primitives.ts';
-import { attemptBranch, ownRemote } from '../workspace/attempt-worktrees.ts';
+import { attemptBranch, ownRemote, stateWorktreePath } from '../workspace/attempt-worktrees.ts';
 import { inClone, isAncestorIn } from '../workspace/clone-git.ts';
 import type { Git, GitOptions } from '../workspace/git.ts';
 import {
@@ -278,7 +278,7 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
     let file = files.read(read.path, MAX_INPUT_BYTES, read.root);
     if (file.kind === 'missing' && source.kind === 'out-doc') {
       // The batch's worktrees were cleaned: the state branch's worktree keeps the doc (ADR 0465).
-      const stateRoot = join(workRoot, 'state');
+      const stateRoot = stateWorktreePath(workRoot);
       file = files.read(
         join(stateRoot, keptOutDocOf(batch, source.step)),
         MAX_INPUT_BYTES,
