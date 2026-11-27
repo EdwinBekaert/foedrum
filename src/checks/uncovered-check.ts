@@ -63,7 +63,8 @@ const listingOf = ({
 export type UncoveredCheck = (
   end: AttemptEnd,
   worktree: WorktreeRef,
-  maps: { base: string; before: MapRead; after: TestMap },
+  /** `second`: the check step ran the repository's second test line (ADR 0430). */
+  maps: { base: string; before: MapRead; after: TestMap; second: boolean },
   signal: AbortSignal,
 ) => Promise<AttemptEnd>;
 
@@ -85,10 +86,11 @@ export function createUncoveredCheck(options: UncoveredCheckOptions): UncoveredC
   const uncovered = async (
     end: AttemptEnd,
     worktree: WorktreeRef,
-    maps: { base: string; before: MapRead; after: TestMap },
+    maps: { base: string; before: MapRead; after: TestMap; second: boolean },
     signal: AbortSignal,
   ): Promise<AttemptEnd> => {
     const { repo } = worktree;
+    const { second } = maps;
     // The readings stay as they ran, whatever ends the step.
     const failed = (reason: string): AttemptEnd => ({
       ...end,
@@ -178,10 +180,12 @@ export function createUncoveredCheck(options: UncoveredCheckOptions): UncoveredC
     for (const { module } of measured ? modules : []) {
       if (module.coverage === 'none') continue;
       if (changedOnly && !touched.has(module.name)) continue;
-      // The second line's report of a module the change touches, read beside its coverage (ADR 0430).
+      // The second line's report of a module the change touches, read beside its coverage once the
+      // step ran the second line: a map another Brewery shares may name a report this one never
+      // writes (ADR 0430).
       const { coverageSecond } = module;
       const places =
-        coverageSecond === undefined || !touched.has(module.name)
+        coverageSecond === undefined || !second || !touched.has(module.name)
           ? [module.coverage]
           : [module.coverage, coverageSecond];
       const cannot = `the coverage report of module "${module.name}" cannot`;

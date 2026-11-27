@@ -36,26 +36,36 @@ const Tests = z.union([
   z.strictObject({ inline: z.literal(true).describe('The tests live in the code files') }),
 ]);
 
-export const TestMapModule = z.strictObject({
-  name: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]*$/, 'Must be a module name such as "web"'),
-  code: z.array(Glob).min(1).describe("Globs of the module's code"),
-  tests: Tests,
-  testReport: z
-    .strictObject({ format: z.enum(['tap', 'junit', 'trx']), path: ReportPath })
-    .describe('Where the confirmed check line writes the test report: a file or a folder pattern'),
-  coverage: z
-    .union([
-      z.strictObject({ format: z.enum(['lcov', 'cobertura']), path: ReportPath }),
-      z.literal('none'),
-    ])
-    .describe('Where the coverage report is written, or "none" for a module with no coverage tool'),
-  coverageSecond: z
-    .strictObject({ format: z.enum(['lcov', 'cobertura']), path: ReportPath })
-    .optional()
-    .describe(
-      "Where the repository's second test line writes the module's coverage report, read beside coverage (ADR 0430)",
-    ),
-});
+export const TestMapModule = z
+  .strictObject({
+    name: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]*$/, 'Must be a module name such as "web"'),
+    code: z.array(Glob).min(1).describe("Globs of the module's code"),
+    tests: Tests,
+    testReport: z
+      .strictObject({ format: z.enum(['tap', 'junit', 'trx']), path: ReportPath })
+      .describe(
+        'Where the confirmed check line writes the test report: a file or a folder pattern',
+      ),
+    coverage: z
+      .union([
+        z.strictObject({ format: z.enum(['lcov', 'cobertura']), path: ReportPath }),
+        z.literal('none'),
+      ])
+      .describe(
+        'Where the coverage report is written, or "none" for a module with no coverage tool',
+      ),
+    coverageSecond: z
+      .strictObject({ format: z.enum(['lcov', 'cobertura']), path: ReportPath })
+      .optional()
+      .describe(
+        "Where the repository's second test line writes the module's coverage report, read beside coverage (ADR 0430)",
+      ),
+  })
+  // A module with no coverage tool has no coverage to read beside (ADR 0430).
+  .refine((module) => module.coverageSecond === undefined || module.coverage !== 'none', {
+    message: 'A coverageSecond needs a coverage to read beside, not "none"',
+    path: ['coverageSecond'],
+  });
 export type TestMapModule = z.infer<typeof TestMapModule>;
 
 export const TestMap = z.strictObject({

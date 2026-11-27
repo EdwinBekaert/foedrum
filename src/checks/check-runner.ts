@@ -537,7 +537,9 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
     // A red proof reads no coverage: the uncovered-line check is a check step's (ADR 0274).
     // A step another check already failed or blocked keeps that ending.
     if (read === undefined || base === undefined || end.ending.kind !== 'succeeded') return end;
-    return uncovered(end, worktree, { base, before, after: after.map }, signal);
+    // A survey's check runs no second line (ADR 0430).
+    const second = !surveying && options.repositoryChecks(repo)?.testSecond !== undefined;
+    return uncovered(end, worktree, { base, before, after: after.map, second }, signal);
   };
 
   return {

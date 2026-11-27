@@ -16,6 +16,7 @@ For a change there, every attempt of the batch fails the check with `<n> changed
 - A module of the test map takes an optional `coverageSecond`, `{ "format": "lcov" | "cobertura", "path": … }`, written and limited as its `coverage` is: where the second line writes that module's coverage.
   The map holds places only, so it still holds no command.
 - The field is optional because the design makes it so: a repository without a second line sets neither.
+- A `coverageSecond` beside a `coverage` of `"none"` is refused: a module with no coverage tool has none to read beside.
 
 ### How a check step runs it
 - A plain check step whose checks name `test` runs `testSecond` right after the `test` check, in full, when the repository sets it. This holds after a run of `testChanged` ([ADR 0242](0242-a-repository-can-name-a-fast-local-test-and-its-pull-request-checks-are-the-full-gate.md)) too: it runs after that line, with no `{base}`, and its reading is the `testSecond` line as a command of no check name, so a failure reads `the check "<command>" failed with exit code <n>`, and fails the step along its `onFail` route as any check does.
@@ -25,6 +26,7 @@ For a change there, every attempt of the batch fails the check with `<n> changed
 ### How its coverage counts
 - For a module the change touches, the uncovered-line check reads its `coverageSecond` beside its `coverage` and merges both with the other modules' reports; a changed line that either run is tested. A line neither runs still fails with the same reason.
 - A second report that is missing or does not parse fails the step as the `coverage` one does, naming the module.
+- It is read only when the step ran the second line. A test map a repository's Breweries share may name a `coverageSecond` that a Brewery without `testSecond`, or a survey's check, never writes: there it is left unread, and the module counts by its `coverage` alone.
 - A module the change does not touch has its second report left unread: only the line's own coverage of it is read, as before, and an untouched module's missing second report says nothing.
 - After a run of `testChanged` only the touched modules' reports are read, as before; the second line, run in full, adds its report of each touched module.
 
