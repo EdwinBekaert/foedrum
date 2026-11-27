@@ -2090,7 +2090,7 @@ describe('statusEffects', () => {
     );
   });
 
-  it("names an older batch's options alone, as a latest batch's, under a comment that says the number (ADR 0450)", async () => {
+  it("names an older batch's options by the number, as a latest batch's, never its id (ADR 0450, #1173)", async () => {
     order();
     brew();
     const ending = { kind: 'failed', retryable: false, reason: 'tests fail' } as const;
@@ -2102,7 +2102,7 @@ describe('statusEffects', () => {
     await driver.tick();
     const bodies = comments.comments.map(({ body }) => body);
     assert.ok(
-      bodies.some((body) => /Next: get it moving with `[a-z]+`/.test(body)),
+      bodies.some((body) => /Next: get it moving with `foedrum retry 7`/.test(body)),
       bodies.join('\n---\n'),
     );
     assert.ok(
