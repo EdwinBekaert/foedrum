@@ -42,7 +42,7 @@ import type { ServeRepository, ServeSetup } from './serve-config.ts';
 
 /** The terminal `foedrum brew` and `foedrum serve` keep a live line on (ADR 0174, ADR 0427). */
 export interface LiveTerminal {
-  /** The frames of the moving mark this terminal shows properly, each one column wide (ADR 0346). */
+  /** The frames of the moving mark this terminal shows properly; a braille one may take two columns (ADR 0453). */
   marks: readonly string[];
   /** The terminal's width in characters, when it is known. */
   columns: () => number | undefined;

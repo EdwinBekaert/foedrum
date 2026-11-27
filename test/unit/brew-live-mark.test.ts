@@ -5,7 +5,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { runBrew } from '../../src/cli/brew.ts';
-import { BRAILLE_MARKS } from '../../src/cli/live-terminal.ts';
+import { ASCII_MARKS, BRAILLE_MARKS } from '../../src/cli/live-terminal.ts';
 import type { ServeShell } from '../../src/cli/serve.ts';
 import { takeOver } from '../../src/engine/batch-leases.ts';
 import type { AttemptProgress } from '../../src/engine/supervisor.ts';
@@ -21,11 +21,17 @@ describe('runBrew', () => {
     seconds: number;
     columns?: number;
     progress?: AttemptProgress;
+    marks?: readonly string[];
   }
 
-  /** Brews for `seconds` of a virtual clock with gh's marks on a fake screen. */
-  const brewMarked = async ({ seconds, columns = 120, progress = idle }: Marked) => {
-    const screen = fakeScreen(columns, BRAILLE_MARKS);
+  /** Brews for `seconds` of a virtual clock with gh's marks, or `marks`, on a fake screen. */
+  const brewMarked = async ({
+    seconds,
+    columns = 120,
+    progress = idle,
+    marks = BRAILLE_MARKS,
+  }: Marked) => {
+    const screen = fakeScreen(columns, marks);
     const timeline = virtualTimeline(t0, seconds * 1000);
     let flushes = 0;
     let reads = 0;
@@ -100,12 +106,25 @@ describe('runBrew', () => {
       }
     });
 
-    it('counts the mark as one column in the cut to the width less one: regression test', async () => {
+    it('counts a braille mark as two columns, cutting the line to the width less two (ADR 0453)', async () => {
       const lastTool = { name: 'Edit', word: 'x'.repeat(300) };
       const { screen } = await brewMarked({
         seconds: 5,
         columns: 40,
         progress: { ...idle, turn: 3, lastTool },
+      });
+      const full = screen.rewrites().filter((drawn) => drawn.includes('brew #1'));
+      assert.ok(full.length > 0, screen.rewrites().join('\n'));
+      for (const drawn of full) assert.equal(drawn.length, 38, drawn);
+    });
+
+    it('cuts a line with an ASCII mark to the width less one (ADR 0453): regression test', async () => {
+      const lastTool = { name: 'Edit', word: 'x'.repeat(300) };
+      const { screen } = await brewMarked({
+        seconds: 5,
+        columns: 40,
+        progress: { ...idle, turn: 3, lastTool },
+        marks: ASCII_MARKS,
       });
       const full = screen.rewrites().filter((drawn) => drawn.includes('brew #1'));
       assert.ok(full.length > 0, screen.rewrites().join('\n'));
