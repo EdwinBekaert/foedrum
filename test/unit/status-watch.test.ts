@@ -73,6 +73,26 @@ const blocked = (issue: number, summary: string): Event => ({
 
 const stateOf = (events: readonly Event[]): State => fold(events);
 
+/**
+ * The cells of a board row (#1173): the state and what the batch does or waits for lead, so a
+ * narrow terminal cuts the ids and the age, and the age says it is one.
+ */
+const rowOf = (state: string, detail: string, id: string, order: string, age = '-'): string[] => [
+  state,
+  detail,
+  id,
+  order,
+  `age ${age}`,
+];
+
+const stalled = (issue: number, lastProgressAt: string): Event => ({
+  type: 'batch.stuck',
+  batchId: `${issue}-1`,
+  reason: { kind: 'stalled', stepId: 'implement', lastProgressAt, turnsWithoutProgress: 30 },
+  options: ['retry', 'cancel'],
+  remindAt: REMIND,
+});
+
 /** A terminal that keeps each board it is given, in order, and the calls besides, in order. */
 const fakeBoard = (size: { columns: number | undefined; rows: number | undefined }) => {
   const frames: string[][] = [];
@@ -197,50 +217,74 @@ describe('foedrum status --watch: the board of the live batches (ADR 0188)', () 
       '4 live batches',
       ...columns(
         [
-          ['-', '11-1', '#11', 'queued', ROUTED],
-          ['-', '12-1', '#12', 'running', 'implement #1 scheduled'],
-          [
-            '-',
-            '13-1',
-            '#13',
+          rowOf('queued', ROUTED, '11-1', '#11'),
+          rowOf('running', 'implement #1 scheduled', '12-1', '#12'),
+          rowOf(
             'queued',
             `waiting for the merge of https://github.com/acme/app/pull/8; reminder 2026-10-27 09:00 UTC`,
-          ],
-          [
-            '-',
-            '14-1',
-            '#14',
+            '13-1',
+            '#13',
+          ),
+          rowOf(
             'waiting for you',
             `look at a failure: blocked at review (findings): denied Bash(curl); reminder 2026-10-27 09:00 UTC`,
-          ],
+            '14-1',
+            '#14',
+          ),
         ],
         '',
       ),
     ]);
   });
 
-  it("leads each row with the batch's time counted from orderedAt, and a dash without one, the columns aligned", async () => {
+  it("leads each row with its state and what it does, and ends it with the batch's age counted from orderedAt, a dash without one, the columns aligned", async () => {
     const events = [ordered(12, iso(T0 - 83_000)), ordered(3)];
     const { frames } = await watched({ states: [stateOf(events)] });
     assert.deepEqual(frames[0], [
       '2 live batches',
-      `1m 23s  12-1  #12  queued  ${ROUTED}`,
-      `-       3-1   #3   queued  ${ROUTED}`,
+      ...columns(
+        [rowOf('queued', ROUTED, '12-1', '#12', '1m 23s'), rowOf('queued', ROUTED, '3-1', '#3')],
+        '',
+      ),
     ]);
+    assert.match(
+      frames[0]?.[1] ?? '',
+      /^queued {2}to be routed by .+ {2}12-1 {2}#12 {2}age 1m 23s$/,
+    );
+    assert.match(frames[0]?.[2] ?? '', /^queued {2}to be routed by .+ {2}3-1 {3}#3 {3}age -$/);
   });
 
-  it("counts the batch's time on the shell's clock at each board", async () => {
+  it("counts the batch's age on the shell's clock at each board", async () => {
     const events = [ordered(12, iso(T0 - 83_000))];
     const { frames } = await watched({ states: [stateOf(events)], step: 15_000, waits: 3 });
-    assert.equal(frames[0]?.[1], `1m 23s  12-1  #12  queued  ${ROUTED}`);
-    assert.equal(frames[1]?.[1], `1m 38s  12-1  #12  queued  ${ROUTED}`);
-    assert.equal(frames[2]?.[1], `1m 53s  12-1  #12  queued  ${ROUTED}`);
+    const aged = (age: string) => columns([rowOf('queued', ROUTED, '12-1', '#12', age)], '')[0];
+    assert.equal(frames[0]?.[1], aged('1m 23s'));
+    assert.equal(frames[1]?.[1], aged('1m 38s'));
+    assert.equal(frames[2]?.[1], aged('1m 53s'));
   });
 
-  it('shows the batch time as 0s when the clock is before the order', async () => {
+  it('shows the batch age as 0s when the clock is before the order', async () => {
     const events = [ordered(12, iso(T0 + 60_000))];
     const { frames } = await watched({ states: [stateOf(events)] });
-    assert.equal(frames[0]?.[1], `0s  12-1  #12  queued  ${ROUTED}`);
+    assert.equal(frames[0]?.[1], columns([rowOf('queued', ROUTED, '12-1', '#12', '0s')], '')[0]);
+  });
+
+  it('keeps the step and the reason in view on a terminal of 68 columns', async () => {
+    const events = [ordered(14, iso(T0 - 12_191_000)), blocked(14, 'denied Bash(curl)')];
+    const { frames } = await watched({ states: [stateOf(events)], columns: 68 });
+    assert.equal(
+      frames[0]?.[1],
+      'waiting for you  look at a failure: blocked at review (findings): d',
+    );
+  });
+
+  it('adds how long ago a batch stalled to the time it did, as the terminal does', async () => {
+    const events = [ordered(12), stalled(12, iso(T0 - 4 * 60_000 - 9_000))];
+    const { frames } = await watched({ states: [stateOf(events)] });
+    assert.match(
+      frames[0]?.[1] ?? '',
+      /^waiting for you {2}look at a failure: stalled at implement since 2026-10-25 09:55 UTC \(4 min\); reminder 2026-10-27 09:00 UTC {2}12-1 /,
+    );
   });
 
   it('shows one indented line under a Brewing batch for each running attempt, in the order its row names them', async () => {
@@ -255,8 +299,8 @@ describe('foedrum status --watch: the board of the live batches (ADR 0188)', () 
     const { frames } = await watched({ states: [stateOf(events)] });
     const [brewingRow, orderedRow] = columns(
       [
-        ['-', '12-1', '#12', 'running', 'implement #1 started, review #1 started'],
-        ['-', '13-1', '#13', 'queued', ROUTED],
+        rowOf('running', 'implement #1 started, review #1 started', '12-1', '#12'),
+        rowOf('queued', ROUTED, '13-1', '#13'),
       ],
       '',
     );
@@ -338,8 +382,8 @@ describe('foedrum status --watch: the board of the live batches (ADR 0188)', () 
       '2 live batches',
       ...columns(
         [
-          ['-', '12-1', '#12', 'running', 'implement #1 started'],
-          ['-', '13-1', '#13', 'running', 'review #1 started'],
+          rowOf('running', 'implement #1 started', '12-1', '#12'),
+          rowOf('running', 'review #1 started', '13-1', '#13'),
         ],
         '',
       ),
@@ -353,9 +397,9 @@ describe('foedrum status --watch: the board of the live batches (ADR 0188)', () 
       '6 live batches',
       ...columns(
         [
-          ['-', '11-1', '#11', 'queued', ROUTED],
-          ['-', '12-1', '#12', 'queued', ROUTED],
-          ['-', '13-1', '#13', 'queued', ROUTED],
+          rowOf('queued', ROUTED, '11-1', '#11'),
+          rowOf('queued', ROUTED, '12-1', '#12'),
+          rowOf('queued', ROUTED, '13-1', '#13'),
         ],
         '',
       ),
@@ -370,8 +414,8 @@ describe('foedrum status --watch: the board of the live batches (ADR 0188)', () 
       '4 live batches',
       ...columns(
         [
-          ['-', '12-1', '#12', 'running', 'implement #1 started'],
-          ['-', '13-1', '#13', 'running', 'implement #1 started'],
+          rowOf('running', 'implement #1 started', '12-1', '#12'),
+          rowOf('running', 'implement #1 started', '13-1', '#13'),
         ],
         '',
       ),
@@ -449,7 +493,7 @@ describe('foedrum status --watch: a store that cannot be read', () => {
       waits: 3,
     });
     assert.deepEqual(result, { exitCode: 0, stdout: '', stderr: '' });
-    const board = ['1 live batch', columns([['-', '11-1', '#11', 'queued', ROUTED]], '')[0]];
+    const board = ['1 live batch', columns([rowOf('queued', ROUTED, '11-1', '#11')], '')[0]];
     assert.deepEqual(frames, [board, [...board, unread], board]);
   });
 

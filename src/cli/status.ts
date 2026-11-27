@@ -295,6 +295,8 @@ export const formatStatus = (
   kept: readonly string[] = [],
   interactive: ReadonlyMap<string, string> = new Map(),
   held: readonly string[] = [],
+  /** The time a `since` is counted from, as `(4 min)` after it (#1173). */
+  _now?: Date,
 ): string => {
   const batches = [...state.batches.values()];
   // Above the board: each holds every batch's brewers, or those of its family (ADR 0206, ADR 0215),

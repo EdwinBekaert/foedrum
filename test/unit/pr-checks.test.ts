@@ -155,7 +155,7 @@ describe('recordChecks', () => {
     });
     assert.deepStrictEqual(types(), ['pull_request.checks_pending']);
     assert.deepStrictEqual(checkLines(log.state(), batch()), [
-      `- <${pullRequest}> waits for its checks on \`aaaaaaaa\` since 2026-10-26T09:00:00.000Z`,
+      `- <${pullRequest}> waits for its checks on \`aaaaaaaa\` since 2026-10-26 09:00 UTC`,
     ]);
     assert.deepStrictEqual(failures, []);
   });
@@ -255,7 +255,7 @@ describe('recordChecks', () => {
     await pass(reader);
     assert.deepStrictEqual(types(), ['pull_request.checks_pending']);
     assert.deepStrictEqual(checkLines(log.state(), batch()), [
-      `- <${pullRequest}> waits for its checks on \`aaaaaaaa\` since 2026-10-26T09:00:00.000Z`,
+      `- <${pullRequest}> waits for its checks on \`aaaaaaaa\` since 2026-10-26 09:00 UTC`,
     ]);
     await pass(reader);
     await pass(reader);
@@ -337,7 +337,7 @@ describe('recordChecks', () => {
       since: '2026-10-26T11:00:00.000Z',
     });
     assert.deepStrictEqual(checkLines(log.state(), batch()), [
-      `- <${pullRequest}> waits for its checks on \`ffffffff\` since 2026-10-26T11:00:00.000Z`,
+      `- <${pullRequest}> waits for its checks on \`ffffffff\` since 2026-10-26 11:00 UTC`,
     ]);
     // Back on the first head: read again, since the latest record names another.
     state.head = head;
@@ -747,7 +747,7 @@ describe('recordChecks', () => {
       since: '2026-10-26T09:01:00.000Z',
     });
     assert.deepStrictEqual(checkLines(log.state(), batch()), [
-      `- <${pullRequest}> waits for its checks on \`aaaaaaaa\` since 2026-10-26T09:01:00.000Z`,
+      `- <${pullRequest}> waits for its checks on \`aaaaaaaa\` since 2026-10-26 09:01 UTC`,
     ]);
     await pass(fakeReader({ [head]: [passed('build'), failing('test', 'failure')] }).reader);
     assert.deepStrictEqual(types(), [
@@ -794,7 +794,7 @@ describe('recordChecks', () => {
     assert.match(
       text,
       // On its one line (#662).
-      /\*\*Pull requests\*\*\n- <https:\/\/github\.com\/acme\/web\/pull\/12> waits for its checks on `aaaaaaaa` since 2026-10-26T09:00:00\.000Z$/,
+      /\*\*Pull requests\*\*\n- <https:\/\/github\.com\/acme\/web\/pull\/12> waits for its checks on `aaaaaaaa` since 2026-10-26 09:00 UTC$/,
     );
     assert.match(formatReplay(batch(), store.eventsAfter(0)), /pull_request\.checks_pending/);
   });

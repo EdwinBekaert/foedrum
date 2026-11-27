@@ -440,7 +440,10 @@ describe('an unaccepted proposal and later prompts', () => {
     const batch = fold(gauged).batches.get('12-1');
     assert.ok(batch !== undefined);
     const text = renderStatus(batch, ['gauge', 'brew']);
-    assert.match(text, /1 handover line: `foedrum handover 12`/);
+    assert.match(
+      text,
+      /1 note the brewers left \(a proposal, not used by this batch\): read it with `foedrum handover 12`/,
+    );
     assert.doesNotMatch(text, /fixture parser/);
   });
 
@@ -470,7 +473,10 @@ describe('an unaccepted proposal and later prompts', () => {
     ];
     const batch = fold(events).batches.get('12-1');
     assert.ok(batch !== undefined);
-    assert.match(renderStatus(batch, ['gauge', 'brew']), /3 handover lines: `foedrum handover 12`/);
+    assert.match(
+      renderStatus(batch, ['gauge', 'brew']),
+      /3 notes the brewers left \(proposals, not used by this batch\): read them with `foedrum handover 12`/,
+    );
   });
 });
 

@@ -92,6 +92,36 @@ describe('foedrum status', () => {
     assert.equal(text.match(/the plan could not be read/g)?.length, 1);
   });
 
+  it('adds how long ago the mark began to its time, when it is given the time now (#1173)', () => {
+    const now = new Date('2026-11-06T11:04:30.000Z');
+    const text = formatStatus(stateOf(batch('1-1', 1, { failing })), [], new Map(), [], now);
+    assert.match(
+      text,
+      /failing in effects since 2026-11-06 11:00 UTC \(4 min\): the plan could not be read/,
+    );
+  });
+
+  it('adds how long ago a batch stalled to the time it did, when it is given the time now (#1173)', () => {
+    const stalled = batch('1-1', 1, {
+      lane: {
+        kind: 'stuck',
+        reason: {
+          kind: 'stalled',
+          stepId: 'plan',
+          lastProgressAt: '2026-11-06T11:00:00.000Z',
+          turnsWithoutProgress: 30,
+        },
+        options: ['retry', 'cancel'],
+        remindAt,
+      },
+    });
+    const now = new Date('2026-11-06T13:05:00.000Z');
+    const text = formatStatus(stateOf(stalled), [], new Map(), [], now);
+    assert.match(text, /stalled at plan since 2026-11-06 11:00 UTC \(2 h 5 min\); reminder /);
+    // The reminder is a time ahead, never an age.
+    assert.match(text, /reminder 2026-11-08 12:00 UTC$/m);
+  });
+
   it('describes the lane of a batch Stuck on failing', () => {
     assert.deepStrictEqual(describeLane(stuckFailing('1-1', 1), '1'), {
       lane: 'stuck',
@@ -199,7 +229,7 @@ describe('the status comment', () => {
     assert.match(text, /Done\*\*: no pull request/);
     assert.match(
       text,
-      /\*\*Failing\*\*: the effects pass has failed since 2026-11-06T11:00:00\.000Z: the plan could not be read/,
+      /\*\*Failing\*\*: the effects pass has failed since 2026-11-06 11:00 UTC: the plan could not be read/,
     );
   });
 
@@ -215,7 +245,7 @@ describe('the status comment', () => {
     assert.doesNotMatch(marked, /ghp_/);
     assert.match(
       marked,
-      /\*\*Failing\*\*: the effects pass has failed since 2026-11-06T11:00:00\.000Z: \\\[left out: a text that looks like a secret\\\]/,
+      /\*\*Failing\*\*: the effects pass has failed since 2026-11-06 11:00 UTC: \\\[left out: a text that looks like a secret\\\]/,
     );
     const stuck = stuckFailing('1-1', 1);
     const reason = { kind: 'failing', stepId: 'plan', ...secret } as const;
@@ -224,7 +254,7 @@ describe('the status comment', () => {
     assert.doesNotMatch(waiting, /ghp_/);
     assert.match(
       waiting,
-      /\*\*Waiting for you\*\*: look at a failure: `plan` could not go on: the effects pass has failed since 2026-11-06T11:00:00\.000Z: \\\[left out: a text of step plan that looks like a secret\\\]/,
+      /\*\*Waiting for you\*\*: look at a failure: `plan` could not go on: the effects pass has failed since 2026-11-06 11:00 UTC: \\\[left out: a text of step plan that looks like a secret\\\]/,
     );
   });
 
@@ -235,7 +265,7 @@ describe('the status comment', () => {
       text
         .split('\n')
         .includes(
-          '⚠️ **Failing**: the effects pass has failed since 2026-11-06T11:00:00.000Z: \\[left out: a text that looks like a secret\\]',
+          '⚠️ **Failing**: the effects pass has failed since 2026-11-06 11:00 UTC: \\[left out: a text that looks like a secret\\]',
         ),
     );
   });
@@ -258,7 +288,7 @@ describe('the status comment', () => {
     const text = renderStatus(stuckFailing('1-1', 1));
     assert.match(
       text,
-      /\*\*Waiting for you\*\*: look at a failure: `plan` could not go on: the effects pass has failed since 2026-11-06T11:00:00\.000Z: the plan could not be read/,
+      /\*\*Waiting for you\*\*: look at a failure: `plan` could not go on: the effects pass has failed since 2026-11-06 11:00 UTC: the plan could not be read/,
     );
     assert.doesNotMatch(text, /\*\*Failing\*\*/);
   });
