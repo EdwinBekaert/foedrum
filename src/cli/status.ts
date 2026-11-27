@@ -26,6 +26,7 @@ import { firstLineOf, messageOf } from '../platform/errors.ts';
 import type { OrderRef, StuckReason, Usage, WaitCondition } from '../schemas/events.ts';
 import { addUsage, number } from './brewer-report.ts';
 import { columns } from './columns.ts';
+import { withAge } from './relative-time.ts';
 
 const waitingFor = (on: WaitCondition): string => {
   switch (on.kind) {
@@ -42,7 +43,14 @@ const waitingFor = (on: WaitCondition): string => {
   }
 };
 
-export const stuckOn = (reason: StuckReason, called: string, batch: Batch): string => {
+/**
+ * A time that began something, as the terminal says it: its UTC minute, then how long ago it was
+ * when `now` is given (ADR 0428). The status comment has the minute alone.
+ */
+const sinceText = (iso: string, now?: Date): string =>
+  now === undefined ? utcMinute(iso) : withAge(iso, now);
+
+export const stuckOn = (reason: StuckReason, called: string, batch: Batch, now?: Date): string => {
   const { repo, issue } = batch;
   switch (reason.kind) {
     case 'needs_input':
@@ -56,9 +64,9 @@ export const stuckOn = (reason: StuckReason, called: string, batch: Batch): stri
     case 'waiting_for_session':
       return `waiting for a session at ${reason.stepId}: ${sessionCommand(called)} opens it in a terminal`;
     case 'failing':
-      return `failing at ${reason.stepId} in ${reason.pass} since ${utcMinute(reason.since)}: ${reason.summary}`;
+      return `failing at ${reason.stepId} in ${reason.pass} since ${sinceText(reason.since, now)}: ${reason.summary}`;
     case 'stalled':
-      return `stalled at ${reason.stepId} since ${utcMinute(reason.lastProgressAt)}`;
+      return `stalled at ${reason.stepId} since ${sinceText(reason.lastProgressAt, now)}`;
     case 'routing':
       return `not routed by ${utcMinute(reason.deadlineAt)}`;
     case 'pull_request_failed': {
@@ -110,6 +118,8 @@ export const describeLane = (
   batch: Batch,
   /** How its lines name its work (`calledAs`, ADR 0329). */
   called: string,
+  /** The time its `since` counts from, as `(4 min)` after it (ADR 0428). */
+  now?: Date,
 ): { lane: string; detail: string } => {
   const { lane } = batch;
   switch (lane.kind) {
@@ -125,7 +135,7 @@ export const describeLane = (
     case 'stuck':
       return {
         lane: 'stuck',
-        detail: `${stuckOn(lane.reason, called, batch)}; reminder ${utcMinute(lane.remindAt)}`,
+        detail: `${stuckOn(lane.reason, called, batch, now)}; reminder ${utcMinute(lane.remindAt)}`,
       };
     case 'on_tap': {
       // A plan a person signed off is on tap with no pull request (ADR 0281).
@@ -166,7 +176,12 @@ const doneText = (how: DoneHow): string => {
  * A batch's state (ADR 0385), and what it does, waits for, or how it ended, as `foedrum status`
  * and `foedrum stuck` say it ('' when nothing).
  */
-export const describeState = (state: State, batch: Batch): { state: string; detail: string } => {
+export const describeState = (
+  state: State,
+  batch: Batch,
+  /** The time its `since` counts from, as `(4 min)` after it (ADR 0428). */
+  at?: Date,
+): { state: string; detail: string } => {
   const rows = batch.decomposed === true ? subOrderRows(state, batch.issue) : [];
   const now = batchState(batch, rows);
   const words = stateWords[now.kind];
@@ -177,7 +192,7 @@ export const describeState = (state: State, batch: Batch): { state: string; deta
       // A split order runs while its sub-orders brew (ADR 0293).
       const numbers = now.kind === 'running' ? (now.subOrders ?? []) : [];
       if (lane.kind !== 'on_tap') {
-        return { state: words, detail: describeLane(batch, calledAs(state, batch)).detail };
+        return { state: words, detail: describeLane(batch, calledAs(state, batch), at).detail };
       }
       const named = numbers.length === 0 ? '' : ` (${issueNumbers(numbers)})`;
       return { state: words, detail: `the sub-orders brew${named}` };
@@ -196,7 +211,7 @@ export const describeState = (state: State, batch: Batch): { state: string; deta
             detail: `${what}: ${after}; reminder ${utcMinute(lane.remindAt)}`,
           };
         }
-        const reason = stuckOn(lane.reason, calledAs(state, batch), batch);
+        const reason = stuckOn(lane.reason, calledAs(state, batch), batch, at);
         return { state: words, detail: `${what}: ${reason}; reminder ${utcMinute(lane.remindAt)}` };
       }
       // The ones still open first, then how each other one ended.
@@ -236,21 +251,21 @@ export const pauseLine = ({ by, via, why, stopAt }: Pause, withVia = false): str
 export const issueOf = (batch: Batch): string => `${batch.repo ?? ''}#${batch.issue}`;
 
 /** A batch's mark as it reads (ADR 0335). */
-const failingText = ({ pass, since, summary }: Failing): string =>
-  `failing in ${pass} since ${utcMinute(since)}: ${summary}`;
+const failingText = ({ pass, since, summary }: Failing, now?: Date): string =>
+  `failing in ${pass} since ${sinceText(since, now)}: ${summary}`;
 
 /** A batch's mark, but on a batch whose Stuck reason says it already. */
-export const failingParts = ({ failing, lane }: Batch): string[] =>
-  failing === undefined || stuckOnFailing(lane) ? [] : [failingText(failing)];
+export const failingParts = ({ failing, lane }: Batch, now?: Date): string[] =>
+  failing === undefined || stuckOnFailing(lane) ? [] : [failingText(failing, now)];
 
 /**
  * What a batch's line says when its rendering throws (ADR 0335): the message on its one line, and
  * the mark whatever the lane, since its reason cannot say it now.
  */
-export const unreadable = ({ failing }: Batch, error: unknown): string =>
+export const unreadable = ({ failing }: Batch, error: unknown, now?: Date): string =>
   [
     `cannot be read: ${firstLineOf(messageOf(error))}`,
-    ...(failing === undefined ? [] : [failingText(failing)]),
+    ...(failing === undefined ? [] : [failingText(failing, now)]),
   ].join('; ');
 
 /**
@@ -261,11 +276,13 @@ export const statusRow = (
   state: State,
   batch: Batch,
   interactive: ReadonlyMap<string, string> = new Map(),
+  /** The time its `since` counts from, as `(4 min)` after it (ADR 0428). */
+  at?: Date,
 ): string[] => {
-  const failing = failingParts(batch);
+  const failing = failingParts(batch, at);
   // A batch whose rendering throws is still shown, with its mark, and the board goes on (ADR 0335).
   try {
-    const { state: now, detail } = describeState(state, batch);
+    const { state: now, detail } = describeState(state, batch, at);
     const pause = pauseOf(state, batch);
     const paused = pause === undefined ? [] : [`paused ${pauseLine(pause)}`];
     const owner = interactive.get(batch.id);
@@ -280,7 +297,7 @@ export const statusRow = (
       [detail, ...failing, ...paused, ...by, total].filter((part) => part !== '').join('; '),
     ];
   } catch (error) {
-    return [batch.id, issueOf(batch), batch.lane.kind, unreadable(batch, error)];
+    return [batch.id, issueOf(batch), batch.lane.kind, unreadable(batch, error, at)];
   }
 };
 
@@ -295,8 +312,8 @@ export const formatStatus = (
   kept: readonly string[] = [],
   interactive: ReadonlyMap<string, string> = new Map(),
   held: readonly string[] = [],
-  /** The time a `since` is counted from, as `(4 min)` after it (#1173). */
-  _now?: Date,
+  /** The time a `since` is counted from, as `(4 min)` after it (ADR 0428). */
+  now?: Date,
 ): string => {
   const batches = [...state.batches.values()];
   // Above the board: each holds every batch's brewers, or those of its family (ADR 0206, ADR 0215),
@@ -304,7 +321,7 @@ export const formatStatus = (
   const lines = [...usageWindowsText(state.usageWindows), ...held];
   const window = lines.length === 0 ? [] : [...lines, ''];
   if (batches.length === 0) return `${[...window, 'No batches.'].join('\n')}\n`;
-  const rows = batches.map((batch) => statusRow(state, batch, interactive));
+  const rows = batches.map((batch) => statusRow(state, batch, interactive, now));
   const count = `${batches.length} ${batches.length === 1 ? 'batch' : 'batches'}`;
   const after = kept.length === 0 ? [] : ['', ...kept];
   return `${[...window, count, '', ...columns(rows), ...after].join('\n')}\n`;

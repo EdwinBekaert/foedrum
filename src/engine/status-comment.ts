@@ -8,6 +8,7 @@ import type {
   CoverageListing,
   GravityReading,
   RoundsOut,
+  StuckOption,
   StuckReason,
   WaitCondition,
 } from '../schemas/events.ts';
@@ -38,7 +39,7 @@ import {
   stuckOnFailing,
   type UsageWindows,
 } from './fold.ts';
-import { handoverLines, handoversOf } from './handover.ts';
+import { handoversOf } from './handover.ts';
 import { keptRound } from './lens-rounds.ts';
 import { briefLine } from './merge-brief.ts';
 import { unreportedLine, unreportedOf } from './named-tests.ts';
@@ -173,6 +174,21 @@ export const gateNextStep = (called: string, command: (text: string) => string):
 const optionOffered = (option: string, called: string, batchId: string): string =>
   called === batchId ? `foedrum ${option} ${called}` : option;
 
+/**
+ * The options that get a Stuck batch moving again, but for an answer and a plan's review: what each
+ * takes after the batch's number, and what it does (ADR 0428).
+ */
+const movingOptions = {
+  retry: { takes: '', does: 'give the step another attempt' },
+  skip: { takes: '', does: 'go on after the step' },
+  recipe: { takes: ' <recipe> "<reason>"', does: 'brew with another recipe, from the first step' },
+  rewind: { takes: ' <step>', does: 'take the batch back to a step' },
+  cancel: { takes: '', does: 'end the batch' },
+} as const;
+
+const isMovingOption = (option: StuckOption): option is keyof typeof movingOptions =>
+  option in movingOptions;
+
 /** The options of a plan's review that `planNextStep` names. */
 const planCommands: ReadonlySet<string> = new Set(['approve', 'lauter', 'retry', 'cancel']);
 
@@ -289,19 +305,22 @@ const stuckText = (
       return `${code(reason.stepId)} needs input`;
     case 'blocked':
       return `${code(reason.stepId)} is blocked (${reason.blockerKind}): ${told(reason.summary, reason.stepId)}`;
-    case 'attempts_exhausted':
-      return `${code(reason.stepId)} used its ${reason.attempts} attempt${reason.attempts === 1 ? '' : 's'}; the last: ${told(plainReason(reason.lastReason), reason.stepId)}`;
+    // How many times the step ran in all, which the round's count in the reason is not (ADR 0428).
+    case 'attempts_exhausted': {
+      const ran = batch.steps.get(reason.stepId)?.attempts.size ?? reason.attempts;
+      return `${code(reason.stepId)} ran ${ran} time${ran === 1 ? '' : 's'} in all and has no attempt left; the last: ${told(plainReason(reason.lastReason), reason.stepId)}`;
+    }
     case 'deadline_passed':
-      return `${code(reason.stepId)} passed its deadline of ${reason.deadlineAt}`;
+      return `${code(reason.stepId)} passed its deadline of ${utcMinute(reason.deadlineAt)}`;
     case 'waiting_for_session':
       return `${code(reason.stepId)} waits for its session: run ${code(sessionCommand(called))} in a terminal (ADR 0222)`;
     // What failed and since when, never blaming the batch: an outage fails it too (ADR 0335).
     case 'failing':
-      return `${code(reason.stepId)} could not go on: the ${reason.pass} pass has failed since ${reason.since}: ${told(reason.summary, reason.stepId)}`;
+      return `${code(reason.stepId)} could not go on: the ${reason.pass} pass has failed since ${utcMinute(reason.since)}: ${told(reason.summary, reason.stepId)}`;
     case 'stalled':
-      return `${code(reason.stepId)} stalled: no file written and no commit made since ${reason.lastProgressAt}, for ${reason.turnsWithoutProgress} turns`;
+      return `${code(reason.stepId)} stalled: no file written and no commit made since ${utcMinute(reason.lastProgressAt)}, for ${reason.turnsWithoutProgress} turns`;
     case 'routing':
-      return `no recipe was chosen by its routing deadline, ${reason.deadlineAt}`;
+      return `no recipe was chosen by its routing deadline, ${utcMinute(reason.deadlineAt)}`;
     // A check's name and link are whoever runs CI's words (ADR 0213), shown as plain text and a link.
     case 'pull_request_failed': {
       const after = `after ${roundsText(reason.rounds)}`;
@@ -561,7 +580,7 @@ const checkLine = (batch: Batch, url: string): string | undefined => {
   if (record === undefined) return undefined;
   const head = code(shortSha(record.head));
   if (record.kind === 'pending') {
-    return `- ${link(url)} waits for its checks on ${head} since ${record.since}`;
+    return `- ${link(url)} waits for its checks on ${head} since ${utcMinute(record.since)}`;
   }
   if (record.checks.length === 0) return `- ${link(url)} has no checks on ${head}`;
   const failed = record.checks.filter(({ conclusion }) => !checkPassed(conclusion));
@@ -612,7 +631,7 @@ const failingLines = ({ failing, lane }: Batch, told: Told): string[] =>
   failing === undefined || stuckOnFailing(lane)
     ? []
     : [
-        `⚠️ **Failing**: the ${failing.pass} pass has failed since ${failing.since}: ${told(failing.summary, '')}`,
+        `⚠️ **Failing**: the ${failing.pass} pass has failed since ${utcMinute(failing.since)}: ${told(failing.summary, '')}`,
       ];
 
 /** A state's own words as a comment's line starts them, in bold: `**Waiting for you**`. */
@@ -660,6 +679,7 @@ const laneText = (
       const what = state.kind === 'waiting' ? waitingWords(state.for, plain) : '';
       return [
         `🔔 ${head}: ${what}: ${stuckText(reason, told, called, batch, planComment)}`,
+        ...(reason.kind === 'attempts_exhausted' ? passedLines(batch, reason.stepId, told) : []),
         ...questions,
         ...(reason.kind === 'blocked' && reason.roundsOut !== undefined
           ? openLines(reason.stepId, reason.roundsOut, told)
@@ -699,6 +719,19 @@ const laneText = (
   }
 };
 
+/**
+ * The checks of the latest attempt of `stepId` that passed, on a line of their own: what a Stuck
+ * batch's reason does not say, since it names only the check that failed (ADR 0428).
+ */
+const passedLines = (batch: Batch, stepId: string, told: Told): string[] => {
+  const [latest] = latestFirst(batch, stepId);
+  const readings = (latest?.phase === 'finished' ? latest.readings : undefined) ?? [];
+  const names = readings
+    .filter((reading) => reading.result === 'exited' && reading.exitCode === 0)
+    .map((reading) => told(shortCheckOf(reading), stepId));
+  return names.length === 0 ? [] : [`Passed: ${names.join(', ')}`];
+};
+
 /** How an on-tap batch ended, in the comment's words. */
 const doneWords = (how: DoneHow): string => {
   switch (how.kind) {
@@ -736,8 +769,15 @@ const nextLines = (
   const { lane } = batch;
   if (lane.kind === 'stuck') {
     const { reason, options } = lane;
-    const moving = (shown: readonly string[]): string =>
-      `get it moving with ${shown.map((option) => code(optionOffered(option, called, batch.id))).join(', ')}`;
+    // Each option by its whole command and what it does, whatever the number it is called by (ADR 0428).
+    const moving = (shown: readonly StuckOption[]): string =>
+      `get it moving with ${shown
+        .filter(isMovingOption)
+        .map((option) => {
+          const { takes, does } = movingOptions[option];
+          return `${code(`foedrum ${option} ${called}${takes}`)} (${does})`;
+        })
+        .join(', ')}`;
     switch (reason.kind) {
       // What to do with a plan that waits for its review (ADR 0275, ADR 0281).
       case 'plan_review':
@@ -965,6 +1005,28 @@ const stepLine = (batch: Batch, stepId: string, told: Told, stateBranchUrl?: str
   }
 };
 
+/**
+ * What happens after the latest attempt of `stepId`, under its line: that the batch is Stuck there,
+ * or, of a failed attempt, the step a round went back to. Read from the route the engine took, the
+ * step the next attempt on the path was scheduled from, never from the words of the stored reason
+ * (ADR 0428); none before the engine has taken a route.
+ */
+const nextStepLines = (batch: Batch, stepId: string): string[] => {
+  if (stuckStep(batch) === stepId) return ['  - next: the batch is Stuck here'];
+  const [latest] = latestFirst(batch, stepId);
+  if (latest?.phase !== 'finished' || latest.outcome.kind !== 'failed') return [];
+  const { path = [] } = batch;
+  const at = path.findIndex((each) => each.stepId === stepId && each.attempt === latest.attempt);
+  const next = at < 0 ? undefined : path[at + 1];
+  const route =
+    next === undefined
+      ? undefined
+      : batch.steps.get(next.stepId)?.attempts.get(next.attempt)?.route;
+  return next !== undefined && route?.from === stepId
+    ? [`  - next: a round back to ${code(next.stepId)}`]
+    : [];
+};
+
 /** Who let the refused push of the step go, of which commit, and why, under its line (ADR 0420). */
 const allowedLines = (batch: Batch, stepId: string, told: Told): string[] => {
   const allowed = batch.pushAllowed;
@@ -993,7 +1055,11 @@ const coverageLines = (batch: Batch, stepId: string, told: Told): string[] => {
   return [
     ...files('not loaded by any test', listing.notLoaded),
     ...files('no executable lines in any report', listing.noLines),
-    ...files('outside every code area', listing.outside),
+    // Never part of the failure, whatever the step's line says (ADR 0274, ADR 0428).
+    ...files(
+      'for information, changed files outside every code area (they never fail the check)',
+      listing.outside,
+    ),
     ...(listing.unmeasured === undefined
       ? []
       : [`  - not measured, coverage none: ${listing.unmeasured.map(plain).join(', ')}`]),
@@ -1452,6 +1518,7 @@ export const renderStatus = (
       ...pathLines(batch, told),
       ...stepIds.flatMap((stepId) => [
         stepLine(batch, stepId, told, stateBranchUrl),
+        ...nextStepLines(batch, stepId),
         ...allowedLines(batch, stepId, told),
         ...coverageLines(batch, stepId, told),
       ]),
@@ -1489,7 +1556,12 @@ export const renderStatus = (
   // How many, never what they say: ADR 0333 lets an earlier login's comment back into an order.
   const handed = handoversOf(batch).length;
   if (handed > 0) {
-    sections.push([`${handoverLines(handed)}: ${code(`foedrum handover ${called}`)}`]);
+    // What a handover is, and that it is a proposal (ADR 0428, ADR 0340).
+    const notes =
+      handed === 1
+        ? '1 note the brewers left (a proposal, not used by this batch): read it'
+        : `${handed} notes the brewers left (proposals, not used by this batch): read them`;
+    sections.push([`${notes} with ${code(`foedrum handover ${called}`)}`]);
   }
   const simplifications = simplificationLines(batch, stepIds, told);
   if (simplifications.length > 0) sections.push(['**Simplifications**', ...simplifications]);

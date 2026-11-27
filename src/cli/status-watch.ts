@@ -39,9 +39,11 @@ export const watchStatus = async (shell: WatchShell): Promise<CliResult> => {
     const at = clock().getTime();
     const batches = [...folded.batches.values()].filter(({ lane }) => laneStatus(lane) === 'live');
     const seen = new Map<string, number>();
-    // A batch's row, led by its time, and a line under it for each attempt that runs.
+    // A batch's row, led by its state and what it does or waits for, then its ids and its age as
+    // such, so a narrow terminal cuts the end of it (ADR 0428), and a line under it for each attempt
+    // that runs.
     const groups = batches.map((batch) => {
-      const time =
+      const age =
         batch.orderedAt === undefined
           ? '-'
           : elapsed(Math.max(0, at - Date.parse(batch.orderedAt)));
@@ -53,7 +55,9 @@ export const watchStatus = async (shell: WatchShell): Promise<CliResult> => {
           return `  ${label} / ${elapsed(Math.max(0, at - first))}`;
         },
       );
-      return { row: [time, ...statusRow(folded, batch)], attempts };
+      // statusRow's cells are the id, the order, the state and the detail.
+      const cells = statusRow(folded, batch, undefined, new Date(at));
+      return { row: [...cells.slice(2), ...cells.slice(0, 2), `age ${age}`], attempts };
     });
     seenAt = seen;
     const rows = columns(
