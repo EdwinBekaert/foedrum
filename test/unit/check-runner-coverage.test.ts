@@ -33,7 +33,11 @@ const ref = { batchId: '12-1', stepId: 'green', attempt: 1 };
 const now = new Date('2026-10-31T12:00:00.000Z');
 const deadlineAt = '2026-10-31T12:30:00.000Z';
 const base = 'a'.repeat(40);
+// The commit the check step's worktree started at, which the driver records before it merges the
+// base: the merge's first parent, never the branch's tip once a merge made a commit (ADR 0452).
 const tip = 'c'.repeat(40);
+// The attempt's branch, which holds the merge commit and which the change is read up to.
+const head = 'refs/heads/foedrum/12-1/green/1';
 
 const spike = (...parts: string[]): string =>
   readFileSync(join(import.meta.dirname, '..', 'fixtures', 'coverage-spike', ...parts), 'utf8');
@@ -131,10 +135,10 @@ const setup = ({
   folders = [] as string[],
   /** The repository's testChanged line, when it names one (ADR 0242). */
   testChanged = undefined as string | undefined,
-  /** The commits that are no ancestor of the step's tip: every other commit is one (ADR 0452). */
+  /** The merge commits that are no ancestor of the step's branch: every other one is (ADR 0452). */
   offLine = [] as string[],
-  /** The diff that starts at a commit, when it is not the same for every start. */
-  diffFrom = undefined as Record<string, string> | undefined,
+  /** The diff of a range `from..to`, when it is not the same for every range. */
+  diffOf = undefined as Record<string, string> | undefined,
 } = {}) => {
   const asked: string[] = [];
   const exec: ExecProcess = (line) => {
@@ -147,13 +151,17 @@ const setup = ({
   const git: Git = async (cwd, args) => {
     assert.equal(cwd, clone);
     if (args.includes('diff')) {
-      asked.push(`diff ${args.slice(-3, -1).join('..')}`);
+      const range = args.slice(-3, -1).join('..');
+      asked.push(`diff ${range}`);
       return diffFails === undefined
-        ? { code: 0, stdout: diffFrom?.[args.at(-3) ?? ''] ?? diff, stderr: '' }
+        ? { code: 0, stdout: diffOf?.[range] ?? diff, stderr: '' }
         : { code: 128, stdout: '', stderr: `fatal: ${diffFails}\n` };
     }
     if (args[0] === 'merge-base' && args[1] === '--is-ancestor') {
-      return { code: offLine.includes(args[2] ?? '') ? 1 : 0, stdout: '', stderr: '' };
+      // A merge commit is on the line to the branch it was made on, never to the commit the
+      // worktree started at, which the driver recorded before the merge.
+      const onLine = args[3] === head && !offLine.includes(args[2] ?? '');
+      return { code: onLine ? 0 : 1, stdout: '', stderr: '' };
     }
     if (args[0] === 'ls-tree' && args.includes(base)) {
       asked.push('files at the base');
@@ -236,6 +244,18 @@ const adding = (file: string, at: number, lines: number): string =>
     `+++ b/${file}`,
     `@@ -${at - 1},0 +${at},${lines} @@`,
     ...Array.from({ length: lines }, (_, index) => `+line ${at + index}`),
+    '',
+  ].join('\n');
+
+/** A diff of `file` that replaces its line `at` with another. */
+const replacing = (file: string, at: number): string =>
+  [
+    `diff --git a/${file} b/${file}`,
+    `--- a/${file}`,
+    `+++ b/${file}`,
+    `@@ -${at},1 +${at},1 @@`,
+    `-old line ${at}`,
+    `+line ${at}`,
     '',
   ].join('\n');
 
@@ -516,9 +536,11 @@ describe('createCheckRunner: the uncovered-line check (ADR 0274)', () => {
       coverage: { 'lcov.info': lcov(record('src/calc.ts', { 1: 1 })) },
     });
     await run();
+    // The branch, which holds the merge a check step's batch made before it, not the commit its
+    // worktree started at (ADR 0452).
     assert.deepEqual(
       asked.filter((line) => line.startsWith('diff')),
-      [`diff ${base}..${tip}`],
+      [`diff ${base}..${head}`],
     );
   });
 
@@ -539,7 +561,7 @@ describe('createCheckRunner: the uncovered-line check (ADR 0274)', () => {
     await run();
     assert.deepEqual(
       asked.filter((line) => line.startsWith('diff')),
-      [`diff ${merged}..${tip}`],
+      [`diff ${merged}..${head}`],
     );
   });
 
@@ -550,16 +572,25 @@ describe('createCheckRunner: the uncovered-line check (ADR 0274)', () => {
     );
     const merge = { base: merged, merged: 'f'.repeat(40) };
     const maps = { [base]: mapOf(calc), [merged]: mapOf(calc), [tip]: mapOf(calc) };
-    // Line 1 is what the base gained, no test runs it; line 2 is the batch's own.
-    const fromStart = [adding('src/base.ts', 1, 1), adding('src/calc.ts', 2, 1)].join('');
-    const fromMerged = adding('src/calc.ts', 2, 1);
-    const diffFrom = { [base]: fromStart, [merged]: fromMerged };
+    // The base changed line 1 of src/base.ts, which the batch left alone, and no test runs it;
+    // line 2 of src/calc.ts is the batch's own.
+    const gained = replacing('src/base.ts', 1);
+    const own = adding('src/calc.ts', 2, 1);
+    const diffOf = {
+      // The batch's start against the branch: what the base gained counts as the batch's.
+      [`${base}..${head}`]: gained + own,
+      [`${merged}..${head}`]: own,
+      // The merged base against the commit before the merge, which lacks the merge: the base's
+      // change, seen backwards, and none of the batch's own.
+      [`${merged}..${tip}`]: gained,
+      [`${base}..${tip}`]: own,
+    };
 
-    it('passes the batch on its own covered change when the base gained a line no test runs: regression test', async () => {
+    it('passes the batch on its own covered change when the base gained a line no test runs', async () => {
       const { run, asked } = setup({
         started: [...events, { type: 'effect.applied', key: mergeKey, result: merge }],
         maps,
-        diffFrom,
+        diffOf,
         coverage: {
           'lcov.info': lcov(
             [record('src/base.ts', { 1: 0 }), record('src/calc.ts', { 2: 3 })].join('\n'),
@@ -570,15 +601,15 @@ describe('createCheckRunner: the uncovered-line check (ADR 0274)', () => {
       assert.deepEqual(end.ending, { kind: 'succeeded', output: null });
       assert.deepEqual(
         asked.filter((line) => line.startsWith('diff')),
-        [`diff ${merged}..${tip}`],
+        [`diff ${merged}..${head}`],
       );
     });
 
-    it('still fails the batch on a line of its own that no test runs: regression test', async () => {
+    it('still fails the batch on a line of its own that no test runs', async () => {
       const { run } = setup({
         started: [...events, { type: 'effect.applied', key: mergeKey, result: merge }],
         maps,
-        diffFrom,
+        diffOf,
         coverage: {
           'lcov.info': lcov(
             [record('src/base.ts', { 1: 0 }), record('src/calc.ts', { 2: 0 })].join('\n'),
@@ -589,12 +620,12 @@ describe('createCheckRunner: the uncovered-line check (ADR 0274)', () => {
       assert.equal(reasonOf(end), '1 changed line no test runs: src/calc.ts:2');
     });
 
-    it("judges from where the batch started when the merge is of a failed attempt's branch, not on the line to the tip", async () => {
+    it("judges from where the batch started when the merge is of a failed attempt's branch, not on the line to the branch", async () => {
       const { run, asked } = setup({
         started: [...events, { type: 'effect.applied', key: mergeKey, result: merge }],
         offLine: [merge.merged],
         maps,
-        diffFrom,
+        diffOf,
         coverage: {
           'lcov.info': lcov(
             [record('src/base.ts', { 1: 1 }), record('src/calc.ts', { 2: 3 })].join('\n'),
@@ -605,7 +636,7 @@ describe('createCheckRunner: the uncovered-line check (ADR 0274)', () => {
       assert.deepEqual(end.ending, { kind: 'succeeded', output: null });
       assert.deepEqual(
         asked.filter((line) => line.startsWith('diff')),
-        [`diff ${base}..${tip}`],
+        [`diff ${base}..${head}`],
       );
     });
   });
