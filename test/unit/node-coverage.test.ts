@@ -1,14 +1,12 @@
 // The V8 coverage a baseline run's processes wrote (#1176, ADR 0431, ADR 0303), read per test file
-// from a folder on disk: records written by hand, and by real node processes, whose first script of
-// the tree must be the file they were started on.
+// from a folder on disk: records written by hand. Records of real node processes are read in
+// test/integration/node-coverage.test.ts, as a unit test starts no process (ADR 0021).
 
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
-import { mkdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
+import { mkdirSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { pathToFileURL } from 'node:url';
-import { reachOf } from '../../src/checks/mutant-reach.ts';
 import { readNodeCoverage } from '../../src/checks/node-coverage.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 
@@ -151,61 +149,5 @@ describe('readNodeCoverage, the records of a folder', () => {
       readNodeCoverage(folder, tree),
       'two coverage records name the test file "test/a.test.ts"',
     );
-  });
-});
-
-describe('readNodeCoverage, records of real node processes', () => {
-  const FOLD = [
-    'export const early = (x) => {', // 1
-    '  if (x > 10) {', // 2
-    '    return x * 2;', // 3
-    '  }', // 4
-    '  return x + 1;', // 5
-    '};', // 6
-    'export const late = () => {', // 7
-    '  return 2;', // 8
-    '};', // 9
-    '',
-  ].join('\n');
-
-  /** Runs `test` of the tree as its own node process, writing its coverage in the folder. */
-  const run = (test: string): void => {
-    const { NODE_TEST_CONTEXT: _context, NODE_V8_COVERAGE: _own, ...env } = process.env;
-    execFileSync(process.execPath, [test], {
-      cwd: tree,
-      env: { ...env, NODE_V8_COVERAGE: folder },
-      stdio: 'pipe',
-    });
-  };
-
-  it('reaches the lines each test file ran, from the first script of its process', () => {
-    writeFileSync(join(tree, 'src', 'fold.mjs'), FOLD);
-    writeFileSync(
-      join(tree, 'test', 'a.test.mjs'),
-      "import { early } from '../src/fold.mjs';\nearly(1);\n",
-    );
-    writeFileSync(
-      join(tree, 'test', 'b.test.mjs'),
-      "import { early, late } from '../src/fold.mjs';\nearly(1);\nlate();\n",
-    );
-    run('test/b.test.mjs');
-    run('test/a.test.mjs');
-    const coverage = readNodeCoverage(folder, tree);
-    assert.ok(typeof coverage === 'object', String(coverage));
-    assert.deepStrictEqual([...coverage.keys()].sort(), ['test/a.test.mjs', 'test/b.test.mjs']);
-    const file = 'src/fold.mjs';
-    const reach = reachOf({
-      coverage,
-      sources: new Map([[file, readFileSync(join(tree, file), 'utf8')]]),
-      lines: [3, 5, 8].map((line) => ({ file, line })),
-    });
-    assert.deepStrictEqual(reach, {
-      kind: 'reached',
-      lines: [
-        { file, line: 3, tests: [] },
-        { file, line: 5, tests: ['test/a.test.mjs', 'test/b.test.mjs'] },
-        { file, line: 8, tests: ['test/b.test.mjs'] },
-      ],
-    });
   });
 });
