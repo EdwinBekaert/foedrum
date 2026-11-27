@@ -246,6 +246,11 @@ export type EngineCommand =
   /** The supervisor found the closed usage window's reopen due (ADR 0206). */
   | { kind: 'reopen' }
   /**
+   * A driver first takes the batch with an attempt scheduled and not started: that attempt's
+   * deadline, set when it was scheduled, may have run out while no driver ran (ADR 0435).
+   */
+  | { kind: 'take'; batchId: string }
+  /**
    * The supervisor found the batch's open pull request failed on `head`, the commit of its latest
    * push: the batch goes back along its recipe's onPullRequestFail route, or Stuck (ADR 0219).
    */
@@ -638,6 +643,9 @@ function run(draft: Draft, command: Command): Event[] {
       break;
     case 'reopen':
       reopen(draft);
+      break;
+    case 'take':
+      rescheduleWaiting(draft, command.batchId);
       break;
     default: {
       const unhandled: never = command;
@@ -1844,7 +1852,8 @@ function lift(draft: Draft, command: Extract<Command, { kind: 'continue' }>): vo
 
 /**
  * Gives each scheduled attempt of `batchId` that has not started a new deadline from its step, as
- * if just scheduled, when the batch is brewing and no pause holds it (ADR 0202).
+ * if just scheduled, when the batch is brewing and no pause holds it (ADR 0202): when a person
+ * continues it, a usage window reopens, or a driver first takes it (ADR 0435).
  */
 function rescheduleWaiting(draft: Draft, batchId: string): void {
   const batch = draft.batch(batchId);

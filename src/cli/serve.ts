@@ -14,7 +14,7 @@ import type { DriverNotice } from '../engine/driver.ts';
 import type { DriverLock } from '../engine/driver-lock.ts';
 import { effectKey } from '../engine/effect-key.ts';
 import type { EventStore } from '../engine/event-store.ts';
-import { type Batch, foldedBatch } from '../engine/fold.ts';
+import { type Batch, foldedBatch, type State } from '../engine/fold.ts';
 import { createIntake, type IntakeNotice } from '../engine/intake.ts';
 import { limitsOf } from '../engine/limits.ts';
 import { createMergedChecks, type MergedChecks, mergedCheckStep } from '../engine/merged-checks.ts';
@@ -39,6 +39,7 @@ import { createLiveLine, type LiveBatch, runningAttempts } from './live-line.ts'
 import { mergedCheckRun } from './merged-check-run.ts';
 import { printable } from './run.ts';
 import type { ServeRepository, ServeSetup } from './serve-config.ts';
+import { cleanedLine, lastingLines, readFailureLine } from './serve-lines.ts';
 
 /** The terminal `foedrum brew` and `foedrum serve` keep a live line on (ADR 0174, ADR 0427). */
 export interface LiveTerminal {
@@ -291,7 +292,15 @@ export const runServe = async (setup: ServeSetup, shell: ServeShell): Promise<nu
     saidAt = clock().getTime();
     drawing.over(() => out(printable(`foedrum serve: ${line}`)));
   };
-  const report = (notice: DriverNotice): void => say(formatNotice(notice));
+  // The driver's state, once it is wired: a cleanup notice names its batch's pull request from it.
+  let stateOf: () => State;
+  // The cleanup lines of a tick wait for the tick's lasting lines, so a cleanup follows the work it
+  // cleans (ADR 0434): the driver cleans a batch that ended inside the tick.
+  const cleanups: string[] = [];
+  const report = (notice: DriverNotice): void => {
+    if (notice.kind === 'cleaned') cleanups.push(cleanedLine(notice, stateOf()));
+    else say(formatNotice(notice));
+  };
   // The lock first: a second Cellar is refused before it touches the store or the state branch.
   let lock: DriverLock;
   try {
@@ -330,6 +339,7 @@ export const runServe = async (setup: ServeSetup, shell: ServeShell): Promise<nu
         report,
       },
     );
+    stateOf = () => driver.state();
     // The batches it drives are those it holds that brew; each counts from its order, or from
     // serve's start for one that records none (ADR 0179, ADR 0427).
     driving = () =>
@@ -382,7 +392,11 @@ export const runServe = async (setup: ServeSetup, shell: ServeShell): Promise<nu
       clock,
       report: (notice) => {
         if (notice.kind === 'failed') pausedBy(notice.error);
-        say(formatIntakeNotice(notice));
+        say(
+          notice.kind === 'failed'
+            ? readFailureLine(notice, terminal !== undefined)
+            : formatIntakeNotice(notice),
+        );
       },
       ...(shell.intakeDeadlineMs === undefined ? {} : { deadlineMs: shell.intakeDeadlineMs }),
       bases,
@@ -446,6 +460,9 @@ export const runServe = async (setup: ServeSetup, shell: ServeShell): Promise<nu
         );
       }
     }
+    // What a person must know is what changed between two ticks (ADR 0434).
+    let seen = driver.state();
+    const announced = new Set<string>();
     while (!signal.aborted) {
       poll();
       if (clock().getTime() >= pausedUntil) racking?.poll();
@@ -457,6 +474,9 @@ export const runServe = async (setup: ServeSetup, shell: ServeShell): Promise<nu
       } finally {
         settle(waited);
       }
+      const now = driver.state();
+      for (const line of [...lastingLines(seen, now, announced), ...cleanups.splice(0)]) say(line);
+      seen = now;
       if (signal.aborted) break;
       // A quiet Cellar says it is alive now and then, never at each tick (ADR 0346); where a live
       // line moves, it needs no such line (ADR 0427).

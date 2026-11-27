@@ -521,7 +521,7 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
       else if (notice.kind === 'command_failed') sayCommandFailure(notice);
       else report(notice);
     },
-    acts: (batchId) => !others.has(batchId),
+    acts: (batchId) => !others.has(batchId) && !untaken.has(batchId),
   });
 
   const runs = new Map<string, { ref: AttemptRef; run: RunningAttempt }>();
@@ -1017,8 +1017,9 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
    * whose stopped run has not ended. `ref` starts once that lease is released or expired, which
    * the heartbeat no longer renews, and never beside it (I2, #150). The wait lasts one lease at
    * most, and `ref`'s deadline runs through it: a step whose deadline is shorter than what is left
-   * of that lease goes Stuck with its deadline passed before `ref` started, as a step does whose
-   * deadline passes while no driver runs. That is intended: the step could not start in time.
+   * of that lease goes Stuck with its deadline passed before `ref` started. That is intended: the
+   * step could not start in time. A deadline that passed while no driver ran is no such case: the
+   * driver moves it on when it first takes the batch (ADR 0435).
    */
   const stepLease = (leases: readonly AttemptLease[], ref: AttemptRef): AttemptLease | undefined =>
     leases.find(
@@ -1063,6 +1064,13 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
     return true;
   };
 
+  // The batches it took with an attempt scheduled and not started: it moved that deadline on, or
+  // started the attempt (ADR 0435).
+  const taken = new Set<string>();
+  // The batches whose take threw in the current tick: they keep their old deadline, so neither the
+  // supervisor expires them nor the drive starts them before the next take (ADR 0435).
+  let untaken = new Set<string>();
+
   /** Starts the scheduled attempts of `batch` that may start; whether any step of it moved. */
   const driveBatch = async (
     batch: Batch,
@@ -1072,11 +1080,13 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
     let moved = false;
     // A paused batch starts nothing until it continues (ADR 0202).
     if (batch.lane.kind !== 'brewing' || pauseOf(log.state(), batch) !== undefined) return moved;
+    if (untaken.has(batch.id)) return moved;
     for (const [stepId, step] of batch.steps) {
       const latest = runningAttempt(step);
       if (latest?.phase !== 'scheduled') continue;
       // Another driver's batch, or one this driver does not take, is not its to start.
       if (!claim(batch.id)) continue;
+      taken.add(batch.id);
       const ref = { batchId: batch.id, stepId, attempt: latest.attempt };
       // No brewer starts while a usage window that holds its family is closed; a check or an
       // action does (ADR 0206, ADR 0215).
@@ -1493,6 +1503,33 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
     failureLines.passed('mark');
   };
 
+  /**
+   * The first time it takes a batch with an attempt scheduled and not started, moves that attempt's
+   * deadline on, as if just scheduled: it was set when the attempt was scheduled, and may have run
+   * out while no driver ran, so the supervisor would make the batch Stuck for a step that never had
+   * the chance to start (ADR 0435). A batch it does not take, and another driver's, keep theirs. A
+   * throw for one batch is reported as the supervisor's pass reports it, and the other batches go
+   * on (ADR 0328); that batch is tried again at the next take, as it is taken only once its command
+   * is recorded, and neither expires nor starts in this tick, as its deadline is still the old one.
+   */
+  const takeBatches = (): void => {
+    untaken = new Set();
+    for (const batch of log.state().batches.values()) {
+      if (taken.has(batch.id) || batch.lane.kind !== 'brewing') continue;
+      try {
+        const waits = [...batch.steps.values()].some(
+          (step) => runningAttempt(step)?.phase === 'scheduled',
+        );
+        if (!waits || !claim(batch.id)) continue;
+        issue({ kind: 'take', batchId: batch.id });
+        taken.add(batch.id);
+      } catch (error) {
+        untaken.add(batch.id);
+        sayFailure({ kind: 'batch_failed', batchId: batch.id, pass: 'supervisor', error });
+      }
+    }
+  };
+
   const tick = async (): Promise<void> => {
     const now = clock();
     heartbeat();
@@ -1502,6 +1539,8 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
         .filter((lease) => lease.owner !== owner)
         .map((lease) => lease.batchId),
     );
+    // Before the supervisor, which expires the deadline a step could not start under.
+    takeBatches();
     await supervisor.tick();
     passDone('supervisor', (batchId) => !others.has(batchId));
     failureLines.passed('command');
@@ -1540,6 +1579,8 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
     // what a person's command changed shows on the issue before a step starts (ADR 0355).
     const setAside = new Set<string>();
     await applyEffects({ setAside, first: true });
+    // A batch the supervisor scheduled in this tick.
+    takeBatches();
     await drive();
     await applyEffects({ setAside, first: false });
     settleFailing();

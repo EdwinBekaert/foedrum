@@ -4309,6 +4309,101 @@ describe('openDriver', () => {
     });
   });
 
+  describe('the deadline of a scheduled attempt a driver first takes (#1181)', () => {
+    /** The deadlines `step.rescheduled` gave the attempts of `batchId`, in the order recorded. */
+    const rescheduled = (batchId: string) =>
+      store
+        .eventsAfter(0)
+        .map(({ event }) => event)
+        .filter(
+          (event): event is Extract<Event, { type: 'step.rescheduled' }> =>
+            event.type === 'step.rescheduled' && event.batchId === batchId,
+        )
+        .map(({ stepId, attempt, deadlineAt }) => ({ stepId, attempt, deadlineAt }));
+    const planOf = (driver: Driver, batchId: string) =>
+      driver.state().batches.get(batchId)?.steps.get('plan')?.attempts.get(1);
+
+    it('does not make a batch Stuck for a deadline that ran out while no driver ran, and starts its attempt with a new one', async () => {
+      const { runner, started } = handRunner();
+      // plan#1's deadline is at minute 60; the driver starts at minute 200.
+      order('b1');
+      now = at(200);
+      const driver = await open({ runner });
+      await driver.tick();
+      assert.equal(driver.state().batches.get('b1')?.lane.kind, 'brewing');
+      assert.deepStrictEqual(started, [plan('b1')]);
+      assert.deepStrictEqual(rescheduled('b1'), [
+        { stepId: 'plan', attempt: 1, deadlineAt: at(260).toISOString() },
+      ]);
+      const attempt = planOf(driver, 'b1');
+      assert.equal(attempt?.phase === 'started' && attempt.deadlineAt, at(260).toISOString());
+    });
+
+    it('moves the deadline of every batch it takes, not of one alone', async () => {
+      const { runner, started } = handRunner();
+      order('b1');
+      order('b2');
+      now = at(200);
+      const driver = await open({ runner });
+      await driver.tick();
+      for (const batchId of ['b1', 'b2']) {
+        assert.equal(driver.state().batches.get(batchId)?.lane.kind, 'brewing', batchId);
+        assert.deepStrictEqual(rescheduled(batchId), [
+          { stepId: 'plan', attempt: 1, deadlineAt: at(260).toISOString() },
+        ]);
+      }
+      assert.deepStrictEqual(started, [plan('b1'), plan('b2')]);
+    });
+
+    it('still makes the batch Stuck when the attempt runs past its new deadline', async () => {
+      const { runner } = handRunner();
+      order('b1');
+      now = at(200);
+      const driver = await open({ runner });
+      await driver.tick();
+      assert.equal(driver.state().batches.get('b1')?.lane.kind, 'brewing');
+      now = at(261);
+      await driver.tick();
+      const lane = driver.state().batches.get('b1')?.lane;
+      assert.equal(lane?.kind, 'stuck');
+      assert.deepStrictEqual(lane.reason, {
+        kind: 'deadline_passed',
+        stepId: 'plan',
+        deadlineAt: at(260).toISOString(),
+      });
+    });
+
+    it('leaves the deadline of an attempt it started as it was, which still passes: regression test', async () => {
+      const { runner, started } = handRunner();
+      order('b1');
+      const driver = await open({ runner });
+      await driver.drive();
+      assert.deepStrictEqual(started, [plan('b1')]);
+      now = at(61);
+      await driver.tick();
+      const lane = driver.state().batches.get('b1')?.lane;
+      assert.equal(lane?.kind, 'stuck');
+      assert.deepStrictEqual(lane.reason, {
+        kind: 'deadline_passed',
+        stepId: 'plan',
+        deadlineAt: at(60).toISOString(),
+      });
+      assert.deepStrictEqual(rescheduled('b1'), []);
+    });
+
+    it('moves the deadline of no batch another driver holds: regression test', async () => {
+      const { runner, started } = handRunner();
+      order('b1');
+      now = at(200);
+      holdFor('session-7', 'b1', 300);
+      const driver = await open({ runner });
+      await driver.tick();
+      assert.deepStrictEqual(started, []);
+      assert.deepStrictEqual(rescheduled('b1'), []);
+      assert.equal(planOf(driver, 'b1')?.phase, 'scheduled');
+    });
+  });
+
   describe('a pause (ADR 0202)', () => {
     const who = { by: 'ada', via: 'terminal' } as const;
     const pause = (issue?: number, stopAt?: number): void => {
@@ -4414,6 +4509,28 @@ describe('openDriver', () => {
       resume(1);
       await again.tick();
       assert.deepStrictEqual(second.started, [plan('b1')]);
+    });
+
+    it('gives the attempt of a paused order a new deadline on continue only, not when the driver first takes the batch: regression test', async () => {
+      const { runner, started } = handRunner();
+      const rescheduled = () =>
+        types(store, 'b1').filter((type) => type.startsWith('step.rescheduled'));
+      order('b1');
+      pause(1);
+      now = at(200);
+      const driver = await open({ runner });
+      await driver.tick();
+      assert.equal(driver.state().batches.get('b1')?.lane.kind, 'brewing');
+      assert.deepStrictEqual(rescheduled(), []);
+      assert.deepStrictEqual(started, []);
+      resume(1);
+      assert.deepStrictEqual(rescheduled(), ['step.rescheduled plan#1']);
+      await driver.tick();
+      assert.deepStrictEqual(started, [plan('b1')]);
+      assert.equal(
+        driver.state().batches.get('b1')?.steps.get('plan')?.attempts.get(1)?.deadlineAt,
+        at(260).toISOString(),
+      );
     });
   });
 

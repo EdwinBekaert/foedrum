@@ -13,7 +13,12 @@ import type {
   Usage,
 } from '../schemas/events.ts';
 import type { HouseYeastSelection } from '../schemas/house-yeast.ts';
-import { type OutDocFrontmatter, readOutDoc, tastingOf } from '../schemas/out-doc.ts';
+import {
+  dispositionsOf,
+  type OutDocFrontmatter,
+  readOutDoc,
+  tastingOf,
+} from '../schemas/out-doc.ts';
 import { unreadableBody } from '../schemas/plan.ts';
 import type { ScanFinding } from '../schemas/store.ts';
 import type { z } from '../schemas/zod.ts';
@@ -21,6 +26,13 @@ import type { AttemptRef } from './attempt-key.ts';
 import type { Ending } from './decide.ts';
 import { APPROVES_WITH_FINDINGS, ASKS_CHANGES } from './fold.ts';
 import type { ProgressSource } from './supervisor.ts';
+
+/** A finding of a findings route's input at its place, and the step that found it when not the routing one. */
+interface RouteFinding {
+  step?: string;
+  file?: string;
+  line?: number;
+}
 
 /** What the runner enforces for one attempt and where the brewer reports its outcome. */
 export interface AttemptLimits {
@@ -35,6 +47,13 @@ export interface AttemptLimits {
    * needs a commit after it (ADR 0074).
    */
   commitsSince?: string;
+  /**
+   * For a brewer a findings route brought back: the step whose route it was and the findings of its
+   * route input, each at its place and, when another step of the group found it, that step
+   * (ADR 0191, ADR 0349). A `done` with no commit then succeeds when its out doc dismisses or marks
+   * pre-existing every one of them (#1181).
+   */
+  findingsRoute?: { from: string; findings: readonly RouteFinding[] };
   /**
    * For a plan: a `done` out doc's body must hold its summary and assumptions, so the out doc the
    * comments link reads on GitHub (ADR 0275).
@@ -222,14 +241,37 @@ const failed = (retryable: boolean, reason: string): Ending => ({
 });
 
 /**
+ * Whether `output` answers each finding of `route` with its own `dismissed` or `pre-existing`
+ * disposition at its place, in the step that found it (ADR 0191, ADR 0349); a route with no finding
+ * is answered by none.
+ */
+function dismissesEvery(output: OutDocFrontmatter, route: AttemptLimits['findingsRoute']): boolean {
+  if (route === undefined || route.findings.length === 0) return false;
+  const left = dispositionsOf(output).filter(({ disposition }) => disposition !== 'fixed');
+  return route.findings.every((found) => {
+    const at = left.findIndex(
+      ({ step, file, line }) =>
+        (step ?? route.from) === (found.step ?? route.from) &&
+        file === found.file &&
+        line === found.line,
+    );
+    if (at < 0) return false;
+    left.splice(at, 1);
+    return true;
+  });
+}
+
+/**
  * A `done` of a brewer that produces commits, by what git said of its commits after `since`
  * (ADR 0074): without one its work never reached the task tree, so a human sees why, unless a
- * Finer says there was nothing to simplify (ADR 0166).
+ * Finer says there was nothing to simplify (ADR 0166), or a findings route brought it back and it
+ * dismissed every finding (ADR 0435).
  */
 function doneWithCommits(
   seen: CommitsSeen = { kind: 'uncounted', reason: 'the runner did not count them' },
   since: string,
   output: OutDocFrontmatter,
+  route: AttemptLimits['findingsRoute'],
 ): Ending {
   const start = since.slice(0, 7);
   const unchanged = 'unchanged' in output && output.unchanged !== undefined;
@@ -241,7 +283,9 @@ function doneWithCommits(
           `the out doc says nothing was simplified, but the brewer made ${seen.count} commit${seen.count === 1 ? '' : 's'} since ${start}`,
         );
       }
-      if (unchanged || seen.count > 0) return { kind: 'succeeded', output };
+      if (unchanged || seen.count > 0 || dismissesEvery(output, route)) {
+        return { kind: 'succeeded', output };
+      }
       // Not retried: a brewer that found nothing to change would find it again.
       return {
         kind: 'blocked',
@@ -372,7 +416,7 @@ export function settleAttempt(facts: AttemptFacts, limits: AttemptLimits): Endin
           return failed(true, `the out doc ${outDoc.file} is invalid: ${unread}`);
       }
       if (limits.commitsSince === undefined) return { kind: 'succeeded', output: frontmatter };
-      return doneWithCommits(facts.commits, limits.commitsSince, frontmatter);
+      return doneWithCommits(facts.commits, limits.commitsSince, frontmatter, limits.findingsRoute);
     case 'needs_input':
       return { kind: 'needs_input', questions: frontmatter.questions };
     case 'blocked':

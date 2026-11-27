@@ -251,6 +251,9 @@ describe('one real step through the driver', { skip: real.kind === 'skip' && rea
         'batch.ordered',
         'batch.recipe_chosen',
         'step.scheduled',
+        // The driver first takes the batch with its attempt not started: it moves the deadline on
+        // (#1181).
+        'step.rescheduled',
         'step.started',
         'step.finished',
         // The openPullRequest action, blocked: the driver has no code host (ADR 0084).
@@ -260,7 +263,7 @@ describe('one real step through the driver', { skip: real.kind === 'skip' && rea
         'batch.stuck',
       ],
     );
-    const [, , , started, finished] = events;
+    const [, , , , started, finished] = events;
     assert.equal(started?.type === 'step.started' && started.worktree?.path, worktree);
     // The session the driver chose, which claude ran under, and what claude's init reported
     // (ADR 0116).
@@ -369,6 +372,7 @@ describe('one real step through the driver', { skip: real.kind === 'skip' && rea
         'batch.ordered',
         'batch.recipe_chosen',
         'step.scheduled',
+        'step.rescheduled',
         'step.started',
         'step.finished',
         'batch.stuck',
