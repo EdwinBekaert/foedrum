@@ -81,6 +81,15 @@ describe('findingsRouteOf (#1181, ADR 0435)', () => {
     assert.equal(routeOf(events(1, 0), 2)?.findings.length, 1);
   });
 
+  it('names a route with no findings when its Taster’s event recorded no findings at all', () => {
+    const all = events(1, 0).map((event) => {
+      if (event.type !== 'step.finished' || event.stepId !== 'taste') return event;
+      const { findings: _, ...rest } = event;
+      return rest;
+    });
+    assert.deepEqual(routeOf(all, 2), { from: 'taste', findings: [] });
+  });
+
   it('names no route when another child of the group did not record every finding', () => {
     const inGroup: GroupOf = (stepId) =>
       stepId === 'taste' || stepId === 'other' ? { group: 'tasting', lenses: [stepId] } : undefined;
