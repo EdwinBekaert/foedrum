@@ -787,7 +787,7 @@ describe('the default Taster (defaults/brewers/taster.md)', () => {
       const done = { status: 'done', summary: 'Tasted', verdict: 'approve' };
       assert.deepEqual(outDoc.schema.safeParse(done).data, TastingOutDoc.parse(done));
       assert.equal(outDoc.schema.safeParse({ ...done, verdict: 'changes' }).success, false);
-      assert.deepEqual(rest, { maxTurns: 60, ...expected });
+      assert.deepEqual(rest, { maxTurns: 150, ...expected });
     }
   });
 
