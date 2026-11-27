@@ -2,7 +2,7 @@
 {
   "name": "finer",
   "description": "Simplifies the batch's change without changing what it does, and commits it; or says why there was nothing to simplify.",
-  "version": 7,
+  "version": 8,
   "inputs": [
     { "name": "order", "from": "order" },
     { "name": "map", "from": "step:map" }
@@ -18,7 +18,7 @@
   "git": { "commit": true },
   "deadline": "20m",
   "maxTurns": 80,
-  "stall": { "turns": 40, "minutes": 15 },
+  "stall": { "turns": 80, "minutes": 15 },
   "maxAttempts": 2,
   "checksBeforeEnd": true,
   "guards": ["requiresOutDoc", "requiresCommits", "testsUnchanged"]

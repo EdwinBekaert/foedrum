@@ -2,7 +2,7 @@
 {
   "name": "brewmaster",
   "description": "Reads the order and the repositories it reaches, and breaks the order into sub-orders, one repository each, with the recipe each should run with; read-only.",
-  "version": 9,
+  "version": 10,
   "inputs": [
     { "name": "order", "from": "order" },
     { "name": "repositories", "from": "repositories" },
@@ -19,7 +19,7 @@
   "tree": "task",
   "deadline": "30m",
   "maxTurns": 100,
-  "stall": { "turns": 30, "minutes": 10 },
+  "stall": { "turns": 100, "minutes": 10 },
   "maxAttempts": 2,
   "retryMode": "resume"
 }

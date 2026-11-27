@@ -2,7 +2,7 @@
 {
   "name": "innkeeper",
   "description": "Reads an order and asks which of the Brewery's recipes brews it, with a suggestion and the reason; read-only.",
-  "version": 9,
+  "version": 10,
   "inputs": [
     { "name": "order", "from": "order" },
     { "name": "repositories", "from": "repositories" },
@@ -18,7 +18,7 @@
   "tree": "task",
   "deadline": "10m",
   "maxTurns": 30,
-  "stall": { "turns": 20, "minutes": 5 },
+  "stall": { "turns": 30, "minutes": 5 },
   "maxAttempts": 2
 }
 ---
