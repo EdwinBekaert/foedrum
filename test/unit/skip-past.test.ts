@@ -637,7 +637,7 @@ describe('which batches have ended, for their status comment', () => {
     assert.equal(StatusRevision.parse(older?.result).open, true);
   });
 
-  it('keeps the name a handover line gave a batch once an order of it came after it ended', async () => {
+  it('keeps the name a handover line gave a batch, the number, once a later order of its issue came (ADR 0450)', async () => {
     const step = { batchId: 'b1', stepId: 'gauge', attempt: 1 };
     const handedOver = (...more: Event[]) =>
       logged(
@@ -656,12 +656,12 @@ describe('which batches have ended, for their status comment', () => {
         ...more,
       );
     const later: Event = { type: 'batch.ordered', batchId: 'b2', order: { issue: 1 }, routeBy };
-    // While it is open, the later order changes that line, and so its text.
+    // No line offers a batch id, so the later order leaves the line, and its text, as it was.
     const open = handedOver();
     await open.shown();
     assert.deepEqual(open.due(), []);
     open.add(later);
-    assert.equal(open.due().length, 1);
+    assert.deepEqual(open.due(), []);
     const done = handedOver(ended(a));
     await done.shown();
     done.add(later);

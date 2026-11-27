@@ -1131,7 +1131,7 @@ describe('foedrum resume (ADR 0126)', () => {
     assert.deepEqual(store.currentLeases(now), []);
   });
 
-  it("inside a Claude Code session, an older batch's line names its id, which the number would not reach: regression test (ADR 0334)", async () => {
+  it("inside a Claude Code session, an older batch's line names the number, never its id (ADR 0450)", async () => {
     store.withTransaction((tx) =>
       tx.append({
         type: 'batch.ordered',
@@ -1141,7 +1141,7 @@ describe('foedrum resume (ADR 0126)', () => {
       }),
     );
     const result = await resume(undefined, { terminal: { claudeCode: true, tty: false } });
-    assert.match(result.stdout, /\n {2}foedrum resume 21-1 implement#1\n$/);
+    assert.match(result.stdout, /\n {2}foedrum resume 21 implement#1\n$/);
     nothingOpened();
   });
 
