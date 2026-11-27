@@ -125,8 +125,8 @@ export interface StaleMapOptions
   extends Pick<CheckRunnerOptions, 'git' | 'clone' | 'testMap' | 'testReport'> {
   platform: NodeJS.Platform;
   testReportsOf: ModuleReports;
-  /** Where the batch's change in `repo` starts: the base it merged, else its start (ADR 0164). */
-  baseOf: (batch: Batch, repo: string) => string | undefined;
+  /** Where the batch's change in the worktree's repository starts (ADR 0164, ADR 0452). */
+  baseOf: (batch: Batch, worktree: WorktreeRef) => Promise<string | undefined>;
 }
 
 export function createStaleMap(options: StaleMapOptions): StaleMapReads {
@@ -161,7 +161,7 @@ export function createStaleMap(options: StaleMapOptions): StaleMapReads {
       ...found.removed.map((path) => `${path} (removed)`),
     ];
     const kept = testMap.keptIn?.(repo) ?? 'repo';
-    const base = baseOf(batch, repo);
+    const base = await baseOf(batch, worktree);
     if (kept === 'repo' && base !== undefined) {
       const touched = testMap.touched ?? touchedPaths(git, clone);
       const paths = [TEST_MAP_PATH, ...tip.map.derivedFrom.globs];

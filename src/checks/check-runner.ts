@@ -7,7 +7,7 @@
 // in one without, the test report against the tests the proven step committed (ADR 0078).
 
 import { type AttemptRef, attemptKey } from '../engine/attempt-key.ts';
-import { mergedBase } from '../engine/base-merge.ts';
+import { mergedBaseOnLine } from '../engine/base-merge.ts';
 import type { Env } from '../engine/brewer-env.ts';
 import type { AttemptEnd, BrewerRunner } from '../engine/brewer-runner.ts';
 import type { Batch, State } from '../engine/fold.ts';
@@ -19,6 +19,7 @@ import type { ExecProcess, ExecResult } from '../platform/processes.ts';
 import type { RepositorySetup, TestReportConfig } from '../schemas/brewery-config.ts';
 import type { GravityReading, WorktreeRef } from '../schemas/events.ts';
 import type { CheckRef } from '../schemas/recipe.ts';
+import { isAncestorIn } from '../workspace/clone-git.ts';
 import type { Git } from '../workspace/git.ts';
 import { createFailingNames } from './failing-names.ts';
 import {
@@ -221,9 +222,18 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
     return runSetup(options.setup.exec, setupRunOf(found, platform), run).then((read) => [read]);
   };
 
-  /** Where the batch's change in `repo` starts: the base it merged, else its start (ADR 0164). */
-  const baseOf = (batch: Batch, repo: string): string | undefined =>
-    mergedBase(state(), batch.id) ?? batch.starts?.[repo.toLowerCase()]?.commit;
+  /**
+   * Where the batch's change in the worktree's repository starts: the base it merged on the line to
+   * the worktree's branch, else its start (ADR 0164, ADR 0452). The branch, not the commit the
+   * attempt started at, since the merge before this check is made after that commit.
+   */
+  const baseOf = async (batch: Batch, worktree: WorktreeRef): Promise<string | undefined> =>
+    (await mergedBaseOnLine(state(), batch.id, {
+      head: `refs/heads/${worktree.branch}`,
+      // The clone is looked up when a merge needs git's answer, never before.
+      isAncestor: (commit, of) =>
+        isAncestorIn(options.git, options.clone(worktree.repo))(commit, of),
+    })) ?? batch.starts?.[worktree.repo.toLowerCase()]?.commit;
 
   const { proveRed } = createMappedProof({
     ...options,
@@ -387,17 +397,15 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
         }
       }
     }
+    // A survey's check reads every module's report: the full test (ADR 0242).
+    const base =
+      of === undefined && survey === undefined ? await baseOf(batch, worktree) : undefined;
+    // The engine may have stopped the attempt while git answered, before any check ran.
+    if (signal.aborted) return { ending: { kind: 'cancelled' } };
     const end =
       of !== undefined
         ? await proveRed(batch, ref, worktree, current.deadlineAt, of, signal)
-        : await checksOf(
-            refs,
-            worktree,
-            current.deadlineAt,
-            signal,
-            // A survey's check reads every module's report: the full test (ADR 0242).
-            survey === undefined ? { base: baseOf(batch, worktree.repo) } : {},
-          );
+        : await checksOf(refs, worktree, current.deadlineAt, signal, { base });
     const judged = await afterRun(batch, worktree, end, fresh, maps, signal, survey !== undefined);
     if (survey !== undefined) return agreed(batch, ref, worktree, survey, judged);
     return maps === undefined ? judged : namedTestsRead(batch, judged, worktree, maps);
@@ -449,7 +457,7 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
     const { testMap } = options;
     if (testMap === undefined) return undefined;
     const { repo } = worktree;
-    const base = baseOf(batch, repo);
+    const base = await baseOf(batch, worktree);
     const before: MapRead =
       base === undefined ? { kind: 'none' } : await testMap.at(repo, base, signal);
     const after = tip ?? (await testMap.at(repo, worktree.commit, signal));
