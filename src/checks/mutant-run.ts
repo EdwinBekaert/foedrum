@@ -6,6 +6,7 @@
 // survivor blocks it by findings (ADR 0319). On Node the baseline also records which test files
 // reach each line, and a mutant runs only those, and none when none does (ADR 0431).
 
+import { join } from 'node:path';
 import { type AttemptRef, attemptKey } from '../engine/attempt-key.ts';
 import { mergedBaseOnLine } from '../engine/base-merge.ts';
 import type { AttemptEnd, AttemptStart, BrewerRunner } from '../engine/brewer-runner.ts';
@@ -13,6 +14,7 @@ import type { State } from '../engine/fold.ts';
 import type { AttemptProgress } from '../engine/supervisor.ts';
 import { survivorFinding, survivorsOf, survivorText } from '../engine/survivors.ts';
 import type { DiffFile } from '../formats/unified-diff.ts';
+import { readOutDocFile } from '../platform/bounded-read.ts';
 import { lastLine, messageOf } from '../platform/errors.ts';
 import { foldsCase } from '../platform/paths.ts';
 import { MAX_MUTANT_TEXT, type MutantRecord, type MutantVerdict } from '../schemas/events.ts';
@@ -222,8 +224,9 @@ export function mutated(options: MutantRunOptions): BrewerRunner {
       }
       return { mutant, verdict: mutantCheck(mutant, target) };
     });
-    // The text of each file a mutant names, as the commit holds it, which the baseline's coverage
-    // offsets are read against (ADR 0431).
+    // The text of each file a mutant names, which the baseline's coverage offsets are read against:
+    // as the commit holds it, and as the baseline's tree holds it once that is made, whose line
+    // endings may be the platform's (ADR 0431).
     const sources = new Map(
       [...change.contents].flatMap(([file, read]) =>
         'content' in read ? [[file, read.content]] : [],
@@ -245,7 +248,15 @@ export function mutated(options: MutantRunOptions): BrewerRunner {
       try {
         return await scratch(
           commit,
-          (path) => testRun(at(path), change.modules, deadline, signal, scope),
+          (path) => {
+            if (scope?.coverage === true) {
+              for (const file of sources.keys()) {
+                const read = readOutDocFile(join(path, file), MAX_FILE_BYTES, path);
+                if (read.kind === 'text') sources.set(file, read.text);
+              }
+            }
+            return testRun(at(path), change.modules, deadline, signal, scope);
+          },
           edit === undefined ? { signal } : { signal, edit },
         );
       } catch (error) {

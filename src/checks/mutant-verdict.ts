@@ -2,7 +2,7 @@
 // the mutant (ADR 0040, ADR 0313): only a test that fails because of the mutant kills it, a test of
 // the mutant's module that passed at the baseline and fails or no longer reports, or a failure the
 // baseline did not have. A test that fails in both runs does not. A run of some test files is
-// compared with the baseline's tests of those files only (ADR 0431). The review's own runs judge the
+// compared with the baseline's tests of those files only, the run's own filtered the same (ADR 0431). The review's own runs judge the
 // same way (scripts/mutant-verdict/core.ts), from node's runner instead of the test map's reports.
 
 import type { MappedReport } from './red-proof.ts';
@@ -62,9 +62,9 @@ export const judgeRun = (
   /** Whether the run's test check failed: with no report, the mutant broke the build. */
   failed: boolean,
   /**
-   * The test files a scoped run ran, by their paths in the tree: only the baseline's tests of
-   * these files are compared, and one a report places in no file is left out (ADR 0431). Absent
-   * for a run of the whole test check.
+   * The test files a scoped run ran, by their paths in the tree: only the tests of these files,
+   * the baseline's and the run's, are compared, and one a report places in no file is left out
+   * (ADR 0431). Absent for a run of the whole test check.
    */
   ran?: readonly string[],
 ): RunVerdict => {
@@ -81,7 +81,8 @@ export const judgeRun = (
       why: failed ? `the mutant broke the build: ${why} and its test check failed` : why,
     };
   }
-  const after = tally(run, module);
+  // The run's tests of the same files: a test no report places in a file fails in both or neither.
+  const after = tally(run, module, ran);
   // The first test of the run that fails more often, or passes less often, than at the baseline.
   for (const [name, { passed, failed }] of after) {
     const was = before.get(name);

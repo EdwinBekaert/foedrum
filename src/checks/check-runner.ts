@@ -195,9 +195,14 @@ export type TestRunEnd =
 
 /**
  * The coverage Node's processes wrote in `folder` for the tree at `root`, or why it cannot be read
- * (ADR 0431). Default the file system's.
+ * (ADR 0431); `located` are the files the run's test reports place tests in, which tell a test
+ * file's process from a runner's. Default the file system's.
  */
-export type ReadNodeCoverage = (folder: string, root: string) => TestCoverage | string;
+export type ReadNodeCoverage = (
+  folder: string,
+  root: string,
+  located: readonly string[],
+) => TestCoverage | string;
 
 /** The check runner, the checks of a tree it runs a check step's through, and a tree's tests. */
 export type CheckRunner = BrewerRunner & { checkTree: CheckTree; testRun: TestRun };
@@ -407,7 +412,10 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
       wrote.push(...found.reports);
     }
     // A coverage that cannot be read leaves the run without one: its mutants run the whole check.
-    const covered = folder === undefined ? undefined : readCoverage(folder, tree.path);
+    const located = wrote.flatMap(({ tests }) =>
+      tests.flatMap(({ location }) => (location === undefined ? [] : [location.file])),
+    );
+    const covered = folder === undefined ? undefined : readCoverage(folder, tree.path, located);
     return {
       kind: 'ran',
       reading,
