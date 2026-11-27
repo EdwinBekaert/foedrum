@@ -78,7 +78,8 @@ describe('one batch that throws as the driver takes it (#1181, ADR 0435)', () =>
     order('b1', 'bad');
     order('b2', 'pint');
     broken = true;
-    now = at(30);
+    // Past the one-hour deadline b1's attempt was scheduled with.
+    now = at(200);
     const driver = await openDriver({
       store,
       runner,
