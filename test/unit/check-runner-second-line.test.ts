@@ -230,6 +230,8 @@ describe("createCheckRunner: a map's second coverage report without a second tes
     });
     const end = await run();
     assert.ok(!asked.includes(`run ${integration}`), asked.join('\n'));
+    // The uncovered-line check did read the test line's report, so the missing second read is the guard's.
+    assert.ok(asked.includes('coverage lcov.info'), asked.join('\n'));
     assert.ok(!asked.includes('coverage second.info'), asked.join('\n'));
     assert.equal(end.ending.kind, 'succeeded', JSON.stringify(end.ending));
   });
