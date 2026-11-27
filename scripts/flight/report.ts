@@ -76,6 +76,12 @@ export const flightLabelOf = (records: readonly FlightRecord[]): string => {
     : `${recipe} with ${swap.brewer} on ${swap.model} at ${swap.effort}`;
 };
 
+/** The lowest and the highest of a figure over an order's measured runs (ADR 0445). */
+interface Range {
+  low: number;
+  high: number;
+}
+
 /** What a Flight measured of one order. */
 interface Measured extends Passes {
   /** The runs that measured something, and of those, the runs with changes outside its paths. */
@@ -88,6 +94,9 @@ interface Measured extends Passes {
   tokens: number;
   kinds: TokenKinds;
   ms: number;
+  /** The lowest and the highest run of the tokens in sum and of the brewers' milliseconds (ADR 0445). */
+  tokensRange: Range;
+  msRange: Range;
 }
 
 /**
@@ -103,6 +112,11 @@ const measuredOf = (
   if (scored.length === 0) return undefined;
   const { passed, outside, tokens, kinds, ms } = scoredFigures(scored);
   const mean = (sum: number) => sum / scored.length;
+  const perRun = scored.map((run) => scoredFigures([run]));
+  const rangeOf = (of: (figures: (typeof perRun)[number]) => number): Range => {
+    const each = perRun.map(of);
+    return { low: Math.min(...each), high: Math.max(...each) };
+  };
   return {
     passed,
     runs,
@@ -118,6 +132,8 @@ const measuredOf = (
       input: mean(kinds.input),
     },
     ms: mean(ms),
+    tokensRange: rangeOf(({ tokens }) => tokens),
+    msRange: rangeOf(({ ms }) => ms),
   };
 };
 
@@ -132,6 +148,44 @@ const runsOf = (records: readonly FlightRecord[]): number =>
 
 /** `percent` with its sign, as the summary gives the candidate's tokens against the baseline's. */
 const signed = (percent: number): string => `${percent > 0 ? '+' : ''}${percent}%`;
+
+/** Whole seconds of `ms` milliseconds. */
+const seconds = (ms: number): string => String(Math.round(ms / 1000));
+
+/**
+ * One summary figure, the candidate's mean sum against the baseline's, and, when the two sides' ranges
+ * overlap and the Flights have a spread (`spread`), that the difference is within the spread of the
+ * runs (ADR 0445). `show` writes a range's end.
+ */
+const figureOf = (
+  what: string,
+  { baseline, candidate }: { baseline: Sum; candidate: Sum },
+  show: (n: number) => string,
+  unit: string,
+  spread: boolean,
+): string => {
+  if (baseline.mean === 0) return `${what} not compared: the baseline counted none`;
+  const figure = `${what} ${signed(Math.round(((candidate.mean - baseline.mean) / baseline.mean) * 100))}`;
+  const overlap = baseline.low <= candidate.high && candidate.low <= baseline.high;
+  if (!spread || !overlap) return figure;
+  const range = ({ low, high }: Range) => `${show(low)}–${show(high)}${unit}`;
+  return `${figure}, within the spread of the runs (baseline ${range(baseline)}, candidate ${range(candidate)})`;
+};
+
+/**
+ * A figure summed over the orders both Flights measured: the sum of the orders' means, and the sums of
+ * their lowest and of their highest run, which are the lowest and highest total the runs allow (ADR 0445).
+ */
+interface Sum extends Range {
+  mean: number;
+}
+
+/** `sum` with one order's `mean` and `range` added. */
+const addTo = (sum: Sum, mean: number, { low, high }: Range): void => {
+  sum.mean += mean;
+  sum.low += low;
+  sum.high += high;
+};
 
 /** What two Flights' records compare: each order's row, the orders left out, and the summary's figures. */
 const comparisonOf = (baseline: readonly FlightRecord[], candidate: readonly FlightRecord[]) => {
@@ -152,7 +206,11 @@ const comparisonOf = (baseline: readonly FlightRecord[], candidate: readonly Fli
   );
   const unmeasured = { baseline: [] as string[], candidate: [] as string[] };
   const rows: string[] = [];
-  const totals = { baseline: 0, candidate: 0 };
+  const sumOf = (): Sum => ({ mean: 0, low: 0, high: 0 });
+  const sums = {
+    tokens: { baseline: sumOf(), candidate: sumOf() },
+    ms: { baseline: sumOf(), candidate: sumOf() },
+  };
   const candidateKinds: TokenKinds = { output: 0, cacheRead: 0, cacheWrite: 0, input: 0 };
   const every = { baseline: 0, candidate: 0 };
   const reached = { baseline: 0, candidate: 0 };
@@ -169,15 +227,21 @@ const comparisonOf = (baseline: readonly FlightRecord[], candidate: readonly Fli
     if (passedEvery(c)) every.candidate += 1;
     reached.baseline += b.reached;
     reached.candidate += c.reached;
-    totals.baseline += b.tokens;
-    totals.candidate += c.tokens;
+    addTo(sums.tokens.baseline, b.tokens, b.tokensRange);
+    addTo(sums.tokens.candidate, c.tokens, c.tokensRange);
+    addTo(sums.ms.baseline, b.ms, b.msRange);
+    addTo(sums.ms.candidate, c.ms, c.msRange);
     for (const kind of Object.keys(candidateKinds) as (keyof TokenKinds)[]) {
       candidateKinds[kind] += c.kinds[kind];
     }
     const against = (of: (m: Measured) => string) => `${of(b)} against ${of(c)}`;
-    const tokens = (of: (m: Measured) => number) => against((m) => String(Math.round(of(m))));
+    const count = (n: number) => String(Math.round(n));
+    const tokens = (of: (m: Measured) => number) => against((m) => count(of(m)));
+    // The mean with the lowest and highest run beside it, for tokens in sum and for time (ADR 0445).
+    const spread = (mean: number, { low, high }: Range, show: (n: number) => string, unit = '') =>
+      `${show(mean)}${unit} (${show(low)}–${show(high)}${unit})`;
     rows.push(
-      `| ${escapeCell(order)} | ${against(({ passed, runs }) => `${passed} of ${runs}`)} | ${against(({ ended }) => ended)} | ${against(({ outside, scored }) => `${outside} of ${scored}`)} | ${tokens((m) => m.tokens)} | ${tokens((m) => m.kinds.output)} | ${tokens((m) => m.kinds.cacheRead)} | ${tokens((m) => m.kinds.cacheWrite)} | ${tokens((m) => m.kinds.input)} | ${against(({ ms }) => `${Math.round(ms / 1000)} s`)} | ${verdict} |`,
+      `| ${escapeCell(order)} | ${against(({ passed, runs }) => `${passed} of ${runs}`)} | ${against(({ ended }) => ended)} | ${against(({ outside, scored }) => `${outside} of ${scored}`)} | ${against((m) => spread(m.tokens, m.tokensRange, count))} | ${tokens((m) => m.kinds.output)} | ${tokens((m) => m.kinds.cacheRead)} | ${tokens((m) => m.kinds.cacheWrite)} | ${tokens((m) => m.kinds.input)} | ${against((m) => spread(m.ms, m.msRange, seconds, ' s'))} | ${verdict} |`,
     );
   }
   for (const side of ['baseline', 'candidate'] as const) {
@@ -186,7 +250,7 @@ const comparisonOf = (baseline: readonly FlightRecord[], candidate: readonly Fli
   return {
     rows,
     notes,
-    totals,
+    sums,
     candidateKinds,
     every,
     reached,
@@ -205,19 +269,20 @@ export const flightReport = (
   candidate: readonly FlightRecord[],
 ): string => {
   const names = { baseline: flightLabelOf(baseline), candidate: flightLabelOf(candidate) };
-  const { rows, notes, totals, every, reached, runs, tooClose, compared } = comparisonOf(
+  const { rows, notes, sums, every, reached, runs, tooClose, compared } = comparisonOf(
     baseline,
     candidate,
   );
-  const tokens =
-    totals.baseline === 0
-      ? 'tokens per order not compared: the baseline counted none'
-      : `tokens per order ${signed(Math.round(((totals.candidate - totals.baseline) / totals.baseline) * 100))}`;
+  // With one run per order a Flight has no spread to compare against (ADR 0445).
+  const oneRun = Math.min(runs.baseline, runs.candidate) === 1;
+  const millions = (tokens: number) => `${(tokens / 1_000_000).toFixed(1)}M`;
+  const tokens = figureOf('tokens per order', sums.tokens, millions, '', !oneRun);
+  const time = figureOf("brewers' time per order", sums.ms, seconds, ' s', !oneRun);
   // A run stuck on the commit green read still passes (ADR 0409), so the runs that reached a pull
   // request are counted beside the orders passed (ADR 0425).
   const side = (of: 'baseline' | 'candidate') =>
     `${names[of]}: ${every[of]} of ${compared} orders (${reached[of]} of ${runs[of] * compared} runs reached a pull request)`;
-  const summary = `${side('baseline')}, ${side('candidate')}, ${tooClose} too close to call, ${tokens}`;
+  const summary = `${side('baseline')}, ${side('candidate')}, ${tooClose} too close to call, ${tokens}, ${time}${oneRun ? ', one run per order: no spread to compare against' : ''}`;
   return `${[
     `Baseline: ${names.baseline}`,
     `Candidate: ${names.candidate}`,
@@ -335,7 +400,7 @@ export const tastedOf = (
   }
   const text = recipeText(recipe);
   if (text === undefined) return notWritten(`${recipe} is no default recipe`);
-  const { every, totals, candidateKinds, compared } = comparisonOf(baseline, candidate);
+  const { every, sums, candidateKinds, compared } = comparisonOf(baseline, candidate);
   if (compared === 0) return notWritten('no order was measured by both Flights');
   const read = recipeOf(text);
   const steps = new Set(
@@ -366,7 +431,7 @@ export const tastedOf = (
     passed: every.candidate,
     runs: compared,
     baseline: { passed: every.baseline, runs: compared, model: ranBefore.model },
-    tokensPerOrder: perOrder(totals.candidate),
+    tokensPerOrder: perOrder(sums.tokens.candidate.mean),
     tokensPerOrderSplit: split,
     date: today.toISOString().slice(0, 10),
   };

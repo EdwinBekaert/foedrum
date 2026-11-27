@@ -86,9 +86,26 @@ const runsOf = (setup: string, passes: number, flight: Partial<FlightRecord['fli
     record(setup, run, { ...flight, hidden: run <= passes ? 'passed' : 'failed' }),
   );
 
+/** The runs of `setup`, one for each `[tokens, seconds]` pair, all passed. */
+const runsUsing = (
+  setup: string,
+  used: readonly (readonly [number, number])[],
+  flight: Partial<FlightRecord['flight']> = {},
+) =>
+  used.map(([tokens, seconds], index) =>
+    record(setup, index + 1, { ...flight, steps: [step(tokens, seconds)] }),
+  );
+
 /** The table row of `order` in `report`. */
 const rowOf = (report: string, order: string): string | undefined =>
   report.split('\n').find((line) => line.startsWith(`| ${order} |`));
+
+/** What the summary line of `report` says after its count of orders too close to call. */
+const figuresOf = (report: string): string | undefined =>
+  report
+    .split('\n')
+    .find((line) => / too close to call, /.test(line))
+    ?.replace(/^.* too close to call, /, '');
 
 describe('the Flight report (ADR 0411)', () => {
   it('calls a difference when one Flight passes every run and the other at most one', () => {
@@ -145,11 +162,11 @@ describe('the Flight report (ADR 0411)', () => {
     );
     assert.equal(
       rowOf(report, 'quiz-rank'),
-      '| quiz-rank | 2 of 2 against 0 of 2 | on tap 2 of 2 against on tap 2 of 2 | 0 of 2 against 0 of 2 | 200 against 50 | 1 against 1 | 1 against 1 | 1 against 1 | 197 against 47 | 30 s against 10 s | baseline better |',
+      '| quiz-rank | 2 of 2 against 0 of 2 | on tap 2 of 2 against on tap 2 of 2 | 0 of 2 against 0 of 2 | 200 (100–300) against 50 (50–50) | 1 against 1 | 1 against 1 | 1 against 1 | 197 against 47 | 30 s (20–40 s) against 10 s (10–10 s) | baseline better |',
     );
     assert.equal(
       rowOf(report, 'post-slugs'),
-      '| post-slugs | 1 of 2 against 2 of 2 | on tap 2 of 2 against on tap 2 of 2 | 0 of 2 against 1 of 2 | 100 against 100 | 1 against 1 | 1 against 1 | 1 against 1 | 97 against 97 | 20 s against 20 s | candidate better |',
+      '| post-slugs | 1 of 2 against 2 of 2 | on tap 2 of 2 against on tap 2 of 2 | 0 of 2 against 1 of 2 | 100 (100–100) against 100 (100–100) | 1 against 1 | 1 against 1 | 1 against 1 | 97 against 97 | 20 s (20–20 s) against 20 s (20–20 s) | candidate better |',
     );
     assert.match(report, /^Baseline: nip as it ships$/m);
     assert.match(report, /^Candidate: nip with cellarman on claude-opus-5-5 at larger$/m);
@@ -166,7 +183,7 @@ describe('the Flight report (ADR 0411)', () => {
     );
     assert.equal(
       rowOf(report, 'quiz-rank'),
-      '| quiz-rank | 2 of 3 against 2 of 3 | on tap 2 of 2 against on tap 3 of 3 | 0 of 2 against 0 of 3 | 100 against 100 | 1 against 1 | 1 against 1 | 1 against 1 | 97 against 97 | 20 s against 20 s | the same |',
+      '| quiz-rank | 2 of 3 against 2 of 3 | on tap 2 of 2 against on tap 3 of 3 | 0 of 2 against 0 of 3 | 100 (100–100) against 100 (100–100) | 1 against 1 | 1 against 1 | 1 against 1 | 97 against 97 | 20 s (20–20 s) against 20 s (20–20 s) | the same |',
     );
   });
 
@@ -231,7 +248,7 @@ describe('the Flight report (ADR 0411)', () => {
     const lines = report.split('\n');
     assert.ok(
       lines.includes(
-        'nip as it ships: 2 of 3 orders (9 of 9 runs reached a pull request), nip with cellarman on claude-opus-5-5 at larger: 2 of 3 orders (9 of 9 runs reached a pull request), 2 too close to call, tokens per order +60%',
+        "nip as it ships: 2 of 3 orders (9 of 9 runs reached a pull request), nip with cellarman on claude-opus-5-5 at larger: 2 of 3 orders (9 of 9 runs reached a pull request), 2 too close to call, tokens per order +60%, brewers' time per order 0%, within the spread of the runs (baseline 60–60 s, candidate 60–60 s)",
       ),
       report,
     );
@@ -277,7 +294,7 @@ describe('the Flight report (ADR 0411)', () => {
     );
     assert.match(
       report,
-      /^nip as it ships: 2 of 2 orders \(5 of 6 runs reached a pull request\), nip with cellarman on claude-opus-5-5 at larger: 2 of 2 orders \(6 of 6 runs reached a pull request\), 0 too close to call, tokens per order \+100%$/m,
+      /^nip as it ships: 2 of 2 orders \(5 of 6 runs reached a pull request\), nip with cellarman on claude-opus-5-5 at larger: 2 of 2 orders \(6 of 6 runs reached a pull request\), 0 too close to call, tokens per order \+100%, brewers' time per order 0%, within the spread of the runs \(baseline 40–40 s, candidate 40–40 s\)$/m,
     );
   });
 
@@ -357,12 +374,250 @@ describe('the Flight report (ADR 0411)', () => {
     const cells = (rowOf(report, 'quiz-rank') ?? '').split(' | ');
     // Tokens, output, cache read, cache write, fresh input.
     assert.deepEqual(cells.slice(4, 9), [
-      '9220 against 1555',
+      '9220 (7110–11330) against 1555 (1555–1555)',
       '200 against 50',
       '7000 against 1000',
       '2000 against 500',
       '20 against 5',
     ]);
+  });
+
+  describe('the spread of the runs (ADR 0445)', () => {
+    it("shows each order's lowest and highest run of tokens and of time beside the mean, on both sides", () => {
+      const report = flightReport(
+        runsUsing('quiz-rank', [
+          [520_000, 30],
+          [560_000, 40],
+          [480_000, 20],
+        ]),
+        runsUsing(
+          'quiz-rank',
+          [
+            [590_000, 10],
+            [530_000, 20],
+            [560_000, 15],
+          ],
+          { swap: SWAP },
+        ),
+      );
+      const cells = (rowOf(report, 'quiz-rank') ?? '').split(' | ');
+      assert.equal(cells[4], '520000 (480000–560000) against 560000 (530000–590000)');
+      assert.equal(cells[9], '30 s (20–40 s) against 15 s (10–20 s)');
+    });
+
+    it('keeps the mean only in the columns of the tokens by kind', () => {
+      const report = flightReport(
+        runsUsing('quiz-rank', [
+          [520_000, 30],
+          [560_000, 40],
+          [480_000, 20],
+        ]),
+        runsUsing(
+          'quiz-rank',
+          [
+            [590_000, 10],
+            [530_000, 20],
+            [560_000, 15],
+          ],
+          { swap: SWAP },
+        ),
+      );
+      const cells = (rowOf(report, 'quiz-rank') ?? '').split(' | ');
+      assert.deepEqual(cells.slice(5, 9), [
+        '1 against 1',
+        '1 against 1',
+        '1 against 1',
+        '519997 against 559997',
+      ]);
+    });
+
+    it('takes the lowest and the highest run of the runs that measured something only', () => {
+      const report = flightReport(
+        [
+          record('quiz-rank', 1, { steps: [step(300, 40)] }),
+          noHead('quiz-rank', 2, { steps: [step(999_999, 999)] }),
+          record('quiz-rank', 3, { steps: [step(100, 20)] }),
+        ],
+        runsOf('quiz-rank', 3, { swap: SWAP }),
+      );
+      const cells = (rowOf(report, 'quiz-rank') ?? '').split(' | ');
+      assert.equal(cells[4], '200 (100–300) against 100 (100–100)');
+      assert.equal(cells[9], '30 s (20–40 s) against 20 s (20–20 s)');
+    });
+
+    it('says the token difference is within the spread when the sums of the lowest and of the highest runs of the two sides overlap', () => {
+      // Each order's lowest run summed and its highest run summed, not the runs of one number:
+      // the baseline's runs of one number all sum to 6.5M, its sums are 6.1M and 6.9M.
+      const report = flightReport(
+        [
+          ...runsUsing('quiz-rank', [
+            [3_000_000, 10],
+            [3_400_000, 10],
+            [3_200_000, 10],
+          ]),
+          ...runsUsing('post-slugs', [
+            [3_500_000, 10],
+            [3_100_000, 10],
+            [3_300_000, 10],
+          ]),
+        ],
+        [
+          ...runsUsing(
+            'quiz-rank',
+            [
+              [3_200_000, 20],
+              [3_600_000, 20],
+              [3_400_000, 20],
+            ],
+            { swap: SWAP },
+          ),
+          ...runsUsing(
+            'post-slugs',
+            [
+              [3_700_000, 20],
+              [3_200_000, 20],
+              [3_400_000, 20],
+            ],
+            { swap: SWAP },
+          ),
+        ],
+      );
+      assert.equal(
+        figuresOf(report),
+        "tokens per order +5%, within the spread of the runs (baseline 6.1M–6.9M, candidate 6.4M–7.3M), brewers' time per order +100%",
+      );
+    });
+
+    it('gives the token figure alone when the candidate runs all use more than the baseline runs', () => {
+      const report = flightReport(
+        runsUsing('quiz-rank', [
+          [1_000_000, 10],
+          [1_200_000, 10],
+          [1_100_000, 10],
+        ]),
+        runsUsing(
+          'quiz-rank',
+          [
+            [2_000_000, 20],
+            [2_200_000, 20],
+            [2_100_000, 20],
+          ],
+          { swap: SWAP },
+        ),
+      );
+      assert.equal(figuresOf(report), "tokens per order +91%, brewers' time per order +100%");
+    });
+
+    it('gives the token figure alone when the candidate runs all use less than the baseline runs', () => {
+      const report = flightReport(
+        runsUsing('quiz-rank', [
+          [2_000_000, 20],
+          [2_200_000, 20],
+          [2_100_000, 20],
+        ]),
+        runsUsing(
+          'quiz-rank',
+          [
+            [1_000_000, 10],
+            [1_200_000, 10],
+            [1_100_000, 10],
+          ],
+          { swap: SWAP },
+        ),
+      );
+      assert.equal(figuresOf(report), "tokens per order -48%, brewers' time per order -50%");
+    });
+
+    it("says the time difference is within the spread when the sums of the lowest and of the highest runs overlap, in seconds, apart from the tokens'", () => {
+      const report = flightReport(
+        [
+          ...runsUsing('quiz-rank', [
+            [1_000_000, 100],
+            [1_000_000, 140],
+            [1_000_000, 120],
+          ]),
+          ...runsUsing('post-slugs', [
+            [1_000_000, 150],
+            [1_000_000, 110],
+            [1_000_000, 130],
+          ]),
+        ],
+        [
+          ...runsUsing(
+            'quiz-rank',
+            [
+              [2_000_000, 120],
+              [2_000_000, 160],
+              [2_000_000, 140],
+            ],
+            { swap: SWAP },
+          ),
+          ...runsUsing(
+            'post-slugs',
+            [
+              [2_000_000, 170],
+              [2_000_000, 130],
+              [2_000_000, 150],
+            ],
+            { swap: SWAP },
+          ),
+        ],
+      );
+      assert.equal(
+        figuresOf(report),
+        "tokens per order +100%, brewers' time per order +16%, within the spread of the runs (baseline 210–290 s, candidate 250–330 s)",
+      );
+    });
+
+    it('says there is no spread to compare against for a Flight of one run per order', () => {
+      const report = flightReport(
+        [record('quiz-rank', 1, { steps: [step(200, 20)] })],
+        [record('quiz-rank', 1, { steps: [step(150, 10)], swap: SWAP })],
+      );
+      assert.equal(
+        figuresOf(report),
+        "tokens per order -25%, brewers' time per order -50%, one run per order: no spread to compare against",
+      );
+    });
+
+    it('does not say a Flight of several runs per order has no spread', () => {
+      const report = flightReport(
+        runsUsing('quiz-rank', [
+          [1_000_000, 10],
+          [1_200_000, 10],
+        ]),
+        runsUsing(
+          'quiz-rank',
+          [
+            [2_000_000, 20],
+            [2_200_000, 20],
+          ],
+          { swap: SWAP },
+        ),
+      );
+      assert.doesNotMatch(report, /one run per order/);
+      assert.equal(figuresOf(report), "tokens per order +91%, brewers' time per order +100%");
+    });
+  });
+
+  it("keeps an order's verdict by its hidden-test passes, whatever its tokens and time", () => {
+    const report = flightReport(
+      runsUsing('quiz-rank', [
+        [1_000_000, 10],
+        [1_200_000, 10],
+        [1_100_000, 10],
+      ]),
+      runsUsing(
+        'quiz-rank',
+        [
+          [2_000_000, 20],
+          [2_200_000, 20],
+          [2_100_000, 20],
+        ],
+        { swap: SWAP },
+      ),
+    );
+    assert.equal((rowOf(report, 'quiz-rank') ?? '').split(' | ')[10], 'the same |');
   });
 
   describe('its command line', () => {
@@ -398,7 +653,10 @@ describe('the Flight report (ADR 0411)', () => {
       [record('quiz-rank', 3), noHead('quiz-rank', 2), record('quiz-rank', 1)],
       [1, 2, 3].map((run) => record('quiz-rank', run, { steps: [step(150, 20)] })),
     );
-    assert.match(report, /, tokens per order \+50%$/m);
+    assert.match(
+      report,
+      /, tokens per order \+50%, brewers' time per order 0%, within the spread of the runs \(baseline 20–20 s, candidate 20–20 s\)$/m,
+    );
   });
 
   it('gives fewer tokens per order with a minus sign', () => {
@@ -406,7 +664,10 @@ describe('the Flight report (ADR 0411)', () => {
       [record('quiz-rank', 1, { steps: [step(200, 20)] })],
       [record('quiz-rank', 1, { steps: [step(150, 20)] })],
     );
-    assert.match(report, /, tokens per order -25%$/m);
+    assert.match(
+      report,
+      /, tokens per order -25%, brewers' time per order 0%, one run per order: no spread to compare against$/m,
+    );
   });
 
   it('compares no tokens when the baseline counted none', () => {
@@ -415,7 +676,7 @@ describe('the Flight report (ADR 0411)', () => {
       [record('quiz-rank', 1, { steps: [uncounted] })],
       [record('quiz-rank', 1)],
     );
-    assert.match(report, /, tokens per order not compared: the baseline counted none$/m);
+    assert.match(report, /, tokens per order not compared: the baseline counted none, /m);
   });
 
   it('writes the report of the two folders the options name into the candidate folder', () => {
@@ -633,6 +894,22 @@ describe("the Flight report's tasted entry (ADR 0416)", () => {
       ...ENTRY,
       tokensPerOrder: 9_221,
       tokensPerOrderSplit: { output: 200, cacheRead: 7_000, cacheWrite: 2_000, input: 21 },
+    });
+  });
+
+  it('keeps the tokens per order the mean of the runs, not the lowest or the highest run', () => {
+    const swapped = (setup: string, tokens: readonly number[]) =>
+      tokens.map((each, index) => record(setup, index + 1, onOpus(each)));
+    // quiz-rank's runs use 300, 600 and 900 tokens, post-slugs' 100, 200 and 300.
+    const candidate = [
+      ...swapped('quiz-rank', [300, 600, 900]),
+      ...swapped('post-slugs', [100, 200, 300]),
+    ];
+    const [entry] = entriesOf(written(undefined, candidate).models);
+    assert.deepEqual(entry, {
+      ...ENTRY,
+      tokensPerOrder: 400,
+      tokensPerOrderSplit: { output: 1, cacheRead: 1, cacheWrite: 1, input: 397 },
     });
   });
 
