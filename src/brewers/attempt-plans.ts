@@ -680,13 +680,15 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
       own === undefined || command === undefined || command === null
         ? undefined
         : { repo: own.repo, command };
-    // After a merge of the base on the line to the attempt's start, the batch's own change starts
-    // at the base it merged (ADR 0164, ADR 0452).
+    // After a merge of the base on the line to the attempt's head, the batch's own change starts
+    // at the base it merged (ADR 0164, ADR 0452). An attempt that commits has its branch for head,
+    // since it merges the base at its start, after the commit it starts at; any other reads that commit.
     const merged =
       own === undefined
         ? undefined
         : await mergedBaseOnLine(state(), batch.id, {
-            head: own.commit,
+            head:
+              found.brewer.produces === 'commits' ? `refs/heads/${attemptBranch(ref)}` : own.commit,
             isAncestor: async (commit, of) => {
               if (options.git === undefined) throw new Error('the base the batch merged: no git');
               return isAncestorIn(options.git, options.clone(own.repo))(commit, of);

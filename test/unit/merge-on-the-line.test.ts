@@ -222,3 +222,19 @@ describe('the base a batch merged, read by an attempt plan (ADR 0452)', () => {
     await assert.rejects(plansOf().plan(start), { message: /no git/ });
   });
 });
+
+describe('the head an attempt plan asks of, for an attempt that merges the base at its start (ADR 0452)', () => {
+  it("asks of the attempt's branch only, since its merge is made after its start commit", async () => {
+    const asked: string[] = [];
+    const git: Git = async (_cwd, args) => {
+      if (args[0] === 'merge-base') asked.push(args[3] ?? '');
+      return { code: 0, stdout: args.includes('diff') ? gaugeDiff : '', stderr: '' };
+    };
+    await plansOf(git).plan(start);
+    assert.ok(asked.length > 0);
+    assert.deepEqual(
+      asked.filter((head) => head !== 'refs/heads/foedrum/12-1/implement/1'),
+      [],
+    );
+  });
+});
