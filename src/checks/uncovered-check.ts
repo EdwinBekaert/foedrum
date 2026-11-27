@@ -98,7 +98,9 @@ export function createUncoveredCheck(options: UncoveredCheckOptions): UncoveredC
       ...end,
       ending: blocked('environment', why).ending,
     });
-    const range = { from: maps.base, to: worktree.commit };
+    // To the attempt's branch, which holds the base merge: the commit recorded before it is the
+    // merge's first parent, so a range to it reads the base's change back to front (ADR 0452).
+    const range = { from: maps.base, to: `refs/heads/${worktree.branch}` };
     const diff = await readDiff(git, clone(repo), range, { signal });
     if ('error' in diff) return stuck(`the change of the batch cannot be read: ${diff.error}`);
     const foldCase = foldsCase(platform);
