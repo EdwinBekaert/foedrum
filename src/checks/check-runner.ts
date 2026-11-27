@@ -6,6 +6,7 @@
 // repository with a test map, each module's report by checks that read no test name (ADR 0274);
 // in one without, the test report against the tests the proven step committed (ADR 0078).
 
+import { join } from 'node:path';
 import { type AttemptRef, attemptKey } from '../engine/attempt-key.ts';
 import { mergedBase, mergedBaseOnLine } from '../engine/base-merge.ts';
 import type { Env } from '../engine/brewer-env.ts';
@@ -31,6 +32,7 @@ import {
   type RepositoryChecks,
   ranChanged,
   settleReadings,
+  testFilesLine,
 } from './gravity.ts';
 import {
   agreed,
@@ -52,6 +54,7 @@ import {
   testReportPath,
 } from './module-reports.ts';
 import type { TestCoverage } from './mutant-reach.ts';
+import { readNodeCoverage } from './node-coverage.ts';
 import type { MappedReport } from './red-proof.ts';
 import { checksEnv, readingOn, runLine, runSetup, setupRunOf } from './setup.ts';
 import { checkedTip } from './step-commits.ts';
@@ -203,6 +206,7 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
   const { state, checks, exec, clock, platform = process.platform } = options;
   const reports = options.reports ?? fileReports;
   const env = checksEnv(options.env, platform);
+  const readCoverage = options.readNodeCoverage ?? readNodeCoverage;
   // The attempts it runs, by key, with when they started: their progress for the heartbeat.
   const running = new Map<string, AttemptProgress>();
   const testReportsOf = moduleReports({
@@ -227,10 +231,11 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
     deadlineAt: string,
     signal: AbortSignal,
     belowNormal = false,
+    extraEnv: Env = {},
   ): Promise<ExecResult> =>
     runLine(exec, check.command, {
       cwd: worktree.path,
-      env,
+      env: { ...env, ...extraEnv },
       deadlineAt,
       now: clock,
       signal,
@@ -294,7 +299,9 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
   /**
    * The checks `refs` of the tree in `worktree`, as `checkTree` runs them, before any naming: with
    * the batch's `base`, a plain check step's, the repository's testChanged in place of its test
-   * (ADR 0242); `belowNormal` for a scratch tree's test run, below normal priority (ADR 0413).
+   * (ADR 0242); `belowNormal` for a scratch tree's test run, below normal priority (ADR 0413);
+   * `test` for a scratch tree's test run, the line it runs in place of the repository's and the
+   * environment it runs in (ADR 0431).
    */
   const checksOf = async (
     refs: readonly CheckRef[],
@@ -304,7 +311,12 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
     {
       base,
       belowNormal = false,
-    }: { readonly base?: string | undefined; readonly belowNormal?: boolean } = {},
+      test,
+    }: {
+      readonly base?: string | undefined;
+      readonly belowNormal?: boolean;
+      readonly test?: { readonly line?: string | undefined; readonly env: Env };
+    } = {},
   ): Promise<AttemptEnd> => {
     let repository = NO_CHECKS;
     const named = refs.find((check) => typeof check === 'string');
@@ -318,7 +330,11 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
       }
       repository = found;
     }
-    const planned = planChecks(refs, repository, platform, base);
+    const planned = planChecks(refs, repository, platform, base).map((check) =>
+      test?.line !== undefined && check.kind === 'run' && check.check === 'test'
+        ? { ...check, command: test.line }
+        : check,
+    );
     // The repository's setup once nothing else blocks the step and a check will run, so the
     // checks find what it installed (ADR 0140).
     const preparing = planned.some((check) => check.kind === 'run')
@@ -332,7 +348,8 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
         readings.push({ result: 'skipped', check: check.check });
         continue;
       }
-      const ran = await runCheck(check, worktree, deadlineAt, signal, belowNormal);
+      const extraEnv = check.check === 'test' ? test?.env : undefined;
+      const ran = await runCheck(check, worktree, deadlineAt, signal, belowNormal, extraEnv);
       const reading = readingIn(check, ran);
       readings.push(reading);
       if (!passed(reading)) break;
@@ -344,9 +361,11 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
    * The test check in a scratch tree (ADR 0313): every report path of `modules` cleared, since a
    * report the commit holds must never stand for the run's, the setup and the test check run below
    * normal priority (ADR 0413), and each module's reports read where the map says. A TRX report is
-   * left unread (#727).
+   * left unread (#727). A repository that names `testFiles` runs the test files of the `scope` with
+   * it, and has the processes of a run that asks for coverage write their V8 coverage, read after
+   * the run; one that names none runs the whole check (ADR 0431).
    */
-  const testRun: TestRun = async (tree, modules, deadlineAt, signal) => {
+  const testRun: TestRun = async (tree, modules, deadlineAt, signal, scope) => {
     const read = modules.filter(({ module }) => module.testReport.format !== 'trx');
     const patterns = read.map(({ module }) => module.testReport.path);
     const find = options.testMap?.reports ?? reportPaths;
@@ -356,7 +375,20 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
     if (unclear !== undefined) {
       return { kind: 'unrun', why: `the test reports cannot be cleared: ${unclear}` };
     }
-    const end = await checksOf(['test'], tree, deadlineAt, signal, { belowNormal: true });
+    const testFiles = options.repositoryChecks(tree.repo)?.testFiles;
+    const files = testFiles === undefined ? undefined : scope?.files;
+    const folder =
+      testFiles !== undefined && scope?.coverage === true
+        ? join(tree.path, '.foedrum', 'tmp', 'node-v8-coverage')
+        : undefined;
+    const test = {
+      line:
+        testFiles === undefined || files === undefined
+          ? undefined
+          : testFilesLine(testFiles, platform, files),
+      env: folder === undefined ? {} : { NODE_V8_COVERAGE: folder },
+    };
+    const end = await checksOf(['test'], tree, deadlineAt, signal, { belowNormal: true, test });
     const readings = end.readings ?? [];
     const reading = readings.find((each) => each.check === 'test');
     if (reading === undefined) {
@@ -374,7 +406,15 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
       if ('failed' in found) return { kind: 'unrun', why: found.failed };
       wrote.push(...found.reports);
     }
-    return { kind: 'ran', reading, reports: wrote };
+    // A coverage that cannot be read leaves the run without one: its mutants run the whole check.
+    const covered = folder === undefined ? undefined : readCoverage(folder, tree.path);
+    return {
+      kind: 'ran',
+      reading,
+      reports: wrote,
+      ...(files === undefined ? {} : { files }),
+      ...(typeof covered === 'object' ? { coverage: covered } : {}),
+    };
   };
 
   const run = async (ref: AttemptRef, signal: AbortSignal): Promise<AttemptEnd> => {

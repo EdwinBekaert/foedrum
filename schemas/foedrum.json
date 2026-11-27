@@ -556,6 +556,79 @@
                     "additionalProperties": false
                   }
                 ]
+              },
+              "testFiles": {
+                "description": "The command that runs only the test files {files} names, separated by spaces; with it, on Node, a mutant's run runs only the test files that reach its line (ADR 0431)",
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "allOf": [
+                      {
+                        "pattern": "\\S"
+                      },
+                      {
+                        "pattern": "^[^\\r\\n]*$"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "run": {
+                        "type": "string",
+                        "allOf": [
+                          {
+                            "pattern": "\\S"
+                          },
+                          {
+                            "pattern": "^[^\\r\\n]*$"
+                          }
+                        ]
+                      },
+                      "windows": {
+                        "type": "string",
+                        "allOf": [
+                          {
+                            "pattern": "\\S"
+                          },
+                          {
+                            "pattern": "^[^\\r\\n]*$"
+                          }
+                        ]
+                      },
+                      "macos": {
+                        "type": "string",
+                        "allOf": [
+                          {
+                            "pattern": "\\S"
+                          },
+                          {
+                            "pattern": "^[^\\r\\n]*$"
+                          }
+                        ]
+                      },
+                      "linux": {
+                        "type": "string",
+                        "allOf": [
+                          {
+                            "pattern": "\\S"
+                          },
+                          {
+                            "pattern": "^[^\\r\\n]*$"
+                          }
+                        ]
+                      },
+                      "files": {
+                        "type": "boolean",
+                        "const": true
+                      }
+                    },
+                    "required": [
+                      "run"
+                    ],
+                    "additionalProperties": false
+                  }
+                ]
               }
             },
             "required": [

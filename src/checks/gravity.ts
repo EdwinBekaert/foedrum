@@ -84,16 +84,39 @@ export const testChangedLine = (
   base: string,
 ): string => commandLine(testChanged, platform).replaceAll(BASE, base);
 
+/** What `testFiles` holds for the test files a mutant's run names (ADR 0431). */
+const FILES = '{files}';
+
+const LISTABLE = /^[\w./@+-]+$/;
+
+/** Whether a path goes on a command line as one word, which a space or a shell character would split. */
+export const listable = (path: string): boolean => LISTABLE.test(path);
+
+const SEPARATORS = new RegExp(`[${String.fromCodePoint(0x2028, 0x2029)}]`, 'g');
+
+/** A name an outside party wrote, quoted so it stays on its line: as JSON, a line separator escaped too. */
+export const quoted = (text: string): string =>
+  JSON.stringify(text).replace(
+    SEPARATORS,
+    (separator) => `\\u${(separator.codePointAt(0) ?? 0).toString(16)}`,
+  );
+
+/** Why a test file's path cannot be listed (ADR 0431). */
+export const unlistable = (path: string): string =>
+  `the test file name ${quoted(path)} cannot be listed on one line`;
+
 /**
  * The line `testFiles` runs on `platform` for `files`, `{files}` replaced by their paths with a
  * space between them; a path a line cannot carry as one word is refused (ADR 0431).
  */
 export const testFilesLine = (
-  _testFiles: Command,
-  _platform: NodeJS.Platform,
-  _files: readonly string[],
+  testFiles: Command,
+  platform: NodeJS.Platform,
+  files: readonly string[],
 ): string => {
-  throw new Error('not implemented');
+  const odd = files.find((file) => !listable(file));
+  if (odd !== undefined) throw new Error(unlistable(odd));
+  return commandLine(testFiles, platform).replaceAll(FILES, files.join(' '));
 };
 
 /**

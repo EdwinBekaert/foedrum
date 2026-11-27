@@ -3,7 +3,8 @@
 // test check once in a scratch tree of the attempt's commit as the baseline, and once per valid
 // mutant in a fresh scratch tree with the mutant's edit, and records each mutant's verdict on the
 // attempt's end. The attempt succeeds whatever the verdicts, unless its step blocks: then a
-// survivor blocks it by findings (ADR 0319).
+// survivor blocks it by findings (ADR 0319). On Node the baseline also records which test files
+// reach each line, and a mutant runs only those, and none when none does (ADR 0431).
 
 import { type AttemptRef, attemptKey } from '../engine/attempt-key.ts';
 import { mergedBaseOnLine } from '../engine/base-merge.ts';
@@ -19,8 +20,9 @@ import { type MutantEdit, mutantsOf } from '../schemas/out-doc.ts';
 import { isAncestorIn } from '../workspace/clone-git.ts';
 import type { Git } from '../workspace/git.ts';
 import type { CommitTree, TreeEdit } from '../workspace/merge-tree-git.ts';
-import type { TestRun, TestRunEnd, TreeIn } from './check-runner.ts';
+import type { TestRun, TestRunEnd, TestScope, TreeIn } from './check-runner.ts';
 import { keptName } from './gravity.ts';
+import { reachOf } from './mutant-reach.ts';
 import { judgeRun } from './mutant-verdict.ts';
 import { type ChangedFile, editFile, isPlainPath, mutantCheck } from './mutants.ts';
 import { readDiff } from './step-commits.ts';
@@ -220,16 +222,30 @@ export function mutated(options: MutantRunOptions): BrewerRunner {
       }
       return { mutant, verdict: mutantCheck(mutant, target) };
     });
+    // The text of each file a mutant names, as the commit holds it, which the baseline's coverage
+    // offsets are read against (ADR 0431).
+    const sources = new Map(
+      [...change.contents].flatMap(([file, read]) =>
+        'content' in read ? [[file, read.content]] : [],
+      ),
+    );
     const at = (path: string): TreeIn => ({ repo, path });
     const scratch = tree(repo);
 
-    /** A run of the tests in a fresh scratch tree, the mutant's edit in it when one is given. */
-    const runIn = async (until: number, edit?: TreeEdit): Promise<TestRunEnd> => {
+    /**
+     * A run of the tests in a fresh scratch tree, the mutant's edit in it when one is given, and
+     * what it is asked for besides the whole test check (ADR 0431).
+     */
+    const runIn = async (
+      until: number,
+      edit?: TreeEdit,
+      scope?: TestScope,
+    ): Promise<TestRunEnd> => {
       const deadline = new Date(until).toISOString();
       try {
         return await scratch(
           commit,
-          (path) => testRun(at(path), change.modules, deadline, signal),
+          (path) => testRun(at(path), change.modules, deadline, signal, scope),
           edit === undefined ? { signal } : { signal, edit },
         );
       } catch (error) {
@@ -244,7 +260,7 @@ export function mutated(options: MutantRunOptions): BrewerRunner {
     let budget = LEAST_RUN_MS;
     if (valid.length > 0 && clock().getTime() < lastEnd) {
       const started = clock().getTime();
-      baseline = await runIn(lastEnd);
+      baseline = await runIn(lastEnd, undefined, { coverage: true });
       budget = Math.max(LEAST_RUN_MS, RUN_FACTOR * (clock().getTime() - started));
     }
     const records: MutantRecord[] = [];
@@ -288,7 +304,23 @@ export function mutated(options: MutantRunOptions): BrewerRunner {
         if (!edited.ok) throw new Error(edited.reason);
         return edited.content;
       };
-      const run = await runIn(until, { file: mutant.file, rewrite });
+      // Only the test files that ran the mutant's line, when the baseline recorded which (ADR 0431).
+      let scope: TestScope | undefined;
+      if (baseline.coverage !== undefined) {
+        const { coverage } = baseline;
+        const lines = [{ file: mutant.file, line: verdict.line }];
+        const reach = reachOf({ coverage, sources, lines });
+        if (reach.kind === 'reached') {
+          const files = reach.lines.flatMap(({ tests }) => tests);
+          // No test file ran the line: no test could kill it, so no run is spent on it.
+          if (files.length === 0) {
+            record({ kind: 'survived' });
+            continue;
+          }
+          scope = { files };
+        }
+      }
+      const run = await runIn(until, { file: mutant.file, rewrite }, scope);
       if (run.kind === 'unrun') {
         record(notJudged(run.why));
         continue;
@@ -308,7 +340,8 @@ export function mutated(options: MutantRunOptions): BrewerRunner {
         continue;
       }
       const module = areaOf(change.modules, mutant.file, foldCase)?.module ?? '';
-      const judged = judgeRun(baseline.reports, run.reports, module, reading.exitCode !== 0);
+      const failed = reading.exitCode !== 0;
+      const judged = judgeRun(baseline.reports, run.reports, module, failed, run.files);
       switch (judged.kind) {
         case 'killed':
           // A test's name is the run's text: one of blanks only is said so.
