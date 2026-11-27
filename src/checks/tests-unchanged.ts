@@ -44,7 +44,8 @@ export const guardedFiles = (
 
 /**
  * The lines `proven` added to a separate test file of `modules` that the attempt's tip holds fewer
- * times than the file held them where the step started plus the copies the step added; a file in
+ * times than the step left them: the copies where it started, plus those it added, less those it
+ * removed, so a line the step moved counts once (ADR 0458); a file in
  * no test area, or in a module whose tests are inline, keeps none: the test-design lens reads
  * those (ADR 0274).
  */
@@ -62,13 +63,18 @@ export function changedTestLines(
       .flatMap(({ newPath, added }) => (newPath === path ? added : []))
       .map((line) => line.trim())
       .filter((line) => line !== '');
-    // By what the tip holds against what the file held before plus the step's copies, so a later
-    // step's own copy of a red line may go, and an older copy hides no red one.
+    // The copies the step itself took out of the file, so a line it moved is kept once (ADR 0458).
+    const removed = counts(
+      proven.flatMap(({ oldPath, removed }) => (oldPath === path ? removed : [])),
+    );
+    // By what the tip holds against what the step left, so a later step's own copy of a red line
+    // may go, and an older copy hides no red one.
     const atTip = linesOf(tip.files.get(path));
     const before = linesOf(tip.before.get(path));
     const short = new Map(
       [...counts(kept)].map(([line, copies]) => {
-        const held = (before.get(line) ?? 0) + copies - (atTip.get(line) ?? 0);
+        const left = (before.get(line) ?? 0) + copies - (removed.get(line) ?? 0);
+        const held = left - (atTip.get(line) ?? 0);
         return [line, held] as const;
       }),
     );
