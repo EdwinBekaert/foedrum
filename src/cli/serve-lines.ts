@@ -54,6 +54,19 @@ const endedLines = (name: string, batch: Batch, before: Batch | undefined): stri
     }),
   );
 
+/** What an option needs after the batch's number, as `foedrum --help` names it; none for the others. */
+const OPTION_ARGUMENTS: Readonly<Record<string, string>> = {
+  recipe: '<recipe> "<reason>"',
+  rewind: '<step> <owner/name>=<commit>',
+  answer: '<answers>...',
+};
+
+/** The command a person types for `option` of the batch called `called`, with what it needs. */
+export const typedOption = (option: string, called: string): string => {
+  const more = OPTION_ARGUMENTS[option];
+  return `foedrum ${option} ${called}${more === undefined ? '' : ` ${more}`}`;
+};
+
 /**
  * The lines for what changed in each batch from `before` to `after`, the folded states of two ticks:
  * a step that ended, a batch that got Stuck, a pull request that opened, merged or closed. No line
@@ -78,7 +91,7 @@ export const lastingLines = (
       lane.kind !== 'stuck' || (earlier?.lane.kind === 'stuck' && !movedOn)
         ? []
         : [
-            `${name} is stuck: ${oneLine(stuckOn(lane.reason, called, batch))}; to move it on: ${lane.options.map((option) => `foedrum ${option} ${called}`).join(', ')}`,
+            `${name} is stuck: ${oneLine(stuckOn(lane.reason, called, batch))}; to move it on: ${lane.options.map((option) => typedOption(option, called)).join(', ')}`,
           ];
     // A batch sent back to brew a fix, or skipped back from Stuck, goes on tap again with the pull
     // request it had: `announced` holds each one a tick has shown on tap, so it opens once.

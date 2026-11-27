@@ -43,7 +43,11 @@ const succeeded = (
   outcome: { kind: 'succeeded', output: { status: 'done', summary: 'Brewed' } },
   ...more,
 });
-const stuck = (batchId: string, remindAt = at): Event => ({
+const stuck = (
+  batchId: string,
+  remindAt = at,
+  options: Extract<Event, { type: 'batch.stuck' }>['options'] = ['retry', 'cancel'],
+): Event => ({
   type: 'batch.stuck',
   batchId,
   reason: {
@@ -52,7 +56,7 @@ const stuck = (batchId: string, remindAt = at): Event => ({
     blockerKind: 'environment',
     summary: 'claude is not installed',
   },
-  options: ['retry', 'cancel'],
+  options,
   remindAt,
 });
 const onTap = (batchId: string, ...pullRequests: string[]): Event => ({
@@ -159,6 +163,15 @@ describe('lastingLines', () => {
       assert.match(line, /claude is not installed/);
       assert.ok(line.includes('foedrum retry 12'), line);
       assert.ok(line.includes('foedrum cancel 12'), line);
+    });
+
+    it('gives each command with what it needs after the number: a recipe and reason, a step and commit', () => {
+      const offered = stuck('12-1', at, ['retry', 'recipe', 'rewind', 'cancel']);
+      const [line = ''] = between(brewing, [offered]);
+      assert.ok(line.includes('foedrum retry 12,'), line);
+      assert.ok(line.includes('foedrum recipe 12 <recipe> "<reason>"'), line);
+      assert.ok(line.includes('foedrum rewind 12 <step> <owner/name>=<commit>'), line);
+      assert.ok(line.endsWith('foedrum cancel 12'), line);
     });
 
     it('says it once: a reminder that makes it Stuck again for the same reason adds no line', () => {
