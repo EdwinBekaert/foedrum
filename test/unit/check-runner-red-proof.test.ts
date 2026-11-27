@@ -217,7 +217,11 @@ const setup = ({
       ? {}
       : {
           testMap: {
-            at: async (_repo: string, commit: string) => maps[commit] ?? { kind: 'none' as const },
+            // A branch holds what the commit its attempt started at holds: no merge here (ADR 0452).
+            at: async (_repo: string, rev: string) =>
+              maps[rev.startsWith('refs/heads/') ? 'b'.repeat(40) : rev] ?? {
+                kind: 'none' as const,
+              },
             reports: (pattern: string, inside: string) => {
               order.push(`find ${pattern} in ${inside}`);
               const why = refusedPatterns[pattern];

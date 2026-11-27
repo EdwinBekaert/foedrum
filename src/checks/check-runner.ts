@@ -53,6 +53,7 @@ import {
 } from './module-reports.ts';
 import type { MappedReport } from './red-proof.ts';
 import { checksEnv, readingOn, runLine, runSetup, setupRunOf } from './setup.ts';
+import { checkedTip } from './step-commits.ts';
 import {
   clearReportPaths,
   type EffectiveModule,
@@ -452,7 +453,7 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
   };
 
   /**
-   * A check step's test maps, where the batch's change starts and at the worktree's commit, which
+   * A check step's test maps, where the batch's change starts and at the attempt's branch, which
    * `tip` holds when the freshness read already read it.
    */
   const stepMapsOf = async (
@@ -467,7 +468,7 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
     const base = await baseOf(batch, worktree);
     const before: MapRead =
       base === undefined ? { kind: 'none' } : await testMap.at(repo, base, signal);
-    const after = tip ?? (await testMap.at(repo, worktree.commit, signal));
+    const after = tip ?? (await testMap.at(repo, checkedTip(worktree), signal));
     return { base, before, after };
   };
 
@@ -511,7 +512,7 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
     // The batch's own map: the same tree reads the same, so the step's onFail route sends it back
     // to the brewer that broke it.
     if (after.kind === 'unreadable') {
-      const reason = `the test map of ${repo} at ${worktree.commit} cannot be read: ${after.reason}`;
+      const reason = `the test map of ${repo} at ${checkedTip(worktree)} cannot be read: ${after.reason}`;
       return ended({ kind: 'failed', retryable: false, reason });
     }
     if (after.kind === 'none') return end;

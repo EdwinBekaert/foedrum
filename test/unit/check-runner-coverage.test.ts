@@ -206,7 +206,9 @@ const setup = ({
     clock: () => now,
     platform,
     testMap: {
-      at: async (_repo, commit) => maps[commit] ?? { kind: 'none' },
+      // The branch holds the same map as the commit the attempt started at (ADR 0452).
+      at: async (_repo, commit) =>
+        maps[commit.startsWith('refs/heads/') ? tip : commit] ?? { kind: 'none' },
       reports: (pattern) => {
         const why =
           refused[pattern] ??

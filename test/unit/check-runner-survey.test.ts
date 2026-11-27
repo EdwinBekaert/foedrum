@@ -162,7 +162,8 @@ const setup = ({
     clock: () => now,
     platform: 'linux',
     testMap: {
-      at: async (_repo, commit) => maps[commit] ?? { kind: 'none' },
+      // A branch holds what the commit its attempt started at holds: no merge here (ADR 0452).
+      at: async (_repo, rev) => maps[rev.startsWith('refs/heads/') ? tip : rev] ?? { kind: 'none' },
       reports: (pattern) => ({ paths: found[pattern] ?? [] }),
       keptIn: () => 'repo',
       manifests: async () => manifests,

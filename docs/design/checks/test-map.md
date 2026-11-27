@@ -38,7 +38,7 @@ A module the base's map lists is taken as reached, as the base is taken as green
 A base map that cannot be read makes the batch Stuck (`environment`); a batch's map that cannot be read fails the step without a retry, so its `onFail` route sends the batch back to the brewer that broke it.
 
 **Freshness by manifests.** A map goes stale by change, never by age ([ADR 0282](../../adr/0282-a-stale-test-map-sends-back-the-change-that-made-it-and-the-maltster-surveys-a-new-one.md)).
-Before a check step that runs the tests (a red proof, or a step whose checks include `test`) runs anything, the map is read at the step's tip and `git ls-files -z` lists its `derivedFrom.globs` in the worktree, each after `--` with git's `glob` magic (`manifestFreshness` in `src/checks/test-map.ts`).
+Before a check step that runs the tests (a red proof, or a step whose checks include `test`) runs anything, the map is read at the step's tip, the attempt's branch, which holds the base merge made before a last check ([ADR 0452](../../adr/0452-green-starts-at-the-merged-base-and-a-merge-counts-only-on-the-heads-line.md)), and `git ls-files -z` lists its `derivedFrom.globs` in the worktree, each after `--` with git's `glob` magic (`manifestFreshness` in `src/checks/test-map.ts`).
 So that git and the map's other readers read them alike, a `derivedFrom` glob may use `*`, `**`, `?` and `[…]` only, and a recorded path is relative with `/` between folders, as git names it; a map that breaks either is refused as unreadable.
 A file listed and not recorded in `derivedFrom.paths` is added, one recorded and not listed is removed, and either makes the map stale.
 A step without a test check never reads the map.

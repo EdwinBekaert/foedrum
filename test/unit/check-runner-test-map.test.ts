@@ -156,10 +156,14 @@ const setup = ({
   real = worktree,
   /** The platform the runner reads paths for. */
   platform = 'linux' as NodeJS.Platform,
+  /** The commit each attempt branch's head is at, else the tip: it holds a base merge (ADR 0452). */
+  heads = {} as Record<string, string>,
   /** The repository's checks in foedrum.jsonc. */
   checksOf = repository,
 } = {}) => {
   const asked: string[] = [];
+  // A branch is read at the commit its head is at, as git reads it.
+  const commitOf = (rev: string) => (rev.startsWith('refs/heads/') ? (heads[rev] ?? tip) : rev);
   const exec: ExecProcess = (line) => {
     // testChanged's line runs as the test check's does (ADR 0242).
     const file = line.startsWith('npm test') ? 'npm test' : line;
@@ -204,7 +208,8 @@ const setup = ({
     clock: () => now,
     platform,
     testMap: {
-      at: async (repo, commit) => {
+      at: async (repo, rev) => {
+        const commit = commitOf(rev);
         asked.push(`map of ${repo} at ${commit}`);
         return maps[commit] ?? { kind: 'none' };
       },
@@ -219,7 +224,7 @@ const setup = ({
         return manifests;
       },
       touched: async (repo, from, to, paths) => {
-        asked.push(`touched ${paths.join(' ')} in ${repo} from ${from} to ${to}`);
+        asked.push(`touched ${paths.join(' ')} in ${repo} from ${from} to ${commitOf(to)}`);
         return Array.isArray(touched) ? { paths: touched } : touched;
       },
       realPath: () => real,
@@ -538,7 +543,7 @@ describe('createCheckRunner: a module no confirmed line reaches (ADR 0274)', () 
     assert.deepEqual(end.ending, {
       kind: 'failed',
       retryable: false,
-      reason: `the test map of acme/api at ${tip} cannot be read: it is not JSONC`,
+      reason: `the test map of acme/api at refs/heads/foedrum/12-1/green/1 cannot be read: it is not JSONC`,
     });
   });
 
@@ -585,6 +590,32 @@ describe('createCheckRunner: a stale test map (ADR 0274, ADR 0282)', () => {
       `manifests **/*.csproj in ${worktree}`,
       `touched .foedrum/test-map.jsonc **/*.csproj in acme/api from ${base} to ${tip}`,
     ]);
+  });
+
+  it("reads the tip's map and what the change touched at the attempt's branch, which holds the base merge (ADR 0452)", async () => {
+    const merged = 'e'.repeat(40);
+    const merge = 'f'.repeat(40);
+    const key = effectKey.encode(baseMergeKey({ batchId: '12-1', stepId: 'green', attempt: 1 }));
+    const more: Event[] = [
+      { type: 'effect.applied', key, result: { base: merged, merged: merge } },
+    ];
+    // The commit the attempt started at lacks the base's change; the branch holds the merge.
+    const { run, asked } = setup({
+      more,
+      heads: { 'refs/heads/foedrum/12-1/green/1': merge },
+      maps: { [base]: mapOf(web), [merged]: mapOf(web), [merge]: mapOf(web), [tip]: mapOf(web) },
+      manifests: stale,
+      touched: [],
+    });
+    await run();
+    assert.deepEqual(
+      asked.filter((line) => line.startsWith('map of') || line.startsWith('touched')),
+      [
+        `map of acme/api at ${merge}`,
+        `touched .foedrum/test-map.jsonc **/*.csproj in acme/api from ${merged} to ${merge}`,
+        `map of acme/api at ${merged}`,
+      ],
+    );
   });
 
   it('records a map the batch did not make stale without failing the step', async () => {
