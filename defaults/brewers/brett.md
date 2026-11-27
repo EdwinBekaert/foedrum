@@ -2,7 +2,7 @@
 {
   "name": "brett",
   "description": "Proposes a few mutants of the batch's change, each a one-line edit of a line it added, for the engine to check; read-only.",
-  "version": 4,
+  "version": 5,
   "inputs": [
     { "name": "order", "from": "order" },
     { "name": "planEntry", "from": "plan-entry" },
@@ -18,7 +18,7 @@
   "tree": "task",
   "deadline": "20m",
   "maxTurns": 60,
-  "stall": { "turns": 30, "minutes": 10 },
+  "stall": { "turns": 60, "minutes": 10 },
   "maxAttempts": 2
 }
 ---

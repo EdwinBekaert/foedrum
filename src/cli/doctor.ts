@@ -641,7 +641,9 @@ const catalogNotices = (
     .map(({ name, path }) => `${path}: no recipe names the brewer "${name}" (ADR 0141)`),
   ...catalog.lenses
     .filter(({ name, path }) => !defaults.includes(path) && !catalog.named.lenses.has(name))
-    .map(({ name, path }) => `${path}: no brewer's input names the lens "${name}" (ADR 0141)`),
+    .map(
+      ({ name, path }) => `${path}: no recipe step or brewer names the lens "${name}" (ADR 0141)`,
+    ),
 ];
 
 /**

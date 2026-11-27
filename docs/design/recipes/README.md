@@ -10,6 +10,7 @@ Brewers are defined first; recipes compose them.
 | [The out doc contract](out-doc.md) | How a brewer reports its outcome, and how the engine routes it |
 | [Recipes](recipes.md) | The recipe file: steps, kinds, fields, loading |
 | [Tasting](tasting.md) | Lenses, parallel groups, Brett |
+| [Writing a lens](writing-a-lens.md) | For a person: a lens file, where a recipe, a brewer or a house-yeast rule names it, and what it costs |
 | [Fining](fining.md) | The Finer: simplifying the change before the checks and reviews |
 | [The openPullRequest action](open-pull-request.md) | The push and the pull request |
 | [Interactive steps](interactive-steps.md) | A brewer step that runs as a person's session |
