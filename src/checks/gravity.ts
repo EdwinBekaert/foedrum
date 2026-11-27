@@ -92,14 +92,14 @@ const LISTABLE = /^[\w./@+-]+$/;
 /** Whether a path goes on a command line as one word, which a space or a shell character would split. */
 export const listable = (path: string): boolean => LISTABLE.test(path);
 
-const SEPARATORS = new RegExp(`[${String.fromCodePoint(0x2028, 0x2029)}]`, 'g');
+const LINE_SEPARATOR = String.fromCodePoint(0x2028);
+const PARAGRAPH_SEPARATOR = String.fromCodePoint(0x2029);
 
 /** A name an outside party wrote, quoted so it stays on its line: as JSON, a line separator escaped too. */
 export const quoted = (text: string): string =>
-  JSON.stringify(text).replace(
-    SEPARATORS,
-    (separator) => `\\u${(separator.codePointAt(0) ?? 0).toString(16)}`,
-  );
+  JSON.stringify(text)
+    .replaceAll(LINE_SEPARATOR, '\\u2028')
+    .replaceAll(PARAGRAPH_SEPARATOR, '\\u2029');
 
 /** Why a test file's path cannot be listed (ADR 0431). */
 export const unlistable = (path: string): string =>

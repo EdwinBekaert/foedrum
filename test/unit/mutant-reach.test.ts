@@ -81,6 +81,18 @@ describe('reachOf, the test files that reach a mutated line (ADR 0431)', () => {
     });
   });
 
+  it('reads the last line of a file that ends with no line break', () => {
+    const reach = reachOf({
+      coverage: coverageOf([['test/unit/a.test.ts', foldRanges(true)]]),
+      sources,
+      lines: [{ file: FILE, line: 9 }],
+    });
+    assert.deepStrictEqual(reach, {
+      kind: 'reached',
+      lines: [{ file: FILE, line: 9, tests: ['test/unit/a.test.ts'] }],
+    });
+  });
+
   it('a line no test file ran has no test file, and a test file that never loaded the file reaches nothing', () => {
     const reach = reachOf({
       coverage: coverageOf([

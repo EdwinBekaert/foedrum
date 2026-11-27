@@ -34,6 +34,9 @@ const V8Coverage = z.object({
   ),
 });
 
+/** An error's code, never its message, which may name a path; `an error` for one with no code. */
+export const codeOf = (error: unknown): string => errorCode(error) ?? 'an error';
+
 /**
  * The coverage the processes wrote in `folder` for the tree at `root`, per test file by its path in
  * the tree, each with the ranges of every file of the tree its process loaded; or why a record
@@ -45,7 +48,7 @@ export const readNodeCoverage = (folder: string, root: string): TestCoverage | s
     names = readdirSync(folder).filter((name) => name.endsWith('.json'));
   } catch (error) {
     const code = errorCode(error);
-    return code === 'ENOENT' ? new Map() : `cannot read the folder: ${code ?? 'an error'}`;
+    return code === 'ENOENT' ? new Map() : `cannot read the folder: ${codeOf(error)}`;
   }
   // The loader may name the tree by its real path (a link, a short name).
   const roots = [root, realPath(root)];
@@ -64,7 +67,7 @@ export const readNodeCoverage = (folder: string, root: string): TestCoverage | s
     try {
       text = readFileSync(join(folder, name), 'utf8');
     } catch (error) {
-      return unreadable(errorCode(error) ?? 'an error');
+      return unreadable(codeOf(error));
     }
     const parsed = V8Coverage.safeParse(parseJson(text));
     if (!parsed.success) return unreadable('not V8 coverage');

@@ -7,7 +7,7 @@ import { mkdirSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { pathToFileURL } from 'node:url';
-import { readNodeCoverage } from '../../src/checks/node-coverage.ts';
+import { codeOf, readNodeCoverage } from '../../src/checks/node-coverage.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 
 let dir: TempDir;
@@ -139,6 +139,14 @@ describe('readNodeCoverage, the records of a folder', () => {
   it('says why a record cannot be read, by the error code and not the path', () => {
     mkdirSync(join(folder, 'coverage-1.json'));
     assert.equal(readNodeCoverage(folder, tree), 'cannot read "coverage-1.json": EISDIR');
+  });
+
+  it('names an error by its code, and one with no code as an error, never by its message', () => {
+    const coded = Object.assign(new Error('EACCES: permission denied, open /home/ann/secret'), {
+      code: 'EACCES',
+    });
+    assert.equal(codeOf(coded), 'EACCES');
+    assert.equal(codeOf(new Error('/home/ann/secret is gone')), 'an error');
   });
 
   it('refuses two records that name one test file, which one of them would stand for', () => {
