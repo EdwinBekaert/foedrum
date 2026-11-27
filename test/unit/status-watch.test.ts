@@ -557,7 +557,7 @@ describe('foedrum status --watch: a batch whose rendering throws (ADR 0335)', ()
     const { frames } = await watched({ states: [{ ...state, batches }] });
     const frame = frames.at(-1)?.join('\n') ?? '';
     assert.match(frame, /1-1/);
-    assert.match(frame, /2-1.*cannot be read/);
+    assert.match(frame, /cannot be read.*2-1/);
   });
 });
 

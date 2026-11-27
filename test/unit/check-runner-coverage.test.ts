@@ -1003,7 +1003,10 @@ describe('createCheckRunner: the uncovered-line check (ADR 0274)', () => {
     });
     const end = await run();
     assert.equal(end.ending.kind, 'failed');
-    assert.match(end.ending.kind === 'failed' ? end.ending.reason : '', /src\/calc\.ts:1/);
+    assert.equal(
+      end.ending.kind === 'failed' ? end.ending.reason : '',
+      '1 changed line no test runs, all in src/calc.ts: line 1',
+    );
   });
 
   it("refuses to clear a coverage path that names git's own files or every top folder", async () => {

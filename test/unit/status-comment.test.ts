@@ -2886,7 +2886,7 @@ describe('renderStatus: a line per pull request, with all it says of it (#662)',
     );
     assert.deepEqual(section(text), [
       '**Pull requests**',
-      `- <${pr}> conflicts with the open pull request <${b}> in src/app.ts; conflicts with the open pull request <${c}> in lib.ts; waits for its checks on \`aaaaaaaa\` since ${at}`,
+      `- <${pr}> conflicts with the open pull request <${b}> in src/app.ts; conflicts with the open pull request <${c}> in lib.ts; waits for its checks on \`aaaaaaaa\` since 2026-10-18 09:00 UTC`,
     ]);
   });
 
@@ -3017,7 +3017,7 @@ describe('statusEffects: the checks of a pull request its latest push left alone
     assert.ok(
       lines.some((line) =>
         line.startsWith(
-          `- <${pr}> conflicts with \`main\` at \`dddddddd\` in b; waits for its checks on \`cccccccc\` since ${at}`,
+          `- <${pr}> conflicts with \`main\` at \`dddddddd\` in b; waits for its checks on \`cccccccc\` since 2026-10-18 09:00 UTC`,
         ),
       ),
       body,
