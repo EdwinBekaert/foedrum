@@ -442,6 +442,8 @@ describe('runServe', () => {
         if (args[0] === 'cat-file' && args[2] === blob) return { code: 0, stdout: map, stderr: '' };
         // The map's manifests at the step's tip, as it records them (ADR 0282).
         if (args[0] === 'ls-files') return { code: 0, stdout: 'package.json\0', stderr: '' };
+        // The recorded merge is on the line to the check's tip (ADR 0452).
+        if (args[0] === 'merge-base') return { code: 0, stdout: '', stderr: '' };
         throw new Error(`unexpected: ${args.join(' ')}`);
       };
       const { batch } = await brewWithChecks(0, { git });
@@ -478,6 +480,8 @@ describe('runServe', () => {
       const git: Git = async (_cwd, args) => {
         // The worktree's manifests are listed for the Brewery's map too (ADR 0282).
         if (args[0] === 'ls-files') return { code: 0, stdout: 'package.json\0', stderr: '' };
+        // The recorded merge is on the line to the check's tip (ADR 0452): not a read of a map.
+        if (args[0] === 'merge-base') return { code: 0, stdout: '', stderr: '' };
         asked.push(args.join(' '));
         // The uncovered-line check reads the batch's change, an empty one here (ADR 0274).
         if (args.includes('diff')) return { code: 0, stdout: '', stderr: '' };
@@ -519,6 +523,8 @@ describe('runServe', () => {
           return { code: 0, stdout: 'package.json\0api/package.json\0', stderr: '' };
         }
         if (args.includes('diff')) return { code: 0, stdout: '', stderr: '' };
+        // The recorded merge is on the line to the check's tip (ADR 0452).
+        if (args[0] === 'merge-base') return { code: 0, stdout: '', stderr: '' };
         throw new Error(`unexpected: ${args.join(' ')}`);
       };
       const { batch, events } = await brewWithChecks(0, { serving, git });
@@ -562,6 +568,8 @@ describe('runServe', () => {
           diffs.push(cwd);
           return { code: 0, stdout: 'api/package.json\0', stderr: '' };
         }
+        // The recorded merge is on the line to the check's tip (ADR 0452).
+        if (args[0] === 'merge-base') return { code: 0, stdout: '', stderr: '' };
         throw new Error(`unexpected: ${args.join(' ')}`);
       };
       const { events } = await brewWithChecks(0, { git });
@@ -591,7 +599,9 @@ describe('runServe', () => {
           testMap: { text: '{ "modules": [' },
         })),
       };
-      const git: Git = async () => {
+      const git: Git = async (_cwd, args) => {
+        // The recorded merge is on the line to the check's tip (ADR 0452).
+        if (args[0] === 'merge-base') return { code: 0, stdout: '', stderr: '' };
         throw new Error('no git read of the map');
       };
       const { batch } = await brewWithChecks(0, { serving, git });
