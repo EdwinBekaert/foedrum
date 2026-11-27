@@ -85,15 +85,15 @@ export type LensesCommand = z.infer<typeof LensesCommand>;
 
 /**
  * An issue as `order` takes it, which every command on a batch takes for the issue's latest (ADR
- * 0329), or a batch id (ADR 0240): a batch id has a hyphen and no `#`, so `#<n>`, `<n>` and
- * `<alias>#<n>` are never one.
+ * 0329). A batch id is read too, so that the command refuses it with the number to use (ADR 0450):
+ * a batch id has a hyphen and no `#`, so `#<n>`, `<n>` and `<alias>#<n>` are never one.
  */
 const asIssue = (text: string): boolean => /^[0-9]*$|#/.test(text);
 const BatchOrIssue = z
   .string()
   .refine(
     (text) => (asIssue(text) ? splitIssue(text) !== undefined : PathSafeId.safeParse(text).success),
-    'Must be a batch id, <alias>#<n> of a target repository, or #<n> of the Brewery',
+    'Must be <alias>#<n> of a target repository, or #<n> of the Brewery',
   )
   .transform((text): string | OrderTarget =>
     asIssue(text) ? (splitIssue(text) as OrderTarget) : text,

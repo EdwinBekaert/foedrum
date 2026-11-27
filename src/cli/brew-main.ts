@@ -7,7 +7,7 @@
 import { existsSync } from 'node:fs';
 import { interactiveBrewerRunner } from '../brewers/interactive-runner.ts';
 import type { BrewerRunner } from '../engine/brewer-runner.ts';
-import { breweryIssueOf, namedWork } from '../engine/claim-orders.ts';
+import { breweryIssueOf, namedBatchId, namedWork } from '../engine/claim-orders.ts';
 import { emptyState, fold, type State } from '../engine/fold.ts';
 import { openSqliteEventStore } from '../engine/sqlite-event-store.ts';
 import { sameRepo } from '../engine/task-tree.ts';
@@ -107,27 +107,21 @@ export interface LauterTarget {
 }
 
 /**
- * The batch `foedrum lauter` names, or why it has none (ADR 0286): a batch id names that batch, and
- * an issue its latest (ADR 0329). Brew takes it by its number once it has one.
+ * The batch `foedrum lauter` names, or why it has none (ADR 0286): an issue's latest (ADR 0329); a
+ * batch id is refused with the number to use (ADR 0450). Brew takes it by its number once it has one.
  */
 export const lauterTarget = (
   state: State,
   named: BatchOrIssue,
   repositories: readonly { alias: string; repo: string }[],
 ): LauterTarget | { refused: string } => {
-  let batchId: string;
-  if (typeof named === 'string') {
-    batchId = named;
-  } else {
-    const repoOf = (alias: string) => repositories.find((each) => each.alias === alias)?.repo;
-    const work = namedWork(state, named, repoOf, 'lauter');
-    if ('refused' in work) return work;
-    if (work.batch === undefined) return { refused: `${work.name} has no batch` };
-    batchId = work.batch.id;
-  }
-  const batch = state.batches.get(batchId);
-  if (batch === undefined) return { refused: `there is no batch ${batchId}` };
-  const { issue, repo } = batch;
+  if (typeof named === 'string') return namedBatchId(state, named, 'lauter');
+  const repoOf = (alias: string) => repositories.find((each) => each.alias === alias)?.repo;
+  const work = namedWork(state, named, repoOf, 'lauter');
+  if ('refused' in work) return work;
+  const { batch } = work;
+  if (batch === undefined) return { refused: `${work.name} has no batch` };
+  const { id: batchId, issue, repo } = batch;
   const number = breweryIssueOf(state, batch);
   if (number !== undefined) return { batchId, target: { issue: number } };
   const alias = repositories.find((each) => sameRepo(each.repo, repo ?? ''))?.alias;

@@ -50,6 +50,7 @@ import {
   claimedName,
   claimOfOrder,
   claimStandingOf,
+  latestBatch,
   liveOrderOf,
   orderSaid,
 } from './claim-orders.ts';
@@ -685,7 +686,7 @@ function busy(state: State, order: OrderRef): string | undefined {
       const open = unendedPullRequests(batch);
       if (open.length === 0) continue;
       // Brew of the number reads the latest batch's ends, so an older batch's is serve's alone.
-      const older = calledAs(state, batch) === batch.id;
+      const older = latestBatch(state.batches.values(), issue, undefined)?.id !== batch.id;
       const reads = older ? 'foedrum serve' : `foedrum brew ${issue} or foedrum serve`;
       return `${of} is on tap with a pull request with no recorded end, ${open.join(' ')}: ${reads} reads it if it ended; otherwise close it first`;
     }

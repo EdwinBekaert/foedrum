@@ -152,11 +152,22 @@ export const namedWork = (
  * for `command` with the number to use, `<alias>#<n>` until the Brewery issue is open.
  */
 export const namedBatchId = (
-  _state: State,
-  _batchId: string,
-  _command: string,
+  state: State,
+  batchId: string,
+  command: string,
 ): { refused: string } => {
-  throw new Error('not implemented');
+  const batch = state.batches.get(batchId);
+  if (batch === undefined) {
+    return { refused: `${batchId} is no batch of the log; name an issue to foedrum ${command}` };
+  }
+  const alive = breweryIssueOf(state, batch);
+  if (alive !== undefined) {
+    return { refused: `${batchId} is Brewery issue #${alive}; foedrum ${command} ${alive}` };
+  }
+  const name = claimedName(batch);
+  return {
+    refused: `${batchId} is ${name}, whose Brewery issue is not open; foedrum ${command} ${name}`,
+  };
 };
 
 /** A claimed batch's target issue as `<alias>#<n>`, or `owner/name#<n>` when its id has no alias. */
@@ -181,18 +192,15 @@ export const claimStandingOf = (
 /**
  * How a line that offers a command names a batch's work (ADR 0329): the bare number of its Brewery
  * issue, which every shell passes as it is, or its target issue's `<alias>#<n>` until that is open.
- * A batch that is not its issue's latest goes by its id, since a number means the latest (ADR 0334).
+ * An older batch of the issue goes by it too: a number means the latest, and no command names a
+ * batch id (ADR 0450).
  */
-export const calledAs = (state: State, batch: Batch): string => {
-  const latest = latestBatch(state.batches.values(), batch.issue, batch.repo);
-  if (latest !== undefined && latest.id !== batch.id) return batch.id;
-  return String(breweryIssueOf(state, batch) ?? claimedName(batch));
-};
+export const calledAs = (state: State, batch: Batch): string =>
+  String(breweryIssueOf(state, batch) ?? claimedName(batch));
 
-/** How a line says a batch's work (ADR 0334): `#<n>`, `<alias>#<n>`, or `batch <id>` as `calledAs` reads it. */
+/** How a line says a batch's work (ADR 0334): `#<n>` or `<alias>#<n>`, as `calledAs` reads it. */
 export const saidAs = (state: State, batch: Batch): string => {
   const called = calledAs(state, batch);
-  if (called === batch.id) return `batch ${called}`;
   return /^\d+$/.test(called) ? `#${called}` : called;
 };
 
