@@ -3261,10 +3261,12 @@ describe("the repository's testChanged line for the Gauger and the Cellarman (AD
       { repoChecks: () => checks, git: offLine },
     );
     const { prompt } = await plans.plan(start);
-    assert.match(
-      prompt,
-      /source="the Brewery's testChanged line for acme\/api, from commit a{40}" name="testChanged">\nvitest run --changed a{40}\n<\//,
-    );
+    // The line alone is compared, so a failure shows it and not the whole prompt around it.
+    const line =
+      /source="the Brewery's testChanged line for acme\/api, from commit ([0-9a-f]+)" name="testChanged">\n([^\n]*)\n<\//.exec(
+        prompt,
+      );
+    assert.deepEqual(line?.slice(1), [batchStart, `vitest run --changed ${batchStart}`]);
   });
 
   it("names only this platform's line of a testChanged given per platform", async () => {
