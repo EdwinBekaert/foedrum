@@ -294,8 +294,13 @@ export const runServe = async (setup: ServeSetup, shell: ServeShell): Promise<nu
   };
   // The driver's state, once it is wired: a cleanup notice names its batch's pull request from it.
   let stateOf: () => State;
-  const report = (notice: DriverNotice): void =>
-    say(notice.kind === 'cleaned' ? cleanedLine(notice, stateOf()) : formatNotice(notice));
+  // The cleanup lines of a tick wait for the tick's lasting lines, so a cleanup follows the work it
+  // cleans (ADR 0434): the driver cleans a batch that ended inside the tick.
+  const cleanups: string[] = [];
+  const report = (notice: DriverNotice): void => {
+    if (notice.kind === 'cleaned') cleanups.push(cleanedLine(notice, stateOf()));
+    else say(formatNotice(notice));
+  };
   // The lock first: a second Cellar is refused before it touches the store or the state branch.
   let lock: DriverLock;
   try {
@@ -457,6 +462,7 @@ export const runServe = async (setup: ServeSetup, shell: ServeShell): Promise<nu
     }
     // What a person must know is what changed between two ticks (ADR 0434).
     let seen = driver.state();
+    const announced = new Set<string>();
     while (!signal.aborted) {
       poll();
       if (clock().getTime() >= pausedUntil) racking?.poll();
@@ -469,7 +475,7 @@ export const runServe = async (setup: ServeSetup, shell: ServeShell): Promise<nu
         settle(waited);
       }
       const now = driver.state();
-      for (const line of lastingLines(seen, now)) say(line);
+      for (const line of [...lastingLines(seen, now, announced), ...cleanups.splice(0)]) say(line);
       seen = now;
       if (signal.aborted) break;
       // A quiet Cellar says it is alive now and then, never at each tick (ADR 0346); where a live

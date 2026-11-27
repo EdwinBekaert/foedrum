@@ -262,6 +262,10 @@ export interface Plan {
 
 const LEASED = 'its attempt holds a live lease';
 
+/** Why the cleanup keeps the task tree's branch of `batchId` while its pull request is open (ADR 0219). */
+export const openTaskTreeReason = (batchId: string): string =>
+  `it holds the task tree of batch ${batchId}, whose pull request is open (ADR 0219)`;
+
 /**
  * What a cleanup removes, from the facts of one clone and the claims. With `batchId`, only that
  * batch's worktrees, folders and branches are looked at (the batch has ended).
@@ -417,7 +421,7 @@ export const planClean = (
           : holdsTaskTree(branch.name)
             ? `it holds the task tree of batch ${batchId}, which no push recorded (ADR 0084)`
             : holdsOpen(branch.name)
-              ? `it holds the task tree of batch ${batchId}, whose pull request is open (ADR 0219)`
+              ? openTaskTreeReason(batchId)
               : at === undefined
                 ? undefined
                 : `checked out in ${at}`;

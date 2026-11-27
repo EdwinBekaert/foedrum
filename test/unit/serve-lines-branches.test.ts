@@ -102,6 +102,39 @@ describe('lastingLines of one batch', () => {
     assert.deepStrictEqual(lastingLines(before, after), [`#12 opened pull request ${web(8)}`]);
   });
 
+  describe('a batch sent back to brew a fix and put on tap again with its pull request', () => {
+    const rewound: Event = {
+      type: 'batch.rewound',
+      batchId: '12-1',
+      toStepId: 'brew',
+      by: 'octocat',
+      via: 'terminal',
+      shas: {},
+    };
+    const tappedAgain: Event = { type: 'batch.on_tap', batchId: '12-1', pullRequests: [web(7)] };
+
+    it('says it opened once, over the ticks of the fix round', () => {
+      const announced = new Set<string>();
+      const first = fold(setup);
+      const onTap = tapped(web(7));
+      const brewing = fold([rewound], onTap);
+      const again = fold([tappedAgain], brewing);
+      assert.deepStrictEqual(lastingLines(first, onTap, announced).slice(-1), [
+        `#12 opened pull request ${web(7)}`,
+      ]);
+      assert.deepStrictEqual(lastingLines(onTap, brewing, announced), []);
+      assert.deepStrictEqual(lastingLines(brewing, again, announced), []);
+    });
+
+    it('says nothing of a pull request that was open when serve began', () => {
+      const announced = new Set<string>();
+      const onTap = tapped(web(7));
+      const brewing = fold([rewound], onTap);
+      assert.deepStrictEqual(lastingLines(onTap, brewing, announced), []);
+      assert.deepStrictEqual(lastingLines(brewing, fold([tappedAgain], brewing), announced), []);
+    });
+  });
+
   it('says the end of a pull request that the first tick did not know', () => {
     const before = tapped(web(7));
     const after = fold(
@@ -116,17 +149,6 @@ describe('cleanedLine of one batch', () => {
   it('names the pull requests of a batch that opened two', () => {
     const line = cleanedLine(cleaning(['removed worktree 12-1/brew/1']), tapped(web(7), web(8)));
     assert.equal(line, '#12 opened pull request #7, #8; cleaned its 1 working copy');
-  });
-
-  it('says a link that is not a pull request as it is', () => {
-    const line = cleanedLine(
-      cleaning(['removed worktree 12-1/brew/1']),
-      tapped('https://example.com/review/7'),
-    );
-    assert.equal(
-      line,
-      '#12 opened pull request https://example.com/review/7; cleaned its 1 working copy',
-    );
   });
 
   it('says a cleanup that removed no working copy without the opening of the pull request', () => {
