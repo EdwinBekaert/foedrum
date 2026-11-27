@@ -125,7 +125,11 @@ describe('npm run demo', () => {
     const statusComment = part('pull-request');
     // The restarted Cellar's life ends in the step before: on tap, its cleanup and its stop; the
     // pull request's step starts with the pull request (#277).
-    const lifeEnd = [ON_TAP_LINE, 'foedrum serve: stopped', 'cleaned batch 1-1'];
+    const lifeEnd = [
+      ON_TAP_LINE,
+      'foedrum serve: stopped',
+      '#1 opened pull request #1; cleaned its ',
+    ];
     for (const line of lifeEnd) {
       assert.ok(checks.includes(line), `${line} in the checks step:\n${checks}`);
       assert.ok(!statusComment.includes(line), `${line} in the pull request's:\n${statusComment}`);
@@ -147,8 +151,9 @@ describe('npm run demo', () => {
       1,
     );
     assert.ok(!result.stdout.includes('<!--'), result.stdout);
-    // A cleanup counts the worktrees and branches it removed (#662).
-    assert.match(result.stdout, /cleaned batch 1-1: removed \d+ worktrees; deleted \d+ branches; /);
+    // A cleanup counts the working copies it removed, and names the batch's pull request (#662, ADR 0434).
+    assert.match(result.stdout, /#1 opened pull request #1; cleaned its \d+ working copies/);
+    assert.doesNotMatch(result.stdout, /cleaned batch 1-1/);
     assert.doesNotMatch(result.stdout, /removed worktree /);
     // On tap: foedrum status shows the batch waiting for its merge, with its pull request.
     assert.match(
