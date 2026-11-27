@@ -521,7 +521,7 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
       else if (notice.kind === 'command_failed') sayCommandFailure(notice);
       else report(notice);
     },
-    acts: (batchId) => !others.has(batchId),
+    acts: (batchId) => !others.has(batchId) && !untaken.has(batchId),
   });
 
   const runs = new Map<string, { ref: AttemptRef; run: RunningAttempt }>();
@@ -1067,6 +1067,9 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
   // The batches it took with an attempt scheduled and not started: it moved that deadline on, or
   // started the attempt (ADR 0435).
   const taken = new Set<string>();
+  // The batches whose take threw in the current tick: they keep their old deadline, so neither the
+  // supervisor expires them nor the drive starts them before the next take (ADR 0435).
+  let untaken = new Set<string>();
 
   /** Starts the scheduled attempts of `batch` that may start; whether any step of it moved. */
   const driveBatch = async (
@@ -1077,6 +1080,7 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
     let moved = false;
     // A paused batch starts nothing until it continues (ADR 0202).
     if (batch.lane.kind !== 'brewing' || pauseOf(log.state(), batch) !== undefined) return moved;
+    if (untaken.has(batch.id)) return moved;
     for (const [stepId, step] of batch.steps) {
       const latest = runningAttempt(step);
       if (latest?.phase !== 'scheduled') continue;
@@ -1506,9 +1510,10 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
    * the chance to start (ADR 0435). A batch it does not take, and another driver's, keep theirs. A
    * throw for one batch is reported as the supervisor's pass reports it, and the other batches go
    * on (ADR 0328); that batch is tried again at the next take, as it is taken only once its command
-   * is recorded.
+   * is recorded, and neither expires nor starts in this tick, as its deadline is still the old one.
    */
   const takeBatches = (): void => {
+    untaken = new Set();
     for (const batch of log.state().batches.values()) {
       if (taken.has(batch.id) || batch.lane.kind !== 'brewing') continue;
       try {
@@ -1519,6 +1524,7 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
         issue({ kind: 'take', batchId: batch.id });
         taken.add(batch.id);
       } catch (error) {
+        untaken.add(batch.id);
         sayFailure({ kind: 'batch_failed', batchId: batch.id, pass: 'supervisor', error });
       }
     }

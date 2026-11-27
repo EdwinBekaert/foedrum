@@ -93,7 +93,10 @@ describe('one batch that throws as the driver takes it (#1181, ADR 0435)', () =>
     drivers.push(driver);
     await driver.tick();
     assert.deepStrictEqual(rescheduledBatches(), ['b2']);
-    assert.deepStrictEqual(started, [plan('b1'), plan('b2')]);
+    // The batch whose take threw keeps its old deadline, which has passed: it is neither expired
+    // nor started in this tick.
+    assert.deepStrictEqual(started, [plan('b2')]);
+    assert.equal(driver.state().batches.get('b1')?.lane.kind, 'brewing');
     assert.deepStrictEqual(
       notices.flatMap((notice) =>
         notice.kind === 'batch_failed'
@@ -102,5 +105,11 @@ describe('one batch that throws as the driver takes it (#1181, ADR 0435)', () =>
       ),
       [{ batchId: 'b1', pass: 'supervisor', error: boom }],
     );
+    // The next take tries it again, and its attempt starts under the new deadline.
+    broken = false;
+    await driver.tick();
+    assert.deepStrictEqual(rescheduledBatches(), ['b2', 'b1']);
+    assert.deepStrictEqual(started, [plan('b2'), plan('b1')]);
+    assert.equal(driver.state().batches.get('b1')?.lane.kind, 'brewing');
   });
 });
