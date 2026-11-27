@@ -115,9 +115,10 @@ export const cleanedLine = (
   const rest = [...kept.filter((line) => !lastBranch.includes(line)), ...failed];
   // The pull request is named as the reason there was something to clean: a cleanup that found no
   // working copy does not repeat the line of the pull request's opening.
+  const pullRequests = onTap(batch);
   const opened =
-    copies > 0 && batch.lane.kind === 'on_tap' && batch.lane.pullRequests.length > 0
-      ? ` opened pull request ${batch.lane.pullRequests.map(shortLink).join(', ')};`
+    copies > 0 && pullRequests.length > 0
+      ? ` opened pull request ${pullRequests.map(shortLink).join(', ')};`
       : '';
   const cleaned =
     copies === 0
