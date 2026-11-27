@@ -4,7 +4,7 @@
 // recorded (ADR 0116).
 
 import { mkdirSync } from 'node:fs';
-import { dirname } from 'node:path';
+import { dirname, join } from 'node:path';
 import { type RepositoryChecks, testChangedLine } from '../checks/gravity.ts';
 import { redTestFiles } from '../checks/red-tests.ts';
 import { checksEnv, setupRunOf } from '../checks/setup.ts';
@@ -60,6 +60,7 @@ import {
   type InputRead,
   inputsOf,
   keptMergeInput,
+  keptOutDocOf,
   type LaterRound,
   MAX_CHANGE_INPUT_BYTES,
   outDocCopyOf,
@@ -261,7 +262,7 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
   };
 
   /** The text of one input, untrusted. */
-  const textOf = async ({ name, source, read }: PlannedInput): Promise<string> => {
+  const textOf = async (batch: Batch, { name, source, read }: PlannedInput): Promise<string> => {
     // A lens's text was read, and held to the limit, when the brewer loaded (ADR 0098).
     if (read.kind === 'text') return read.text;
     if (read.kind === 'order') {
@@ -274,7 +275,16 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
       }
       return text;
     }
-    const file = files.read(read.path, MAX_INPUT_BYTES, read.root);
+    let file = files.read(read.path, MAX_INPUT_BYTES, read.root);
+    if (file.kind === 'missing' && source.kind === 'out-doc') {
+      // The batch's worktrees were cleaned: the state branch's worktree keeps the doc (ADR 0465).
+      const stateRoot = join(workRoot, 'state');
+      file = files.read(
+        join(stateRoot, keptOutDocOf(batch, source.step)),
+        MAX_INPUT_BYTES,
+        stateRoot,
+      );
+    }
     const found = source.kind === 'out-doc' || source.kind === 'plan' ? laterRead(file) : file;
     switch (found.kind) {
       case 'text':
@@ -736,7 +746,7 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
       ...planned,
       ...(planLens ? planLensInputs(batch, stepBrewer, repositories, found.choices) : []),
     ]) {
-      const text = await textOf(input);
+      const text = await textOf(batch, input);
       inputs.push({ name: input.name, source: input.source, text });
       if (input.read.kind === 'order') {
         inputs.push(...(await orderCommentsFor(input.name, batch, { body: text })));
