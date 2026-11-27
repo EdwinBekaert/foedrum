@@ -10,7 +10,7 @@ In an hour `foedrum serve` opened a Brewery issue, ran about 25 steps, got two b
 - Every such line goes over the live line (ADR 0427), and a batch that only brews prints none.
 - The cleanup line is a person's: `#27 (foedrum#1156) opened pull request #1167; cleaned its 20 working copies, keeping its last branch in case a check on the pull request fails`. The batch's pull request is read from `serve`'s state, since the notice carries none. A tick's cleanup lines follow its other lasting lines. A branch kept for another reason, and what could not be cleaned, follow in the engine's words. `formatNotice` keeps its cleanup line for `brew`.
 - A failed read of GitHub by the intake says in one line what failed and that the next pass tries again. The raw error follows it only where no live line is drawn.
-- The words are in `src/cli/serve-lines.ts`, pure over folded states.
+- The words are in `src/cli/serve-lines.ts`, pure over two folded states and the set of pull requests said opened, which `serve` keeps from tick to tick and `lastingLines` adds to.
 
 ## Consequences
 - A person who watches `serve` on a terminal, or reads its log, learns of a Stuck batch and its command, and of a pull request, without running `status`.
