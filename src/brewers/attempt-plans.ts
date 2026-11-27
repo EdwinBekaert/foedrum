@@ -55,6 +55,7 @@ import {
   changeStart,
   earlierFindingsInput,
   earlierRoundsOf,
+  findingsRouteOf,
   groupOfStep,
   type InputRead,
   inputsOf,
@@ -991,7 +992,16 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
       const start = worktreeOf(batch, ref)?.worktree.commit;
       const lenses = found.together ?? (found.lens === undefined ? undefined : [found.lens]);
       const choices = found.choices?.map(({ name }) => name);
-      return attemptLimits(found.brewer, start, found.blocking, lenses, choices);
+      const findingsRoute =
+        batch === undefined
+          ? undefined
+          : findingsRouteOf(batch, ref, (stepId, attempt) =>
+              groupOfStep(brewerOf({ batchId: ref.batchId, stepId, attempt })),
+            );
+      return {
+        ...attemptLimits(found.brewer, start, found.blocking, lenses, choices),
+        ...(findingsRoute === undefined ? {} : { findingsRoute }),
+      };
     },
     outDoc: outDocOf,
   };

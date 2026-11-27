@@ -230,11 +230,14 @@ export function familyOfBrewer(
 
 /**
  * The git rules `git.commit: true` grants (ADR 0074): fixed subcommands that never push (ADR 0062),
- * in Bash; none for any other brewer.
+ * in Bash, `git rm` among them since a brewer has no tool that deletes a file (ADR 0435); none for
+ * any other brewer.
  */
 export function gitRulesOf(brewer: BrewerFrontmatter): string[] {
   // `git diff --no-index` and `git log --output` reach any file: a brewer names them itself.
-  return commits(brewer) ? ['Bash(git status *)', 'Bash(git add *)', 'Bash(git commit *)'] : [];
+  return commits(brewer)
+    ? ['Bash(git status *)', 'Bash(git add *)', 'Bash(git rm *)', 'Bash(git commit *)']
+    : [];
 }
 
 const commits = (brewer: BrewerFrontmatter): boolean =>
@@ -934,11 +937,8 @@ export function routeOf(
   }
   const { from, why } = route;
   const source = { kind: 'route', step: ref.stepId, from, why } as const;
-  // The attempt that routed: the latest of its step that finished, never an earlier round's.
-  const routing = [...(batch.steps.get(from)?.attempts.values() ?? [])]
-    .filter((attempt) => attempt.phase === 'finished')
-    .at(-1);
-  if (routing?.phase !== 'finished') return { source, text: `Step ${from} sent this step back.` };
+  const routing = routingAttempt(batch, from);
+  if (routing === undefined) return { source, text: `Step ${from} sent this step back.` };
   const { outcome, readings = [] } = routing;
   const reason = outcome.kind === 'failed' ? outcome.reason : outcome.kind;
   // A red proof's reason quotes its test run, whose tail alone was filtered (#188).
@@ -967,6 +967,42 @@ export function routeOf(
   if (why === 'failed' || root === undefined || doc === undefined)
     return { source, text, ...others };
   return { source, text, outDoc: { path: join(root, doc), root }, ...others };
+}
+
+/** The attempt of step `from` that routed: its latest that finished, never an earlier round's. */
+const routingAttempt = (batch: Batch, from: string) =>
+  [...(batch.steps.get(from)?.attempts.values() ?? [])]
+    .filter(
+      (attempt): attempt is Extract<Attempt, { phase: 'finished' }> => attempt.phase === 'finished',
+    )
+    .at(-1);
+
+/**
+ * The step whose findings route brought attempt `ref` back and the findings of its route input,
+ * each at its place and, for another child of the routing step's group, that step (ADR 0349); none
+ * for an attempt no findings route scheduled. What the runner reads to settle a `done` with no
+ * commit (ADR 0435).
+ */
+export function findingsRouteOf(
+  batch: Batch,
+  ref: AttemptRef,
+  groupOf: GroupOf,
+): AttemptLimits['findingsRoute'] {
+  const step = batch.steps.get(ref.stepId);
+  const route = step === undefined ? undefined : roundRouteOf(step, ref.attempt);
+  if (route?.why !== 'findings') return undefined;
+  const { from } = route;
+  const routing = routingAttempt(batch, from);
+  if (routing === undefined) return undefined;
+  const place = ({ file, line }: TastingFinding) => ({
+    ...(file === undefined ? {} : { file }),
+    ...(line === undefined ? {} : { line }),
+  });
+  const own = roundFindings(routing).map(place);
+  const others = (groupRoundOf(batch, from, routing.attempt, groupOf) ?? []).flatMap(
+    ({ step: found, findings }) => findings.map((finding) => ({ step: found, ...place(finding) })),
+  );
+  return { from, findings: [...own, ...others] };
 }
 
 /**
@@ -1573,6 +1609,7 @@ export function attemptSystemPrompt(
       : []),
     ...(committing
       ? [
+          'Remove a tracked file with `git rm <file>`, then commit the removal.',
           'Commit with a subject and a body: `git commit -m "<subject>" -m "<body>"`, one `-m` per paragraph.',
         ]
       : []),
