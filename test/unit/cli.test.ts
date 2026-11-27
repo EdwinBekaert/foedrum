@@ -379,14 +379,15 @@ describe('foedrum: the command line', () => {
       inputs.push(input);
       return { exitCode: 3, stdout: '', stderr: '' };
     };
-    assert.equal((await run(['resume', '12-1'], { resume })).exitCode, 3);
-    assert.equal((await run(['resume', '12-1', 'plan#2'], { resume })).exitCode, 3);
+    const openStore = () => storeWith([ordered(12)]);
+    assert.equal((await run(['resume', '12'], { resume, openStore })).exitCode, 3);
+    assert.equal((await run(['resume', '12', 'plan#2'], { resume, openStore })).exitCode, 3);
     assert.deepEqual(inputs, [
       { batch: '12-1', step: undefined },
       { batch: '12-1', step: 'plan#2' },
     ]);
     assertUsageError(
-      await run(['resume', '12-1', 'plan', 'now'], { resume }),
+      await run(['resume', '12', 'plan', 'now'], { resume }),
       'foedrum resume: unexpected argument "now"',
     );
     assertUsageError(await run(['resume'], { resume }), 'foedrum resume: missing <issue>');
@@ -400,6 +401,16 @@ describe('foedrum: the command line', () => {
       await run(['serve', '--via', 'plugin']),
       'foedrum serve: unknown option "--via"',
     );
+  });
+
+  it('offers no batch id in any command summary or terminal-only reason (ADR 0450)', () => {
+    const retry = commands.find(({ name }) => name === 'retry');
+    assert.match(retry?.terminalOnly ?? '', /run as foedrum <option> <issue>/);
+    for (const { name, summary, terminalOnly } of commands) {
+      for (const text of [summary, terminalOnly ?? '']) {
+        assert.doesNotMatch(text, /batch id|run as: line/, name);
+      }
+    }
   });
 
   it('lists the commands for --help after a command', async () => {
@@ -431,7 +442,7 @@ describe('foedrum: the command line', () => {
     assertUsageError(await run(['status', '--json']), 'foedrum status: unknown option "--json"');
     assertUsageError(await run(['doctor', '-v']), 'foedrum doctor: unknown option "-v"');
     assertUsageError(
-      await run(['replay', '12-1', '--batch=12-1']),
+      await run(['replay', '12', '--batch=12']),
       'foedrum replay: unknown option "--batch"',
     );
   });
@@ -441,10 +452,7 @@ describe('foedrum: the command line', () => {
       await run(['status', '11', 'now']),
       'foedrum status: unexpected argument "now"',
     );
-    assertUsageError(
-      await run(['replay', '12-1', '14-1']),
-      'foedrum replay: unexpected argument "14-1"',
-    );
+    assertUsageError(await run(['replay', '12', '14']), 'foedrum replay: unexpected argument "14"');
   });
 
   it('refuses a missing argument', async () => {
@@ -454,14 +462,14 @@ describe('foedrum: the command line', () => {
   it('refuses an argument its command schema rejects, with the reason', async () => {
     assertUsageError(
       await run(['replay', 'B1']),
-      'foedrum replay: invalid <issue> "B1": Must be a batch id, <alias>#<n> of a target repository, or #<n> of the Brewery',
+      'foedrum replay: invalid <issue> "B1": Must be <alias>#<n> of a target repository, or #<n> of the Brewery',
     );
   });
 
   it('takes what follows -- as arguments', async () => {
     assertUsageError(
       await run(['replay', '--', '-1']),
-      'foedrum replay: invalid <issue> "-1": Must be a batch id, <alias>#<n> of a target repository, or #<n> of the Brewery',
+      'foedrum replay: invalid <issue> "-1": Must be <alias>#<n> of a target repository, or #<n> of the Brewery',
     );
   });
 });
@@ -557,7 +565,7 @@ describe('foedrum status', () => {
     ];
     const status = await run(['status'], { openStore: () => storeWith(events) });
     assert.match(status.stdout, /copy\\u001b\]52;c;aGk=\\u0007\\u009b done/);
-    const replay = await run(['replay', '11-1'], { openStore: () => storeWith(events) });
+    const replay = await run(['replay', '11'], { openStore: () => storeWith(events) });
     assert.match(replay.stdout, /failed: red\\u001b\[1A\\u001b\[2Kgreen\n/);
     // Nothing but line feeds below U+0020, and no DEL or C1 control.
     const control = (text: string) =>
@@ -618,7 +626,7 @@ describe('foedrum status', () => {
     ];
     const listed = await run(['stuck'], { openStore: () => storeWith(events) });
     assert.match(listed.stdout, /app-11 +#200 \(app#11\) /);
-    const replayed = await run(['replay', 'app-11'], { openStore: () => storeWith(events) });
+    const replayed = await run(['replay', '200'], { openStore: () => storeWith(events) });
     assert.match(replayed.stdout, /^Batch app-11, issue acme\/app#11$/m);
   });
 
@@ -1264,7 +1272,7 @@ describe('foedrum brew (ADR 0123)', () => {
     );
     // No other command takes --as.
     assertUsageError(
-      await run(['retry', '12-1', '--as', 'ann']),
+      await run(['retry', '12', '--as', 'ann']),
       'foedrum retry: unknown option "--as"',
     );
   });
@@ -1282,7 +1290,7 @@ describe('foedrum brew (ADR 0123)', () => {
       'foedrum brew: --take takes no value',
     );
     assertUsageError(
-      await run(['cancel', '12-1', '--take']),
+      await run(['cancel', '12', '--take']),
       'foedrum cancel: unknown option "--take"',
     );
   });
@@ -1290,25 +1298,25 @@ describe('foedrum brew (ADR 0123)', () => {
 
 describe('foedrum replay', () => {
   it("shows a batch's events, with their store ids, and its folded state", async (t) => {
-    const result = await run(['replay', '12-1'], { openStore: () => storeWith(brewery) });
+    const result = await run(['replay', '12'], { openStore: () => storeWith(brewery) });
     assert.equal(result.exitCode, 0);
     assert.equal(result.stderr, '');
     snapshot(t, result.stdout);
   });
 
   it("shows a sub-order batch's parent, a human's recipe choice, a rewind and an abandoned attempt", async (t) => {
-    const result = await run(['replay', '14-1'], { openStore: () => storeWith(brewery) });
+    const result = await run(['replay', '14'], { openStore: () => storeWith(brewery) });
     assert.equal(result.exitCode, 0);
     snapshot(t, result.stdout);
   });
 
   it('points at the out docs on the state branch once an attempt finished, and not before (ADR 0103)', async () => {
-    const finished = await run(['replay', '12-1'], { openStore: () => storeWith(brewery) });
+    const finished = await run(['replay', '12'], { openStore: () => storeWith(brewery) });
     assert.match(
       finished.stdout,
       /^ {2}out docs {2}on the state branch at batches\/12-1\/<step>-<attempt>\.md$/m,
     );
-    const none = await run(['replay', '14-1'], { openStore: () => storeWith(brewery) });
+    const none = await run(['replay', '14'], { openStore: () => storeWith(brewery) });
     assert.doesNotMatch(none.stdout, /out docs/);
   });
 
@@ -1330,7 +1338,7 @@ describe('foedrum replay', () => {
       ...finished(1, { kind: 'needs_input', questions: [question] }),
       ...finished(2, { kind: 'cancelled' }),
     ];
-    const { stdout } = await run(['replay', '11-1'], { openStore: () => storeWith(events) });
+    const { stdout } = await run(['replay', '11'], { openStore: () => storeWith(events) });
     assert.ok(
       stdout.endsWith('  steps\n    plan  #1 finished: needs input; #2 finished: cancelled\n'),
       stdout,
@@ -1338,15 +1346,15 @@ describe('foedrum replay', () => {
   });
 
   it('refuses an unknown batch in one line, and exits 1', async () => {
-    assert.deepEqual(await run(['replay', '99-1'], { openStore: () => storeWith(brewery) }), {
+    assert.deepEqual(await run(['replay', '99'], { openStore: () => storeWith(brewery) }), {
       exitCode: 1,
       stdout: '',
-      stderr: 'foedrum replay: no batch 99-1 in the event store\n',
+      stderr: 'foedrum replay: #99 has no batch\n',
     });
   });
 
   it('says so in one line, and exits 1, when there is no event store', async () => {
-    const result = await run(['replay', '12-1']);
+    const result = await run(['replay', '12']);
     assert.equal(result.exitCode, 1);
     assert.equal(
       normalise(result.stderr),
@@ -1355,13 +1363,13 @@ describe('foedrum replay', () => {
   });
 
   it('refuses an event log the fold rejects, in one line, and exits 1', async () => {
-    const result = await run(['replay', '11-1'], { openStore: () => storeWith(invalidLog) });
+    const result = await run(['replay', '11'], { openStore: () => storeWith(invalidLog) });
     assert.equal(result.exitCode, 1);
     assert.match(result.stderr, /^foedrum replay: Invalid event log at event 1 [^\n]+\n$/);
   });
 
   it('closes the event store, and appends nothing to it (ADR 0030)', async () => {
-    for (const batch of ['12-1', '99-1']) {
+    for (const batch of ['12', '99']) {
       const watched = watchedStore(brewery);
       await run(['replay', batch], { openStore: () => watched.store });
       assert.deepEqual(watched.afterRun(), { closed: 1, lastEventId: brewery.length });
@@ -1370,7 +1378,7 @@ describe('foedrum replay', () => {
 
   it('closes the event store when the fold rejects its log', async () => {
     const watched = watchedStore(invalidLog);
-    await run(['replay', '11-1'], { openStore: () => watched.store });
+    await run(['replay', '11'], { openStore: () => watched.store });
     assert.deepEqual(watched.afterRun(), { closed: 1, lastEventId: invalidLog.length });
   });
 });

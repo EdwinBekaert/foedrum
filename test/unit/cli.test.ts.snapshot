@@ -146,7 +146,7 @@ Commands:
   answer <issue> <answers>...                             Answer a Stuck batch's questions, one answer each, in order
   approve <issue>                                         Sign off the plan a Stuck batch waits with a review of; the batch goes on tap
   lauter <issue> [--as <name>]                            Correct the plan a Stuck batch waits with a review of, with the Brewmaster in a session
-  recipe <target> <recipe> <reason>                       Brew a batch, or an issue's latest, with another recipe from its first step; an ended issue is ordered again
+  recipe <target> <recipe> <reason>                       Brew an issue's latest batch with another recipe from its first step; an ended issue is ordered again
   rewind <issue> <step> <commits>...                      Take a Stuck batch back to a step, each repository at its commit
   cancel <issue>                                          Cancel a batch
   pause [<order>] [--by <time>] [--why <reason>] [--all]  Pause an order, or all with --all: nothing new starts; --by stops what runs
