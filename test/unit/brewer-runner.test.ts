@@ -549,6 +549,194 @@ describe('settleAttempt: a brewer that produces commits (ADR 0074)', () => {
   });
 });
 
+describe('settleAttempt: a done with no commit after a findings route (#1181, ADR 0074)', () => {
+  const start = 'c0ffee0'.padEnd(40, '1');
+  const noCommit = (more: Partial<AttemptLimits> = {}): AttemptLimits => ({
+    ...limits,
+    commitsSince: start,
+    ...more,
+  });
+  const nothing = { kind: 'counted', count: 0 } as const;
+  const diverged = {
+    kind: 'blocked',
+    blockerKind: 'divergence',
+    summary: 'the out doc says done, but the brewer made no commit since c0ffee0: Dismissed',
+  };
+  const route = (...findings: { step?: string; file?: string; line?: number }[]) => ({
+    findingsRoute: { from: 'security', findings },
+  });
+  const dismissal = (more: Record<string, unknown> = {}) => ({
+    disposition: 'dismissed',
+    why: 'src/wait.ts:12 is the order’s own cap',
+    ...more,
+  });
+  const dismissing = (...dispositions: Record<string, unknown>[]) =>
+    outDoc({ status: 'done', summary: 'Dismissed', dispositions });
+  const settle = (doc: string, more: Partial<AttemptLimits>, commits: CommitsSeen = nothing) =>
+    settleAttempt(facts({ outDoc: doc, commits }), noCommit(more));
+
+  it('succeeds when its out doc dismisses the one finding of its route input, with the out doc as its output', () => {
+    const doc = dismissing(dismissal({ file: 'src/wait.ts', line: 12 }));
+    const ending = settle(doc, route({ file: 'src/wait.ts', line: 12 }));
+    assert.deepEqual(ending, {
+      kind: 'succeeded',
+      output: {
+        status: 'done',
+        summary: 'Dismissed',
+        assumptions: [],
+        dispositions: [dismissal({ file: 'src/wait.ts', line: 12 })],
+      },
+    });
+  });
+
+  it('succeeds when it marks a finding pre-existing, and when it dismisses one and marks another', () => {
+    const doc = dismissing(dismissal({ file: 'src/a.ts', line: 1 }), {
+      disposition: 'pre-existing',
+      why: 'src/b.ts:2 reads so on main',
+      file: 'src/b.ts',
+      line: 2,
+    });
+    const findings = [
+      { file: 'src/a.ts', line: 1 },
+      { file: 'src/b.ts', line: 2 },
+    ];
+    assert.equal(settle(doc, route(...findings)).kind, 'succeeded');
+    const marked = dismissing({
+      disposition: 'pre-existing',
+      why: 'src/b.ts:2 reads so on main',
+      file: 'src/b.ts',
+      line: 2,
+    });
+    assert.equal(settle(marked, route({ file: 'src/b.ts', line: 2 })).kind, 'succeeded');
+  });
+
+  it('succeeds for a finding about the change as a whole, which has no file, when its disposition has none', () => {
+    const ending = settle(dismissing(dismissal()), route({}));
+    assert.equal(ending.kind, 'succeeded', JSON.stringify(ending));
+  });
+
+  it('succeeds for a finding another step of the group found, when its disposition names that step', () => {
+    const doc = dismissing(
+      dismissal({ file: 'src/a.ts', line: 1 }),
+      dismissal({ step: 'acceptance', file: 'src/b.ts', line: 2 }),
+    );
+    const ending = settle(
+      doc,
+      route({ file: 'src/a.ts', line: 1 }, { step: 'acceptance', file: 'src/b.ts', line: 2 }),
+    );
+    assert.equal(ending.kind, 'succeeded', JSON.stringify(ending));
+  });
+
+  it('counts a disposition that names the routing step as one of its own findings', () => {
+    const doc = dismissing(dismissal({ step: 'security', file: 'src/a.ts', line: 1 }));
+    assert.equal(settle(doc, route({ file: 'src/a.ts', line: 1 })).kind, 'succeeded');
+  });
+
+  it('regression test: succeeds with a dismissal and a commit, as it does for any done with one', () => {
+    const doc = dismissing(dismissal({ file: 'src/a.ts', line: 1 }));
+    const ending = settle(doc, route({ file: 'src/a.ts', line: 1 }), { kind: 'counted', count: 1 });
+    assert.equal(ending.kind, 'succeeded', JSON.stringify(ending));
+  });
+
+  it('regression test: stays blocked on a divergence when one finding has no disposition', () => {
+    const doc = dismissing(dismissal({ file: 'src/a.ts', line: 1 }));
+    const ending = settle(doc, route({ file: 'src/a.ts', line: 1 }, { file: 'src/b.ts', line: 2 }));
+    assert.deepEqual(ending, diverged);
+  });
+
+  it('regression test: stays blocked on a divergence when a finding is marked fixed, since nothing was committed', () => {
+    const doc = dismissing({ disposition: 'fixed', file: 'src/a.ts', line: 1 });
+    assert.deepEqual(settle(doc, route({ file: 'src/a.ts', line: 1 })), diverged);
+  });
+
+  it('regression test: stays blocked on a divergence when one of two findings is fixed and the other dismissed', () => {
+    const doc = dismissing(
+      { disposition: 'fixed', file: 'src/a.ts', line: 1 },
+      dismissal({ file: 'src/b.ts', line: 2 }),
+    );
+    const ending = settle(doc, route({ file: 'src/a.ts', line: 1 }, { file: 'src/b.ts', line: 2 }));
+    assert.deepEqual(ending, diverged);
+  });
+
+  it('answers each finding with one disposition: two findings at one place need two', () => {
+    const findings = [
+      { file: 'src/a.ts', line: 1 },
+      { file: 'src/a.ts', line: 1 },
+    ];
+    const once = dismissing(dismissal({ file: 'src/a.ts', line: 1 }));
+    assert.deepEqual(settle(once, route(...findings)), diverged);
+    const twice = dismissing(
+      dismissal({ file: 'src/a.ts', line: 1 }),
+      dismissal({ file: 'src/a.ts', line: 1, why: 'src/a.ts:1 is covered by test/a.test.ts' }),
+    );
+    assert.equal(settle(twice, route(...findings)).kind, 'succeeded');
+  });
+
+  it('regression test: stays blocked on a divergence when the disposition is at another place than the finding', () => {
+    const elsewhere = dismissing(dismissal({ file: 'src/a.ts', line: 2 }));
+    assert.deepEqual(settle(elsewhere, route({ file: 'src/a.ts', line: 1 })), diverged);
+    const otherFile = dismissing(dismissal({ file: 'src/b.ts', line: 1 }));
+    assert.deepEqual(settle(otherFile, route({ file: 'src/a.ts', line: 1 })), diverged);
+  });
+
+  it('regression test: stays blocked on a divergence when the disposition names another step than the one that found it', () => {
+    const doc = dismissing(dismissal({ step: 'acceptance', file: 'src/a.ts', line: 1 }));
+    assert.deepEqual(settle(doc, route({ file: 'src/a.ts', line: 1 })), diverged);
+    const named = dismissing(dismissal({ file: 'src/a.ts', line: 1 }));
+    const group = route({ step: 'acceptance', file: 'src/a.ts', line: 1 });
+    assert.deepEqual(settle(named, group), diverged);
+  });
+
+  it('regression test: stays blocked on a divergence when a done with no commit lists no disposition', () => {
+    const doc = outDoc({ status: 'done', summary: 'Dismissed' });
+    assert.deepEqual(settle(doc, route({ file: 'src/a.ts', line: 1 })), diverged);
+  });
+
+  it('regression test: stays blocked on a divergence when its route input holds no finding, whatever it dismisses', () => {
+    const doc = dismissing(dismissal({ file: 'src/a.ts', line: 1 }));
+    assert.deepEqual(settle(doc, route()), diverged);
+  });
+
+  it('regression test: stays blocked on a divergence when no findings route brought it back, whatever it dismisses', () => {
+    const doc = dismissing(dismissal({ file: 'src/a.ts', line: 1 }));
+    assert.deepEqual(settle(doc, {}), diverged);
+  });
+
+  it('regression test: blocks on the environment when the commits were not counted, though every finding is dismissed', () => {
+    const doc = dismissing(dismissal({ file: 'src/a.ts', line: 1 }));
+    const uncounted = { kind: 'uncounted', reason: 'git exited with 128' } as const;
+    assert.deepEqual(settle(doc, route({ file: 'src/a.ts', line: 1 }), uncounted), {
+      kind: 'blocked',
+      blockerKind: 'environment',
+      summary: 'the commits since c0ffee0 were not counted: git exited with 128',
+    });
+  });
+
+  it('regression test: fails retryably when the brewer rewrote its start, though every finding is dismissed', () => {
+    const doc = dismissing(dismissal({ file: 'src/a.ts', line: 1 }));
+    const rewritten = { kind: 'rewritten' } as const;
+    assert.deepEqual(settle(doc, route({ file: 'src/a.ts', line: 1 }), rewritten), {
+      kind: 'failed',
+      retryable: true,
+      reason: 'the brewer rewrote c0ffee0, the commit its worktree started at',
+    });
+  });
+
+  it('regression test: still ends a blocked out doc as blocked, with every finding dismissed', () => {
+    const doc = outDoc({
+      status: 'blocked',
+      summary: 'Cannot say',
+      blockerKind: 'findings',
+      dispositions: [dismissal({ file: 'src/a.ts', line: 1 })],
+    });
+    assert.deepEqual(settle(doc, route({ file: 'src/a.ts', line: 1 })), {
+      kind: 'blocked',
+      blockerKind: 'findings',
+      summary: 'Cannot say',
+    });
+  });
+});
+
 describe('scannedEnding: the secret scan of a done attempt with commits (ADR 0187)', () => {
   const success: Ending = { kind: 'succeeded', output: succeeded.output };
   const start = 'c0ffee0'.padEnd(40, '1');

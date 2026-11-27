@@ -1130,6 +1130,28 @@ describe('the default Cellarman', () => {
     assert.match(dismissed?.why ?? '', /the order's .* sentence/i);
   });
 
+  it("the default Cellarman's instructions say it may remove a tracked file with `git rm` (#1181)", () => {
+    const found = cellarman();
+    assert.ok(found !== undefined, 'nip has no implement step');
+    assert.match(found.instructions, /`git rm[^`]*`/);
+  });
+
+  it("the default Cellarman's instructions say a round that dismisses every finding ends done with no commit (#1181)", () => {
+    const found = cellarman();
+    assert.ok(found !== undefined, 'nip has no implement step');
+    const [section = ''] = found.instructions
+      .split(/\n(?=## )/)
+      .filter((part) => part.startsWith("## A Taster's findings"));
+    assert.match(section, /(no commit|without a commit)/i);
+    assert.match(section, /every finding[^\n]*`"dismissed"`/i);
+  });
+
+  it('raises the version of the default Cellarman, whose prompt changed again (#1181)', () => {
+    const found = cellarman();
+    assert.ok(found !== undefined, 'nip has no implement step');
+    assert.ok(found.brewer.version > 19, String(found.brewer.version));
+  });
+
   it('sends a Cellarman out doc with a wrong test in its text back to the Gauger, whose input names the test (#470)', async () => {
     const store = openSqliteEventStore(':memory:');
     try {

@@ -2,7 +2,7 @@
 {
   "name": "cellarman",
   "description": "Makes the Gauger's failing tests pass in one repository, without changing them.",
-  "version": 21,
+  "version": 22,
   "inputs": [
     { "name": "order", "from": "order" },
     { "name": "tests", "from": "step:gauge" },
@@ -58,6 +58,8 @@ The repository's setup, when it has one, has installed its dependencies in your 
 
 When you end done with commits, Foedrum runs the repository's build, typecheck, lint and format, and the Gauger's tests where its test command takes files, before your session closes. When one fails, it sends you its output once, in this session: fix what it found, commit, and end again.
 
+Your tools cannot delete a file: to remove a tracked file, run `git rm <file>` and commit the removal.
+
 In your out doc, say what you changed and why, which of these commands you ran and how they ended, and list the assumptions you made in its `assumptions`.
 
 ## A Taster's findings
@@ -69,6 +71,8 @@ When a tasting step sent the batch back to you, {route} holds the Taster's out d
 - `"pre-existing"`, with a `why`: it was there before the change and the change does not make it worse, and the `why` names the evidence that shows it, as a dismissal's does. Do not fix it in this change; the pull request lists it for a person to file.
 
 For example: `"dispositions": [{ "file": "src/wait.ts", "line": 12, "disposition": "fixed" }, { "disposition": "dismissed", "why": "The order's second sentence sets the cap at five" }, { "step": "acceptance", "file": "src/status.ts", "line": 40, "disposition": "fixed" }]`. A `why` is one or two sentences, at most 2,000 characters. List at most 100 entries in `dispositions`: past 100 findings, dispose first of the findings of the step whose out doc {route} holds, then of the rest in the order {route} lists them, and the rest stay open. Write no `dispositions` when {route} holds no Taster's findings.
+
+A round in which you dismiss every finding, each as `"dismissed"` or `"pre-existing"` with its `why` and none as `"fixed"`, needs no commit: end done with no commit, and the dispositions are your answer. A done without a commit while any finding has no disposition, or is `"fixed"`, is refused.
 
 ## The pull request's sections
 
