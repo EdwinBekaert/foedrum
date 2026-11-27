@@ -203,7 +203,7 @@ describe('runServe', () => {
     };
     const told = () => f.lines.filter((line) => line.includes('listing Acme/Brewery'));
 
-    it('says in one line what failed and that the next pass tries again, with no raw error, where a live line is drawn', async () => {
+    it('prints one line of what failed and that the next pass tries again, with no raw error, through serve on a terminal', async () => {
       await served({ terminal: true, seconds: 30, overrides: polling() });
       assert.ok(told().length > 0, f.lines.join('\n'));
       for (const line of told()) {
@@ -214,7 +214,7 @@ describe('runServe', () => {
       }
     });
 
-    it('prints the raw error too where no live line is drawn, and says the next pass tries again', async () => {
+    it('prints the raw error and that the next pass tries again, through serve with no terminal', async () => {
       await served({ terminal: false, seconds: 30, overrides: polling() });
       assert.ok(told().length > 0, f.lines.join('\n'));
       for (const line of told()) {
