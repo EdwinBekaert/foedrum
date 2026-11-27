@@ -784,7 +784,7 @@ describe('foedrum rank (ADR 0208)', () => {
       log.issue({ kind: 'order', batchId: 'web-7', order: { issue: 7, repo: web } }, t0).kind,
       'accepted',
     );
-    const replay = (await run(['replay', 'web-7'])).stdout;
+    const replay = (await run(['replay', 'web#7'])).stdout;
     assert.match(
       replay,
       /order\.ranked +\{"order":\{"issue":7,"repo":"acme\/web"\},"place":\{"kind":"position","position":1,"arrival":"2026-10-20T10:01:00\.000Z","tie":0\},"by":"ada","via":"terminal","why":"the release"\}/,

@@ -147,6 +147,18 @@ export const namedWork = (
   return { order, batch: latestBatch(state.batches.values(), issue, repo), name };
 };
 
+/**
+ * The one reading of a batch id a command takes (ADR 0450): no command takes one, so it is refused
+ * for `command` with the number to use, `<alias>#<n>` until the Brewery issue is open.
+ */
+export const namedBatchId = (
+  _state: State,
+  _batchId: string,
+  _command: string,
+): { refused: string } => {
+  throw new Error('not implemented');
+};
+
 /** A claimed batch's target issue as `<alias>#<n>`, or `owner/name#<n>` when its id has no alias. */
 export const claimedName = (batch: Batch): string =>
   `${aliasOf(batch.id) ?? batch.repo}#${batch.issue}`;

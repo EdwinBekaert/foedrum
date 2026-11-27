@@ -149,7 +149,7 @@ describe("brew-main's shell, request and new window (ADR 0222)", () => {
   });
 
   it('asks runBrew to lauter the issue of the batch, taking it over, for foedrum lauter (ADR 0286, #589)', () => {
-    const lauter: LauterCommand = { command: 'lauter', issue: '12-1' };
+    const lauter: LauterCommand = { command: 'lauter', issue: { issue: 12 } };
     const found = { batchId: '12-1', target: { issue: 12 } };
     assert.deepStrictEqual(brewRequestOf(lauter, 'ann', issued, undefined, found), {
       target: { issue: 12 },
@@ -181,10 +181,23 @@ describe("brew-main's shell, request and new window (ADR 0222)", () => {
       });
     });
 
-    it('a batch id brews by the number of its issue, which brew takes', () => {
+    it('refuses a batch id, naming the number of its Brewery issue (ADR 0450)', () => {
       assert.deepStrictEqual(lauterTarget(fold(claimed), 'web-7', repositories), {
-        batchId: 'web-7',
-        target: { issue: 40 },
+        refused: 'web-7 is Brewery issue #40; foedrum lauter 40',
+      });
+    });
+
+    it("refuses a Brewery issue's own batch id, naming its number (ADR 0450)", () => {
+      const own = fold([
+        {
+          type: 'batch.ordered',
+          batchId: '12-1',
+          order: { issue: 12 },
+          routeBy: '2026-10-28T13:00:00.000Z',
+        },
+      ]);
+      assert.deepStrictEqual(lauterTarget(own, '12-1', repositories), {
+        refused: '12-1 is Brewery issue #12; foedrum lauter 12',
       });
     });
 
@@ -206,8 +219,8 @@ describe("brew-main's shell, request and new window (ADR 0222)", () => {
     const dir = makeTempDir('lauter-store');
     try {
       const path = join(dir.path, 'index.db');
-      assert.deepStrictEqual(lauterTargetIn(path, '12-1', []), {
-        refused: 'there is no batch 12-1',
+      assert.deepStrictEqual(lauterTargetIn(path, { issue: 12 }, []), {
+        refused: '#12 has no batch',
       });
       const store = openSqliteEventStore(path);
       const order = { issue: 12 };
@@ -216,12 +229,12 @@ describe("brew-main's shell, request and new window (ADR 0222)", () => {
         tx.append({ type: 'batch.ordered', batchId: '12-1', order, routeBy }),
       );
       store.close();
-      assert.deepStrictEqual(lauterTargetIn(path, '12-1', []), {
+      assert.deepStrictEqual(lauterTargetIn(path, { issue: 12 }, []), {
         batchId: '12-1',
         target: { issue: 12 },
       });
-      assert.deepStrictEqual(lauterTargetIn(path, '99-1', []), {
-        refused: 'there is no batch 99-1',
+      assert.deepStrictEqual(lauterTargetIn(path, { issue: 99 }, []), {
+        refused: '#99 has no batch',
       });
     } finally {
       dir.remove();
@@ -236,19 +249,19 @@ describe("brew-main's shell, request and new window (ADR 0222)", () => {
       ordered('web-7-1', { issue: 7, repo: 'acme/web' }),
     ]);
     const repositories = [{ alias: 'web', repo: 'acme/web' }];
-    assert.deepStrictEqual(lauterTarget(state, '12-1', repositories), {
+    assert.deepStrictEqual(lauterTarget(state, { issue: 12 }, repositories), {
       batchId: '12-1',
       target: { issue: 12 },
     });
-    assert.deepStrictEqual(lauterTarget(state, 'web-7-1', repositories), {
+    assert.deepStrictEqual(lauterTarget(state, { alias: 'web', issue: 7 }, repositories), {
       batchId: 'web-7-1',
       target: { alias: 'web', issue: 7 },
     });
-    assert.deepStrictEqual(lauterTarget(state, '99-1', repositories), {
-      refused: 'there is no batch 99-1',
+    assert.deepStrictEqual(lauterTarget(state, { issue: 99 }, repositories), {
+      refused: '#99 has no batch',
     });
-    assert.deepStrictEqual(lauterTarget(state, 'web-7-1', []), {
-      refused: 'batch web-7-1 is of acme/web, which foedrum.jsonc names with no alias and intake',
+    assert.deepStrictEqual(lauterTarget(state, { alias: 'web', issue: 7 }, []), {
+      refused: 'foedrum.jsonc names no repository with the alias web',
     });
   });
 
