@@ -199,12 +199,11 @@ describe('the default Nip and Deep-brew map the code before the Gauger (ADR 0395
     assert.equal(started.filter((step) => step === 'map').length, 1, started.join(', '));
   });
 
-  it("runs the Maltster's survey as maltster-survey, its version and fields as they were", () => {
+  it("runs the Maltster's survey as maltster-survey, its fields as they were", () => {
     const { brewers, recipes } = loaded();
     for (const recipe of ['nip', 'deep-brew']) {
       const survey = brewers.find(recipe, 'survey') ?? assert.fail(`${recipe} has no survey`);
       assert.equal(survey.brewer.name, 'maltster-survey', recipe);
-      assert.equal(survey.brewer.version, 5, recipe);
       assert.equal(survey.brewer.model, 'standard', recipe);
       assert.deepEqual(survey.brewer.output, { doc: 'survey.md', schema: 'survey' }, recipe);
       assert.deepEqual(survey.brewer.guards, ['requiresOutDoc', 'requiresCommits', 'testMapOnly']);

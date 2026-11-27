@@ -23,7 +23,7 @@
   "git": { "commit": true },
   "deadline": "60m",
   "maxTurns": 120,
-  "stall": { "turns": 60, "minutes": 20 },
+  "stall": { "turns": 120, "minutes": 20 },
   "maxAttempts": 2,
   "houseYeast": true,
   "checksBeforeEnd": true,
