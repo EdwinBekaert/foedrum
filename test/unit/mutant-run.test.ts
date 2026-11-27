@@ -655,10 +655,11 @@ const placedReport = (files: readonly string[] | undefined, failing: readonly st
 
 /**
  * Runs that answer as the engine's would for `baselineCoverage`: the baseline reads every test and
- * the coverage; a scoped run reads the tests of its files; a mutant that subtracts fails the add tests.
+ * the coverage (`null`: none, which a default parameter would not tell from an absent argument);
+ * a scoped run reads the tests of its files; a mutant that subtracts fails the add tests.
  */
 const scopedRuns =
-  (baselineCoverage: TestCoverage | undefined = coverage) =>
+  (baselineCoverage: TestCoverage | null = coverage) =>
   (edit: Edited | undefined, _until: string, scope: TestScope | undefined): TestRunEnd => {
     const files = scope?.files;
     const failing = edit?.content.includes('a - b') ? ['adds two numbers'] : [];
@@ -667,9 +668,7 @@ const scopedRuns =
       reading: exited(failing.length > 0 ? 1 : 0),
       reports: [placedReport(files, failing)],
       ...(files === undefined ? {} : { files }),
-      ...(edit === undefined && baselineCoverage !== undefined
-        ? { coverage: baselineCoverage }
-        : {}),
+      ...(edit === undefined && baselineCoverage !== null ? { coverage: baselineCoverage } : {}),
     };
   };
 
@@ -770,7 +769,7 @@ describe('mutated, a mutant runs the test files that reach its line (ADR 0431)',
   it('a mutant whose baseline recorded no coverage runs the whole check, as today (regression test)', async () => {
     const { end, scopes } = setup({
       runner: brett([subtracts, boundary]),
-      runs: scopedRuns(undefined),
+      runs: scopedRuns(null),
     });
     const ended = await end();
     assert.equal(scopes.length, 3);
