@@ -182,7 +182,7 @@ const movingOptions = {
   retry: { takes: '', does: 'give the step another attempt' },
   skip: { takes: '', does: 'go on after the step' },
   recipe: { takes: ' <recipe> "<reason>"', does: 'brew with another recipe, from the first step' },
-  rewind: { takes: ' <step>', does: 'take the batch back to a step' },
+  rewind: { takes: ' <step> <owner/name>=<commit>', does: 'take the batch back to a step' },
   cancel: { takes: '', does: 'end the batch' },
 } as const;
 

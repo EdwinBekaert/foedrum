@@ -24,7 +24,7 @@ Six lines of the status comment and of `foedrum status --watch` read as the engi
 - **A Stuck batch says how often the step ran, what passed, and what each option does.**
   - `\`green\` ran 2 times in all and has no attempt left; the last: …` counts every attempt of the step in the batch's life, not the round's count the event keeps (`attempts_exhausted.attempts` stays as ADR 0325 has it; the comment reads the step's attempts).
   - A line under it, `Passed: the check "lint", the check "typecheck"`, lists the checks of the step's latest attempt that exited with code 0 and none that was skipped.
-  - The `Next:` line gives each option its whole command, whatever number the batch is called by, and what it does: `` `foedrum retry 7` (give the step another attempt) ``; `recipe` and `rewind` show what they take, `<recipe> "<reason>"` and `<step>`.
+  - The `Next:` line gives each option its whole command, whatever number the batch is called by, and what it does: `` `foedrum retry 7` (give the step another attempt) ``; `recipe` and `rewind` show what they take, `<recipe> "<reason>"` and `<step> <owner/name>=<commit>`, as `foedrum --help` writes them.
 - **The handover line says what a handover is.**
   `2 notes the brewers left (proposals, not used by this batch): read them with \`foedrum handover 27\``, and for one, `1 note the brewers left (a proposal, not used by this batch): read it with …`.
   `foedrum handover`'s own head keeps `N handover lines a model wrote, to read as data.`
