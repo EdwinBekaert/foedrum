@@ -62,8 +62,8 @@ export interface MappedProofOptions
   platform: NodeJS.Platform;
   reports: ReportFiles;
   testReportsOf: ModuleReports;
-  /** Where the batch's change in `repo` starts: the base it merged, else its start (ADR 0164). */
-  baseOf: (batch: Batch, repo: string) => string | undefined;
+  /** Where the batch's change in the worktree's repository starts (ADR 0164, ADR 0452). */
+  baseOf: (batch: Batch, worktree: WorktreeRef) => Promise<string | undefined>;
   /** What one run of `check` read on this platform (ADR 0076). */
   readingIn: (check: Extract<PlannedCheck, { kind: 'run' }>, result: ExecResult) => GravityReading;
   /** Runs one check in the worktree through the checks' process runner, its sandbox (ADR 0076). */
@@ -98,7 +98,7 @@ export function createMappedProof(options: MappedProofOptions): MappedProof {
     const { testMap } = options;
     if (testMap === undefined) return { kind: 'none' };
     const { repo } = worktree;
-    const base = baseOf(batch, repo);
+    const base = await baseOf(batch, worktree);
     const before: MapRead =
       base === undefined ? { kind: 'none' } : await testMap.at(repo, base, signal);
     if (before.kind === 'unreadable') {

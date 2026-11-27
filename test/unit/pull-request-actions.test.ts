@@ -1573,12 +1573,31 @@ describe('pullRequestActions: where the sensitive-path diff starts, and when it 
       ordered({ issue: 12 }),
       ...brewed,
       ...opening,
-      applied(mergeKey, { base: merged, merged: 'f'.repeat(40) }),
+      // The merge is the commit the push publishes, so it is on the line to it (ADR 0452).
+      applied(mergeKey, { base: merged, merged: tip }),
     ]);
     const { actions, diffs } = actionsWith({ sensitivePaths, touched });
     keysOf(state, actions);
     await actions.target.apply(push);
     assert.deepEqual(diffs, [`${merged}..${tip}`]);
+  });
+
+  it('diffs from where the batch started when the merge of a failed attempt is not on the line to the pushed commit (ADR 0452)', async () => {
+    const merged = 'e'.repeat(40);
+    const mergeKey = effectKey.encode(
+      baseMergeKey({ batchId: '12-1', stepId: 'implement', attempt: 1 }),
+    );
+    const state = fold([
+      ordered({ issue: 12 }),
+      ...brewed,
+      ...opening,
+      // The merge commit is one the pushed commit does not hold: its branch never reached the push.
+      applied(mergeKey, { base: merged, merged: 'f'.repeat(40) }),
+    ]);
+    const { actions, diffs } = actionsWith({ sensitivePaths, touched });
+    keysOf(state, actions);
+    await actions.target.apply(push);
+    assert.deepEqual(diffs, [`${other}..${tip}`]);
   });
 
   it('finds the start of a repository the Brewery names in another case', async () => {

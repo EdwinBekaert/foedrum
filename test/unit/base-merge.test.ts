@@ -9,7 +9,9 @@ import {
   type BaseMerge,
   baseMergeKey,
   baseMergeTarget,
+  type MergeLine,
   mergedBase,
+  mergedBaseOnLine,
   unconcludedMerge,
 } from '../../src/engine/base-merge.ts';
 import { effectKey } from '../../src/engine/effect-key.ts';
@@ -109,6 +111,69 @@ describe('mergedBase', () => {
       }),
     ]);
     assert.equal(mergedBase(state, 'b1'), tip);
+  });
+});
+
+describe('mergedBaseOnLine (ADR 0452)', () => {
+  const head = '1'.repeat(40);
+  const tip = 'e'.repeat(40);
+  const earlier = 'a'.repeat(40);
+  const merge = 'c'.repeat(40);
+  const earlierMerge = 'd'.repeat(40);
+  /** A git that says the commits `on` are ancestors of the head, and which commits it was asked. */
+  const lineOf = (...on: string[]) => {
+    const asked: string[] = [];
+    const line: MergeLine = {
+      head,
+      isAncestor: async (commit, of) => {
+        asked.push(`${commit} of ${of}`);
+        return on.includes(commit);
+      },
+    };
+    return { line, asked };
+  };
+
+  it('counts the base of a merge whose commit the head holds', async () => {
+    const state = fold([...ordered, ...attempt(1, { base: tip, merged: merge }, succeeded)]);
+    const { line, asked } = lineOf(merge);
+    assert.equal(await mergedBaseOnLine(state, 'b1', line), tip);
+    assert.deepEqual(asked, [`${merge} of ${head}`]);
+  });
+
+  it("passes over a failed attempt's merge whose commit the head does not hold", async () => {
+    const state = fold([...ordered, ...attempt(1, { base: tip, merged: merge }, failed)]);
+    assert.equal(await mergedBaseOnLine(state, 'b1', lineOf().line), undefined);
+  });
+
+  it('falls back to the merge before it when the latest merge is off the line', async () => {
+    const state = fold([
+      ...ordered,
+      ...attempt(1, { base: earlier, merged: earlierMerge }, succeeded),
+      ...attempt(2, { base: tip, merged: merge }, failed),
+    ]);
+    assert.equal(await mergedBaseOnLine(state, 'b1', lineOf(earlierMerge).line), earlier);
+  });
+
+  it('takes the latest merge when the head holds both', async () => {
+    const state = fold([
+      ...ordered,
+      ...attempt(1, { base: earlier, merged: earlierMerge }, succeeded),
+      ...attempt(2, { base: tip, merged: merge }, succeeded),
+    ]);
+    assert.equal(await mergedBaseOnLine(state, 'b1', lineOf(earlierMerge, merge).line), tip);
+  });
+
+  it('counts a kept merge that a success concluded, as mergedBase does', async () => {
+    const state = fold([...ordered, ...attempt(1, kept(tip), succeeded)]);
+    const line: MergeLine = { head, isAncestor: async () => true };
+    assert.equal(await mergedBaseOnLine(state, 'b1', line), tip);
+  });
+
+  it('finds nothing in a batch that merged nothing, and asks git nothing', async () => {
+    const state = fold([...ordered, ...attempt(1, { base: tip }, succeeded)]);
+    const { line, asked } = lineOf();
+    assert.equal(await mergedBaseOnLine(state, 'b1', line), undefined);
+    assert.deepEqual(asked, []);
   });
 });
 

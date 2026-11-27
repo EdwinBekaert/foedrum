@@ -147,6 +147,8 @@ const setup = ({
   realPathOf = (path: string) => path,
   /** The report paths that are folders. */
   folders = [] as string[],
+  /** The commits that are no ancestor of the step's tip: every other commit is one (ADR 0452). */
+  offLine = [] as string[],
 } = {}) => {
   const listed = (answer: string | GitResult): GitResult =>
     typeof answer === 'string' ? { code: 0, stdout: answer, stderr: '' } : answer;
@@ -162,6 +164,13 @@ const setup = ({
     order.push(`git ${args.join(' ')} in ${cwd}`);
     if (args.includes('--diff-filter=D')) return Promise.resolve(listed(deleted));
     if (args[0] === 'ls-tree') return Promise.resolve(listed(atBase));
+    if (args[0] === 'merge-base') {
+      return Promise.resolve({
+        code: offLine.includes(args[2] ?? '') ? 1 : 0,
+        stdout: '',
+        stderr: '',
+      });
+    }
     return Promise.resolve(diff);
   };
   const reports: ReportFiles = {
@@ -208,7 +217,11 @@ const setup = ({
       ? {}
       : {
           testMap: {
-            at: async (_repo: string, commit: string) => maps[commit] ?? { kind: 'none' as const },
+            // A branch holds what the commit its attempt started at holds: no merge here (ADR 0452).
+            at: async (_repo: string, rev: string) =>
+              maps[rev.startsWith('refs/heads/') ? 'b'.repeat(40) : rev] ?? {
+                kind: 'none' as const,
+              },
             reports: (pattern: string, inside: string) => {
               order.push(`find ${pattern} in ${inside}`);
               const why = refusedPatterns[pattern];
@@ -956,6 +969,31 @@ describe('createCheckRunner: the red proof reads every module of the test map (A
     assert.ok(
       order.includes(
         `git diff --name-only -z --no-renames --diff-filter=D ${merged} ${tip} in ${clone}`,
+      ),
+      order.join('\n'),
+    );
+  });
+
+  it('reads the map and the deleted files at where the batch started when its merge is not on the line to the tip (ADR 0452)', async () => {
+    const merged = 'e'.repeat(40);
+    const mergeCommit = 'f'.repeat(40);
+    const key = effectKey.encode(baseMergeKey({ batchId: '12-1', stepId: 'gauge', attempt: 1 }));
+    const merge: Event = {
+      type: 'effect.applied',
+      key,
+      result: { base: merged, merged: mergeCommit },
+    };
+    // Only the start's map lists web: the map of the merged base would leave it unread.
+    const { order, run } = setup({
+      ...wrote,
+      events: [...ordered, ...gauged, merge, ...redStarted],
+      maps: { [gaugeStart]: mapOf(web), [merged]: mapOf(api), [tip]: mapOf(web) },
+      offLine: [mergeCommit],
+    });
+    assert.deepEqual((await run()).ending, { kind: 'succeeded', output: null });
+    assert.ok(
+      order.includes(
+        `git diff --name-only -z --no-renames --diff-filter=D ${gaugeStart} ${tip} in ${clone}`,
       ),
       order.join('\n'),
     );

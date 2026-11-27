@@ -5,7 +5,7 @@
 // file the batch's base holds. tests-unchanged.ts decides.
 
 import { type AttemptRef, attemptKey } from '../engine/attempt-key.ts';
-import { mergedBase } from '../engine/base-merge.ts';
+import { mergedBaseOnLine } from '../engine/base-merge.ts';
 import type { AttemptEnd, AttemptStart, BrewerRunner } from '../engine/brewer-runner.ts';
 import type { State } from '../engine/fold.ts';
 import { ranIn } from '../engine/session-resume.ts';
@@ -15,6 +15,7 @@ import { lastLine } from '../platform/errors.ts';
 import { foldsCase } from '../platform/paths.ts';
 import type { TestMap } from '../schemas/test-map.ts';
 import { attemptBranch } from '../workspace/attempt-worktrees.ts';
+import { isAncestorIn } from '../workspace/clone-git.ts';
 import type { Git, GitResult } from '../workspace/git.ts';
 import { cut } from './red-proof.ts';
 import { readDiff, stepCommits } from './step-commits.ts';
@@ -178,8 +179,6 @@ export function guardTests(options: TestsGuardOptions): BrewerRunner {
     // A step the batch skipped, or that never succeeded, committed no tests to keep.
     const proven = stepCommits(batch, of);
     if (proven === undefined) return end;
-    const key = attemptKey.encode(ref);
-    checking.set(key, { lastProgressAt: clock(), turnsWithoutProgress: 0 });
     // The clone, where git reads what the proven step committed and the attempt's tip.
     const cwd = clone(worktree.repo);
     // Its branch, which the task tree carries on whatever HEAD is (ADR 0066).
@@ -188,8 +187,16 @@ export function guardTests(options: TestsGuardOptions): BrewerRunner {
     // step's map (ADR 0274); or why a map cannot be read, or that there is none (ADR 0297).
     const foldCase = foldsCase(platform);
     const { repo } = worktree;
-    // The base the batch's change starts from (ADR 0164).
-    const base = mergedBase(state(), batch.id) ?? batch.starts?.[repo.toLowerCase()]?.commit;
+    // The base the batch's change starts from: the one it merged on the line to the attempt's
+    // branch, else its start (ADR 0164, ADR 0452).
+    const base =
+      (await mergedBaseOnLine(state(), batch.id, {
+        head: tip,
+        isAncestor: isAncestorIn(git, cwd, signal),
+      })) ?? batch.starts?.[repo.toLowerCase()]?.commit;
+    // Set once git has answered, so a failing answer leaves no attempt reading.
+    const key = attemptKey.encode(ref);
+    checking.set(key, { lastProgressAt: clock(), turnsWithoutProgress: 0 });
     const keeping = async (): Promise<{ modules: EffectiveModule[] } | { summary: string }> => {
       // The base's map, and the map the proven step committed, which a later attempt cannot narrow.
       const maps: (TestMap | undefined)[] = [];

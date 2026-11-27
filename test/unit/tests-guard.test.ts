@@ -115,6 +115,7 @@ const setup = ({
   changed = '',
   revList = '',
   platform = 'linux',
+  offLine = [],
 }: {
   events?: Event[];
   behaviour?: Behaviour;
@@ -137,6 +138,8 @@ const setup = ({
   revList?: string;
   /** Whose case rule the guard matches the map's globs by. */
   platform?: NodeJS.Platform;
+  /** The commits that are no ancestor of the attempt's branch: every other commit is one (ADR 0452). */
+  offLine?: readonly string[];
 } = {}) => {
   const mapReads: [string, string][] = [];
   const calls: { cwd: string; args: readonly string[]; options?: GitOptions }[] = [];
@@ -156,6 +159,13 @@ const setup = ({
         );
       }
       if (args.includes('rev-list')) return Promise.resolve(ok(revList));
+      if (args[0] === 'merge-base') {
+        return Promise.resolve({
+          code: offLine.includes(args[2] ?? '') ? 1 : 0,
+          stdout: '',
+          stderr: '',
+        });
+      }
       if (args.includes('cat-file')) {
         const found = [
           ...Object.entries(tip).map(([path, lines]) => [blobOf(path), lines] as const),
@@ -558,6 +568,29 @@ describe('guardTests: regression tests', () => {
       'the guard testsUnchanged: the attempt changed or removed a line of the tests of step gauge, test/add.test.mjs: });',
     );
     assert.deepEqual(mapReads[0], ['acme/api', moved]);
+  });
+
+  it("reads the map at where the batch started when the latest merge of the base is not on the attempt's branch (ADR 0452)", async () => {
+    const moved = 'd'.repeat(40);
+    const mergeCommit = 'e'.repeat(40);
+    const merged: Event = {
+      type: 'effect.applied',
+      key: effectKey.encode(baseMergeKey(ref)),
+      result: { base: moved, merged: mergeCommit },
+    };
+    // Only the batch's start has the map: read at the merged base, nothing would be guarded by it.
+    const { runner, mapReads } = setup({
+      events: [...ordered, ...gauged, ...implementing, merged],
+      maps: { [gaugeStart]: mapOf('test/**') },
+      tip: tips.closing,
+      offLine: [mergeCommit],
+    });
+    const end = await runner.start({ ref, limits: defaultLimits }).ended;
+    assert.equal(
+      end.ending.kind === 'failed' && end.ending.reason,
+      'the guard testsUnchanged: the attempt changed or removed a line of the tests of step gauge, test/add.test.mjs: });',
+    );
+    assert.deepEqual(mapReads[0], ['acme/api', gaugeStart]);
   });
 
   it("lets no map the proven step committed narrow the base's", async () => {

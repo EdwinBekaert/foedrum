@@ -3,11 +3,11 @@
 // testsUnchanged guard reads them (ADR 0274). None when the batch has no red step, or git or a map
 // cannot say: those checks then run no test, and green is still the gate.
 
-import { mergedBase } from '../engine/base-merge.ts';
+import { mergedBaseOnLine } from '../engine/base-merge.ts';
 import type { Batch, State } from '../engine/fold.ts';
 import { foldsCase } from '../platform/paths.ts';
 import type { TestMap } from '../schemas/test-map.ts';
-import { inClone } from '../workspace/clone-git.ts';
+import { inClone, isAncestorIn } from '../workspace/clone-git.ts';
 import type { Git } from '../workspace/git.ts';
 import { readDiff, stepCommits } from './step-commits.ts';
 import { effectiveMap, type ReadTestMapAt } from './test-map.ts';
@@ -17,6 +17,8 @@ export interface RedTestsRead {
   git: Git;
   /** The clone of the batch's repository `repo`, where git reads the commits. */
   clone: string;
+  /** The brewer's head, which a merge of the base counts on the line to (ADR 0452). */
+  head: string;
   testMap: ReadTestMapAt;
   state: State;
   batch: Batch;
@@ -33,8 +35,13 @@ export async function redTestFiles(read: RedTestsRead): Promise<string[]> {
   if (proven === undefined) return [];
   const diff = await readDiff(inClone(read.git), read.clone, proven);
   if ('error' in diff) return [];
-  // The base's map and the map the red step committed, as the guard keeps them (ADR 0274).
-  const base = mergedBase(read.state, batch.id) ?? batch.starts?.[repo.toLowerCase()]?.commit;
+  // The base's map and the map the red step committed, as the guard keeps them (ADR 0274); the
+  // base is the one merged on the line to the brewer's head, else the batch's start (ADR 0452).
+  const base =
+    (await mergedBaseOnLine(read.state, batch.id, {
+      head: read.head,
+      isAncestor: isAncestorIn(read.git, read.clone),
+    })) ?? batch.starts?.[repo.toLowerCase()]?.commit;
   const maps: (TestMap | undefined)[] = [];
   for (const commit of [base, proven.to]) {
     const map = commit === undefined ? undefined : await read.testMap(repo, commit);

@@ -16,6 +16,7 @@ import type { CheckRunnerOptions } from './check-runner.ts';
 import { blocked } from './gravity.ts';
 import { coveragePath, type ModuleReports } from './module-reports.ts';
 import { cut, testFileOf } from './red-proof.ts';
+import { checkedTip } from './step-commits.ts';
 import {
   areaOf,
   type EffectiveModule,
@@ -125,8 +126,8 @@ export interface StaleMapOptions
   extends Pick<CheckRunnerOptions, 'git' | 'clone' | 'testMap' | 'testReport'> {
   platform: NodeJS.Platform;
   testReportsOf: ModuleReports;
-  /** Where the batch's change in `repo` starts: the base it merged, else its start (ADR 0164). */
-  baseOf: (batch: Batch, repo: string) => string | undefined;
+  /** Where the batch's change in the worktree's repository starts (ADR 0164, ADR 0452). */
+  baseOf: (batch: Batch, worktree: WorktreeRef) => Promise<string | undefined>;
 }
 
 export function createStaleMap(options: StaleMapOptions): StaleMapReads {
@@ -147,7 +148,8 @@ export function createStaleMap(options: StaleMapOptions): StaleMapReads {
     const { testMap } = options;
     if (testMap === undefined) return {};
     const { repo } = worktree;
-    const tip = await testMap.at(repo, worktree.commit, signal);
+    // At the attempt's branch, which holds the base merge, as the manifests on disk do (ADR 0452).
+    const tip = await testMap.at(repo, checkedTip(worktree), signal);
     if (tip.kind !== 'map') return { tip };
     const read = testMap.manifests ?? manifestFreshness(git);
     const found = await read(worktree.path, tip.map, signal);
@@ -161,11 +163,11 @@ export function createStaleMap(options: StaleMapOptions): StaleMapReads {
       ...found.removed.map((path) => `${path} (removed)`),
     ];
     const kept = testMap.keptIn?.(repo) ?? 'repo';
-    const base = baseOf(batch, repo);
+    const base = await baseOf(batch, worktree);
     if (kept === 'repo' && base !== undefined) {
       const touched = testMap.touched ?? touchedPaths(git, clone);
       const paths = [TEST_MAP_PATH, ...tip.map.derivedFrom.globs];
-      const changed = await touched(repo, base, worktree.commit, paths, signal);
+      const changed = await touched(repo, base, checkedTip(worktree), paths, signal);
       if ('unread' in changed) {
         const why = `the files the change of ${repo} touched cannot be read: ${changed.unread}`;
         return { end: blocked('environment', why) };

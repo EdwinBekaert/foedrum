@@ -159,7 +159,9 @@ const run = async ({
     clock: () => new Date('2026-11-06T12:00:00.000Z'),
     platform: 'linux',
     testMap: {
-      at: async (_repo: string, commit: string) => at[commit] ?? { kind: 'map', map },
+      // A branch holds what the commit its attempt started at holds: no merge here (ADR 0452).
+      at: async (_repo: string, rev: string) =>
+        at[rev.startsWith('refs/heads/') ? tip : rev] ?? { kind: 'map', map },
       reports: (pattern: string) => ({
         paths:
           (report === null && !unread) || silent.includes(pattern) ? [] : [join(tree, pattern)],
