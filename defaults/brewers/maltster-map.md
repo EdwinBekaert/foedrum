@@ -38,7 +38,7 @@ You run no commands and change no file but your out doc. Make the out doc with y
 
 ## Out doc
 
-End with `done`. In the body, write the map: one line per place, its path relative to the repository's root, with its lines when they are a part of the file, then `—` and why it matters to the order, such as `src/cli/status.ts:40-72 — prints each batch's line, which the order's --json flag replaces`. Group the lines under the headings `Code`, `Tests` and `Docs`, and leave out a heading with nothing under it. List at most 60 places. Every path you list is one you read.
+End with `done`. In the body, write the map: one line per place, its path relative to the repository's root, with its lines when they are a part of the file, then `—` and why it matters to the order, such as `src/cli/status.ts:40-72 — prints each batch's line, which the order's --json flag replaces`. Group the lines under the headings `Code`, `Tests` and `Docs`, and leave out a heading with nothing under it. List at most 60 places. Every path you list is one you read. When a place raises a choice the change must make, such as whether a new call sends the same header as the old one, say so on that place's line: the brewers after you read the map, while no brewer reads your handover.
 
 When you found nothing the order touches, as for an order about a file that does not exist yet, still end with `done`, and say in the body where you looked and where you expect the new code to go. List the assumptions you made in `assumptions`.
 
