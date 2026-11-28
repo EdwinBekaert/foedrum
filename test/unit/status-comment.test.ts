@@ -85,6 +85,9 @@ const stuck = (reason: StuckReason, remindAt = at): Lane => ({
   remindAt,
 });
 const steps = ['plan', 'brew', 'taste'];
+/** What a Stuck batch's Next line offers of `retry` and `cancel`, each with its whole command (#1173). */
+const retryOrCancel = (called: string, lead = 'Next: get it moving with'): string =>
+  `${lead} \`foedrum retry ${called}\` (give the step another attempt), \`foedrum cancel ${called}\` (end the batch)`;
 /** The line of `text` that names the step `id`. */
 const lineOf = (text: string, id: string): string =>
   text.split('\n').find((line) => line.includes(`\`${id}\``)) ?? '';
@@ -258,7 +261,7 @@ describe('renderStatus', () => {
     assert.match(lineOf(text, 'brew'), /🔔/);
   });
 
-  it('says one attempt in the singular when a round used only one (ADR 0325)', () => {
+  it('says one time in the singular when the step ran only once (ADR 0325, #1173)', () => {
     const text = renderStatus(
       batch({
         lane: stuck({
@@ -271,7 +274,10 @@ describe('renderStatus', () => {
       }),
       steps,
     );
-    assert.ok(text.includes('used its 1 attempt; the last: crash'), text);
+    assert.ok(
+      text.includes('`brew` ran 1 time in all and has no attempt left; the last: crash'),
+      text,
+    );
   });
 
   it('says why a batch whose lost attempts used its retries is Stuck in plain words, without the owner of the lease or a UTC time (#277)', () => {
@@ -285,7 +291,7 @@ describe('renderStatus', () => {
     );
     assert.ok(
       text.includes(
-        'used its 2 attempts; the last: the attempt was lost: the Cellar running it stopped, so its lease ran out',
+        '`brew` ran 2 times in all and has no attempt left; the last: the attempt was lost: the Cellar running it stopped, so its lease ran out',
       ),
       text,
     );
@@ -868,7 +874,7 @@ describe('renderStatus', () => {
     assert.match(text, /environment/);
     assert.match(text, /npm is missing/);
     assert.match(lineOf(text, 'brew'), /🔔/);
-    assert.match(text, /`retry`.*`cancel`/);
+    assert.match(text, /`foedrum retry 7`.*`foedrum cancel 7`/);
   });
 
   // An event written before ADR 0192, or by a step with no findings route, has no roundsOut.
@@ -883,7 +889,7 @@ describe('renderStatus', () => {
     const at_ = lines.findIndex((line) => line.startsWith('🔔'));
     assert.deepStrictEqual(lines.slice(at_, at_ + 3), [
       '🔔 **Waiting for you**: look at a failure: `taste` is blocked (findings): the Taster asks for changes: no deadline',
-      'Next: get it moving with `retry`, `cancel`.',
+      `${retryOrCancel('7')}.`,
       '',
     ]);
   });
@@ -920,7 +926,7 @@ describe('renderStatus', () => {
       `- \`taste\`: blocker: ${leftOut('taste')}`,
       '- `taste`: and 4 more',
       'Another round is unlikely to help: plan the order again, or split it.',
-      'Next: get it moving with `retry`, `cancel`.',
+      `${retryOrCancel('7')}.`,
       '',
     ]);
     noToken(lines.join('\n'));
@@ -939,7 +945,7 @@ describe('renderStatus', () => {
     assert.deepStrictEqual(lines.slice(at_ + 1, at_ + 4), [
       'Still open after 1 round: no finding was recorded.',
       'Another round is unlikely to help: plan the order again, or split it.',
-      'Next: get it moving with `retry`, `cancel`.',
+      `${retryOrCancel('7')}.`,
     ]);
   });
 
@@ -1190,12 +1196,8 @@ describe('renderStatus', () => {
   it('says the reason of every kind of Stuck on its line', () => {
     const cases: [StuckReason, RegExp][] = [
       [
-        { kind: 'attempts_exhausted', stepId: 'brew', attempts: 2, lastReason: 'crash' },
-        /`brew` used its 2 attempts; the last: crash/,
-      ],
-      [
         { kind: 'deadline_passed', stepId: 'brew', deadlineAt: at },
-        /`brew` passed its deadline of 2026-10-18T09:00:00\.000Z/,
+        /`brew` passed its deadline of 2026-10-18 09:00 UTC$/,
       ],
       [
         { kind: 'waiting_for_session', stepId: 'brew' },
@@ -1203,11 +1205,11 @@ describe('renderStatus', () => {
       ],
       [
         { kind: 'stalled', stepId: 'brew', lastProgressAt: at, turnsWithoutProgress: 30 },
-        /`brew` stalled: .* since 2026-10-18T09:00:00\.000Z, for 30 turns/,
+        /`brew` stalled: .* since 2026-10-18 09:00 UTC, for 30 turns/,
       ],
       [
         { kind: 'routing', deadlineAt: at },
-        /no recipe was chosen by its routing deadline, 2026-10-18T09:00:00\.000Z/,
+        /no recipe was chosen by its routing deadline, 2026-10-18 09:00 UTC$/,
       ],
       [
         { kind: 'stopped', stepId: 'brew', by: 'ada', via: 'terminal', why: '@bob <b>lunch</b>' },
@@ -2088,7 +2090,7 @@ describe('statusEffects', () => {
     );
   });
 
-  it("names an older batch's options alone, as a latest batch's, under a comment that says the number (ADR 0450)", async () => {
+  it("names an older batch's options by the number, as a latest batch's, never its id (ADR 0450, #1173)", async () => {
     order();
     brew();
     const ending = { kind: 'failed', retryable: false, reason: 'tests fail' } as const;
@@ -2100,7 +2102,7 @@ describe('statusEffects', () => {
     await driver.tick();
     const bodies = comments.comments.map(({ body }) => body);
     assert.ok(
-      bodies.some((body) => /Next: get it moving with `[a-z]+`/.test(body)),
+      bodies.some((body) => /Next: get it moving with `foedrum retry 7`/.test(body)),
       bodies.join('\n---\n'),
     );
     assert.ok(
@@ -2109,7 +2111,7 @@ describe('statusEffects', () => {
     );
   });
 
-  it("names a latest batch's options alone, since the comment says its number: regression test (ADR 0334)", () => {
+  it("names a latest batch's options by their whole command too, which a bare word would not give (ADR 0334, #1173)", () => {
     const lane = stuck({
       kind: 'attempts_exhausted',
       stepId: 'plan',
@@ -2119,7 +2121,40 @@ describe('statusEffects', () => {
     const next = renderStatus(batch({ lane }), ['plan'])
       .split('\n')
       .find((line) => line.startsWith('Next:'));
-    assert.match(next ?? '', /^Next: get it moving with `[a-z]+`/);
+    assert.equal(next, `${retryOrCancel('7')}.`);
+  });
+
+  it("names an older batch's options by their whole command and what each does (ADR 0334, #1173)", () => {
+    const lane: Lane = {
+      kind: 'stuck',
+      reason: { kind: 'attempts_exhausted', stepId: 'plan', attempts: 1, lastReason: 'crash' },
+      options: ['retry', 'skip', 'recipe', 'rewind', 'cancel'],
+      remindAt: at,
+    };
+    const next = renderStatus(
+      batch({ lane }),
+      ['plan'],
+      undefined,
+      undefined,
+      undefined,
+      {},
+      undefined,
+      undefined,
+      undefined,
+      [],
+      undefined,
+      undefined,
+      undefined,
+      [],
+      7,
+      '7-1',
+    )
+      .split('\n')
+      .find((line) => line.startsWith('Next:'));
+    assert.equal(
+      next,
+      'Next: get it moving with `foedrum retry 7-1` (give the step another attempt), `foedrum skip 7-1` (go on after the step), `foedrum recipe 7-1 <recipe> "<reason>"` (brew with another recipe, from the first step), `foedrum rewind 7-1 <step> <owner/name>=<commit>` (take the batch back to a step), `foedrum cancel 7-1` (end the batch).',
+    );
   });
 
   it("offers a plan's other option alone, since the comment says the number: regression test (ADR 0334)", () => {
@@ -2497,7 +2532,10 @@ describe('statusEffects', () => {
     });
     await driver.tick();
     const { body } = only();
-    assert.match(body, /1 handover line: `foedrum handover 20`/);
+    assert.match(
+      body,
+      /1 note the brewers left \(a proposal, not used by this batch\): read it with `foedrum handover 20`/,
+    );
     assert.doesNotMatch(body, /Only a handover says this/);
   });
 
@@ -2848,7 +2886,7 @@ describe('renderStatus: a line per pull request, with all it says of it (#662)',
     );
     assert.deepEqual(section(text), [
       '**Pull requests**',
-      `- <${pr}> conflicts with the open pull request <${b}> in src/app.ts; conflicts with the open pull request <${c}> in lib.ts; waits for its checks on \`aaaaaaaa\` since ${at}`,
+      `- <${pr}> conflicts with the open pull request <${b}> in src/app.ts; conflicts with the open pull request <${c}> in lib.ts; waits for its checks on \`aaaaaaaa\` since 2026-10-18 09:00 UTC`,
     ]);
   });
 
@@ -2979,7 +3017,7 @@ describe('statusEffects: the checks of a pull request its latest push left alone
     assert.ok(
       lines.some((line) =>
         line.startsWith(
-          `- <${pr}> conflicts with \`main\` at \`dddddddd\` in b; waits for its checks on \`cccccccc\` since ${at}`,
+          `- <${pr}> conflicts with \`main\` at \`dddddddd\` in b; waits for its checks on \`cccccccc\` since 2026-10-18 09:00 UTC`,
         ),
       ),
       body,
@@ -3633,7 +3671,7 @@ describe('the Next line of a status comment that waits on the person (#777)', ()
     };
     assert.equal(
       nextOf(render(batch({ lane }))),
-      'Next: answer the questions above with `foedrum answer 7 <answer 1> <answer 2>`, or get it moving with `retry`, `cancel`.',
+      `Next: answer the questions above with \`foedrum answer 7 <answer 1> <answer 2>\`, ${retryOrCancel('7', 'or get it moving with')}.`,
     );
   });
 
@@ -3748,7 +3786,7 @@ describe('the Next line of a status comment that waits on the person (#777)', ()
       many,
     );
     assert.match(text, /the rest is cut/);
-    assert.equal(nextOf(text), 'Next: get it moving with `retry`, `cancel`.');
+    assert.equal(nextOf(text), `${retryOrCancel('7')}.`);
   });
 });
 
@@ -4030,5 +4068,359 @@ describe('renderStatus: a parallel group that ran in part after a round back (AD
     });
     const text = renderStatus(rewound, ['implement', 'correctness', 'security']);
     assert.equal(lineOf(text, 'correctness'), '- ✅ `correctness`, from round 1: done');
+  });
+});
+
+describe('renderStatus: what follows a failed check, and a Stuck batch, in plain words (#1173)', () => {
+  const recipeSteps = ['implement', 'green'];
+  const testFailed = 'the check "test" failed with exit code 1';
+  const reading = (check: 'lint' | 'test' | 'typecheck', exitCode: number): GravityReading => ({
+    result: 'exited',
+    check,
+    command: `npm run ${check}`,
+    exitCode,
+    tail: '',
+  });
+  /** A finished check step's attempt, failed for `reason`, with the `readings` its checks gave. */
+  const checked = (
+    attempt: number,
+    reason: string,
+    readings?: readonly GravityReading[],
+  ): Attempt => ({
+    phase: 'finished',
+    attempt,
+    deadlineAt: at,
+    outcome: { kind: 'failed', retryable: true, reason },
+    ...(readings === undefined ? {} : { readings }),
+  });
+  /** The lines of the comment from the line that starts with `start`, `count` of them. */
+  const from = (text: string, start: string, count: number): string[] => {
+    const lines = text.split('\n');
+    const first = lines.findIndex((line) => line.startsWith(start));
+    assert.notEqual(first, -1, text);
+    return lines.slice(first, first + count);
+  };
+  /** Green failed, and the engine's route took the batch back to implement, which runs again. */
+  const wentBack = (reason: string): Batch =>
+    batch({
+      steps: new Map([
+        step('implement', done(1), {
+          phase: 'started',
+          attempt: 2,
+          deadlineAt: at,
+          route: { from: 'green', why: 'failed' },
+        }),
+        step('green', checked(1, reason)),
+      ]),
+      path: [
+        { stepId: 'implement', attempt: 1 },
+        { stepId: 'green', attempt: 1 },
+        { stepId: 'implement', attempt: 2 },
+      ],
+    });
+
+  it('says under a failed check that the batch goes back to the step its route named', () => {
+    const text = renderStatus(wentBack(testFailed), recipeSteps);
+    assert.deepEqual(from(text, '- ❌ `green`', 2), [
+      `- ❌ \`green\`: attempt 1 failed: ${testFailed}`,
+      '  - next: a round back to `implement`',
+    ]);
+  });
+
+  it("follows the route the engine took, never the words of the check's stored reason", () => {
+    const text = renderStatus(wentBack('attempts exhausted: the batch is Stuck here'), recipeSteps);
+    assert.deepEqual(from(text, '- ❌ `green`', 2), [
+      '- ❌ `green`: attempt 1 failed: attempts exhausted: the batch is Stuck here',
+      '  - next: a round back to `implement`',
+    ]);
+    assert.doesNotMatch(text, /next: the batch is Stuck here/);
+  });
+
+  it('says under the step a batch is Stuck on that it is Stuck there, whatever the stored reason says', () => {
+    const lastReason = 'a round back to implement is next';
+    const text = renderStatus(
+      batch({
+        lane: stuck({ kind: 'attempts_exhausted', stepId: 'green', attempts: 1, lastReason }),
+        steps: new Map([
+          step('implement', done(1)),
+          step('green', checked(1, lastReason), checked(2, lastReason)),
+        ]),
+      }),
+      recipeSteps,
+    );
+    assert.deepEqual(from(text, '- 🔔 `green`', 2), [
+      '- 🔔 `green`: stuck at attempt 2',
+      '  - next: the batch is Stuck here',
+    ]);
+    assert.doesNotMatch(text, /next: a round back/);
+  });
+
+  it('says nothing of what follows a failed check whose route the engine has not taken: regression test', () => {
+    const text = renderStatus(
+      batch({
+        steps: new Map([step('implement', done(1)), step('green', checked(1, testFailed))]),
+      }),
+      recipeSteps,
+    );
+    assert.equal(lineOf(text, 'green'), `- ❌ \`green\`: attempt 1 failed: ${testFailed}`);
+    assert.doesNotMatch(text, /next:/);
+  });
+
+  it("reads the route after the failed attempt itself, not after the step's first failed attempt", () => {
+    // green failed twice: the engine took a route after attempt 1 only, and attempt 2 ends the path.
+    const text = renderStatus(
+      batch({
+        steps: new Map([
+          step('implement', done(1), { ...done(2), route: { from: 'green', why: 'failed' } }),
+          step(
+            'green',
+            checked(1, 'the check "lint" failed with exit code 1'),
+            checked(2, testFailed),
+          ),
+        ]),
+        path: [
+          { stepId: 'implement', attempt: 1 },
+          { stepId: 'green', attempt: 1 },
+          { stepId: 'implement', attempt: 2 },
+          { stepId: 'green', attempt: 2 },
+        ],
+      }),
+      recipeSteps,
+    );
+    assert.equal(
+      from(text, '- ❌ `green`', 1)[0],
+      `- ❌ \`green\`: attempt 2 failed: ${testFailed}`,
+    );
+    assert.doesNotMatch(text, /next:/);
+  });
+
+  describe('a batch Stuck because a step used its attempts', () => {
+    const lastReason = testFailed;
+    const stuckOn = (green: Attempt[]): Batch =>
+      batch({
+        // The round's count is 1, though the step ran twice in all.
+        lane: stuck({ kind: 'attempts_exhausted', stepId: 'green', attempts: 1, lastReason }),
+        steps: new Map([step('implement', done(1)), step('green', ...green)]),
+      });
+
+    it('says how many times the step ran in all, not the attempts of its round', () => {
+      const text = renderStatus(
+        stuckOn([checked(1, lastReason), checked(2, lastReason)]),
+        recipeSteps,
+      );
+      assert.equal(
+        from(text, '🔔', 1)[0],
+        `🔔 **Waiting for you**: look at a failure: \`green\` ran 2 times in all and has no attempt left; the last: ${lastReason}`,
+      );
+      assert.doesNotMatch(text, /used its/);
+    });
+
+    it('says which checks of its latest attempt passed, on a line under the reason', () => {
+      const text = renderStatus(
+        stuckOn([
+          // The first attempt's lint failed: only the latest attempt's readings are read.
+          checked(1, 'the check "lint" failed with exit code 1', [reading('lint', 1)]),
+          checked(2, lastReason, [reading('lint', 0), reading('typecheck', 0), reading('test', 1)]),
+        ]),
+        recipeSteps,
+      );
+      assert.deepEqual(from(text, '🔔', 2), [
+        `🔔 **Waiting for you**: look at a failure: \`green\` ran 2 times in all and has no attempt left; the last: ${lastReason}`,
+        'Passed: the check "lint", the check "typecheck"',
+      ]);
+    });
+
+    it('does not list a check the repository has none of as passed', () => {
+      const text = renderStatus(
+        stuckOn([
+          checked(1, lastReason, [
+            { result: 'skipped', check: 'build' },
+            reading('lint', 0),
+            reading('test', 1),
+          ]),
+        ]),
+        recipeSteps,
+      );
+      assert.equal(from(text, '🔔', 2)[1], 'Passed: the check "lint"');
+    });
+
+    it('names no passed check of a step whose attempts ran none: regression test', () => {
+      const text = renderStatus(stuckOn([checked(1, lastReason)]), recipeSteps);
+      assert.doesNotMatch(text, /Passed:/);
+    });
+
+    it("does not list the repository's setup as a passed check", () => {
+      const setup: GravityReading = {
+        result: 'exited',
+        setup: true,
+        command: 'npm ci',
+        exitCode: 0,
+        tail: '',
+      };
+      const text = renderStatus(
+        stuckOn([checked(1, lastReason, [setup, reading('lint', 0), reading('test', 1)])]),
+        recipeSteps,
+      );
+      assert.equal(from(text, '🔔', 2)[1], 'Passed: the check "lint"');
+      assert.doesNotMatch(text, /npm ci/);
+    });
+
+    it('names no passed check when none of the readings passed: regression test', () => {
+      const text = renderStatus(
+        stuckOn([checked(1, lastReason, [reading('test', 1)])]),
+        recipeSteps,
+      );
+      assert.doesNotMatch(text, /Passed:/);
+    });
+  });
+
+  describe('the Next line of a Stuck batch', () => {
+    const lane = (options: Extract<Lane, { kind: 'stuck' }>['options']): Lane => ({
+      kind: 'stuck',
+      reason: { kind: 'attempts_exhausted', stepId: 'brew', attempts: 1, lastReason: 'crash' },
+      options,
+      remindAt: at,
+    });
+    const nextLine = (text: string): string | undefined =>
+      text.split('\n').find((line) => line.startsWith('Next:'));
+
+    it('gives each option its whole command and what it does, those that take more asking for it', () => {
+      const text = renderStatus(
+        batch({ lane: lane(['retry', 'skip', 'recipe', 'rewind', 'cancel']) }),
+        steps,
+      );
+      assert.equal(
+        nextLine(text),
+        'Next: get it moving with `foedrum retry 7` (give the step another attempt), `foedrum skip 7` (go on after the step), `foedrum recipe 7 <recipe> "<reason>"` (brew with another recipe, from the first step), `foedrum rewind 7 <step> <owner/name>=<commit>` (take the batch back to a step), `foedrum cancel 7` (end the batch).',
+      );
+    });
+
+    it('says what retry and recipe do for a batch no recipe was chosen for', () => {
+      const text = renderStatus(
+        batch({
+          lane: {
+            kind: 'stuck',
+            reason: { kind: 'routing', deadlineAt: at },
+            options: ['retry', 'recipe', 'cancel'],
+            remindAt: at,
+          },
+        }),
+        steps,
+      );
+      assert.equal(
+        nextLine(text),
+        'Next: get it moving with `foedrum retry 7` (route it again, by a new deadline), `foedrum recipe 7 <recipe> "<reason>"` (brew it with this recipe, from the first step), `foedrum cancel 7` (end the batch).',
+      );
+    });
+
+    it("keeps a plan's other options as they were: regression test", () => {
+      const text = renderStatus(
+        batch({
+          lane: {
+            kind: 'stuck',
+            reason: { kind: 'plan_review', stepId: 'plan', attempt: 1 },
+            options: ['approve', 'lauter', 'retry', 'recipe', 'cancel'],
+            remindAt: at,
+          },
+        }),
+        steps,
+      );
+      assert.equal(
+        nextLine(text),
+        `Next: ${planNextStep('7', code)} Its other option: \`recipe\`.`,
+      );
+    });
+  });
+
+  describe('the times of the comment', () => {
+    it('writes the stalled and the deadline times as the UTC minute, with no relative part', () => {
+      const lane = (reason: StuckReason): Batch => batch({ lane: stuck(reason) });
+      const stalled = renderStatus(
+        lane({
+          kind: 'stalled',
+          stepId: 'brew',
+          lastProgressAt: '2026-11-19T13:11:21.291Z',
+          turnsWithoutProgress: 30,
+        }),
+        steps,
+      );
+      assert.match(stalled, /since 2026-11-19 13:11 UTC, for 30 turns$/m);
+      const late = renderStatus(
+        lane({ kind: 'deadline_passed', stepId: 'brew', deadlineAt: '2026-11-19T13:11:59.999Z' }),
+        steps,
+      );
+      assert.match(late, /passed its deadline of 2026-11-19 13:11 UTC$/m);
+      assert.doesNotMatch(`${stalled}${late}`, /\bmin\)|\d{2}:\d{2}:\d{2}/);
+    });
+
+    it('writes the time a pull request has waited for its checks as the UTC minute', () => {
+      const waiting = batch({
+        lane: { kind: 'on_tap', pullRequests: [pr] },
+        pullRequestChecks: {
+          [pr]: { kind: 'pending', head: 'a'.repeat(40), since: '2026-11-19T13:11:21.291Z' },
+        },
+      });
+      const text = renderStatus(
+        waiting,
+        steps,
+        undefined,
+        undefined,
+        undefined,
+        {},
+        undefined,
+        undefined,
+        {
+          url: pr,
+          head: 'a'.repeat(40),
+        },
+      );
+      assert.match(text, /waits for its checks on `aaaaaaaa` since 2026-11-19 13:11 UTC$/m);
+    });
+  });
+
+  describe('the handover line', () => {
+    it('says what a handover is, and for one note that it is a proposal', () => {
+      const handed: Attempt = {
+        phase: 'finished',
+        attempt: 1,
+        deadlineAt: at,
+        outcome: {
+          kind: 'succeeded',
+          output: { status: 'done', summary: 'Done', assumptions: [] },
+        },
+        handover: ['one'],
+      };
+      const text = renderStatus(batch({ steps: new Map([step('plan', handed)]) }), steps);
+      assert.ok(
+        text
+          .split('\n')
+          .includes(
+            '1 note the brewers left (a proposal, not used by this batch): read it with `foedrum handover 7`',
+          ),
+        text,
+      );
+    });
+
+    it('says notes in the plural, and that they are proposals', () => {
+      const handed: Attempt = {
+        phase: 'finished',
+        attempt: 1,
+        deadlineAt: at,
+        outcome: {
+          kind: 'succeeded',
+          output: { status: 'done', summary: 'Done', assumptions: [] },
+        },
+        handover: ['one', 'two'],
+      };
+      const text = renderStatus(batch({ steps: new Map([step('plan', handed)]) }), steps);
+      assert.ok(
+        text
+          .split('\n')
+          .includes(
+            '2 notes the brewers left (proposals, not used by this batch): read them with `foedrum handover 7`',
+          ),
+        text,
+      );
+    });
   });
 });

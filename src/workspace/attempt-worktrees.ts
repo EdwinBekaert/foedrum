@@ -32,6 +32,9 @@ export const repoFolder = (repo: string): string => {
   return folder;
 };
 
+/** Where the state branch is checked out in the work root; a step input reads it too (ADR 0465). */
+export const stateWorktreePath = (workRoot: string): string => join(workRoot, 'state');
+
 /** Where the managed clone of `repo` is in the work root (ADR 0012). */
 export const managedClonePath = (workRoot: string, repo: string): string =>
   join(workRoot, repoFolder(repo), 'clone.git');

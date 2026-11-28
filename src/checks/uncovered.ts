@@ -98,17 +98,39 @@ export const judgeCoverage = ({
   return verdict;
 };
 
-/** How many uncovered lines the reason names. */
-const MOST_NAMED = 10;
+/**
+ * One file's uncovered lines as ranges: lines in a row as `158–159`, and a line whose branch is not
+ * taken apart from the range beside it, with its note.
+ */
+const rangesOf = (lines: readonly UncoveredLine[]): string => {
+  const ranges: { from: number; to: number; branch: boolean }[] = [];
+  for (const { line, branch } of [...lines].sort((a, b) => a.line - b.line)) {
+    const last = ranges.at(-1);
+    if (!branch && last !== undefined && !last.branch && last.to + 1 === line) last.to = line;
+    else ranges.push({ from: line, to: line, branch });
+  }
+  return ranges
+    .map(({ from, to, branch }) => {
+      const range = from === to ? `${from}` : `${from}–${to}`;
+      return branch ? `${range} (branch not taken)` : range;
+    })
+    .join(', ');
+};
 
-/** The check's reason for uncovered lines: the first ten, and a count of the rest. */
+/**
+ * The check's reason for uncovered lines: each file once, in the order of the change's files, with
+ * the ranges of its lines (ADR 0428).
+ */
 export const uncoveredReason = (lines: readonly UncoveredLine[]): string => {
-  const named = lines
-    .slice(0, MOST_NAMED)
-    .map(
-      ({ file, line, branch }) => `${shown(file)}:${line}${branch ? ' (branch not taken)' : ''}`,
-    );
-  const more = lines.length - named.length;
-  const count = `${lines.length} changed line${lines.length === 1 ? '' : 's'}`;
-  return `${count} no test runs: ${named.join(', ')}${more > 0 ? ` and ${more} more` : ''}`;
+  const byFile = new Map<string, UncoveredLine[]>();
+  for (const each of lines) {
+    const own = byFile.get(each.file);
+    if (own === undefined) byFile.set(each.file, [each]);
+    else own.push(each);
+  }
+  const files = [...byFile].map(
+    ([file, own]) => `${shown(file)}: ${own.length === 1 ? 'line' : 'lines'} ${rangesOf(own)}`,
+  );
+  const count = `${lines.length} changed line${lines.length === 1 ? '' : 's'} no test runs`;
+  return byFile.size === 1 ? `${count}, all in ${files.join('')}` : `${count}: ${files.join('; ')}`;
 };

@@ -24,6 +24,7 @@ import { checkPassed } from '../engine/pr-checks.ts';
 import type { BrewerOnStep, Lens, RecipeChoice, StepBrewer } from '../engine/recipe-files.ts';
 import type { ReleaseInput } from '../engine/release-input.ts';
 import { ranIn } from '../engine/session-resume.ts';
+import { outDocPath } from '../engine/state-branch.ts';
 import { cappedMap, type MappedRepository, mapLines } from '../engine/system-map.ts';
 import { sameRepo } from '../engine/task-tree.ts';
 import { familyOf, type ModelFamily } from '../engine/usage-window.ts';
@@ -273,6 +274,18 @@ const succeededIn = (batch: Batch, stepId: string): Attempt | undefined => {
     (attempt) => attempt.phase === 'finished' && attempt.outcome.kind === 'succeeded',
   );
 };
+
+/**
+ * Where the state branch keeps the out doc that the input `step:<step>` reads, once the batch's
+ * worktrees are cleaned (ADR 0465): that of the latest attempt of `step` that succeeded, which
+ * `inputsOf` found before it came here.
+ */
+export const keptOutDocOf = (batch: Batch, step: string): string =>
+  outDocPath({
+    batchId: batch.id,
+    stepId: step,
+    attempt: succeededIn(batch, step)?.attempt ?? 0,
+  });
 
 /**
  * The Brewery's repositories and their bases, and the one an attempt's worktree holds: none for a

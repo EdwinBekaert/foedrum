@@ -32,7 +32,7 @@ sequenceDiagram
   A kill in between leaves both on the branch, or the next flush writes the doc again; a doc kept after its events were pushed (an abandoned attempt's) is pushed alone.
   Each line of a doc that looks like a secret (`findSecrets`, a full commit hash excepted) is written as a fixed line naming its step and attempt, never the line, and so is every line of a private key's block ([ADR 0378](../../adr/0378-out-doc-lines-that-look-like-secrets-stay-off-the-state-branch-and-a-push-refused-for-one-stops-the-engine.md)).
   The text is model output: stored byte for byte but for those lines, never a log, never read back as an instruction, and past 256 KiB replaced by a fixed line.
-  So its body outlives the worktree the cleanup deletes; `foedrum replay` points at it.
+  So its body outlives the worktree the cleanup deletes; `foedrum replay` points at it, and a `step:<id>` input reads it there once its worktree is gone ([ADR 0465](../../adr/0465-a-step-input-reads-the-state-branchs-copy-of-an-out-doc-once-its-worktree-is-cleaned.md)).
 - State is committed at **every step boundary** (`step.finished`, or any event that changes a batch's lane) and pushed.
   SQLite is written first; a flush writes every event after the store's pushed-through marker, commits, pushes and only then moves the marker.
   The local SQLite database is an index and working store that `foedrum serve` rebuilds from the state branch on any machine.

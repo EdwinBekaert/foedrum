@@ -713,7 +713,9 @@ export const commands: readonly RegisteredCommand[] = [
             unpushed.size === 0 ? new Map() : await context.readKeptBranches(state, unpushed);
           const kept = keptBranchLines(unpushed, readings);
           const interactive = interactiveOwners(store, context);
-          return done(formatStatus(state, kept, interactive, limitsHeld(state, context)));
+          return done(
+            formatStatus(state, kept, interactive, limitsHeld(state, context), context.now()),
+          );
         },
         // A fresh Brewery: serve and brew make the store when they first start.
         done('No batches yet.\n'),
