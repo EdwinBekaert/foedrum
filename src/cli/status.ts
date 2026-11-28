@@ -173,10 +173,6 @@ const doneText = (how: DoneHow): string => {
 };
 
 /**
- * A batch's state (ADR 0385), and what it does, waits for, or how it ended, as `foedrum status`
- * and `foedrum stuck` say it ('' when nothing).
- */
-/**
  * A batch's state in words: `detail` as `foedrum status` writes it, and the same split for the
  * watch board (ADR 0475): `short`, what it does or waits for in a few words, and `message`, the
  * rest, such as a Stuck reason and its reminder.
@@ -194,6 +190,10 @@ const only = (state: string, detail: string): DescribedState => {
   return { state, detail, short, message: rest.join('; ') };
 };
 
+/**
+ * A batch's state (ADR 0385), and what it does, waits for, or how it ended, as `foedrum status`
+ * and `foedrum stuck` say it ('' when nothing).
+ */
 export const describeState = (
   state: State,
   batch: Batch,
@@ -239,13 +239,13 @@ export const describeState = (
           merged: lane.pullRequests.filter((url) => ends[url] === 'merged'),
           closed: lane.pullRequests.filter((url) => ends[url] === 'closed'),
         });
-        const open = `${what}: ${now.for.pullRequests.join(' ')}`;
-        const message = [now.for.pullRequests.join(' '), ended].filter((part) => part !== '');
+        const open = now.for.pullRequests.join(' ');
+        const message = [open, ended].filter((part) => part !== '').join('; ');
         return {
           state: words,
-          detail: [open, ended].filter((part) => part !== '').join('; '),
+          detail: [`${what}: ${open}`, ended].filter((part) => part !== '').join('; '),
           short: what,
-          message: message.join('; '),
+          message,
         };
       }
       if (now.for.kind === 'open_order') {
