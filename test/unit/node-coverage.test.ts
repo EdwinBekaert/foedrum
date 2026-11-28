@@ -214,6 +214,45 @@ describe('readNodeCoverage, the records of a folder', () => {
     assert.equal(codeOf(new Error('/home/ann/secret is gone')), 'an error');
   });
 
+  it('refuses a record whose test file only a helper declares tests in, as the helper alone runs none', () => {
+    // foo.test.ts calls the helper, where its tests are: the reports locate the helper, not foo.test.ts.
+    // The other test file's process loaded the preload, and not foo.test.ts.
+    writeFileSync(
+      join(folder, 'coverage-1.json'),
+      record(
+        [urlOf('src', 'preload.ts'), [range(0, 3, 1)]],
+        [urlOf('test', 'foo.test.ts'), [range(0, 7, 1)]],
+        [urlOf('test', 'helper.ts'), [range(0, 9, 1)]],
+      ),
+    );
+    writeFileSync(
+      join(folder, 'coverage-2.json'),
+      record(
+        [urlOf('src', 'preload.ts'), [range(0, 3, 1)]],
+        [urlOf('test', 'b.test.ts'), [range(0, 9, 1)]],
+      ),
+    );
+    assert.equal(
+      readNodeCoverage(folder, tree, ['test/helper.ts', 'test/b.test.ts']),
+      'the record of the test file "test/helper.ts" starts with "test/foo.test.ts", which no other process of the tree loaded',
+    );
+  });
+
+  it('refuses a script before the test file when no other process of the tree loaded anything', () => {
+    // The one process may be a preload and a test file, or a test file and its helper: it cannot tell.
+    writeFileSync(
+      join(folder, 'coverage-1.json'),
+      record(
+        [urlOf('src', 'preload.ts'), [range(0, 3, 1)]],
+        [urlOf('test', 'a.test.ts'), [range(0, 7, 1)]],
+      ),
+    );
+    assert.equal(
+      readNodeCoverage(folder, tree, located),
+      'the record of the test file "test/a.test.ts" starts with "src/preload.ts", which no other process of the tree loaded',
+    );
+  });
+
   it('refuses two records that name one test file, which one of them would stand for', () => {
     for (const name of ['coverage-1.json', 'coverage-2.json']) {
       writeFileSync(join(folder, name), record([urlOf('test', 'a.test.ts'), [range(0, 7, 1)]]));

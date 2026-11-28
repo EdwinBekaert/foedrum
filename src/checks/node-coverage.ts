@@ -2,7 +2,8 @@
 // baseline ran the test check, read per test file (#1176, ADR 0431, ADR 0303): each process's
 // record is the test file's, which is the first script of the tree it compiled that the baseline's
 // test reports place a test in, before the files that file imports. A script a preload or a loader
-// compiled before it is no test file. The file system's reading; mutant-reach.ts says which test
+// compiled before it is no test file, and each script before it is one that another process loaded
+// too. The file system's reading; mutant-reach.ts says which test
 // files reached a line.
 
 import { readdirSync } from 'node:fs';
@@ -47,7 +48,8 @@ const MAX_RECORDS = 3000;
 /**
  * The coverage the processes wrote in `folder` for the tree at `root`, per test file by its path in
  * the tree, each with the ranges of every file of the tree its process loaded; or why a record
- * cannot be read, or two processes started on one file. A test file is one of `located`, the files
+ * cannot be read, two processes started on one file, or a script before a test file that no other
+ * process of the tree loaded (it is no preload). A test file is one of `located`, the files
  * the baseline's tests report (absolute or relative to the tree): a record that loaded none is no
  * test file's and is left out. A folder never made holds none. Each record is read as a test report
  * is, only a regular file of the tree and of a bounded size, as a test wrote it.
@@ -80,6 +82,8 @@ export const readNodeCoverage = (
     }),
   );
   const records = new Map<string, Map<string, Range[]>>();
+  const loaded: Map<string, Range[]>[] = [];
+  const before = new Map<string, string[]>();
   for (const name of names.sort()) {
     const unreadable = (why: string) => `cannot read ${quoted(name)}: ${why}`;
     const read = readOutDocFile(join(folder, name), MAX_REPORT_BYTES, root);
@@ -102,10 +106,26 @@ export const readNodeCoverage = (
           functions.flatMap(({ ranges }) => ranges),
         );
     }
-    const entry = [...scripts.keys()].find((path) => tests.has(path));
+    if (scripts.size === 0) continue;
+    loaded.push(scripts);
+    const paths = [...scripts.keys()];
+    const entry = paths.find((path) => tests.has(path));
     if (entry === undefined) continue;
     if (records.has(entry)) return `two coverage records name the test file ${quoted(entry)}`;
     records.set(entry, scripts);
+    before.set(entry, paths.slice(0, paths.indexOf(entry)));
+  }
+  // A preload runs in every process of the tree. A script before the entry that another process did
+  // not load may be the test file itself, whose tests a helper declares: the record would name the
+  // helper, and a run of the helper alone declares no test.
+  for (const [entry, preceding] of before) {
+    const others = loaded.filter((scripts) => scripts !== records.get(entry));
+    const stranger = preceding.find(
+      (path) => others.length === 0 || others.some((scripts) => !scripts.has(path)),
+    );
+    if (stranger !== undefined) {
+      return `the record of the test file ${quoted(entry)} starts with ${quoted(stranger)}, which no other process of the tree loaded`;
+    }
   }
   return records;
 };

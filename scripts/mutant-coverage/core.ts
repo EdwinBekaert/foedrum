@@ -3,13 +3,12 @@
 // file. A test file with no coverage record counts as running every line.
 
 import { posix } from 'node:path';
+import { listable, quoted } from '../../src/checks/gravity.ts';
+import { type Range, runsLine } from '../../src/checks/mutant-reach.ts';
 
-// A range of a script that ran `count` times, in UTF-16 offsets of the source V8 compiled.
-export interface Range {
-  startOffset: number;
-  endOffset: number;
-  count: number;
-}
+// The rule for a line that ran and the names a covered line can carry are the engine's (ADR 0431),
+// so the review and the mutant step cannot read the same coverage differently.
+export { listable, quoted, type Range, runsLine };
 
 export interface Location {
   file: string;
@@ -61,29 +60,6 @@ export const parseCoverage = (text: string): Map<string, Range[]> | string => {
   return scripts;
 };
 
-// Whether line `line` (from 1) of `source` ran: whether one of its non-blank characters lies in
-// an innermost range that ran. V8 compiles the text after a byte order mark, and type stripping
-// keeps every offset, so the offsets are those of the text without the mark.
-export const runsLine = (source: string, ranges: readonly Range[], line: number): boolean => {
-  const text = source.startsWith('﻿') ? source.slice(1) : source;
-  let start = 0;
-  for (let n = 1; n < line; n += 1) start = text.indexOf('\n', start) + 1;
-  const end = text.indexOf('\n', start);
-  for (let offset = start; offset < (end === -1 ? text.length : end); offset += 1) {
-    if (/\s/.test(text.charAt(offset))) continue;
-    let innermost: Range | undefined;
-    for (const range of ranges) {
-      if (offset < range.startOffset || offset >= range.endOffset) continue;
-      const width = range.endOffset - range.startOffset;
-      if (innermost === undefined || width <= innermost.endOffset - innermost.startOffset) {
-        innermost = range;
-      }
-    }
-    if ((innermost?.count ?? 0) > 0) return true;
-  }
-  return false;
-};
-
 // The file's own test files, as the repository names them: test/unit/<name>.test.ts, and its
 // -core and -shell variants, and test/unit/<folder>-<name>.test.ts (mutant-coverage-core for
 // scripts/mutant-coverage/core.ts).
@@ -93,16 +69,6 @@ const ownTestsOf = (file: string): Set<string> => {
   const names = [name, `${name}-core`, `${name}-shell`, `${folder}-${name}`];
   return new Set(names.map((base) => `test/unit/${base}.test.ts`));
 };
-
-// A name an outside party wrote, quoted so it stays on its line: as JSON, with the line and
-// paragraph separators JSON leaves as they are escaped too.
-export const quoted = (text: string): string =>
-  JSON.stringify(text).replace(/[\u2028\u2029]/g, (c) => `\\u${c.charCodeAt(0).toString(16)}`);
-
-const LISTABLE = /^[\w./@+-]+$/;
-
-// Whether a path can go on a covered line, whose names a space separates.
-export const listable = (path: string): boolean => LISTABLE.test(path);
 
 export const coveringTests = ({ tests, records, sources, locations }: CoverageInput): Plan => {
   if (tests.length === 0) return { kind: 'fallback', reason: 'no test file imports the files' };
@@ -124,7 +90,8 @@ export const coveringTests = ({ tests, records, sources, locations }: CoverageIn
       const covers = (test: string): boolean => {
         const record = records.get(test);
         if (own.has(test) || record === undefined) return true;
-        return runsLine(sources.get(file) ?? '', record.get(file) ?? [], line);
+        // A file with no such line ran nothing.
+        return runsLine(sources.get(file) ?? '', record.get(file) ?? [], line) === true;
       };
       return { file, line, tests: sorted.filter(covers) };
     }),

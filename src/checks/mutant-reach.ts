@@ -1,7 +1,8 @@
-// Which test files reach a Brett mutant's line (#1176, ADR 0303, ADR 0313): read from the V8
+// Which test files reach a Brett mutant's line (ADR 0431, by the rule of ADR 0303): read from the V8
 // coverage each test file's process wrote in the mutant step's baseline run on Node (a run with
 // NODE_V8_COVERAGE), so a mutant runs only those test files. Pure; check-runner.ts records the
-// coverage and mutant-run.ts runs the files.
+// coverage and mutant-run.ts runs the files. scripts/mutant-coverage/core.ts, the review's side of
+// ADR 0303, reads a line with the same `runsLine`.
 
 import { listable, quoted, unlistable } from './gravity.ts';
 
@@ -40,7 +41,11 @@ export interface ReachInput {
  * text after a byte order mark, and type stripping keeps every offset, so the offsets are those of
  * the text without the mark.
  */
-const runsLine = (source: string, ranges: readonly Range[], line: number): boolean | undefined => {
+export const runsLine = (
+  source: string,
+  ranges: readonly Range[],
+  line: number,
+): boolean | undefined => {
   const text = source.startsWith(BYTE_ORDER_MARK) ? source.slice(1) : source;
   let start = 0;
   for (let n = 1; n < line; n += 1) {
