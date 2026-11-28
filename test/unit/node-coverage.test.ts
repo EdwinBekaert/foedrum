@@ -238,6 +238,48 @@ describe('readNodeCoverage, the records of a folder', () => {
     );
   });
 
+  it('names the test files when a wrapper process of the tree loaded no preload and no test file', () => {
+    // The test line runs through a node wrapper that passes its env on: its record holds its own
+    // script only, and the preload ran in the runner's other processes (ADR 0431).
+    writeFileSync(
+      join(folder, 'coverage-0.json'),
+      record([urlOf('src', 'wrapper.ts'), [range(0, 4, 1)]]),
+    );
+    writeFileSync(
+      join(folder, 'coverage-1.json'),
+      record(
+        [urlOf('src', 'preload.ts'), [range(0, 3, 1)]],
+        [urlOf('test', 'a.test.ts'), [range(0, 7, 1)]],
+      ),
+    );
+    writeFileSync(
+      join(folder, 'coverage-2.json'),
+      record(
+        [urlOf('src', 'preload.ts'), [range(0, 3, 1)]],
+        [urlOf('test', 'b.test.ts'), [range(0, 9, 1)]],
+      ),
+    );
+    assert.deepStrictEqual(
+      readNodeCoverage(folder, tree, located),
+      new Map([
+        [
+          'test/a.test.ts',
+          new Map([
+            ['src/preload.ts', [range(0, 3, 1)]],
+            ['test/a.test.ts', [range(0, 7, 1)]],
+          ]),
+        ],
+        [
+          'test/b.test.ts',
+          new Map([
+            ['src/preload.ts', [range(0, 3, 1)]],
+            ['test/b.test.ts', [range(0, 9, 1)]],
+          ]),
+        ],
+      ]),
+    );
+  });
+
   it('refuses a script before the test file when no other process of the tree loaded anything', () => {
     // The one process may be a preload and a test file, or a test file and its helper: it cannot tell.
     writeFileSync(

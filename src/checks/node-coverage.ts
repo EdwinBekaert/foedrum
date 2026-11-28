@@ -2,8 +2,8 @@
 // baseline ran the test check, read per test file (#1176, ADR 0431, ADR 0303): each process's
 // record is the test file's, which is the first script of the tree it compiled that the baseline's
 // test reports place a test in, before the files that file imports. A script a preload or a loader
-// compiled before it is no test file, and each script before it is one that another process loaded
-// too. The file system's reading; mutant-reach.ts says which test
+// compiled before it is no test file, and each script before it is one that at least one other
+// process loaded too. The file system's reading; mutant-reach.ts says which test
 // files reached a line.
 
 import { readdirSync } from 'node:fs';
@@ -115,14 +115,12 @@ export const readNodeCoverage = (
     records.set(entry, scripts);
     before.set(entry, paths.slice(0, paths.indexOf(entry)));
   }
-  // A preload runs in every process of the tree. A script before the entry that another process did
-  // not load may be the test file itself, whose tests a helper declares: the record would name the
-  // helper, and a run of the helper alone declares no test.
+  // A preload runs in other processes of the tree too, though not in a wrapper that starts them. A
+  // script before the entry that no other process loaded may be the test file itself, whose tests a
+  // helper declares: the record would name the helper, and a run of the helper alone declares no test.
   for (const [entry, preceding] of before) {
     const others = loaded.filter((scripts) => scripts !== records.get(entry));
-    const stranger = preceding.find(
-      (path) => others.length === 0 || others.some((scripts) => !scripts.has(path)),
-    );
+    const stranger = preceding.find((path) => !others.some((scripts) => scripts.has(path)));
     if (stranger !== undefined) {
       return `the record of the test file ${quoted(entry)} starts with ${quoted(stranger)}, which no other process of the tree loaded`;
     }
