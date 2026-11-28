@@ -15,17 +15,20 @@ import { z } from './zod.ts';
 // null: the repository has no such check; a gravity reading skips it and records the skip.
 const check = Command.nullable();
 
-/** Whether every line of `command` holds `{base}` (ADR 0242). */
-const holdsBase = (command: Command): boolean =>
-  typeof command === 'string'
-    ? command.includes('{base}')
-    : [command.run, command.windows, command.macos, command.linux].every(
-        (line) => line === undefined || line.includes('{base}'),
-      );
+/** Whether every line of `command` holds `placeholder` (ADR 0242, ADR 0431). */
+const holds =
+  (placeholder: string) =>
+  (command: Command): boolean =>
+    typeof command === 'string'
+      ? command.includes(placeholder)
+      : [command.run, command.windows, command.macos, command.linux].every(
+          (line) => line === undefined || line.includes(placeholder),
+        );
 
 /**
  * Every check is required, so a missing one is always an explicit null (ADR 0023); `testChanged`,
- * the test of the changed code a check step runs in place of `test`, is not (ADR 0242).
+ * the test of the changed code a check step runs in place of `test`, is not (ADR 0242), and nor is
+ * `testFiles`, the command that runs a few test files, which a mutant's run uses (ADR 0431).
  */
 const Checks = z
   .strictObject({
@@ -35,17 +38,29 @@ const Checks = z
     format: check,
     test: check,
     testChanged: Command.refine(
-      holdsBase,
+      holds('{base}'),
       'Must hold {base}, where a check step puts the commit the change starts from',
     )
       .optional()
       .describe(
         "The test of the changed code a check step runs in place of test, from {base}; setting it says the pull request's checks run the full test (ADR 0242)",
       ),
+    testFiles: Command.refine(
+      holds('{files}'),
+      'Must hold {files}, where the mutant step puts the test files to run',
+    )
+      .optional()
+      .describe(
+        "The command that runs only the test files {files} names, separated by spaces; with it, on Node, a mutant's run runs only the test files that reach its line (ADR 0431)",
+      ),
   })
   .refine((checks) => checks.testChanged === undefined || checks.test !== null, {
     message: 'A testChanged needs a test check, which the pull request runs in full',
     path: ['testChanged'],
+  })
+  .refine((checks) => checks.testFiles === undefined || checks.test !== null, {
+    message: 'A testFiles needs a test check, whose tests it runs a few files of',
+    path: ['testFiles'],
   })
   .describe('The command behind each check recipes name, or null when the repository has none');
 

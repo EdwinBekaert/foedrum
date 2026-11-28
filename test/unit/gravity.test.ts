@@ -9,6 +9,7 @@ import {
   readingOf,
   settleReadings,
   tailOf,
+  testFilesLine,
   testGateOf,
   withFailing,
 } from '../../src/checks/gravity.ts';
@@ -90,6 +91,53 @@ describe('planChecks', () => {
     assert.deepEqual(planChecks(['test'], changed, 'linux'), [
       { kind: 'run', check: 'test', command: 'npm test' },
     ]);
+  });
+});
+
+describe('testFilesLine (ADR 0431)', () => {
+  const files = ['test/unit/a.test.ts', 'test/chaos/b.test.ts'];
+
+  it("replaces {files} with the test files' paths, a space between them", () => {
+    assert.equal(
+      testFilesLine('node --test {files}', 'linux', files),
+      'node --test test/unit/a.test.ts test/chaos/b.test.ts',
+    );
+  });
+
+  it("takes the platform's line of the command", () => {
+    const command = { run: 'node --test {files}', windows: 'node.exe --test {files} --x' };
+    assert.equal(
+      testFilesLine(command, 'win32', files),
+      'node.exe --test test/unit/a.test.ts test/chaos/b.test.ts --x',
+    );
+    assert.equal(
+      testFilesLine(command, 'linux', files),
+      'node --test test/unit/a.test.ts test/chaos/b.test.ts',
+    );
+  });
+
+  it('replaces every {files} of the line', () => {
+    assert.equal(
+      testFilesLine('echo {files} && node --test {files}', 'linux', ['a.test.ts']),
+      'echo a.test.ts && node --test a.test.ts',
+    );
+  });
+
+  it('refuses a path a command line cannot carry as one word, naming it', () => {
+    for (const path of [
+      'a b.test.ts',
+      'a;b.test.ts',
+      '$(x).test.ts',
+      'a\nb.test.ts',
+      '"a.test.ts',
+    ]) {
+      assert.throws(
+        () => testFilesLine('node --test {files}', 'linux', ['ok.test.ts', path]),
+        (error: Error) =>
+          error.message.includes(JSON.stringify(path)) && /cannot be listed/.test(error.message),
+        path,
+      );
+    }
   });
 });
 

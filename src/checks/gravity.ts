@@ -22,6 +22,8 @@ import type { CheckRef } from '../schemas/recipe.ts';
  */
 export type RepositoryChecks = Readonly<Record<CheckName, Command | null>> & {
   readonly testChanged?: Command | undefined;
+  /** The command that runs the test files `{files}` names, which a mutant's run uses (ADR 0431). */
+  readonly testFiles?: Command | undefined;
 };
 
 // None of a repository's checks: what a step of literal commands plans against.
@@ -81,6 +83,41 @@ export const testChangedLine = (
   platform: NodeJS.Platform,
   base: string,
 ): string => commandLine(testChanged, platform).replaceAll(BASE, base);
+
+/** What `testFiles` holds for the test files a mutant's run names (ADR 0431). */
+const FILES = '{files}';
+
+const LISTABLE = /^[\w./@+-]+$/;
+
+/** Whether a path goes on a command line as one word, which a space or a shell character would split. */
+export const listable = (path: string): boolean => LISTABLE.test(path);
+
+const LINE_SEPARATOR = String.fromCodePoint(0x2028);
+const PARAGRAPH_SEPARATOR = String.fromCodePoint(0x2029);
+
+/** A name an outside party wrote, quoted so it stays on its line: as JSON, a line separator escaped too. */
+export const quoted = (text: string): string =>
+  JSON.stringify(text)
+    .replaceAll(LINE_SEPARATOR, '\\u2028')
+    .replaceAll(PARAGRAPH_SEPARATOR, '\\u2029');
+
+/** Why a test file's path cannot be listed (ADR 0431). */
+export const unlistable = (path: string): string =>
+  `the test file name ${quoted(path)} cannot be listed on one line`;
+
+/**
+ * The line `testFiles` runs on `platform` for `files`, `{files}` replaced by their paths with a
+ * space between them; a path a line cannot carry as one word is refused (ADR 0431).
+ */
+export const testFilesLine = (
+  testFiles: Command,
+  platform: NodeJS.Platform,
+  files: readonly string[],
+): string => {
+  const odd = files.find((file) => !listable(file));
+  if (odd !== undefined) throw new Error(unlistable(odd));
+  return commandLine(testFiles, platform).replaceAll(FILES, files.join(' '));
+};
 
 /**
  * The checks of a step, in order, as `repository` maps the named ones: with the change's `base`,

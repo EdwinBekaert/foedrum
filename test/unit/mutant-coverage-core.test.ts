@@ -138,6 +138,39 @@ describe('the test files that cover a mutated line', () => {
   });
 });
 
+describe('a mutated file a test file did not run, or with no source', () => {
+  it('leaves out a test file whose coverage record holds no range of the mutated file', () => {
+    const plan = coveringTests({
+      tests: ['test/unit/decide.test.ts', 'test/unit/other.test.ts'],
+      records: new Map([
+        ['test/unit/decide.test.ts', new Map([['src/engine/fold.ts', foldRanges(false)]])],
+        ['test/unit/other.test.ts', new Map([['src/engine/other.ts', [script('x', 1)]]])],
+      ]),
+      sources,
+      locations: [{ file: 'src/engine/fold.ts', line: 5 }],
+    });
+    assert.deepEqual(plan, {
+      kind: 'covered',
+      locations: [{ file: 'src/engine/fold.ts', line: 5, tests: ['test/unit/decide.test.ts'] }],
+    });
+  });
+
+  it('leaves out every test file for a line of a file whose source it was not given', () => {
+    const plan = coveringTests({
+      tests: ['test/unit/decide.test.ts'],
+      records: new Map([
+        ['test/unit/decide.test.ts', new Map([['src/engine/gone.ts', [script(FOLD, 1)]]])],
+      ]),
+      sources,
+      locations: [{ file: 'src/engine/gone.ts', line: 5 }],
+    });
+    assert.deepEqual(plan, {
+      kind: 'covered',
+      locations: [{ file: 'src/engine/gone.ts', line: 5, tests: [] }],
+    });
+  });
+});
+
 // A name as the reason quotes it: as JSON, with a line separator escaped too.
 const quoted = (text: string): string =>
   JSON.stringify(text).replaceAll(String.fromCodePoint(0x2028), String.raw`\u2028`);

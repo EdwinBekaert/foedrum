@@ -127,6 +127,41 @@ describe('BreweryConfig', () => {
     ]);
   });
 
+  it('accepts a testFiles command with {files} beside test, and beside testChanged (ADR 0431)', () => {
+    const line = { ...checks, testFiles: 'node --test {files}' };
+    assert.equal(accepted(config({ checks: line })), true);
+    const lines = {
+      ...checks,
+      testChanged: 'vitest --changed {base}',
+      testFiles: { run: 'vitest run {files}', windows: 'vitest.cmd run {files}' },
+    };
+    assert.equal(accepted(config({ checks: lines })), true);
+  });
+
+  const noFiles = 'Must hold {files}, where the mutant step puts the test files to run';
+
+  it('refuses a testFiles line without {files}, pointing at it (ADR 0431)', () => {
+    assert.deepEqual(issuesOf({ ...checks, testFiles: 'node --test' }), [
+      { path: ['repositories', 'acme/web', 'checks', 'testFiles'], message: noFiles },
+    ]);
+  });
+
+  it('refuses a testFiles whose platform line lacks {files}, though its run holds it (ADR 0431)', () => {
+    const testFiles = { run: 'vitest run {files}', linux: 'vitest run' };
+    assert.deepEqual(issuesOf({ ...checks, testFiles }), [
+      { path: ['repositories', 'acme/web', 'checks', 'testFiles'], message: noFiles },
+    ]);
+  });
+
+  it('refuses a testFiles beside a test of null (ADR 0431)', () => {
+    assert.deepEqual(issuesOf({ ...checks, test: null, testFiles: 'node --test {files}' }), [
+      {
+        path: ['repositories', 'acme/web', 'checks', 'testFiles'],
+        message: 'A testFiles needs a test check, whose tests it runs a few files of',
+      },
+    ]);
+  });
+
   it('refuses an alias two repositories share, pointing at the second', () => {
     const result = BreweryConfig.safeParse({
       repositories: {
