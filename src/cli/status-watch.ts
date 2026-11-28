@@ -1,6 +1,7 @@
 // `foedrum status --watch` (ADR 0188): a board of the live batches, redrawn in place about once a
 // second on a terminal, read from the Brewery's store as `foedrum status` reads it.
 
+import { breweryIssueOf, orderName } from '../engine/claim-orders.ts';
 import type { State } from '../engine/fold.ts';
 import { laneStatus } from '../engine/worktree-claims.ts';
 import { messageOf } from '../platform/errors.ts';
@@ -8,7 +9,7 @@ import { columns } from './columns.ts';
 import { elapsed, fit, runningAttempts } from './live-line.ts';
 import type { BoardTerminal } from './live-terminal.ts';
 import type { CliResult } from './run.ts';
-import { statusRow } from './status.ts';
+import { boardRow } from './status.ts';
 
 /** What the board needs from the machine. */
 export interface WatchShell {
@@ -40,9 +41,10 @@ export const watchStatus = async (shell: WatchShell): Promise<CliResult> => {
     const at = now.getTime();
     const batches = [...folded.batches.values()].filter(({ lane }) => laneStatus(lane) === 'live');
     const seen = new Map<string, number>();
-    // A batch's row, led by its state and what it does or waits for, then its ids and its age as
-    // such, so a narrow terminal cuts the end of it (ADR 0428), and a line under it for each attempt
-    // that runs.
+    // A batch's row: its Brewery issue's number, its state, what it does or waits for in a few
+    // words, what its attempts took and its age, all short, so the columns stay in view; under it
+    // the rest, such as a Stuck reason, on a line a narrow terminal cuts at its end, and a line for
+    // each attempt that runs (ADR 0475).
     const groups = batches.map((batch) => {
       const age =
         batch.orderedAt === undefined
@@ -56,9 +58,11 @@ export const watchStatus = async (shell: WatchShell): Promise<CliResult> => {
           return `  ${label} / ${elapsed(Math.max(0, at - first))}`;
         },
       );
-      // statusRow's cells are the id, the order, the state and the detail.
-      const cells = statusRow(folded, batch, undefined, now);
-      return { row: [...cells.slice(2), ...cells.slice(0, 2), `age ${age}`], attempts };
+      const { cells, message } = boardRow(folded, batch, now);
+      const issue = breweryIssueOf(folded, batch);
+      const number = issue === undefined ? orderName(folded, batch) : `#${issue}`;
+      const lines = message === '' ? attempts : [`  ${message}`, ...attempts];
+      return { row: [number, ...cells, age], attempts: lines };
     });
     seenAt = seen;
     const rows = columns(

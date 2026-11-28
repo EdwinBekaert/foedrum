@@ -20,7 +20,7 @@ A pause changes no state: the surface shows the state underneath and who paused 
   A sub-order with no pull request yet shows its own batch's state in its row.
 - **The plan comment**: its Gate, `Waiting for you: approve the plan with foedrum approve <n>.`, while the plan waits for its review; an approved plan's Gate names who approved it.
 - **`foedrum status`**: the batch's id and order, then the state column and the few words, for example `1-1  #1  waiting for you  approve the plan` and `3-1  #3  done  merged: <url>`.
-  Its `--watch` board leads with the state and the few words, then the id and the order, and ends with the batch's age as `age 1m 23s`, so a narrow terminal cuts the age first: `waiting for you  approve the plan  1-1  #1  age 1m 23s` ([ADR 0428](../../adr/0428-a-failed-check-a-stuck-batch-and-the-watch-board-say-what-happened-and-what-follows-in-plain-words.md)).
+  Its `--watch` board leads with the Brewery issue's number, then the state, the few words, what its attempts took and its age, `#1  waiting for you  approve the plan  1m 23s`, and puts the rest, such as a Stuck reason and its reminder, on a line under the row ([ADR 0475](../../adr/0475-the-watch-board-leads-with-the-brewery-issue-s-number-and-puts-a-batch-s-message-on-a-line-under-its-row.md)).
 - **`foedrum stuck`**: each Stuck batch's line starts with `waiting for you:` and what for; its count line keeps the command's word.
 
 `foedrum brew`, `replay` and `resume` still name the lane, and every `Next:` line is as it was, but for a split order's, which says each pull request comes to you to merge.

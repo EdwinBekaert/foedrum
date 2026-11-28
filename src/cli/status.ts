@@ -176,12 +176,30 @@ const doneText = (how: DoneHow): string => {
  * A batch's state (ADR 0385), and what it does, waits for, or how it ended, as `foedrum status`
  * and `foedrum stuck` say it ('' when nothing).
  */
+/**
+ * A batch's state in words: `detail` as `foedrum status` writes it, and the same split for the
+ * watch board (ADR 0475): `short`, what it does or waits for in a few words, and `message`, the
+ * rest, such as a Stuck reason and its reminder.
+ */
+export interface DescribedState {
+  state: string;
+  detail: string;
+  short: string;
+  message: string;
+}
+
+/** A detail whose few words end at its first `; `, such as a wait before its reminder. */
+const only = (state: string, detail: string): DescribedState => {
+  const [short = '', ...rest] = detail.split('; ');
+  return { state, detail, short, message: rest.join('; ') };
+};
+
 export const describeState = (
   state: State,
   batch: Batch,
   /** The time its `since` counts from, as `(4 min)` after it (ADR 0428). */
   at?: Date,
-): { state: string; detail: string } => {
+): DescribedState => {
   const rows = batch.decomposed === true ? subOrderRows(state, batch.issue) : [];
   const now = batchState(batch, rows);
   const words = stateWords[now.kind];
@@ -192,27 +210,26 @@ export const describeState = (
       // A split order runs while its sub-orders brew (ADR 0293).
       const numbers = now.kind === 'running' ? (now.subOrders ?? []) : [];
       if (lane.kind !== 'on_tap') {
-        return { state: words, detail: describeLane(batch, calledAs(state, batch), at).detail };
+        return only(words, describeLane(batch, calledAs(state, batch), at).detail);
       }
       const named = numbers.length === 0 ? '' : ` (${issueNumbers(numbers)})`;
-      return { state: words, detail: `the sub-orders brew${named}` };
+      return only(words, `the sub-orders brew${named}`);
     }
     case 'waiting': {
       const what = waitingWords(now.for, (login) => login);
       if (lane.kind === 'stuck') {
         // A plan's review needs nothing past its words; another reason says what it is.
-        if (lane.reason.kind === 'plan_review') return { state: words, detail: what };
+        if (lane.reason.kind === 'plan_review') return only(words, what);
         // Who stopped it is in its words already.
         if (lane.reason.kind === 'stopped') {
           const { stepId, via, why } = lane.reason;
           const after = `at ${stepId} via ${via}${why === undefined ? '' : `: ${why}`}`;
-          return {
-            state: words,
-            detail: `${what}: ${after}; reminder ${utcMinute(lane.remindAt)}`,
-          };
+          const message = `${after}; reminder ${utcMinute(lane.remindAt)}`;
+          return { state: words, detail: `${what}: ${message}`, short: what, message };
         }
         const reason = stuckOn(lane.reason, calledAs(state, batch), batch, at);
-        return { state: words, detail: `${what}: ${reason}; reminder ${utcMinute(lane.remindAt)}` };
+        const message = `${reason}; reminder ${utcMinute(lane.remindAt)}`;
+        return { state: words, detail: `${what}: ${message}`, short: what, message };
       }
       // The ones still open first, then how each other one ended.
       if (now.for.kind === 'merge' && lane.kind === 'on_tap') {
@@ -223,15 +240,21 @@ export const describeState = (
           closed: lane.pullRequests.filter((url) => ends[url] === 'closed'),
         });
         const open = `${what}: ${now.for.pullRequests.join(' ')}`;
-        return { state: words, detail: [open, ended].filter((part) => part !== '').join('; ') };
+        const message = [now.for.pullRequests.join(' '), ended].filter((part) => part !== '');
+        return {
+          state: words,
+          detail: [open, ended].filter((part) => part !== '').join('; '),
+          short: what,
+          message: message.join('; '),
+        };
       }
       if (now.for.kind === 'open_order') {
-        return { state: words, detail: `${what} (${issueNumbers(now.for.subOrders)})` };
+        return only(words, `${what} (${issueNumbers(now.for.subOrders)})`);
       }
-      return { state: words, detail: what };
+      return only(words, what);
     }
     case 'done':
-      return { state: words, detail: doneText(now.how) };
+      return only(words, doneText(now.how));
     default:
       return now satisfies never;
   }
@@ -298,6 +321,28 @@ export const statusRow = (
     ];
   } catch (error) {
     return [batch.id, issueOf(batch), batch.lane.kind, unreadable(batch, error, at)];
+  }
+};
+
+/**
+ * A batch on the watch board (ADR 0475): its state, what it does in a few words and what its
+ * attempts took, as cells, and the rest of what `foedrum status` says of it as a line of its own.
+ */
+export const boardRow = (
+  state: State,
+  batch: Batch,
+  at: Date,
+): { cells: [string, string, string]; message: string } => {
+  const failing = failingParts(batch, at);
+  // A batch whose rendering throws is still shown, with its mark, and the board goes on (ADR 0335).
+  try {
+    const { state: now, short, message } = describeState(state, batch, at);
+    const pause = pauseOf(state, batch);
+    const paused = pause === undefined ? [] : [`paused ${pauseLine(pause)}`];
+    const rest = [message, ...failing, ...paused].filter((part) => part !== '').join('; ');
+    return { cells: [now, short, totalParts(batch).join(' / ')], message: rest };
+  } catch (error) {
+    return { cells: [batch.lane.kind, '', ''], message: unreadable(batch, error, at) };
   }
 };
 
