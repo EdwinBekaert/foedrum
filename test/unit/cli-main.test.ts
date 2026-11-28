@@ -261,7 +261,7 @@ describe('foedrum status --watch through cliFromCheckout (ADR 0188)', () => {
     const listeners = process.listenerCount('SIGBREAK');
     // The stop comes once the first board is on the terminal, as a Ctrl+C would.
     const { stream, writes } = ttyStream(true, (text) => {
-      if (text.includes('12-1')) process.emit('SIGBREAK', 'SIGBREAK');
+      if (text.includes('#12')) process.emit('SIGBREAK', 'SIGBREAK');
     });
     const result = await cliFromCheckout(['status', '--watch'], brewery.path, {
       ...startingNothing,
@@ -271,7 +271,7 @@ describe('foedrum status --watch through cliFromCheckout (ADR 0188)', () => {
     assert.equal(writes[0], '1 live batch');
     assert.match(
       writes.join(''),
-      /^1 live batch\nqueued +to be routed by [^\n]+ {2}12-1 +#12 +age -/,
+      /^1 live batch\n#12 +queued +to be routed by [^\n]+ +-/,
     );
     assert.equal(writes.at(-1), '\n');
     assert.equal(process.listenerCount('SIGBREAK'), listeners);
