@@ -293,7 +293,14 @@ describe('foedrum status --watch: the board of the live batches (ADR 0188)', () 
     const receipt = { complete: true, turns: 7, edits: 0, toolErrors: 0, denied: [] };
     const events: Event[] = [
       ...brewing(12, 'implement'),
-      { ...finished(12, 'implement'), receipt },
+      {
+        type: 'step.finished',
+        batchId: '12-1',
+        stepId: 'implement',
+        attempt: 1,
+        outcome: { kind: 'succeeded', output: {} },
+        receipt,
+      },
       scheduled(12, 'review'),
     ];
     const { frames } = await watched({ states: [stateOf(events)] });
