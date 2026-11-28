@@ -269,7 +269,10 @@ describe('foedrum status --watch through cliFromCheckout (ADR 0188)', () => {
     });
     assert.deepEqual(result, { exitCode: 0, stdout: '', stderr: '' });
     assert.equal(writes[0], '1 live batch');
-    assert.match(writes.join(''), /^1 live batch\n- +12-1 +#12 +queued +to be routed by /);
+    assert.match(
+      writes.join(''),
+      /^1 live batch\nqueued +to be routed by [^\n]+ {2}12-1 +#12 +age -/,
+    );
     assert.equal(writes.at(-1), '\n');
     assert.equal(process.listenerCount('SIGBREAK'), listeners);
   });

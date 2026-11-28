@@ -281,7 +281,7 @@ describe('createCheckRunner: the uncovered-line check (ADR 0274)', () => {
     assert.equal(end.ending.kind === 'failed' && end.ending.retryable, false);
     assert.equal(
       reasonOf(end),
-      '3 changed lines no test runs: src/calc.ts:12 (branch not taken), src/calc.ts:13, src/calc.ts:14',
+      '3 changed lines no test runs, all in src/calc.ts: lines 12 (branch not taken), 13–14',
     );
   });
 
@@ -294,7 +294,7 @@ describe('createCheckRunner: the uncovered-line check (ADR 0274)', () => {
     const end = await run();
     assert.equal(
       reasonOf(end),
-      '3 changed lines no test runs: src/Calc/Calculator.cs:19 (branch not taken), src/Calc/Calculator.cs:20, src/Calc/Calculator.cs:21',
+      '3 changed lines no test runs, all in src/Calc/Calculator.cs: lines 19 (branch not taken), 20–21',
     );
   });
 
@@ -304,7 +304,7 @@ describe('createCheckRunner: the uncovered-line check (ADR 0274)', () => {
       coverage: { 'lcov.info': lcov(spike('ts', '3-refactor', 'lcov.info')) },
     });
     const end = await run();
-    assert.equal(reasonOf(end), '1 changed line no test runs: src/calc.ts:14');
+    assert.equal(reasonOf(end), '1 changed line no test runs, all in src/calc.ts: line 14');
   });
 
   it('fails a changed line whose branch data shows an untaken branch', async () => {
@@ -315,7 +315,10 @@ describe('createCheckRunner: the uncovered-line check (ADR 0274)', () => {
       },
     });
     const end = await run();
-    assert.equal(reasonOf(end), '1 changed line no test runs: src/clamp.ts:7 (branch not taken)');
+    assert.equal(
+      reasonOf(end),
+      '1 changed line no test runs, all in src/clamp.ts: line 7 (branch not taken)',
+    );
   });
 
   it("passes a changed line that a test runs, in the union of two modules' reports", async () => {
@@ -360,7 +363,7 @@ describe('createCheckRunner: the uncovered-line check (ADR 0274)', () => {
     const end = await run();
     assert.equal(
       reasonOf(end),
-      '3 changed lines no test runs: src/Calc/Calculator.cs:22, src/Calc/Legacy.cs:8, src/Calc/Legacy.cs:9',
+      '3 changed lines no test runs: src/Calc/Calculator.cs: line 22; src/Calc/Legacy.cs: lines 8–9',
     );
   });
 
@@ -411,15 +414,73 @@ describe('createCheckRunner: the uncovered-line check (ADR 0274)', () => {
     assert.match(text, /- ✅ `green`: done\n {2}- not measured, coverage none: legacy(\n|$)/);
   });
 
-  it('names ten uncovered lines and counts the rest', async () => {
+  it('names a run of twelve uncovered lines as one range, with no count of the rest', async () => {
     const hits = Object.fromEntries(Array.from({ length: 12 }, (_, index) => [index + 1, 0]));
     const { run } = setup({
       diff: adding('src/many.ts', 1, 12),
       coverage: { 'lcov.info': lcov(record('src/many.ts', hits)) },
     });
     const end = await run();
-    const named = Array.from({ length: 10 }, (_, index) => `src/many.ts:${index + 1}`);
-    assert.equal(reasonOf(end), `12 changed lines no test runs: ${named.join(', ')} and 2 more`);
+    assert.equal(reasonOf(end), '12 changed lines no test runs, all in src/many.ts: lines 1–12');
+  });
+
+  it('names a file once with the ranges of its uncovered lines, the lines apart by a covered one', async () => {
+    const hits = {
+      ...Object.fromEntries(Array.from({ length: 10 }, (_, index) => [index + 1, 1])),
+      // 158–159, 249–256 and the single line 300.
+      158: 0,
+      159: 0,
+      ...Object.fromEntries(Array.from({ length: 8 }, (_, index) => [249 + index, 0])),
+      300: 0,
+    };
+    const { run } = setup({
+      diff:
+        adding('src/harness.ts', 158, 2) +
+        adding('src/harness.ts', 249, 8) +
+        adding('src/harness.ts', 300, 1),
+      coverage: { 'lcov.info': lcov(record('src/harness.ts', hits)) },
+    });
+    const end = await run();
+    assert.equal(
+      reasonOf(end),
+      '11 changed lines no test runs, all in src/harness.ts: lines 158–159, 249–256, 300',
+    );
+  });
+
+  it('keeps a line apart from the range beside it when only a branch of it is not taken', async () => {
+    const { run } = setup({
+      diff: adding('src/clamp.ts', 5, 3),
+      coverage: {
+        'lcov.info': lcov(
+          record('src/clamp.ts', { 5: 0, 6: 3, 7: 0 }, 'BRDA:6,0,0,3\nBRDA:6,0,1,0'),
+        ),
+      },
+    });
+    const end = await run();
+    assert.equal(
+      reasonOf(end),
+      '3 changed lines no test runs, all in src/clamp.ts: lines 5, 6 (branch not taken), 7',
+    );
+  });
+
+  it("names each file once, in the order of the change's files, with its own lines", async () => {
+    const { run } = setup({
+      diff: adding('src/a.ts', 1, 2) + adding('src/b.ts', 4, 1) + adding('src/c.ts', 9, 3),
+      coverage: {
+        'lcov.info': lcov(
+          [
+            record('src/a.ts', { 1: 0, 2: 0 }),
+            record('src/b.ts', { 4: 0 }),
+            record('src/c.ts', { 9: 0, 10: 1, 11: 0 }),
+          ].join('\n'),
+        ),
+      },
+    });
+    const end = await run();
+    assert.equal(
+      reasonOf(end),
+      '5 changed lines no test runs: src/a.ts: lines 1–2; src/b.ts: line 4; src/c.ts: lines 9, 11',
+    );
   });
 
   it('a coverage report left from an earlier run is removed before the test runs', async () => {
@@ -529,7 +590,7 @@ describe('createCheckRunner: the uncovered-line check (ADR 0274)', () => {
       coverage: { 'lcov.info': lcov(record('src/calc.ts', { 2: 0 })) },
     });
     const end = await run();
-    assert.equal(reasonOf(end), '1 changed line no test runs: src/Calc.ts:2');
+    assert.equal(reasonOf(end), '1 changed line no test runs, all in src/Calc.ts: line 2');
   });
 
   it("judges the change from where the batch starts to the step's tip: regression test", async () => {
@@ -619,7 +680,7 @@ describe('createCheckRunner: the uncovered-line check (ADR 0274)', () => {
         },
       });
       const end = await run();
-      assert.equal(reasonOf(end), '1 changed line no test runs: src/calc.ts:2');
+      assert.equal(reasonOf(end), '1 changed line no test runs, all in src/calc.ts: line 2');
     });
 
     it("judges from where the batch started when the merge is of a failed attempt's branch, not on the line to the branch", async () => {
@@ -676,22 +737,55 @@ describe('createCheckRunner: the uncovered-line check (ADR 0274)', () => {
     assert.ok(!asked.includes('run npm test'), asked.join('|'));
   });
 
-  it("shows the files not loaded and outside every code area under the check step's line: regression test", () => {
+  it("shows the files not loaded under the check step's line: regression test", () => {
     const finished: Event = {
       type: 'step.finished',
       ...ref,
       outcome: { kind: 'succeeded', output: null },
-      coverage: {
-        notLoaded: { files: ['src/types.ts'], more: 2 },
-        outside: { files: ['fixtures/rates.json'], more: 0 },
-      },
+      coverage: { notLoaded: { files: ['src/types.ts'], more: 2 } },
     };
     const batch = fold([...events, finished]).batches.get('12-1') ?? assert.fail();
     const text = renderStatus(batch, ['implement', 'green']);
     assert.match(
       text,
-      /- ✅ `green`: done\n {2}- not loaded by any test: src\/types\.ts and 2 more\n {2}- outside every code area: fixtures\/rates\.json(\n|$)/,
+      /- ✅ `green`: done\n {2}- not loaded by any test: src\/types\.ts and 2 more(\n|$)/,
     );
+  });
+
+  it('shows the files outside every code area of a passed check as information, not as a finding', () => {
+    const finished: Event = {
+      type: 'step.finished',
+      ...ref,
+      outcome: { kind: 'succeeded', output: null },
+      coverage: { outside: { files: ['fixtures/rates.json'], more: 1 } },
+    };
+    const batch = fold([...events, finished]).batches.get('12-1') ?? assert.fail();
+    const text = renderStatus(batch, ['implement', 'green']);
+    assert.match(
+      text,
+      /- ✅ `green`: done\n {2}- for information, changed files outside every code area \(they never fail the check\): fixtures\/rates\.json and 1 more(\n|$)/,
+    );
+    assert.doesNotMatch(text, /- outside every code area:/);
+  });
+
+  it('shows the files outside every code area of a failed check under their own words, after the failure', () => {
+    const finished: Event = {
+      type: 'step.finished',
+      ...ref,
+      outcome: {
+        kind: 'failed',
+        retryable: false,
+        reason: '3 changed lines no test runs, all in src/calc.ts: lines 1–3',
+      },
+      coverage: { outside: { files: ['docs/adr/0001-a.md'], more: 0 } },
+    };
+    const batch = fold([...events, finished]).batches.get('12-1') ?? assert.fail();
+    const text = renderStatus(batch, ['implement', 'green']);
+    assert.match(
+      text,
+      /- ❌ `green`: attempt 1 failed: 3 changed lines no test runs, all in src\/calc\.ts: lines 1–3\n {2}- for information, changed files outside every code area \(they never fail the check\): docs\/adr\/0001-a\.md(\n|$)/,
+    );
+    assert.doesNotMatch(text, /- outside every code area:/);
   });
 
   it('records a listing of a long and a blank file name that step.finished admits', async () => {
@@ -764,7 +858,7 @@ describe('createCheckRunner: the uncovered-line check (ADR 0274)', () => {
     const end = await run();
     assert.equal(
       end.ending.kind === 'failed' ? end.ending.reason : JSON.stringify(end.ending),
-      '1 changed line no test runs: src/calc.ts:1',
+      '1 changed line no test runs, all in src/calc.ts: line 1',
     );
   });
 
@@ -909,7 +1003,10 @@ describe('createCheckRunner: the uncovered-line check (ADR 0274)', () => {
     });
     const end = await run();
     assert.equal(end.ending.kind, 'failed');
-    assert.match(end.ending.kind === 'failed' ? end.ending.reason : '', /src\/calc\.ts:1/);
+    assert.equal(
+      end.ending.kind === 'failed' ? end.ending.reason : '',
+      '1 changed line no test runs, all in src/calc.ts: line 1',
+    );
   });
 
   it("refuses to clear a coverage path that names git's own files or every top folder", async () => {
@@ -996,7 +1093,7 @@ describe('createCheckRunner: a skip the batch added fails the green check (ADR 0
     );
   });
 
-  it('a green check whose report holds no skip reads its coverage as before: regression test', async () => {
+  it('a green check whose report holds no skip reads its coverage and names the lines by file', async () => {
     const passing =
       '<testsuites><testcase name="clamps" file="test/calc.test.ts" line="5"/></testsuites>';
     const { run } = setup({
@@ -1008,7 +1105,7 @@ describe('createCheckRunner: a skip the batch added fails the green check (ADR 0
     const end = await run();
     assert.equal(
       reasonOf(end),
-      '3 changed lines no test runs: src/calc.ts:12 (branch not taken), src/calc.ts:13, src/calc.ts:14',
+      '3 changed lines no test runs, all in src/calc.ts: lines 12 (branch not taken), 13–14',
     );
   });
 
