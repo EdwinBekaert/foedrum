@@ -101,6 +101,21 @@ describe('readNodeCoverage, the records of a folder', () => {
     );
   });
 
+  it('ignores a located test file outside the tree, and still reads the one inside it', () => {
+    writeFileSync(
+      join(folder, 'coverage-1.json'),
+      record([urlOf('test', 'a.test.ts'), [range(0, 7, 1)]]),
+    );
+    assert.deepStrictEqual(
+      readNodeCoverage(folder, tree, [
+        '../outside.test.ts',
+        join(dir.path, 'beside', 'test', 'a.test.ts'),
+        'test/a.test.ts',
+      ]),
+      new Map([['test/a.test.ts', new Map([['test/a.test.ts', [range(0, 7, 1)]]])]]),
+    );
+  });
+
   it('leaves out a record that loaded no test file of the tree, and a file that is no record', () => {
     // A runner's process that loaded only the preload, a process outside the tree, a folder beside
     // it whose name starts with the tree's, and node's own.
