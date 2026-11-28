@@ -186,6 +186,12 @@ const movingOptions = {
   cancel: { takes: '', does: 'end the batch' },
 } as const;
 
+/** What `retry` and `recipe` do for a batch no recipe was chosen for: it has no step and no recipe yet (ADR 0032). */
+const routingDoes = {
+  retry: 'route it again, by a new deadline',
+  recipe: 'brew it with this recipe, from the first step',
+} as const;
+
 const isMovingOption = (option: StuckOption): option is keyof typeof movingOptions =>
   option in movingOptions;
 
@@ -727,7 +733,8 @@ const passedLines = (batch: Batch, stepId: string, told: Told): string[] => {
   const [latest] = latestFirst(batch, stepId);
   const readings = (latest?.phase === 'finished' ? latest.readings : undefined) ?? [];
   const names = readings
-    .filter((reading) => reading.result === 'exited' && reading.exitCode === 0)
+    // The repository's setup is not a check (ADR 0140): every brewer attempt records it.
+    .filter((reading) => reading.result === 'exited' && reading.exitCode === 0 && !reading.setup)
     .map((reading) => told(shortCheckOf(reading), stepId));
   return names.length === 0 ? [] : [`Passed: ${names.join(', ')}`];
 };
@@ -770,12 +777,15 @@ const nextLines = (
   if (lane.kind === 'stuck') {
     const { reason, options } = lane;
     // Each option by its whole command and what it does, whatever the number it is called by (ADR 0428).
-    const moving = (shown: readonly StuckOption[]): string =>
+    const moving = (
+      shown: readonly StuckOption[],
+      own: Partial<Record<StuckOption, string>> = {},
+    ): string =>
       `get it moving with ${shown
         .filter(isMovingOption)
         .map((option) => {
           const { takes, does } = movingOptions[option];
-          return `${code(`foedrum ${option} ${called}${takes}`)} (${does})`;
+          return `${code(`foedrum ${option} ${called}${takes}`)} (${own[option] ?? does})`;
         })
         .join(', ')}`;
     switch (reason.kind) {
@@ -804,6 +814,8 @@ const nextLines = (
           `Next: answer with ${answer('continue')} to brew the issue as it is now, or ${answer('stop')} to end the batch.`,
         ];
       }
+      case 'routing':
+        return [`Next: ${moving(options, routingDoes)}.`];
       default:
         return [`Next: ${moving(options)}.`];
     }

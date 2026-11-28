@@ -4249,6 +4249,22 @@ describe('renderStatus: what follows a failed check, and a Stuck batch, in plain
       assert.doesNotMatch(text, /Passed:/);
     });
 
+    it("does not list the repository's setup as a passed check", () => {
+      const setup: GravityReading = {
+        result: 'exited',
+        setup: true,
+        command: 'npm ci',
+        exitCode: 0,
+        tail: '',
+      };
+      const text = renderStatus(
+        stuckOn([checked(1, lastReason, [setup, reading('lint', 0), reading('test', 1)])]),
+        recipeSteps,
+      );
+      assert.equal(from(text, '🔔', 2)[1], 'Passed: the check "lint"');
+      assert.doesNotMatch(text, /npm ci/);
+    });
+
     it('names no passed check when none of the readings passed: regression test', () => {
       const text = renderStatus(
         stuckOn([checked(1, lastReason, [reading('test', 1)])]),
@@ -4276,6 +4292,24 @@ describe('renderStatus: what follows a failed check, and a Stuck batch, in plain
       assert.equal(
         nextLine(text),
         'Next: get it moving with `foedrum retry 7` (give the step another attempt), `foedrum skip 7` (go on after the step), `foedrum recipe 7 <recipe> "<reason>"` (brew with another recipe, from the first step), `foedrum rewind 7 <step> <owner/name>=<commit>` (take the batch back to a step), `foedrum cancel 7` (end the batch).',
+      );
+    });
+
+    it('says what retry and recipe do for a batch no recipe was chosen for', () => {
+      const text = renderStatus(
+        batch({
+          lane: {
+            kind: 'stuck',
+            reason: { kind: 'routing', deadlineAt: at },
+            options: ['retry', 'recipe', 'cancel'],
+            remindAt: at,
+          },
+        }),
+        steps,
+      );
+      assert.equal(
+        nextLine(text),
+        'Next: get it moving with `foedrum retry 7` (route it again, by a new deadline), `foedrum recipe 7 <recipe> "<reason>"` (brew it with this recipe, from the first step), `foedrum cancel 7` (end the batch).',
       );
     });
 
