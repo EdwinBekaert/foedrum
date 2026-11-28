@@ -2,8 +2,9 @@
 // the mutant (ADR 0040, ADR 0313): only a test that fails because of the mutant kills it, a test of
 // the mutant's module that passed at the baseline and fails or no longer reports, or a failure the
 // baseline did not have. A test that fails in both runs does not. A run of some test files is
-// compared with the baseline's tests of those files only, the run's own filtered the same (ADR 0431). The review's own runs judge the
-// same way (scripts/mutant-verdict/core.ts), from node's runner instead of the test map's reports.
+// compared with the baseline's tests of those files only, the run's own filtered the same (ADR
+// 0431). The review's own runs judge the same way (scripts/mutant-verdict/core.ts), from node's
+// runner instead of the test map's reports.
 
 import type { MappedReport } from './red-proof.ts';
 

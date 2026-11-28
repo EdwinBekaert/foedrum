@@ -61,8 +61,7 @@ export const readNodeCoverage = (
   try {
     names = readdirSync(folder).filter((name) => name.endsWith('.json'));
   } catch (error) {
-    const code = errorCode(error);
-    return code === 'ENOENT' ? new Map() : `cannot read the folder: ${codeOf(error)}`;
+    return errorCode(error) === 'ENOENT' ? new Map() : `cannot read the folder: ${codeOf(error)}`;
   }
   if (names.length > MAX_RECORDS) return `the folder holds more than ${MAX_RECORDS} records`;
   // The loader may name the tree by its real path (a link, a short name).
