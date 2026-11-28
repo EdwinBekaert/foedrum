@@ -33,7 +33,7 @@ import { ModelsConfig, tastedKey } from '../schemas/models.ts';
 import { durationMs } from '../schemas/primitives.ts';
 import { readJsonc } from '../schemas/read.ts';
 import type { z } from '../schemas/zod.ts';
-import { managedClonePath, repoFolder } from '../workspace/attempt-worktrees.ts';
+import { managedClonePath, repoFolder, stateWorktreePath } from '../workspace/attempt-worktrees.ts';
 import type { Diagnosis } from './doctor.ts';
 
 /** What serve reads before it touches anything. */
@@ -303,7 +303,7 @@ export const stateWorktreeOf = (
   const config = read('foedrum.jsonc', files.config, BreweryConfig, undefined, problems);
   const local = read('.foedrum/local.jsonc', files.local ?? '{}', LocalConfig, undefined, problems);
   if (config?.brewery === undefined || local === undefined) return undefined;
-  return join(workRootOf(local, home, config.brewery), 'state');
+  return stateWorktreePath(workRootOf(local, home, config.brewery));
 };
 
 /**
@@ -454,7 +454,7 @@ export const serveSetup = (inputs: ServeInputs): ServeSetupResult => {
       brewery,
       workRoot,
       store: storePath(root),
-      stateWorktree: join(workRoot, 'state'),
+      stateWorktree: stateWorktreePath(workRoot),
       repositories,
       models,
       recipes: loaded.recipes,

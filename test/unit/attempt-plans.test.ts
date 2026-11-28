@@ -3467,3 +3467,211 @@ describe("the tree a Taster's findings are checked against (ADR 0421)", () => {
     assert.equal((await other.plans.plan(start)).reviewed, undefined);
   });
 });
+
+describe("a step input after the batch's worktrees were cleaned (ADR 0465)", () => {
+  const fixing = loadRecipes({
+    recipes: [
+      {
+        path: 'recipes/pale.jsonc',
+        text: recipeText(
+          'pale',
+          [
+            { id: 'map', brewer: 'maltster' },
+            { id: 'gauge', brewer: 'gauger' },
+            { id: 'implement', brewer: 'cellarman' },
+          ],
+          { testFirst: false },
+        ),
+      },
+    ],
+    brewers: [
+      {
+        path: 'brewers/maltster.md',
+        text: brewerText('maltster', { output: { doc: 'map.md', schema: 'outDoc' } }),
+      },
+      {
+        path: 'brewers/gauger.md',
+        text: brewerText('gauger', { output: { doc: 'gauge.md', schema: 'outDoc' } }),
+      },
+      {
+        path: 'brewers/cellarman.md',
+        text: brewerText('cellarman', {
+          inputs: [
+            { name: 'tests', from: 'step:gauge' },
+            { name: 'map', from: 'step:map' },
+          ],
+        }),
+      },
+    ],
+  });
+  assert.ok(fixing.valid, fixing.valid ? '' : fixing.problems.join('\n'));
+  const deadlineAt = '2026-10-17T13:00:00.000Z';
+  const pullRequest = 'https://github.com/acme/api/pull/12';
+  const stateRoot = join(workRoot, 'state');
+  const at = (stepId: string, attempt: number) => ({ batchId: '12-1', stepId, attempt });
+  const treeOf = (stepId: string, attempt: number) => join('/work', `${stepId}-${attempt}`);
+  /** Where the state branch keeps the out doc of `stepId`'s attempt, as a person reads it. */
+  const keptAs = (stepId: string, attempt: number) =>
+    join(stateRoot, 'batches', '12-1', `${stepId}-${attempt}.md`);
+  const brewed = (stepId: string, attempt: number): Event[] => [
+    { type: 'step.scheduled', ...at(stepId, attempt), deadlineAt },
+    {
+      type: 'step.started',
+      ...at(stepId, attempt),
+      session: { id: sessionId, worktree: treeOf(stepId, attempt) },
+      worktree: {
+        repo: 'acme/api',
+        path: treeOf(stepId, attempt),
+        branch: `foedrum/12-1/${stepId}/${attempt}`,
+        commit: 'c'.repeat(40),
+      },
+    },
+    {
+      type: 'step.finished',
+      ...at(stepId, attempt),
+      outcome: { kind: 'succeeded', output: null },
+    },
+  ];
+  /** The batch on tap, its pull request in conflict with main: implement runs again, in a new worktree. */
+  const sentBack: Event[] = [
+    ...ordered.slice(0, 2),
+    ...brewed('map', 1),
+    ...brewed('gauge', 1),
+    ...brewed('implement', 1),
+    { type: 'batch.on_tap', batchId: '12-1', pullRequests: [pullRequest] },
+    {
+      type: 'step.scheduled',
+      ...at('implement', 2),
+      deadlineAt,
+      route: {
+        from: 'open',
+        why: 'pull_request',
+        pullRequest,
+        head: 'd'.repeat(40),
+        cause: 'conflict',
+        tip: 'e'.repeat(40),
+      },
+    },
+    {
+      type: 'step.started',
+      ...at('implement', 2),
+      session: { id: sessionId, worktree: treeOf('implement', 2) },
+      worktree: {
+        repo: 'acme/api',
+        path: treeOf('implement', 2),
+        branch: 'foedrum/12-1/implement/2',
+        commit: 'c'.repeat(40),
+      },
+    },
+  ];
+  const implement = {
+    ref: at('implement', 2),
+    limits: { outDoc: { file: 'implement.md', schema: OutDocFrontmatter } },
+  };
+  const gone: OutDocRead = { kind: 'missing' };
+  /** The out docs as the state branch keeps them, the worktrees of the earlier attempts gone. */
+  const cleaned: Record<string, OutDocRead> = {
+    [join(treeOf('map', 1), 'map.md')]: gone,
+    [join(treeOf('gauge', 1), 'gauge.md')]: gone,
+    [keptAs('gauge', 1)]: { kind: 'text', text: '# Tests the Gauger wrote' },
+    [keptAs('map', 1)]: { kind: 'text', text: '# Map the Maltster drew' },
+  };
+
+  it("reads the Gauger's and the map's out docs of a batch on tap, sent back by a conflict, from the state branch", async () => {
+    const { plans } = setup(sentBack, cleaned, undefined, fixing.brewers);
+    const { prompt } = await plans.plan(implement);
+    assert.match(prompt, /name="tests">\n# Tests the Gauger wrote\n/);
+    assert.match(prompt, /name="map">\n# Map the Maltster drew\n/);
+    assert.match(prompt, /name="route">\nPull request \S+ conflicted with /);
+  });
+
+  it("reads each out doc in its worktree first, then in the state branch's worktree, inside which only it is read", async () => {
+    const { plans, reads } = setup(sentBack, cleaned, undefined, fixing.brewers);
+    await plans.plan(implement);
+    const read = (file: string, root: string) => ({ file, root });
+    assert.deepEqual(
+      reads.filter(({ root }) => root !== stateRoot),
+      [
+        read(join(treeOf('gauge', 1), 'gauge.md'), treeOf('gauge', 1)),
+        read(join(treeOf('map', 1), 'map.md'), treeOf('map', 1)),
+      ],
+    );
+    assert.deepEqual(
+      reads.filter(({ root }) => root === stateRoot),
+      [read(keptAs('gauge', 1), stateRoot), read(keptAs('map', 1), stateRoot)],
+    );
+  });
+
+  it("reads the state branch's copy of the latest succeeded attempt of the step, not of an earlier one", async () => {
+    const again = [...sentBack.slice(0, -2), ...brewed('gauge', 2), ...sentBack.slice(-2)];
+    const files = {
+      ...cleaned,
+      [join(treeOf('gauge', 2), 'gauge.md')]: gone,
+      [keptAs('gauge', 2)]: { kind: 'text', text: '# Tests of the second round' } as OutDocRead,
+    };
+    const { plans, reads } = setup(again, files, undefined, fixing.brewers);
+    const { prompt } = await plans.plan(implement);
+    assert.match(prompt, /name="tests">\n# Tests of the second round\n/);
+    assert.deepEqual(
+      reads.filter(({ root }) => root === stateRoot).map(({ file }) => file),
+      [keptAs('gauge', 2), keptAs('map', 1)],
+    );
+  });
+
+  it("hands a later brewer the state branch's copy without its handover, as it does the worktree's (ADR 0340)", async () => {
+    const files: Record<string, OutDocRead> = {
+      ...cleaned,
+      [keptAs('gauge', 1)]: {
+        kind: 'text',
+        text: '---\n{"status":"done","summary":"Tests written","handover":["the secret hint"]}\n---\n# Tests the Gauger wrote\n',
+      },
+    };
+    const { plans } = setup(sentBack, files, undefined, fixing.brewers);
+    const { prompt } = await plans.plan(implement);
+    assert.match(
+      prompt,
+      /name="tests">\n---\n\{"status":"done","summary":"Tests written"\}\n---\n# Tests/,
+    );
+    assert.doesNotMatch(prompt, /the secret hint/);
+  });
+
+  it("fails the attempt's plan, naming the input, when neither the worktree nor the state branch has the out doc: regression test", async () => {
+    const files: Record<string, OutDocRead> = { ...cleaned, [keptAs('gauge', 1)]: gone };
+    const { plans } = setup(sentBack, files, undefined, fixing.brewers);
+    await assert.rejects(
+      plans.plan(implement),
+      /^Error: the input "tests" was not read: it is missing$/,
+    );
+  });
+
+  it("reads the out doc in its worktree while that exists, and never the state branch's copy: regression test", async () => {
+    const files: Record<string, OutDocRead> = {
+      [join(treeOf('gauge', 1), 'gauge.md')]: { kind: 'text', text: '# Tests in the worktree' },
+      [join(treeOf('map', 1), 'map.md')]: { kind: 'text', text: '# Map in the worktree' },
+    };
+    const { plans, reads } = setup(sentBack, files, undefined, fixing.brewers);
+    const { prompt } = await plans.plan(implement);
+    assert.match(prompt, /name="tests">\n# Tests in the worktree\n/);
+    assert.match(prompt, /name="map">\n# Map in the worktree\n/);
+    assert.deepEqual(
+      reads.filter(({ root }) => root === stateRoot),
+      [],
+    );
+  });
+
+  it('does not look in the state branch for an out doc the worktree has but cannot be read: regression test', async () => {
+    const files: Record<string, OutDocRead> = {
+      ...cleaned,
+      [join(treeOf('gauge', 1), 'gauge.md')]: { kind: 'unread', reason: 'it is not a file' },
+    };
+    const { plans, reads } = setup(sentBack, files, undefined, fixing.brewers);
+    await assert.rejects(
+      plans.plan(implement),
+      /^Error: the input "tests" was not read: it is not a file$/,
+    );
+    assert.deepEqual(
+      reads.filter(({ root }) => root === stateRoot),
+      [],
+    );
+  });
+});
