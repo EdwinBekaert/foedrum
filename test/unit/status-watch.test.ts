@@ -281,6 +281,91 @@ describe('foedrum status --watch: the board of the live batches (ADR 0188)', () 
     assert.match(frames[0]?.[1] ?? '', / 17h 22m$/);
   });
 
+  it('writes an age in minutes up to the hour and in hours from it', async () => {
+    const before = (await watched({ states: [stateOf([ordered(12, iso(T0 - 3_599_000))])] }))
+      .frames;
+    const at = (await watched({ states: [stateOf([ordered(12, iso(T0 - 3_600_000))])] })).frames;
+    assert.match(before[0]?.[1] ?? '', / 59m 59s$/);
+    assert.match(at[0]?.[1] ?? '', / 1h 0m$/);
+  });
+
+  it('puts what its attempts took between what it does and its age', async () => {
+    const receipt = { complete: true, turns: 7, edits: 0, toolErrors: 0, denied: [] };
+    const events: Event[] = [
+      ...brewing(12, 'implement'),
+      { ...finished(12, 'implement'), receipt },
+      scheduled(12, 'review'),
+    ];
+    const { frames } = await watched({ states: [stateOf(events)] });
+    assert.deepEqual(
+      frames[0]?.[1],
+      columns([rowOf('#12', 'running', 'review #1 scheduled', '1 attempt / 7 turns')], '')[0],
+    );
+  });
+
+  it("names a batch with no Brewery issue by its order's name", async () => {
+    const events: Event[] = [
+      {
+        type: 'batch.ordered',
+        batchId: '7-1',
+        order: { issue: 7, repo: 'acme/app' },
+        routeBy: ROUTE_BY,
+      },
+    ];
+    const { frames } = await watched({ states: [stateOf(events)] });
+    assert.equal(frames[0]?.[1], columns([rowOf('acme/app#7', 'queued', ROUTED)], '')[0]);
+  });
+
+  it("puts a batch's pause on the line under its row", async () => {
+    const pause: Event = {
+      type: 'order.paused',
+      order: { issue: 12 },
+      by: 'ann',
+      via: 'terminal',
+      why: 'lunch',
+    };
+    const { frames } = await watched({ states: [stateOf([ordered(12), pause])] });
+    assert.deepEqual(frames[0]?.slice(1), [
+      columns([rowOf('#12', 'queued', ROUTED)], '')[0],
+      '  paused by ann: lunch',
+    ]);
+  });
+
+  it("puts a batch's mark after its Stuck reason on the line under its row", async () => {
+    const mark: Event = {
+      type: 'batch.failing',
+      batchId: '14-1',
+      pass: 'effects',
+      summary: 'gh timed out',
+      since: iso(T0 - 3_600_000),
+    };
+    const events = [ordered(14), blocked(14, 'denied Bash(curl)'), mark];
+    const { frames } = await watched({ states: [stateOf(events)] });
+    assert.equal(
+      frames[0]?.[1],
+      columns([rowOf('#14', 'waiting for you', 'look at a failure')], '')[0],
+    );
+    assert.match(
+      frames[0]?.[2] ?? '',
+      /^ {2}blocked at review \(findings\): denied Bash\(curl\); reminder 2026-10-27 09:00 UTC; failing in effects since 2026-10-25 09:00 UTC[^:]*: gh timed out$/,
+    );
+  });
+
+  it('keeps who stopped a batch in its row and where and why on the line under it', async () => {
+    const stop: Event = {
+      type: 'batch.stuck',
+      batchId: '12-1',
+      reason: { kind: 'stopped', stepId: 'implement', by: 'ann', via: 'terminal', why: 'lunch' },
+      options: ['retry', 'cancel'],
+      remindAt: REMIND,
+    };
+    const { frames } = await watched({ states: [stateOf([...brewing(12, 'implement'), stop])] });
+    const [, row = '', line] = frames[0] ?? [];
+    assert.match(row, /^#12 {2}waiting for you {2}\S/);
+    assert.ok(!row.includes('lunch'), row);
+    assert.equal(line, '  at implement via terminal: lunch; reminder 2026-10-27 09:00 UTC');
+  });
+
   it('adds how long ago a batch stalled to the time it did, as the terminal does', async () => {
     const events = [ordered(12), stalled(12, iso(T0 - 4 * 60_000 - 9_000))];
     const { frames } = await watched({ states: [stateOf(events)] });
