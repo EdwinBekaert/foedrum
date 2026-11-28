@@ -7,10 +7,14 @@ import type { Batch } from '../engine/fold.ts';
 import type { AttemptProgress } from '../engine/supervisor.ts';
 import type { LiveTerminal, ServeShell } from './serve.ts';
 
-/** `ms` as whole seconds, and minutes from one: `30s`, `1m 0s`. */
+/** `ms` as whole seconds, minutes from one and hours from one: `30s`, `1m 0s`, `17h 22m`. */
 export const elapsed = (ms: number): string => {
   const seconds = Math.floor(ms / 1000);
-  return seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  return minutes < 60
+    ? `${minutes}m ${seconds % 60}s`
+    : `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
 };
 
 /** An attempt of a batch that runs now: named `<step> #<n>`, and the ref the driver reports it by. */
