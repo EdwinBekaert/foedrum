@@ -368,8 +368,10 @@ describe('foedrum status --watch: the board of the live batches (ADR 0188)', () 
     };
     const { frames } = await watched({ states: [stateOf([...brewing(12, 'implement'), stop])] });
     const [, row = '', line] = frames[0] ?? [];
-    assert.match(row, /^#12 {2}waiting for you {2}\S/);
-    assert.ok(!row.includes('lunch'), row);
+    assert.equal(
+      row,
+      columns([rowOf('#12', 'waiting for you', 'stopped by ann (retry or cancel)')], '')[0],
+    );
     assert.equal(line, '  at implement via terminal: lunch; reminder 2026-10-27 09:00 UTC');
   });
 
