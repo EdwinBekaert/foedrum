@@ -3,7 +3,7 @@
 // file. A test file with no coverage record counts as running every line.
 
 import { posix } from 'node:path';
-import { listable, quoted } from '../../src/checks/gravity.ts';
+import { listable, quoted, unlistable } from '../../src/checks/gravity.ts';
 import { type Range, runsLine } from '../../src/checks/mutant-reach.ts';
 
 // The rule for a line that ran and the names a covered line can carry are the engine's (ADR 0431),
@@ -75,10 +75,7 @@ export const coveringTests = ({ tests, records, sources, locations }: CoverageIn
   // The covered line lists the test files with a space between them, so a name holding a space
   // or a line break could split one or forge a line.
   const odd = tests.find((test) => !listable(test));
-  if (odd !== undefined) {
-    const reason = `the test file name ${quoted(odd)} cannot be listed on one line`;
-    return { kind: 'fallback', reason };
-  }
+  if (odd !== undefined) return { kind: 'fallback', reason: unlistable(odd) };
   if (!tests.some((test) => records.has(test))) {
     return { kind: 'fallback', reason: 'no coverage record names a test file of the run' };
   }
